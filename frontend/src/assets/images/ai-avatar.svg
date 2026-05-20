@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="aiBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#11998e"/>
+      <stop offset="100%" stop-color="#38ef7d"/>
+    </linearGradient>
+    <radialGradient id="aiGlow" cx="50%" cy="30%" r="60%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="eyeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0d9488"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+  </defs>
+  <circle cx="60" cy="60" r="60" fill="url(#aiBg)"/>
+  <circle cx="60" cy="60" r="60" fill="url(#aiGlow)"/>
+  <circle cx="60" cy="50" r="24" fill="#ffffff" opacity="0.96"/>
+  <ellipse cx="60" cy="85" rx="30" ry="22" fill="#ffffff" opacity="0.96"/>
+  <circle cx="48" cy="46" r="7" fill="url(#eyeGrad)"/>
+  <circle cx="72" cy="46" r="7" fill="url(#eyeGrad)"/>
+  <circle cx="49" cy="45" r="3" fill="#38ef7d"/>
+  <circle cx="73" cy="45" r="3" fill="#38ef7d"/>
+  <circle cx="50" cy="44" r="1.5" fill="#ffffff"/>
+  <circle cx="74" cy="44" r="1.5" fill="#ffffff"/>
+  <rect x="44" y="62" width="32" height="6" rx="3" fill="#0f172a"/>
+  <rect x="28" y="22" width="10" height="22" rx="5" fill="#ffffff" opacity="0.9"/>
+  <rect x="82" y="22" width="10" height="22" rx="5" fill="#ffffff" opacity="0.9"/>
+  <rect x="52" y="12" width="16" height="14" rx="4" fill="#ffffff" opacity="0.9"/>
+  <circle cx="60" cy="19" r="3" fill="#11998e"/>
+</svg>

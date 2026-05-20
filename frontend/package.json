@@ -1,0 +1,33 @@
+{
+  "name": "frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@traptitech/markdown-it-katex": "^3.6.0",
+    "@vicons/ionicons5": "^0.13.0",
+    "highlight.js": "^11.11.1",
+    "markdown-it": "^14.1.1",
+    "markdown-it-highlightjs": "^4.3.0",
+    "mermaid": "^11.14.0",
+    "naive-ui": "^2.44.1",
+    "pinia": "^3.0.4",
+    "vue": "^3.2.37",
+    "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@babel/types": "^7.18.10",
+    "@types/markdown-it": "^14.1.2",
+    "@vitejs/plugin-vue": "^6.0.6",
+    "typescript": "~5.6",
+    "vite": "^8.0.11",
+    "vitest": "^4.1.6",
+    "vue-tsc": "~2.1"
+  }
+}

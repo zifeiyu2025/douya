@@ -1,0 +1,41 @@
+# Build outputs
+build/bin/
+release/
+*.exe
+*.dll
+
+# Dependencies
+node_modules/
+
+# Frontend dist
+frontend/dist/
+
+# Runtime data
+data/
+engines/
+engines_backup/
+runtime/
+models/
+config.json
+router-preset.ini
+
+# IDE
+.trae/
+.idea/
+.vscode/
+*.swp
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Test
+*.test
+*.out
+
+# Misc
+*.md5
+focus_*.ps1
+
+# Wails
+wails.json
