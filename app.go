@@ -18,6 +18,7 @@ import (
 	"douya/internal/chat"
 	"douya/internal/config"
 	"douya/internal/llm"
+	"douya/internal/rag"
 	"douya/internal/search"
 	"douya/internal/store"
 	"douya/internal/system"
@@ -57,6 +58,7 @@ type App struct {
 	isSwitching      atomic.Bool
 	switchingTo      string
 	switchingToMu    sync.RWMutex
+	ragVS            *rag.VectorStore
 }
 
 func NewApp() *App {
@@ -351,6 +353,18 @@ func (a *App) startup(ctx context.Context) {
 	a.service = chat.NewService(a.client, searchChain, a.db, a.config)
 	a.service.SetContext(ctx)
 
+	// Initialize RAG (Badger-backed vector store + LLM embedder)
+	ragDir := filepath.Join(appDir(), "data", "rag")
+	ragVS, err := rag.NewVectorStore(ragDir, rag.DefaultHNSWConfig())
+	if err != nil {
+		log.Printf("[startup] RAG vector store init failed (RAG disabled): %v", err)
+	} else {
+		a.ragVS = ragVS
+		embedder := &rag.ClientEmbedder{Client: a.client}
+		a.service.SetRAG(ragVS, embedder, "default")
+		log.Printf("[startup] RAG initialized: dir=%s", ragDir)
+	}
+
 	a.serverMu.Lock()
 	a.server = llm.NewServer(a.buildServerConfig())
 	a.serverMu.Unlock()
@@ -401,6 +415,12 @@ func (a *App) shutdown(ctx context.Context) {
 			}
 			srv.CloseJob()
 			log.Println("shutting down: llama-server stopped, VRAM released")
+		}
+
+		if a.ragVS != nil {
+			if err := a.ragVS.Close(); err != nil {
+				log.Printf("shutting down: close RAG vector store: %v", err)
+			}
 		}
 
 		if a.db != nil {

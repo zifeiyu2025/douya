@@ -2,6 +2,7 @@ package rag
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -164,8 +165,7 @@ func IngestDocument(ctx context.Context, vs *VectorStore, embedder Embedder, col
 	// 4. Create collection (idempotent: ok if exists)
 	err = vs.CreateCollection(collectionName, dim)
 	if err != nil {
-		// Collection may already exist, that's ok
-		if err != ErrCollectionExists {
+		if !errors.Is(err, ErrCollectionExists) {
 			return nil, fmt.Errorf("create collection failed: %w", err)
 		}
 	}
