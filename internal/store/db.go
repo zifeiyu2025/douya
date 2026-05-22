@@ -6,8 +6,9 @@ package store
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"os"
+
+	"github.com/rs/zerolog/log"
 	"path/filepath"
 	"strings"
 
@@ -25,8 +26,8 @@ func Init(dbPath string) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(2)
 	if err := Migrate(db); err != nil {
 		db.Close()
 		return nil, err
@@ -55,6 +56,7 @@ func Migrate(db *sql.DB) error {
 			FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 		);
 		CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
+		CREATE INDEX IF NOT EXISTS idx_messages_conversation_created ON messages(conversation_id, created_at);
 	`)
 	if err != nil {
 		return err
@@ -86,7 +88,7 @@ func Migrate(db *sql.DB) error {
 			END;
 		`)
 		if err != nil {
-			log.Printf("[db] FTS5 setup failed: %v, cleaning up FTS5 artifacts", err)
+			log.Error().Err(err).Msg("[db] FTS5 setup failed, cleaning up FTS5 artifacts")
 			fts5Available = false
 			dropFTS5Artifacts(db)
 		}
@@ -177,15 +179,15 @@ func FTS5Available() bool {
 func logStartupSchema(db *sql.DB) {
 	cols, err := GetTableColumns(db, "messages")
 	if err != nil {
-		log.Printf("[db] failed to get messages schema: %v", err)
+		log.Error().Err(err).Msg("[db] failed to get messages schema")
 		return
 	}
 	var names []string
 	for k := range cols {
 		names = append(names, k)
 	}
-	log.Printf("[db] messages table columns: %s", strings.Join(names, ", "))
-	log.Printf("[db] FTS5 available: %v", fts5Available)
+	log.Info().Str("columns", strings.Join(names, ", ")).Msg("[db] messages table columns")
+	log.Info().Bool("fts5_available", fts5Available).Msg("[db] FTS5 available")
 }
 
 func dropFTS5Artifacts(db *sql.DB) {
@@ -194,7 +196,7 @@ func dropFTS5Artifacts(db *sql.DB) {
 	_, _ = db.Exec("DROP TRIGGER IF EXISTS messages_au")
 	_, err := db.Exec("DROP TABLE IF EXISTS messages_fts")
 	if err != nil {
-		log.Printf("[db] could not drop messages_fts table (FTS5 module unavailable): %v", err)
+		log.Error().Err(err).Msg("[db] could not drop messages_fts table (FTS5 module unavailable)")
 	}
-	log.Printf("[db] cleaned up FTS5 triggers and virtual table")
+	log.Info().Msg("[db] cleaned up FTS5 triggers and virtual table")
 }

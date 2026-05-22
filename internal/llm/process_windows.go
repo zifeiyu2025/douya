@@ -5,10 +5,10 @@ package llm
 
 import (
 	"fmt"
-	"log"
 	"os/exec"
 	"syscall"
 	"unsafe"
+	"github.com/rs/zerolog/log"
 )
 
 var (
@@ -129,7 +129,7 @@ func KillOrphanLlamaServers() {
 			cmd := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", entry.ProcessID), "/F", "/T")
 			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 			if err := cmd.Run(); err == nil {
-				log.Printf("killed orphan llama-server process: PID=%d", entry.ProcessID)
+				log.Info().Int("pid", int(entry.ProcessID)).Msg("killed orphan llama-server process")
 				killed++
 			}
 		}
@@ -139,6 +139,6 @@ func KillOrphanLlamaServers() {
 	}
 
 	if killed > 0 {
-		log.Printf("cleaned up %d orphan llama-server process(es)", killed)
+		log.Info().Int("count", killed).Msg("cleaned up orphan llama-server process(es)")
 	}
 }

@@ -343,10 +343,18 @@ func DeriveModelName(filename string) string {
 
 	name = quantSuffixRe.ReplaceAllString(name, "")
 
-	name = strings.ReplaceAll(name, "-U-", "-")
-	name = strings.ReplaceAll(name, "-U_", "-")
-	name = strings.ReplaceAll(name, "_U_", "-")
+	// Normalize "uncensored" markers: -U-, -U_, _U-, _U_
+	uncensoredRe := regexp.MustCompile(`(?i)[-_]U[-_]`)
+	name = uncensoredRe.ReplaceAllString(name, "-")
+
+	// Replace underscores with hyphens for display (common convention)
 	name = strings.ReplaceAll(name, "_", "-")
+
+	// Collapse multiple consecutive hyphens
+	for strings.Contains(name, "--") {
+		name = strings.ReplaceAll(name, "--", "-")
+	}
+	name = strings.Trim(name, "-")
 
 	return name
 }

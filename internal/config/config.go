@@ -6,7 +6,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"github.com/rs/zerolog/log"
 	"os"
 )
 
@@ -76,28 +76,28 @@ func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			log.Printf("[config] config file not found at %s, using defaults", path)
+			log.Info().Str("path", path).Msg("[config] config file not found, using defaults")
 		} else {
-			log.Printf("[config] failed to read config: %v", err)
+			log.Error().Err(err).Msg("[config] failed to read config")
 		}
 	} else {
 		if err := json.Unmarshal(data, cfg); err != nil {
 			return nil, err
 		}
-		log.Printf("[config] loaded config from %s", path)
+		log.Info().Str("path", path).Msg("[config] loaded config")
 	}
 
 	if apiKey := os.Getenv("OLLAMA_API_KEY"); apiKey != "" {
 		cfg.SearchEngines.OllamaAPIKey = apiKey
-		log.Printf("[config] using OLLAMA_API_KEY from environment")
+		log.Info().Msg("[config] using OLLAMA_API_KEY from environment")
 	}
 	if apiKey := os.Getenv("TAVILY_API_KEY"); apiKey != "" {
 		cfg.SearchEngines.TavilyAPIKey = apiKey
-		log.Printf("[config] using TAVILY_API_KEY from environment")
+		log.Info().Msg("[config] using TAVILY_API_KEY from environment")
 	}
 	if apiKey := os.Getenv("GITHUB_API_KEY"); apiKey != "" {
 		cfg.SearchEngines.GitHubAPIKey = apiKey
-		log.Printf("[config] using GITHUB_API_KEY from environment")
+		log.Info().Msg("[config] using GITHUB_API_KEY from environment")
 	}
 
 	return cfg, nil

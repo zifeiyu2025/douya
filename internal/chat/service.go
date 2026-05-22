@@ -8,7 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
+	"github.com/rs/zerolog/log"
 	"strings"
 	"sync"
 	"time"
@@ -50,6 +50,9 @@ type Service struct {
 	mutex             sync.Mutex
 	modelCaps         llm.ModelCapabilities
 	detectedModelName string
+	sysPromptCache    string
+	sysPromptDate     string
+	sysPromptConfig   string
 }
 
 func NewService(llmClient *llm.Client, searchChain *search.SearchChain, db *sql.DB, cfg *config.Config) *Service {
@@ -111,8 +114,11 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 
 	props, propsErr := s.llmClient.GetServerProps(ctx, modelName)
 	if propsErr == nil {
-		log.Printf("[model] /props: modalities.vision=%v modalities.audio=%v chat_template_caps=%v",
-			props.Modalities.Vision, props.Modalities.Audio, props.ChatTemplateCaps)
+		log.Info().
+			Bool("vision", props.Modalities.Vision).
+			Bool("audio", props.Modalities.Audio).
+			Interface("chat_template_caps", props.ChatTemplateCaps).
+			Msg("[model] /props")
 
 		if props.Modalities.Vision {
 			caps.ImageInput = true
@@ -127,7 +133,7 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 			}
 		}
 	} else {
-		log.Printf("[model] /props failed, using /v1/models capabilities as fallback: %v", propsErr)
+		log.Warn().Err(propsErr).Msg("[model] /props failed, using /v1/models capabilities as fallback")
 	}
 
 	s.modelCaps = llm.ModelCapabilities{
@@ -142,8 +148,15 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 	if s.detectedModelName == "" {
 		s.detectedModelName = info.Name
 	}
-	log.Printf("[model] detected capabilities: name=%s model=%s server_caps=%v image=%v audio=%v text=%v reasoning=%v",
-		info.Name, modelName, info.Capabilities, caps.ImageInput, caps.AudioInput, caps.TextInput, supportsReasoning)
+	log.Info().
+		Str("name", info.Name).
+		Str("model", modelName).
+		Interface("server_caps", info.Capabilities).
+		Bool("image", caps.ImageInput).
+		Bool("audio", caps.AudioInput).
+		Bool("text", caps.TextInput).
+		Bool("reasoning", supportsReasoning).
+		Msg("[model] detected capabilities")
 
 	return nil
 }
@@ -154,6 +167,13 @@ func (s *Service) GetDetectedModelName() string {
 
 func (s *Service) SetDetectedModelName(name string) {
 	s.detectedModelName = name
+	s.InvalidatePromptCache()
+}
+
+func (s *Service) InvalidatePromptCache() {
+	s.sysPromptCache = ""
+	s.sysPromptDate = ""
+	s.sysPromptConfig = ""
 }
 
 func (s *Service) GetModelArchitecture() string {
@@ -434,10 +454,10 @@ func TruncateSearchContext(searchContext string, ctxSize int) string { // Export
 }
 func StoreMsgToChat(m *store.Message) *Message { return storeMsgToChat(m) } // Exported for testing
 func IsCodeRelated(query string) bool          { return isCodeRelated(query) } // Exported for testing
-func BuildLLMMessages(s *Service, dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment) []llm.ChatMessage {
+func BuildLLMMessages(s *Service, dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment) ([]llm.ChatMessage, error) {
 	return s.buildLLMMessages(dbMsgs, currentUserContent, currentAttachments, false)
 }
-func BuildLLMMessagesWithSearch(s *Service, dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment, searchEnabled bool) []llm.ChatMessage {
+func BuildLLMMessagesWithSearch(s *Service, dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment, searchEnabled bool) ([]llm.ChatMessage, error) {
 	return s.buildLLMMessages(dbMsgs, currentUserContent, currentAttachments, searchEnabled)
 }
 
@@ -548,7 +568,7 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 				ThinkingContent:  acc.FirstRoundThinking,
 				ThinkingDuration: clampDuration(acc.FirstRoundThinkingDuration),
 			}); err != nil {
-				log.Printf("save assistant tool call message: %v", err)
+				log.Error().Err(err).Msg("save assistant tool call message")
 			}
 
 			llmMessages = append(llmMessages, llm.ChatMessage{
@@ -567,7 +587,7 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 				Content:        tr.toolContent,
 				ToolCallID:     tr.tc.ID,
 			}); err != nil {
-				log.Printf("save tool result message: %v", err)
+				log.Error().Err(err).Msg("save tool result message")
 			}
 
 			llmMessages = append(llmMessages, llm.ChatMessage{
@@ -626,7 +646,7 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 		aiMsg.Content += "\n\n[工具调用已达最大轮次限制，部分搜索结果可能未完全处理]"
 	}
 	if err := store.CreateMessage(s.db, aiMsg); err != nil {
-		log.Printf("save ai message: %v", err)
+		log.Error().Err(err).Msg("save ai message")
 	}
 	s.emitForConv(convID, "assistant_message", storeMsgToChat(aiMsg))
 	return nil
@@ -721,7 +741,11 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 		return fmt.Errorf("load messages: %w", err)
 	}
 
-	llmMessages := s.buildLLMMessages(dbMsgs, userContent, params.Attachments, params.SearchEnabled)
+	llmMessages, err := s.buildLLMMessages(dbMsgs, userContent, params.Attachments, params.SearchEnabled)
+	if err != nil {
+		s.emitForConv(convID, "error", err.Error())
+		return err
+	}
 
 	return s.streamWithSearch(cancelCtx, convID, llmMessages, params.SearchEnabled, params.Content, params.Content)
 }
@@ -761,7 +785,7 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 			s.emitForConv(convID, "search_result", []search.SearchResult{})
 		}
 		if searchResp != nil && searchResp.Error != "" && len(searchResp.Results) == 0 {
-			log.Printf("[search] 搜索未返回结果: %s", searchResp.Error)
+			log.Info().Str("error", searchResp.Error).Msg("[search] 搜索未返回结果")
 		}
 	}
 
@@ -813,7 +837,7 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 			aiMsg.SearchResults = acc.LastSearchJSON
 		}
 		if err := store.CreateMessage(s.db, aiMsg); err != nil {
-			log.Printf("save ai message: %v", err)
+			log.Error().Err(err).Msg("save ai message")
 		}
 		s.emitForConv(convID, "assistant_message", storeMsgToChat(aiMsg))
 	}
@@ -853,7 +877,9 @@ func buildMessageFromAttachments(role, content string, attachments []Attachment)
 		case "audio":
 			audios = append(audios, llm.InputAudio{Data: att.Data, Format: att.Format})
 		case "pdf":
-			textParts = append(textParts, fmt.Sprintf("--- 附件: %s (%s) ---\n[PDF文件内容无法直接解析，请根据文件名推断]\n--- 附件结束 ---", att.Name, att.MimeType))
+			// Phase2: Use existing extractPDFText (defined in pdf.go)
+			pdfText := extractPDFText([]byte(att.Data))
+			textParts = append(textParts, fmt.Sprintf("--- 附件: %s (%s) ---\n%s\n--- 附件结束 ---", att.Name, att.MimeType, pdfText))
 		case "text":
 			textParts = append(textParts, fmt.Sprintf("--- 附件: %s (%s) ---\n%s\n--- 附件结束 ---", att.Name, att.MimeType, att.Data))
 		}
@@ -887,16 +913,33 @@ func buildMessageFromAttachments(role, content string, attachments []Attachment)
 	return llm.NewTextMessage(role, fullContent)
 }
 
-func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment, searchEnabled bool) []llm.ChatMessage {
+
+
+func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment, searchEnabled bool) ([]llm.ChatMessage, error) {
 	maxContext := s.config.ContextSize
 	if maxContext <= 0 {
 		maxContext = 4096
 	}
 
+	// Phase 1: Check model capabilities against current attachments (Ollama-style strict check)
+	for _, att := range currentAttachments {
+		if att.Type == "image" && !s.modelCaps.ImageInput {
+			return nil, fmt.Errorf("当前模型不支持图片输入，请加载支持视觉的模型（如 llava 系列）")
+		}
+		if att.Type == "audio" && !s.modelCaps.AudioInput {
+			return nil, fmt.Errorf("当前模型不支持音频输入，请加载支持音频的模型（如 whisper 系列）")
+		}
+	}
+
 	now := time.Now()
-	systemContent := s.config.SystemPrompt
-	if systemContent == "" {
-		systemContent = `你叫豆芽，是一个运行在本地的智能AI助手，基于开源大语言模型和llama.cpp推理引擎，为用户提供私密、高效、可靠的服务。
+	today := now.Format("2006-01-02")
+	configPrompt := s.config.SystemPrompt
+
+	// Rebuild cache if date changed or config changed
+	if s.sysPromptCache == "" || s.sysPromptDate != today || s.sysPromptConfig != configPrompt {
+		systemContent := configPrompt
+		if systemContent == "" {
+			systemContent = `你叫豆芽，是一个运行在本地的智能AI助手，基于开源大语言模型和llama.cpp推理引擎，为用户提供私密、高效、可靠的服务。
 
 ## 核心身份
 - 你的品牌名称始终是「豆芽」（DouYa），底层运行着不同的开源模型。当用户问"你是谁"时回答"我叫豆芽"；当用户问"你是什么模型"时，回答"我叫豆芽，当前运行的底层模型是 [模型名，见下文]"
@@ -922,10 +965,16 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 - 友好耐心但专业精炼，不啰嗦不敷衍
 - 用户提出模糊需求时主动追问澄清
 - 善于举一反三，提供超出问题本身的深层见解`
+		}
+		if s.detectedModelName != "" {
+			systemContent += fmt.Sprintf("\n\n你当前加载的底层模型是 %s。当用户询问你的模型名称、版本或型号时，应基于此信息回答。", s.detectedModelName)
+		}
+		s.sysPromptCache = systemContent
+		s.sysPromptDate = today
+		s.sysPromptConfig = configPrompt
 	}
-	if s.detectedModelName != "" {
-		systemContent += fmt.Sprintf("\n\n你当前加载的底层模型是 %s。当用户询问你的模型名称、版本或型号时，应基于此信息回答。", s.detectedModelName)
-	}
+
+	// Append dynamic date/time each request
 	weekday := ""
 	switch now.Weekday() {
 	case time.Sunday:
@@ -943,7 +992,7 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 	case time.Saturday:
 		weekday = "星期六"
 	}
-	systemContent += fmt.Sprintf("\n\n当前日期时间: %s %s", now.Format("2006-01-02 15:04:05"), weekday)
+	systemContent := s.sysPromptCache + fmt.Sprintf("\n\n当前日期时间: %s %s", now.Format("2006-01-02 15:04:05"), weekday)
 	if !searchEnabled {
 		systemContent += "\n\n需要最新信息、不确定事实或用户明确要求时，使用search工具进行搜索。常识性问题直接回答即可。"
 	} else {
@@ -1005,11 +1054,32 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 		} else if m.Role == "user" && m.Attachments != "" {
 			var dbAttachments []Attachment
 			if err := json.Unmarshal([]byte(m.Attachments), &dbAttachments); err == nil && len(dbAttachments) > 0 {
-				msg = buildMessageFromAttachments(m.Role, content, dbAttachments)
+				// Phase1: Check model capabilities for historical attachments
+				supportsAll := true
+				for _, att := range dbAttachments {
+					if att.Type == "image" && !s.modelCaps.ImageInput {
+						supportsAll = false
+						break
+					}
+					if att.Type == "audio" && !s.modelCaps.AudioInput {
+						supportsAll = false
+						break
+					}
+				}
+				if supportsAll {
+					msg = buildMessageFromAttachments(m.Role, content, dbAttachments)
+				} else {
+					msg = llm.NewTextMessage(m.Role, content)
+				}
 			} else if m.Images != "" {
-				var imageUrls []string
-				if err := json.Unmarshal([]byte(m.Images), &imageUrls); err == nil && len(imageUrls) > 0 {
-					msg = llm.NewVisionMessage(m.Role, content, imageUrls)
+				// Check if model supports vision
+				if s.modelCaps.ImageInput {
+					var imageUrls []string
+					if err := json.Unmarshal([]byte(m.Images), &imageUrls); err == nil && len(imageUrls) > 0 {
+						msg = llm.NewVisionMessage(m.Role, content, imageUrls)
+					} else {
+						msg = llm.NewTextMessage(m.Role, content)
+					}
 				} else {
 					msg = llm.NewTextMessage(m.Role, content)
 				}
@@ -1017,9 +1087,14 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 				msg = llm.NewTextMessage(m.Role, content)
 			}
 		} else if m.Role == "user" && m.Images != "" {
-			var imageUrls []string
-			if err := json.Unmarshal([]byte(m.Images), &imageUrls); err == nil && len(imageUrls) > 0 {
-				msg = llm.NewVisionMessage(m.Role, content, imageUrls)
+			// Phase1: Check if model supports vision
+			if s.modelCaps.ImageInput {
+				var imageUrls []string
+				if err := json.Unmarshal([]byte(m.Images), &imageUrls); err == nil && len(imageUrls) > 0 {
+					msg = llm.NewVisionMessage(m.Role, content, imageUrls)
+				} else {
+					msg = llm.NewTextMessage(m.Role, content)
+				}
 			} else {
 				msg = llm.NewTextMessage(m.Role, content)
 			}
@@ -1083,7 +1158,7 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 	})
 	messages = append(messages, history...)
 
-	return messages
+	return messages, nil
 }
 
 func (s *Service) StopGeneration() {
@@ -1115,7 +1190,7 @@ func (s *Service) GetConversations() ([]*Conversation, error) {
 func (s *Service) CleanupAbnormalConversations() []*AbnormalConversation {
 	removed, err := store.CleanupAbnormalConversations(s.db)
 	if err != nil {
-		log.Printf("[chat] cleanup abnormal conversations: %v", err)
+		log.Error().Err(err).Msg("[chat] cleanup abnormal conversations")
 		return nil
 	}
 	if len(removed) == 0 {
@@ -1131,7 +1206,7 @@ func (s *Service) CleanupAbnormalConversations() []*AbnormalConversation {
 		}
 		s.emitForConv(ac.ID, "conversation_deleted", ac.ID)
 	}
-	log.Printf("[chat] cleaned up %d abnormal conversations", len(result))
+	log.Info().Int("count", len(result)).Msg("[chat] cleaned up abnormal conversations")
 	return result
 }
 
@@ -1262,6 +1337,7 @@ func (s *Service) GetConfig() *config.Config {
 
 func (s *Service) UpdateConfig(cfg *config.Config) error {
 	s.config = cfg
+	s.InvalidatePromptCache()
 	return nil
 }
 
@@ -1307,7 +1383,7 @@ func SearchResultInstruction(lang string) string { return searchResultInstructio
 
 func (s *Service) doSearch(ctx context.Context, query string) *search.SearchResponse {
 	if s.searchChain == nil {
-		log.Printf("[search] searchChain is nil, skipping search for query=%q", query)
+		log.Debug().Str("query", query).Msg("[search] searchChain is nil, skipping search")
 		return &search.SearchResponse{
 			Engine: "none",
 			Error:  "search chain not initialized",
@@ -1317,24 +1393,51 @@ func (s *Service) doSearch(ctx context.Context, query string) *search.SearchResp
 	if isCodeRelated(query) {
 		category = "code"
 	}
-	log.Printf("[search] query=%q category=%s", query, category)
+	log.Info().Str("query", query).Str("category", category).Msg("[search]")
 	searchCtx, searchCancel := context.WithTimeout(ctx, 10*time.Second)
 	resp := s.searchChain.SearchWithCategory(searchCtx, query, category)
 	searchCancel()
-	log.Printf("[search] engine=%s results=%d error=%v", resp.Engine, len(resp.Results), resp.Error)
+	log.Info().
+		Str("engine", resp.Engine).
+		Int("results", len(resp.Results)).
+		Interface("error", resp.Error).
+		Msg("[search]")
 	return resp
 }
 
+func estimateTokensByLang(text string) int {
+	if text == "" {
+		return 0
+	}
+	lang := detectLanguage(text)
+	chars := len([]rune(text))
+
+	var tokens int
+	if lang == "zh" {
+		tokens = int(float64(chars) / 1.8)
+	} else {
+		tokens = int(float64(chars) / 3.5)
+	}
+
+	if tokens == 0 && chars > 0 {
+		tokens = 1
+	}
+	return tokens
+}
+
+// EstimateTokensByLang - Exported for testing
+func EstimateTokensByLang(text string) int { return estimateTokensByLang(text) }
+
 func estimateMessageTokens(m *store.Message) int {
-	tokens := len([]rune(m.Content)) * 3
+	tokens := estimateTokensByLang(m.Content)
 	if m.ThinkingContent != "" {
-		tokens += len([]rune(m.ThinkingContent)) * 3
+		tokens += estimateTokensByLang(m.ThinkingContent)
 	}
 	if m.ToolCalls != "" {
-		tokens += len([]rune(m.ToolCalls)) * 3
+		tokens += estimateTokensByLang(m.ToolCalls)
 	}
 	if m.SearchResults != "" {
-		tokens += len([]rune(m.SearchResults)) * 3
+		tokens += estimateTokensByLang(m.SearchResults)
 	}
 	if m.Images != "" {
 		var imageUrls []string
@@ -1354,7 +1457,7 @@ func estimateMessageTokens(m *store.Message) int {
 				case "audio":
 					tokens += 500
 				default:
-					tokens += len([]rune(att.Data)) * 3
+					tokens += estimateTokensByLang(att.Data)
 				}
 			}
 		} else {
@@ -1461,7 +1564,11 @@ func (s *Service) RegenerateMessage(userMessageID string, searchEnabled bool) er
 		return fmt.Errorf("load messages: %w", err)
 	}
 
-	llmMessages := s.buildLLMMessages(dbMsgs, userContent, nil, searchEnabled)
+	llmMessages, err := s.buildLLMMessages(dbMsgs, userContent, nil, searchEnabled)
+	if err != nil {
+		s.emitForConv(convID, "error", err.Error())
+		return err
+	}
 
 	return s.streamWithSearch(cancelCtx, convID, llmMessages, searchEnabled, userContent, "")
 }

@@ -200,11 +200,18 @@ func (c *SearchChain) deepSearchInternal(ctx context.Context, query string, cate
 
 	results := make(chan providerResult, len(eligible))
 	var wg sync.WaitGroup
+	maxConcurrent := 3
+	semaphore := make(chan struct{}, maxConcurrent)
 
 	for _, pw := range eligible {
 		wg.Add(1)
 		go func(pw *ProviderWithCircuit) {
 			defer wg.Done()
+
+			// 限制并发数，避免触发 API 限流
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
 			resp, err := pw.Provider.SearchWithOpts(ctx, query, opts)
 			if err != nil {
 				pw.recordFailure()
@@ -305,10 +312,20 @@ func normalizeURL(u string) string {
 	if err != nil {
 		return u
 	}
-	parsed.Fragment = ""
-	parsed.RawQuery = ""
-	if parsed.Scheme == "" {
+	// Normalize scheme to https
+	if parsed.Scheme == "http" || parsed.Scheme == "" {
 		parsed.Scheme = "https"
+	}
+	// Remove www prefix
+	parsed.Host = strings.TrimPrefix(parsed.Host, "www.")
+	// Remove fragment
+	parsed.Fragment = ""
+	// Remove trailing slash from path
+	parsed.Path = strings.TrimRight(parsed.Path, "/")
+	// Keep query params? No, remove them for dedup (search results may have tracking params)
+	parsed.RawQuery = ""
+	if parsed.Path == "" {
+		parsed.Path = "/"
 	}
 	return parsed.String()
 }

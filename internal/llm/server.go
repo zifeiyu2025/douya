@@ -6,7 +6,6 @@ package llm
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -15,7 +14,11 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"github.com/rs/zerolog/log"
 )
+
+const vramCheckInterval = 500 * time.Millisecond
+const vramCheckTimeout = 15
 
 type ServerConfig struct {
 	ModelsDir        string
@@ -69,10 +72,18 @@ func NewServer(cfg *ServerConfig) *Server {
 func (s *Server) Start() error {
 	s.mu.Lock()
 
+	// ensure old model is fully stopped and VRAM released before starting new one
 	if s.status.Running && s.isAlive() {
+		log.Info().Msg("stopping existing model server before starting new one...")
+		// unlock before stopInternal to avoid deadlock (stopInternal also locks s.mu)
+		s.mu.Unlock()
 		if err := s.stopInternal(); err != nil {
-			log.Printf("stop existing server before restart: %v", err)
+			log.Error().Err(err).Msg("stop existing server before restart")
 		}
+		// wait for VRAM to be fully released before loading new model
+		s.waitForVRAMRelease()
+		log.Info().Msg("old model VRAM released, now starting new model...")
+		s.mu.Lock()  // re-acquire lock
 	}
 
 	args := []string{
@@ -195,7 +206,7 @@ func (s *Server) Start() error {
 	if s.job == nil {
 		job, err := CreateJobObject()
 		if err != nil {
-			log.Printf("create job object failed: %v (child process not bound)", err)
+			log.Error().Err(err).Msg("create job object failed (child process not bound)")
 		} else {
 			s.job = job
 		}
@@ -203,9 +214,9 @@ func (s *Server) Start() error {
 
 	if s.job != nil {
 		if err := s.job.AssignProcess(s.cmd.Process.Pid); err != nil {
-			log.Printf("assign process to job object failed: %v (child process not bound)", err)
+			log.Error().Err(err).Msg("assign process to job object failed (child process not bound)")
 		} else {
-			log.Printf("llama-server PID=%d bound to job object (will auto-kill on parent exit)", s.cmd.Process.Pid)
+			log.Info().Int("pid", s.cmd.Process.Pid).Msg("llama-server bound to job object (will auto-kill on parent exit)")
 		}
 	}
 
@@ -277,10 +288,10 @@ func (s *Server) GracefulStop(timeout time.Duration) error {
 
 	resp, err := client.Post(shutdownURL, "application/json", nil)
 	if err != nil {
-		log.Printf("graceful shutdown request failed (will force stop): %v", err)
+		log.Error().Err(err).Msg("graceful shutdown request failed (will force stop)")
 	} else {
 		resp.Body.Close()
-		log.Printf("graceful shutdown request sent, waiting for server to exit...")
+		log.Info().Msg("graceful shutdown request sent, waiting for server to exit...")
 	}
 
 	deadline := time.Now().Add(timeout)
@@ -292,13 +303,13 @@ func (s *Server) GracefulStop(timeout time.Duration) error {
 			if s.cancel != nil {
 				s.cancel()
 			}
-			log.Printf("server exited gracefully, VRAM released")
+			log.Info().Msg("server exited gracefully, VRAM released")
 			return nil
 		}
 		<-ticker.C
 	}
 
-	log.Printf("server did not exit within %v, forcing stop", timeout)
+	log.Warn().Dur("timeout", timeout).Msg("server did not exit within timeout, forcing stop")
 	return s.Stop()
 }
 
@@ -308,9 +319,43 @@ func (s *Server) stopInternal() error {
 		s.mu.Unlock()
 		return nil
 	}
+	apiBase := s.config.APIBase
 	pid := s.cmd.Process.Pid
 	s.mu.Unlock()
 
+	// Try graceful shutdown first (like Ollama does)
+	gracefulTimeout := 5 * time.Second
+	deadline := time.Now().Add(gracefulTimeout)
+	shutdownURL := apiBase + "/shutdown"
+	client := &http.Client{Timeout: 2 * time.Second}
+
+	resp, err := client.Post(shutdownURL, "application/json", nil)
+	if err == nil {
+		resp.Body.Close()
+		log.Info().Int("pid", pid).Str("graceful_timeout", gracefulTimeout.String()).Msg("[server] graceful shutdown request sent, waiting...")
+
+		// Wait for process to exit gracefully
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+		for time.Now().Before(deadline) {
+			if !s.isAlive() {
+				s.mu.Lock()
+				s.status = ServerStatus{Running: false}
+				if s.cancel != nil {
+					s.cancel()
+				}
+				s.mu.Unlock()
+				log.Info().Int("pid", pid).Msg("[server] exited gracefully")
+				return nil
+			}
+			<-ticker.C
+		}
+		log.Warn().Int("pid", pid).Msg("[server] graceful shutdown timed out, falling back to taskkill")
+	} else {
+		log.Error().Err(err).Msg("[server] graceful shutdown request failed (server may not be running)")
+	}
+
+	// Fallback: force kill process tree
 	terminateCmd := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/T")
 	terminateCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 	_ = terminateCmd.Run()
@@ -322,7 +367,7 @@ func (s *Server) stopInternal() error {
 		close(waitDone)
 	}()
 
-	timer := time.NewTimer(10 * time.Second)
+	timer := time.NewTimer(20 * time.Second)
 	defer timer.Stop()
 
 	select {
@@ -374,7 +419,9 @@ func (s *Server) Watch(ctx context.Context, onStatusChange func(ServerStatus)) {
 
 func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(ServerStatus), onRestartSuccess func()) {
 	restartCount := 0
-	backoffs := []time.Duration{2 * time.Second, 4 * time.Second, 8 * time.Second}
+	currentBackoff := 2 * time.Second
+	const maxBackoff = 60 * time.Second
+	const maxRestartAttempts = 10
 
 	for {
 		select {
@@ -384,18 +431,31 @@ func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(Serv
 		}
 
 		if !s.IsRunning() {
-			if restartCount >= 3 {
-				s.SetStatus(false, "max restart attempts reached")
+			if restartCount >= maxRestartAttempts {
+				s.SetStatus(false, fmt.Sprintf("server crashed repeatedly (%d times), waiting %v before next attempt", restartCount, maxBackoff))
 				if onStatusChange != nil {
 					onStatusChange(s.Status())
 				}
-				return
+
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(maxBackoff):
+				}
+
+				restartCount = 0
+				currentBackoff = 2 * time.Second
+				continue
 			}
 
-			backoff := backoffs[restartCount]
+			backoff := currentBackoff
 			restartCount++
+			currentBackoff = currentBackoff * 2
+			if currentBackoff > maxBackoff {
+				currentBackoff = maxBackoff
+			}
 
-			s.SetStatus(false, fmt.Sprintf("server crashed, restarting in %v (attempt %d/3)", backoff, restartCount))
+			s.SetStatus(false, fmt.Sprintf("server crashed, restarting in %v (attempt %d/%d)", backoff, restartCount, maxRestartAttempts))
 			if onStatusChange != nil {
 				onStatusChange(s.Status())
 			}
@@ -424,6 +484,7 @@ func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(Serv
 
 			s.SetStatus(true, "")
 			restartCount = 0
+			currentBackoff = 2 * time.Second
 			if onRestartSuccess != nil {
 				onRestartSuccess()
 			}

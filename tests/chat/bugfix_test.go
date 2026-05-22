@@ -935,7 +935,7 @@ func TestEstimateMessageTokens_MultipleImages(t *testing.T) {
 	}
 	tokens := chat.EstimateMessageTokens(msg)
 
-	expectedMin := len([]rune(msg.Content))*3 + 2*1500
+	expectedMin := chat.EstimateTokensByLang(msg.Content) + 2*1500
 	if tokens < expectedMin {
 		t.Errorf("2 images should estimate at least %d tokens, got %d", expectedMin, tokens)
 	}
@@ -962,7 +962,7 @@ func TestEstimateMessageTokens_AttachmentsAudioFixedEstimate(t *testing.T) {
 	}
 	tokens := chat.EstimateMessageTokens(msg)
 
-	expectedMin := len([]rune(msg.Content))*3 + 500
+	expectedMin := chat.EstimateTokensByLang(msg.Content) + 500
 	if tokens < expectedMin {
 		t.Errorf("audio attachment should add at least 500 tokens, got %d", tokens)
 	}

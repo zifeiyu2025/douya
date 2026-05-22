@@ -4,8 +4,9 @@
 package system
 
 import (
-	"log"
 	"os/exec"
+
+	"github.com/rs/zerolog/log"
 	"runtime"
 	"strconv"
 	"strings"
@@ -27,9 +28,9 @@ func DetectHardware() *HardwareInfo {
 	detectGPU(hw)
 
 	if hw.HasGPU {
-		log.Printf("[system] hardware: CPU cores=%d, GPU=%s, VRAM=%dMB", hw.CPUCores, hw.GPUName, hw.GPUVRAMMB)
+		log.Info().Int("cpu_cores", hw.CPUCores).Str("gpu", hw.GPUName).Int64("vram_mb", hw.GPUVRAMMB).Msg("[system] hardware detected")
 	} else {
-		log.Printf("[system] hardware: CPU cores=%d, no NVIDIA GPU detected", hw.CPUCores)
+		log.Info().Int("cpu_cores", hw.CPUCores).Msg("[system] hardware: no NVIDIA GPU detected")
 	}
 
 	return hw
@@ -45,7 +46,7 @@ func detectGPU(hw *HardwareInfo) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 	output, err := cmd.Output()
 	if err != nil {
-		log.Printf("[system] nvidia-smi query failed: %v", err)
+		log.Error().Err(err).Msg("[system] nvidia-smi query failed")
 		return
 	}
 
@@ -61,7 +62,7 @@ func detectGPU(hw *HardwareInfo) {
 
 	vramMB, err := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64)
 	if err != nil {
-		log.Printf("[system] parse VRAM value failed: %v", err)
+		log.Error().Err(err).Msg("[system] parse VRAM value failed")
 		return
 	}
 

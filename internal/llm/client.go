@@ -10,12 +10,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 	"unicode/utf8"
+	"github.com/rs/zerolog/log"
 )
 
 type Client struct {
@@ -235,6 +235,52 @@ func (c *Client) GetModelInfo(ctx context.Context) (*ModelInfo, error) {
 }
 
 func (c *Client) GetModelInfoByName(ctx context.Context, modelName string) (*ModelInfo, error) {
+	// If specific model requested, try direct endpoint first (avoids fetching all models)
+	if modelName != "" {
+		directURL := c.baseURL + "/v1/models/" + url.PathEscape(modelName)
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, directURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := c.httpClient.Do(httpReq)
+		if err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				body, err := io.ReadAll(resp.Body)
+				if err == nil {
+					var target struct {
+						ID           string    `json:"id"`
+						Capabilities []string  `json:"capabilities"`
+						Meta         ModelMeta `json:"meta"`
+						Architecture struct {
+							InputModalities  []string `json:"input_modalities"`
+							OutputModalities []string `json:"output_modalities"`
+						} `json:"architecture"`
+					}
+					if json.Unmarshal(body, &target) == nil && target.ID != "" {
+						caps := target.Capabilities
+						if len(caps) == 0 {
+							var rawGeneric struct {
+								Capabilities json.RawMessage `json:"capabilities"`
+							}
+							if json.Unmarshal(body, &rawGeneric) == nil {
+								caps = parseCapabilitiesRaw(rawGeneric.Capabilities)
+							}
+						}
+						log.Info().Str("model", target.ID).Strs("caps", caps).Msg("[client] GetModelInfoByName: direct hit")
+						return &ModelInfo{
+							Name:            target.ID,
+							Capabilities:    caps,
+							InputModalities: target.Architecture.InputModalities,
+							Meta:            target.Meta,
+						}, nil
+					}
+				}
+			}
+		}
+		// Direct endpoint not available or failed, fall through to full list
+	}
+
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/models", nil)
 	if err != nil {
 		return nil, err
@@ -256,7 +302,7 @@ func (c *Client) GetModelInfoByName(ctx context.Context, modelName string) (*Mod
 		return nil, err
 	}
 
-	log.Printf("[client] /v1/models raw response: %s", string(body))
+	log.Info().Str("raw_response", string(body)).Msg("[client] /v1/models raw response")
 
 	var raw struct {
 		Data []struct {
@@ -306,8 +352,7 @@ func (c *Client) GetModelInfoByName(ctx context.Context, modelName string) (*Mod
 		}
 	}
 
-	log.Printf("[client] GetModelInfoByName: model=%s target_id=%s caps=%v raw_data_count=%d",
-		modelName, target.ID, caps, len(raw.Data))
+	log.Info().Str("model", modelName).Str("target_id", target.ID).Strs("caps", caps).Int("raw_data_count", len(raw.Data)).Msg("[client] GetModelInfoByName")
 
 	return &ModelInfo{
 		Name:            target.ID,
@@ -392,7 +437,7 @@ func (c *Client) GetServerProps(ctx context.Context, modelName string) (*ServerP
 	if len(rawLog) > 500 {
 		rawLog = rawLog[:500] + "..."
 	}
-	log.Printf("[client] /props raw response: %s", rawLog)
+	log.Info().Str("raw_response", rawLog).Msg("[client] /props raw response")
 
 	var props ServerProps
 	if err := json.Unmarshal(body, &props); err != nil {

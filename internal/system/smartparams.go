@@ -4,7 +4,7 @@
 package system
 
 import (
-	"log"
+	"github.com/rs/zerolog/log"
 )
 
 type ModelTier int
@@ -34,12 +34,11 @@ type SmartParams struct {
 func detectModelTier(resolvedModelPath string) ModelTier {
 	meta, err := ParseGGUFMetadata(resolvedModelPath)
 	if err != nil {
-		log.Printf("[smart-params] GGUF parse failed: %v, using unknown tier", err)
+		log.Error().Err(err).Msg("[smart-params] GGUF parse failed, using unknown tier")
 		return ModelTierUnknown
 	}
 
-	log.Printf("[smart-params] GGUF metadata: arch=%s block_count=%d embedding_length=%d",
-		meta.Architecture, meta.BlockCount, meta.EmbeddingLength)
+	log.Info().Str("arch", meta.Architecture).Int("block_count", meta.BlockCount).Int("embedding_length", meta.EmbeddingLength).Msg("[smart-params] GGUF metadata")
 
 	if meta.BlockCount <= 0 || meta.EmbeddingLength <= 0 {
 		return ModelTierUnknown

@@ -34,7 +34,7 @@ func TestEstimateMessageTokens_IncludesToolCalls(t *testing.T) {
 		ToolCalls: `[{"id":"call_1","function":{"name":"search","arguments":"{\"query\":\"test\"}"}}]`,
 	}
 	tokens := chat.EstimateMessageTokens(msg)
-	contentTokens := len([]rune(msg.Content)) * 2
+	contentTokens := chat.EstimateTokensByLang(msg.Content)
 	if tokens <= contentTokens {
 		t.Errorf("estimateMessageTokens should account for ToolCalls field: got %d, content-only would be %d", tokens, contentTokens)
 	}
@@ -47,7 +47,7 @@ func TestEstimateMessageTokens_IncludesSearchResults(t *testing.T) {
 		SearchResults: `[{"title":"test","url":"http://example.com","snippet":"long snippet here"}]`,
 	}
 	tokens := chat.EstimateMessageTokens(msg)
-	contentTokens := len([]rune(msg.Content)) * 2
+	contentTokens := chat.EstimateTokensByLang(msg.Content)
 	if tokens <= contentTokens {
 		t.Errorf("estimateMessageTokens should account for SearchResults field: got %d, content-only would be %d", tokens, contentTokens)
 	}
@@ -60,7 +60,7 @@ func TestEstimateMessageTokens_IncludesThinkingContent(t *testing.T) {
 		ThinkingContent: "I need to think about this carefully and analyze the problem step by step",
 	}
 	tokens := chat.EstimateMessageTokens(msg)
-	contentTokens := len([]rune(msg.Content)) * 2
+	contentTokens := chat.EstimateTokensByLang(msg.Content)
 	if tokens <= contentTokens {
 		t.Errorf("estimateMessageTokens should account for ThinkingContent field: got %d, content-only would be %d", tokens, contentTokens)
 	}

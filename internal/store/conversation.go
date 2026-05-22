@@ -1,5 +1,5 @@
-// Copyright zifeiyu. All rights reserved.
-// 豆芽本地AI
+﻿// Copyright zifeiyu. All rights reserved.
+// 璞嗚娊鏈湴AI
 
 package store
 
@@ -7,7 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
+	"github.com/rs/zerolog/log"
 	"time"
 
 	"github.com/google/uuid"
@@ -164,12 +164,13 @@ func CleanupAbnormalConversations(db *sql.DB) ([]*AbnormalConversation, error) {
 	var removed []*AbnormalConversation
 	for _, ac := range abnormal {
 		if err := DeleteConversation(db, ac.ID); err != nil {
-			log.Printf("[cleanup] failed to delete abnormal conversation %s: %v", ac.ID, err)
+			log.Error().Err(err).Str("id", ac.ID).Msg("[cleanup] failed to delete abnormal conversation")
 			continue
 		}
-		log.Printf("[cleanup] removed abnormal conversation %s (title=%q, reason=%s)", ac.ID, ac.Title, ac.Reason)
+		log.Info().Str("id", ac.ID).Str("title", ac.Title).Str("reason", ac.Reason).Msg("[cleanup] removed abnormal conversation")
 		removed = append(removed, ac)
 	}
 
 	return removed, nil
 }
+
