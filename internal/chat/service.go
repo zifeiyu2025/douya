@@ -17,6 +17,7 @@ import (
 
 	"douya/internal/config"
 	"douya/internal/llm"
+	"douya/internal/rag"
 	"douya/internal/search"
 	"douya/internal/store"
 )
@@ -53,6 +54,11 @@ type Service struct {
 	sysPromptCache    string
 	sysPromptDate     string
 	sysPromptConfig   string
+	// RAG
+	ragVectorStore  *rag.VectorStore
+	ragEmbedder    rag.Embedder
+	ragCollection  string
+	ragEnabled     bool
 }
 
 func NewService(llmClient *llm.Client, searchChain *search.SearchChain, db *sql.DB, cfg *config.Config) *Service {
@@ -82,6 +88,14 @@ func (s *Service) UpdateClient(client *llm.Client) {
 func (s *Service) UpdateSearchChain(chain *search.SearchChain) {
 	s.searchChain = chain
 }
+
+func (s *Service) SetRAG(vs *rag.VectorStore, embedder rag.Embedder, collection string) {
+	s.ragVectorStore = vs
+	s.ragEmbedder = embedder
+	s.ragCollection = collection
+	s.ragEnabled = true
+}
+
 
 func (s *Service) DetectModelArchitecture() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1158,6 +1172,28 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 	})
 	messages = append(messages, history...)
 
+
+	// RAG: retrieve relevant documents if enabled
+	if s.ragEnabled && s.ragVectorStore != nil && s.ragEmbedder != nil && currentUserContent != "" {
+		ctxRag, cancelRag := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelRag()
+		vecs, err := s.ragEmbedder.Embed(ctxRag, []string{currentUserContent})
+		if err == nil && len(vecs) > 0 {
+			results, err2 := s.ragVectorStore.Search(s.ragCollection, vecs[0], 3)
+			if err2 == nil && len(results) > 0 {
+				var parts []string
+				for _, r := range results {
+					if r.ChunkContent != "" {
+						parts = append(parts, r.ChunkContent)
+					}
+				}
+				systemContent += "\n\n## 参考资料\n" + strings.Join(parts, "\n---\n")
+			}
+		}
+		cancelRag()
+		_ = ctxRag
+	}
+
 	return messages, nil
 }
 
@@ -1571,4 +1607,38 @@ func (s *Service) RegenerateMessage(userMessageID string, searchEnabled bool) er
 	}
 
 	return s.streamWithSearch(cancelCtx, convID, llmMessages, searchEnabled, userContent, "")
+}
+
+
+// GetEmbeddings returns vector embeddings for the given input text(s).
+// input can be a string or []string.
+// model is optional; if empty, the currently loaded model will be used.
+func (s *Service) GetEmbeddings(input interface{}, model string) ([][]float64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	if model == "" {
+		model = s.modelNameForRequest()
+	}
+
+	req := &llm.EmbeddingRequest{
+		Model: model,
+		Input: input,
+	}
+
+	resp, err := s.llmClient.Embedding(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("embedding request failed: %w", err)
+	}
+
+	if len(resp.Data) == 0 {
+		return nil, fmt.Errorf("no embeddings returned")
+	}
+
+	embeddings := make([][]float64, 0, len(resp.Data))
+	for _, d := range resp.Data {
+		embeddings = append(embeddings, d.Embedding)
+	}
+
+	return embeddings, nil
 }

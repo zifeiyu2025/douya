@@ -181,3 +181,31 @@ type ModelCapabilities struct {
 	TextInput  bool `json:"text_input"`
 	Reasoning  bool `json:"reasoning"`
 }
+
+// EmbeddingRequest represents a request to /v1/embeddings
+type EmbeddingRequest struct {
+	Model          string      `json:"model,omitempty"`
+	Input          interface{} `json:"input"` // string or []string
+	EncodingFormat string      `json:"encoding_format,omitempty"` // "float" or "base64"
+}
+
+// EmbeddingResponse represents a response from /v1/embeddings
+type EmbeddingResponse struct {
+	Object string     `json:"object"`
+	Data   []Embedding `json:"data"`
+	Model string     `json:"model"`
+	Usage  Usage      `json:"usage"`
+}
+
+// Embedding represents a single embedding vector
+type Embedding struct {
+	Object    string    `json:"object"`
+	Embedding []float64 `json:"embedding"`
+	Index     int       `json:"index"`
+}
+
+// Usage represents token usage in the response
+type Usage struct {
+	PromptTokens int `json:"prompt_tokens"`
+	TotalTokens  int `json:"total_tokens"`
+}

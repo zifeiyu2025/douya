@@ -30,7 +30,7 @@ func TestBuildLLMMessages_SystemPromptContainsCurrentDate(t *testing.T) {
 	dbMsgs := []*store.Message{
 		{ID: "1", Role: "user", Content: "hello"},
 	}
-	msgs := chat.BuildLLMMessages(svc, dbMsgs, "hello", nil)
+	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, "hello", nil)
 
 	if len(msgs) < 1 {
 		t.Fatal("expected at least 1 message (system)")
@@ -61,7 +61,7 @@ func TestBuildLLMMessages_DefaultSystemPrompt(t *testing.T) {
 	dbMsgs := []*store.Message{
 		{ID: "1", Role: "user", Content: "hello"},
 	}
-	msgs := chat.BuildLLMMessages(svc, dbMsgs, "hello", nil)
+	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, "hello", nil)
 
 	if !strings.Contains(msgs[0].ContentString(), "豆芽") {
 		t.Errorf("default system prompt should contain '豆芽', got: %s", msgs[0].ContentString())
@@ -74,7 +74,7 @@ func TestBuildLLMMessages_DefaultSystemPrompt_ContainsRoleDefinition(t *testing.
 	dbMsgs := []*store.Message{
 		{ID: "1", Role: "user", Content: "hello"},
 	}
-	msgs := chat.BuildLLMMessages(svc, dbMsgs, "hello", nil)
+	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, "hello", nil)
 	content := msgs[0].ContentString()
 
 	if !strings.Contains(content, "能力") {
@@ -94,7 +94,7 @@ func TestBuildLLMMessages_CustomSystemPrompt(t *testing.T) {
 	dbMsgs := []*store.Message{
 		{ID: "1", Role: "user", Content: "hello"},
 	}
-	msgs := chat.BuildLLMMessages(svc, dbMsgs, "hello", nil)
+	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, "hello", nil)
 
 	if !strings.Contains(msgs[0].ContentString(), "你是代码专家") {
 		t.Errorf("system prompt should contain custom prompt, got: %s", msgs[0].ContentString())
@@ -109,7 +109,7 @@ func TestBuildLLMMessages_ThinkConciselyInstruction(t *testing.T) {
 	dbMsgs := []*store.Message{
 		{ID: "1", Role: "user", Content: "hello"},
 	}
-	msgs := chat.BuildLLMMessages(svc, dbMsgs, "hello", nil)
+	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, "hello", nil)
 
 	if !strings.Contains(msgs[0].ContentString(), "search工具") {
 		t.Errorf("system prompt should contain search tool guidance, got: %s", msgs[0].ContentString())
@@ -129,7 +129,7 @@ func TestBuildLLMMessages_TokenEstimationLimitsMessages(t *testing.T) {
 		})
 	}
 
-	msgs := chat.BuildLLMMessages(svc, dbMsgs, "this is a message with some content", nil)
+	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, "this is a message with some content", nil)
 
 	systemMsgCount := 0
 	for _, m := range msgs {
@@ -159,7 +159,7 @@ func TestBuildLLMMessages_NoMaxMessagesHardcode_WhenContextAllows(t *testing.T) 
 		})
 	}
 
-	msgs := chat.BuildLLMMessages(svc, dbMsgs, "short", nil)
+	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, "short", nil)
 
 	userMsgCount := 0
 	for _, m := range msgs {
@@ -183,7 +183,7 @@ func TestBuildLLMMessages_TokenEstimationRespectsContextSize(t *testing.T) {
 		{ID: "3", Role: "user", Content: "short"},
 	}
 
-	msgs := chat.BuildLLMMessages(svc, dbMsgs, "short", nil)
+	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, "short", nil)
 
 	totalEstimated := 0
 	for _, m := range msgs {
@@ -204,7 +204,7 @@ func TestBuildLLMMessages_ChineseTokenEstimation(t *testing.T) {
 		{ID: "2", Role: "user", Content: "短"},
 	}
 
-	msgs := chat.BuildLLMMessages(svc, dbMsgs, "短", nil)
+	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, "短", nil)
 
 	if len(msgs) < 2 {
 		t.Fatal("expected at least system + 1 message")
@@ -218,7 +218,7 @@ func TestBuildLLMMessages_ChineseTokenEstimation(t *testing.T) {
 
 func TestBuildLLMMessages_EmptyMessages(t *testing.T) {
 	svc := newTestService()
-	msgs := chat.BuildLLMMessages(svc, []*store.Message{}, "hello", nil)
+	msgs, _ := chat.BuildLLMMessages(svc, []*store.Message{}, "hello", nil)
 
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 message (system only), got %d", len(msgs))
@@ -236,7 +236,7 @@ func TestBuildLLMMessages_ZeroContextSize(t *testing.T) {
 		{ID: "1", Role: "user", Content: "hello"},
 	}
 
-	msgs := chat.BuildLLMMessages(svc, dbMsgs, "hello", nil)
+	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, "hello", nil)
 
 	if len(msgs) < 1 {
 		t.Fatal("expected at least system message even with zero context size")
@@ -251,7 +251,7 @@ func TestBuildLLMMessages_LastUserMessageUsesCurrentContent(t *testing.T) {
 		{ID: "1", Role: "user", Content: "original message"},
 	}
 
-	msgs := chat.BuildLLMMessages(svc, dbMsgs, "updated message", nil)
+	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, "updated message", nil)
 
 	lastMsg := msgs[len(msgs)-1]
 	if lastMsg.ContentString() != "updated message" {
@@ -272,7 +272,7 @@ func TestBuildLLMMessages_MessagesInCorrectOrder(t *testing.T) {
 		{ID: "3", Role: "user", Content: "third"},
 	}
 
-	msgs := chat.BuildLLMMessages(svc, dbMsgs, "third", nil)
+	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, "third", nil)
 
 	if len(msgs) != 4 {
 		t.Fatalf("expected 4 messages (system + 3), got %d", len(msgs))
@@ -528,7 +528,7 @@ func TestBuildLLMMessages_AssistantMessagesIncluded(t *testing.T) {
 		{ID: "5", Role: "user", Content: "question 3"},
 	}
 
-	msgs := chat.BuildLLMMessages(svc, dbMsgs, "question 3", nil)
+	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, "question 3", nil)
 
 	if len(msgs) != 6 {
 		t.Fatalf("expected 6 messages (system + 5), got %d", len(msgs))
@@ -567,7 +567,7 @@ func TestBuildLLMMessages_ContextSizeTruncatesOlderMessages(t *testing.T) {
 		Content: "短消息",
 	})
 
-	msgs := chat.BuildLLMMessages(svc, dbMsgs, "短消息", nil)
+	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, "短消息", nil)
 
 	hasSystem := false
 	for _, m := range msgs {
@@ -597,7 +597,7 @@ func TestBuildLLMMessages_SingleMessageContextSize1(t *testing.T) {
 		{ID: "1", Role: "user", Content: "hi"},
 	}
 
-	msgs := chat.BuildLLMMessages(svc, dbMsgs, "hi", nil)
+	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, "hi", nil)
 
 	if len(msgs) < 1 {
 		t.Fatal("expected at least system message")
@@ -618,7 +618,7 @@ func TestBuildLLMMessages_ConfigParametersInRequest(t *testing.T) {
 		{ID: "1", Role: "user", Content: "test"},
 	}
 
-	msgs := chat.BuildLLMMessages(svc, dbMsgs, "test", nil)
+	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, "test", nil)
 
 	if len(msgs) < 1 {
 		t.Fatal("expected at least system message")
@@ -829,7 +829,7 @@ func TestBuildLLMMessages_NegativeContextSize(t *testing.T) {
 		{ID: "1", Role: "user", Content: "hello"},
 	}
 
-	msgs := chat.BuildLLMMessages(svc, dbMsgs, "hello", nil)
+	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, "hello", nil)
 
 	if len(msgs) < 1 {
 		t.Fatal("expected at least system message with negative context size")
@@ -845,7 +845,7 @@ func TestBuildLLMMessages_VeryLongSingleMessage(t *testing.T) {
 		{ID: "1", Role: "user", Content: longContent},
 	}
 
-	msgs := chat.BuildLLMMessages(svc, dbMsgs, longContent, nil)
+	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, longContent, nil)
 
 	if len(msgs) < 1 {
 		t.Fatal("expected at least system message")
@@ -865,7 +865,7 @@ func TestBuildLLMMessages_MultipleUsersAndAssistants(t *testing.T) {
 		{ID: "6", Role: "assistant", Content: "a3"},
 	}
 
-	msgs := chat.BuildLLMMessages(svc, dbMsgs, "q3", nil)
+	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, "q3", nil)
 
 	expectedRoles := []string{"system", "user", "assistant", "user", "assistant", "user", "assistant"}
 	if len(msgs) != len(expectedRoles) {
