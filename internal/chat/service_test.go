@@ -22,9 +22,9 @@ func TestEstimateTokensByLang(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := estimateTokensByLang(tt.text)
+			got := estimateTokensByLang(tt.text, "en")
 			if got < tt.minToken || got > tt.maxToken {
-				t.Errorf("estimateTokensByLang(%q) = %d, want [%d, %d]", tt.text, got, tt.minToken, tt.maxToken)
+				t.Errorf("estimateTokensByLang(%q, en) = %d, want [%d, %d]", tt.text, got, tt.minToken, tt.maxToken)
 			}
 		})
 	}

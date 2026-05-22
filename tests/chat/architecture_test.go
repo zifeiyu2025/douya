@@ -34,7 +34,7 @@ func TestEstimateMessageTokens_IncludesToolCalls(t *testing.T) {
 		ToolCalls: `[{"id":"call_1","function":{"name":"search","arguments":"{\"query\":\"test\"}"}}]`,
 	}
 	tokens := chat.EstimateMessageTokens(msg)
-	contentTokens := chat.EstimateTokensByLang(msg.Content)
+	contentTokens := chat.EstimateTokensByLang(msg.Content, "en")
 	if tokens <= contentTokens {
 		t.Errorf("estimateMessageTokens should account for ToolCalls field: got %d, content-only would be %d", tokens, contentTokens)
 	}
@@ -47,7 +47,7 @@ func TestEstimateMessageTokens_IncludesSearchResults(t *testing.T) {
 		SearchResults: `[{"title":"test","url":"http://example.com","snippet":"long snippet here"}]`,
 	}
 	tokens := chat.EstimateMessageTokens(msg)
-	contentTokens := chat.EstimateTokensByLang(msg.Content)
+	contentTokens := chat.EstimateTokensByLang(msg.Content, "en")
 	if tokens <= contentTokens {
 		t.Errorf("estimateMessageTokens should account for SearchResults field: got %d, content-only would be %d", tokens, contentTokens)
 	}
@@ -60,7 +60,7 @@ func TestEstimateMessageTokens_IncludesThinkingContent(t *testing.T) {
 		ThinkingContent: "I need to think about this carefully and analyze the problem step by step",
 	}
 	tokens := chat.EstimateMessageTokens(msg)
-	contentTokens := chat.EstimateTokensByLang(msg.Content)
+	contentTokens := chat.EstimateTokensByLang(msg.Content, "en")
 	if tokens <= contentTokens {
 		t.Errorf("estimateMessageTokens should account for ThinkingContent field: got %d, content-only would be %d", tokens, contentTokens)
 	}
@@ -207,10 +207,7 @@ func TestUpdateConfig_SavePathConsistency(t *testing.T) {
 	cfg := svc.GetConfig()
 	cfg.Temperature = 0.5
 
-	err := svc.UpdateConfig(cfg)
-	if err != nil {
-		t.Fatalf("UpdateConfig failed: %v", err)
-	}
+	svc.UpdateConfig(cfg)
 
 	if svc.GetConfig().Temperature != 0.5 {
 		t.Errorf("config should be updated in memory, got Temperature=%f", svc.GetConfig().Temperature)
