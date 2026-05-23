@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"strings"
 	"time"
 )
 
@@ -30,54 +29,10 @@ func (p *DuckDuckGoProvider) SearchWithOpts(ctx context.Context, query string, o
 }
 
 var (
-	reDDGResult   = regexp.MustCompile(`<div class="result results_links results_links_deep web-result"`)
-	reDDGTitle    = regexp.MustCompile(`<a class="result__a" href="(https?://[^"]+)"[^>]*>(.*?)</a>`)
-	reDDGSnippet  = regexp.MustCompile(`<a class="result__snippet"[^>]*>(.*?)</a>`)
-	reDDGTag      = regexp.MustCompile(`<[^>]+>`)
-	reDDGNumEntity = regexp.MustCompile(`&#(\d+);`)
-	reDDGHexEntity = regexp.MustCompile(`&#x([0-9a-fA-F]+);`)
-	reDDGMultiSpace = regexp.MustCompile(`\s+`)
+	reDDGResult  = regexp.MustCompile(`<div class="result results_links results_links_deep web-result"`)
+	reDDGTitle   = regexp.MustCompile(`<a class="result__a" href="(https?://[^"]+)"[^>]*>(.*?)</a>`)
+	reDDGSnippet = regexp.MustCompile(`<a class="result__snippet"[^>]*>(.*?)</a>`)
 )
-
-func stripDDGHTML(s string) string {
-	s = reDDGTag.ReplaceAllString(s, "")
-	s = strings.ReplaceAll(s, "&ensp;", " ")
-	s = strings.ReplaceAll(s, "&emsp;", "  ")
-	s = strings.ReplaceAll(s, "&thinsp;", " ")
-	s = strings.ReplaceAll(s, "&middot;", "·")
-	s = strings.ReplaceAll(s, "&mdash;", "—")
-	s = strings.ReplaceAll(s, "&ndash;", "–")
-	s = strings.ReplaceAll(s, "&amp;", "&")
-	s = strings.ReplaceAll(s, "&lt;", "<")
-	s = strings.ReplaceAll(s, "&gt;", ">")
-	s = strings.ReplaceAll(s, "&quot;", `"`)
-	s = strings.ReplaceAll(s, "&#39;", "'")
-	s = strings.ReplaceAll(s, "&nbsp;", " ")
-	s = reDDGNumEntity.ReplaceAllStringFunc(s, func(match string) string {
-		sub := reDDGNumEntity.FindStringSubmatch(match)
-		if len(sub) >= 2 {
-			var code int
-			fmt.Sscanf(sub[1], "%d", &code)
-			if code > 0 && code < 0x10FFFF {
-				return string(rune(code))
-			}
-		}
-		return match
-	})
-	s = reDDGHexEntity.ReplaceAllStringFunc(s, func(match string) string {
-		sub := reDDGHexEntity.FindStringSubmatch(match)
-		if len(sub) >= 2 {
-			var code int
-			fmt.Sscanf(sub[1], "%x", &code)
-			if code > 0 && code < 0x10FFFF {
-				return string(rune(code))
-			}
-		}
-		return match
-	})
-	s = reDDGMultiSpace.ReplaceAllString(s, " ")
-	return strings.TrimSpace(s)
-}
 
 func (p *DuckDuckGoProvider) Search(ctx context.Context, query string) (*SearchResponse, error) {
 	u := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(query))
@@ -127,8 +82,8 @@ func (p *DuckDuckGoProvider) Search(ctx context.Context, query string) (*SearchR
 			continue
 		}
 
-		href := stripDDGHTML(titleMatch[1])
-		title := stripDDGHTML(titleMatch[2])
+		href := stripHTML(titleMatch[1])
+		title := stripHTML(titleMatch[2])
 
 		if href == "" || title == "" {
 			continue
@@ -137,7 +92,7 @@ func (p *DuckDuckGoProvider) Search(ctx context.Context, query string) (*SearchR
 		snippet := ""
 		snippetMatch := reDDGSnippet.FindStringSubmatch(chunk)
 		if len(snippetMatch) >= 2 {
-			snippet = stripDDGHTML(snippetMatch[1])
+			snippet = stripHTML(snippetMatch[1])
 		}
 
 		searchResp.Results = append(searchResp.Results, SearchResult{

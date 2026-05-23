@@ -30,54 +30,10 @@ func (p *BingProvider) SearchWithOpts(ctx context.Context, query string, opts Se
 }
 
 var (
-	reBingAlgo      = regexp.MustCompile(`<li class="b_algo"[\s>]`)
-	reBingH2Link    = regexp.MustCompile(`<h2[^>]*>\s*<a[^>]*href="(https?://[^"]+)"[^>]*>(.*?)</a>`)
-	reBingCaption   = regexp.MustCompile(`<div class="b_caption">\s*<p[^>]*>(.*?)</p>`)
-	reBingTag       = regexp.MustCompile(`<[^>]+>`)
-	reBingNumEntity = regexp.MustCompile(`&#(\d+);`)
-	reBingHexEntity = regexp.MustCompile(`&#x([0-9a-fA-F]+);`)
-	reBingMultiSpace = regexp.MustCompile(`\s+`)
+	reBingAlgo    = regexp.MustCompile(`<li class="b_algo"[\s>]`)
+	reBingH2Link  = regexp.MustCompile(`<h2[^>]*>\s*<a[^>]*href="(https?://[^"]+)"[^>]*>(.*?)</a>`)
+	reBingCaption = regexp.MustCompile(`<div class="b_caption">\s*<p[^>]*>(.*?)</p>`)
 )
-
-func stripBingHTML(s string) string {
-	s = reBingTag.ReplaceAllString(s, "")
-	s = strings.ReplaceAll(s, "&ensp;", " ")
-	s = strings.ReplaceAll(s, "&emsp;", "  ")
-	s = strings.ReplaceAll(s, "&thinsp;", " ")
-	s = strings.ReplaceAll(s, "&middot;", "·")
-	s = strings.ReplaceAll(s, "&mdash;", "—")
-	s = strings.ReplaceAll(s, "&ndash;", "–")
-	s = strings.ReplaceAll(s, "&amp;", "&")
-	s = strings.ReplaceAll(s, "&lt;", "<")
-	s = strings.ReplaceAll(s, "&gt;", ">")
-	s = strings.ReplaceAll(s, "&quot;", `"`)
-	s = strings.ReplaceAll(s, "&#39;", "'")
-	s = strings.ReplaceAll(s, "&nbsp;", " ")
-	s = reBingNumEntity.ReplaceAllStringFunc(s, func(match string) string {
-		sub := reBingNumEntity.FindStringSubmatch(match)
-		if len(sub) >= 2 {
-			var code int
-			fmt.Sscanf(sub[1], "%d", &code)
-			if code > 0 && code < 0x10FFFF {
-				return string(rune(code))
-			}
-		}
-		return match
-	})
-	s = reBingHexEntity.ReplaceAllStringFunc(s, func(match string) string {
-		sub := reBingHexEntity.FindStringSubmatch(match)
-		if len(sub) >= 2 {
-			var code int
-			fmt.Sscanf(sub[1], "%x", &code)
-			if code > 0 && code < 0x10FFFF {
-				return string(rune(code))
-			}
-		}
-		return match
-	})
-	s = reBingMultiSpace.ReplaceAllString(s, " ")
-	return strings.TrimSpace(s)
-}
 
 func (p *BingProvider) Search(ctx context.Context, query string) (*SearchResponse, error) {
 	u := fmt.Sprintf("https://www.bing.com/search?q=%s", url.QueryEscape(query))
@@ -127,8 +83,8 @@ func (p *BingProvider) Search(ctx context.Context, query string) (*SearchRespons
 			continue
 		}
 
-		href := stripBingHTML(linkMatch[1])
-		title := stripBingHTML(linkMatch[2])
+		href := stripHTML(linkMatch[1])
+		title := stripHTML(linkMatch[2])
 
 		if href == "" || title == "" {
 			continue
@@ -141,7 +97,7 @@ func (p *BingProvider) Search(ctx context.Context, query string) (*SearchRespons
 		snippet := ""
 		captionMatch := reBingCaption.FindStringSubmatch(chunk)
 		if len(captionMatch) >= 2 {
-			snippet = stripBingHTML(captionMatch[1])
+			snippet = stripHTML(captionMatch[1])
 		}
 
 		searchResp.Results = append(searchResp.Results, SearchResult{

@@ -33,9 +33,48 @@ type GGUFMetadata struct {
 	Architecture    string
 	BlockCount      int
 	EmbeddingLength int
+	ContextLength   int
 }
 
 func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
+	kvMap, err := ParseGGUFKV(path)
+	if err != nil {
+		return nil, err
+	}
+
+	meta := &GGUFMetadata{}
+	if v, ok := kvMap["general.architecture"].(string); ok {
+		meta.Architecture = v
+	}
+
+	if meta.Architecture != "" {
+		prefix := meta.Architecture + "."
+		for k, v := range kvMap {
+			if !strings.HasPrefix(k, prefix) {
+				continue
+			}
+			suffix := k[len(prefix):]
+			switch suffix {
+			case "block_count":
+				if n, ok := toInt(v); ok {
+					meta.BlockCount = n
+				}
+			case "embedding_length":
+				if n, ok := toInt(v); ok {
+					meta.EmbeddingLength = n
+				}
+			case "context_length":
+				if n, ok := toInt(v); ok {
+					meta.ContextLength = n
+				}
+			}
+		}
+	}
+
+	return meta, nil
+}
+
+func ParseGGUFKV(path string) (map[string]interface{}, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open gguf: %w", err)
@@ -86,32 +125,7 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 		kvMap[key] = value
 	}
 
-	meta := &GGUFMetadata{}
-	if v, ok := kvMap["general.architecture"].(string); ok {
-		meta.Architecture = v
-	}
-
-	if meta.Architecture != "" {
-		prefix := meta.Architecture + "."
-		for k, v := range kvMap {
-			if !strings.HasPrefix(k, prefix) {
-				continue
-			}
-			suffix := k[len(prefix):]
-			switch suffix {
-			case "block_count":
-				if n, ok := toInt(v); ok {
-					meta.BlockCount = n
-				}
-			case "embedding_length":
-				if n, ok := toInt(v); ok {
-					meta.EmbeddingLength = n
-				}
-			}
-		}
-	}
-
-	return meta, nil
+	return kvMap, nil
 }
 
 type ggufReader struct {

@@ -5,13 +5,34 @@
         <div class="switch-overlay-content">
           <div class="switch-spinner"></div>
           <div class="switch-model-name">{{ switchingToModel }}</div>
-          <div class="switch-progress-msg">正在切换模型...</div>
+          <div class="switch-progress-msg">
+            {{ settingsStore.waitingForStatusReady ? '正在启动模型...' : '正在切换模型...' }}
+          </div>
         </div>
       </div>
     </Transition>
     <div v-if="(!messages || messages.length === 0) && !isGenerating" class="message-list-empty">
-      <img :src="logoImage" alt="Logo" class="message-list-logo" />
-      <div class="message-list-empty-text">开始一段新对话</div>
+      <div class="welcome-container">
+        <div class="welcome-title">欢迎使用 Douya</div>
+        <div class="welcome-subtitle">智能对话助手 · 本地部署 · 隐私优先</div>
+        
+        <div class="quick-actions">
+          <div v-for="action in quickActions" :key="action.id" class="action-card" @click="handleQuickAction(action)">
+            <div class="action-icon">{{ action.icon }}</div>
+            <div class="action-content">
+              <div class="action-title">{{ action.title }}</div>
+              <div class="action-desc">{{ action.desc }}</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="tips-section">
+          <div class="tips-title">💡 提示</div>
+          <div class="tips-grid">
+            <div v-for="tip in tips" :key="tip.id" class="tip-item">{{ tip.text }}</div>
+          </div>
+        </div>
+      </div>
     </div>
     <template v-else>
       <MessageItem
@@ -39,7 +60,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch, ref, nextTick } from 'vue'
+import { computed, watch, ref, nextTick, onMounted } from 'vue'
 import { NSpin, useMessage } from 'naive-ui'
 import MessageItem from './MessageItem.vue'
 import ThinkBlock from './ThinkBlock.vue'
@@ -48,12 +69,32 @@ import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import { renderMarkdown } from '../utils/markdown'
 import { formatModelName } from '../utils/model'
-import logoImage from '../assets/images/logo.png'
-import defaultAiAvatar from '../assets/images/ai-avatar.svg'
+import { bindCodeCopyButtons } from '../utils/codeCopy'
+import defaultAiAvatar from '../assets/images/appicon.png'
 
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
 const message = useMessage()
+
+const quickActions = [
+  { id: 1, icon: '✍️', title: '写点什么', desc: '帮我写一段代码', prompt: '帮我写一段示例代码' },
+  { id: 2, icon: '💡', title: '头脑风暴', desc: '创意灵感激发', prompt: '帮我做一些头脑风暴，探索新想法' },
+  { id: 3, icon: '📚', title: '知识问答', desc: '探索任何话题', prompt: '我想了解一些有趣的知识' },
+  { id: 4, icon: '🎨', title: '创意写作', desc: '故事、诗歌、文案', prompt: '帮我创作一些有趣的内容' },
+  { id: 5, icon: '🔧', title: '问题解决', desc: '分析和解决问题', prompt: '我有一个问题需要解决' },
+  { id: 6, icon: '🤖', title: '自由对话', desc: '随便聊聊什么', prompt: '你好，我们来随便聊聊吧' }
+]
+
+const tips = [
+  { id: 1, text: '你可以发送图片进行视觉对话' },
+  { id: 2, text: '支持语音输入和音频理解' },
+  { id: 3, text: '长按消息可以复制或引用' },
+  { id: 4, text: '在设置中可以自定义背景图片' }
+]
+
+function handleQuickAction(action: any) {
+  chatStore.sendMessage(action.prompt, settingsStore.searchEnabled)
+}
 
 const backgroundStyle = computed(() => {
   if (settingsStore.config.chat_background) {
@@ -74,7 +115,7 @@ const isThinking = computed(() => chatStore.isThinking)
 const thinkingDuration = computed(() => chatStore.thinkingDuration)
 const searchQuery = computed(() => chatStore.searchQuery)
 
-const isSwitching = computed(() => !!settingsStore.serverStatus.switching)
+const isSwitching = computed(() => settingsStore.isModelSwitching)
 const switchingToModel = computed(() => {
   if (settingsStore.serverStatus.switching_to) {
     return formatModelName(settingsStore.serverStatus.switching_to).display
@@ -85,6 +126,11 @@ const switchingToModel = computed(() => {
 const renderedStreaming = computed(() => renderMarkdown(streamingContent.value))
 
 const messageListRef = ref<HTMLElement | null>(null)
+
+onMounted(() => {
+    const el = messageListRef.value
+    if (el) bindCodeCopyButtons(el)
+})
 
 const scrollToBottom = () => {
   const el = messageListRef.value
@@ -107,7 +153,11 @@ watch(() => chatStore.messages?.length, () => {
 
 watch(() => chatStore.streamingContent, () => {
   if (isNearBottom()) {
-    nextTick(scrollToBottom)
+    nextTick(() => {
+      scrollToBottom()
+      const el = messageListRef.value
+      if (el) bindCodeCopyButtons(el)
+    })
   }
 })
 
@@ -125,17 +175,10 @@ watch(() => chatStore.lastError, (err) => {
 </script>
 
 <style scoped>
-.message-list-logo {
-  width: 140px;
-  height: 140px;
-  object-fit: contain;
-  margin-bottom: 20px;
-}
-
 .message-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -146,26 +189,8 @@ watch(() => chatStore.lastError, (err) => {
   box-shadow: var(--shadow-sm);
 }
 
-.message-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.message-avatar .default-avatar {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
 .ai-avatar {
-  background: linear-gradient(135deg, #788c5d 0%, #6a7b52 100%);
-  color: white;
-}
-
-:global(.dark) .ai-avatar {
-  background: linear-gradient(135deg, #788c5d 0%, #6a7b52 100%);
-  color: white;
+  background: transparent;
 }
 
 .message-item {
@@ -185,90 +210,14 @@ watch(() => chatStore.lastError, (err) => {
 .message-bubble {
   padding: 16px 20px;
   border-radius: 16px;
-  word-break: break-word;
-  position: relative;
   box-shadow: var(--shadow-sm);
   box-sizing: border-box;
 }
 
 .ai-bubble {
   width: 100%;
-  background: var(--bg-ai-msg);
-  color: var(--text-ai-msg);
   border-top-left-radius: 4px;
   border: 1px solid var(--border-color);
-}
-
-.message-bubble :deep(.markdown-body) p {
-  margin-bottom: 12px;
-  line-height: 1.65;
-}
-
-.message-bubble :deep(.markdown-body) p:last-child {
-  margin-bottom: 0;
-}
-
-.message-bubble :deep(.markdown-body) pre {
-  background: var(--bg-code);
-  border-radius: 12px;
-  padding: 16px 18px;
-  overflow-x: auto;
-  margin: 14px 0;
-}
-
-.message-bubble :deep(.markdown-body) code {
-  font-family: 'SF Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
-  font-size: 14.5px;
-}
-
-.message-bubble :deep(.markdown-body) :not(pre) > code {
-  background: rgba(0, 0, 0, 0.08);
-  padding: 4px 10px;
-  border-radius: 8px;
-  font-size: 0.92em;
-  color: var(--text-primary);
-}
-
-.message-bubble.ai-bubble a {
-  color: var(--link-light);
-  text-decoration: none;
-  font-weight: 400;
-  transition: color 0.2s;
-}
-
-.message-bubble.ai-bubble a:hover {
-  color: var(--link-hover-light);
-  text-decoration: underline;
-}
-
-:global(.dark) .message-bubble.ai-bubble a {
-  color: var(--link-dark);
-}
-
-:global(.dark) .message-bubble.ai-bubble a:hover {
-  color: var(--link-hover-dark);
-}
-
-.message-bubble :deep(.citation-link) {
-  color: var(--link-light);
-  text-decoration: none;
-  font-weight: 500;
-  font-size: 0.88em;
-  cursor: pointer;
-  transition: color 0.2s;
-}
-
-.message-bubble :deep(.citation-link:hover) {
-  color: var(--link-hover-light);
-  text-decoration: underline;
-}
-
-:global(.dark) .message-bubble :deep(.citation-link) {
-  color: var(--link-dark);
-}
-
-:global(.dark) .message-bubble :deep(.citation-link:hover) {
-  color: var(--link-hover-dark);
 }
 
 .message-list-empty {
@@ -279,7 +228,144 @@ watch(() => chatStore.lastError, (err) => {
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
+  overflow-y: auto;
+  padding: 40px 20px;
+}
+
+.welcome-container {
+  width: 100%;
+  max-width: 800px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+
+.welcome-title {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.5px;
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.welcome-subtitle {
+  font-size: 15px;
+  color: var(--text-secondary);
+  letter-spacing: 0.3px;
+}
+
+.quick-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.action-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 20px;
+  background: var(--bg-primary);
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.25s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.action-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  border-color: var(--accent-primary);
+}
+
+.action-card:active {
+  transform: translateY(-1px);
+}
+
+.action-icon {
+  font-size: 28px;
+  flex-shrink: 0;
+}
+
+.action-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.action-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.action-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.tips-section {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.tips-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.tips-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.tip-item {
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  text-align: center;
+  border: 1px solid var(--border-color);
+  transition: all 0.2s ease;
+}
+
+.tip-item:hover {
+  border-color: var(--accent-primary);
+  background: var(--bg-primary);
+}
+
+/* 响应式适配 */
+@media (max-width: 700px) {
+  .quick-actions {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .tips-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .welcome-title {
+    font-size: 26px;
+  }
+}
+
+@media (max-width: 480px) {
+  .quick-actions {
+    grid-template-columns: 1fr;
+  }
 }
 
 .message-list-empty-text {

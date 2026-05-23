@@ -35,6 +35,21 @@ vi.mock('../services/wails', () => ({
     },
 }))
 
+function setupGeneratingState(store: ReturnType<typeof useChatStore>, convId: string = '') {
+    store.generatingConvId = convId
+    store.convStreamingStates.set(convId, {
+        isGenerating: true,
+        streamingContent: '',
+        thinkingContent: '',
+        searchResults: '',
+        isSearching: false,
+        isThinking: false,
+        thinkingStartTime: 0,
+        thinkingDuration: 0,
+        searchQuery: '',
+    })
+}
+
 describe('chat store - handleStreamEvent', () => {
     beforeEach(() => {
         setActivePinia(createPinia())
@@ -42,7 +57,7 @@ describe('chat store - handleStreamEvent', () => {
 
     it('should handle token event', () => {
         const store = useChatStore()
-        store.isGenerating = true
+        setupGeneratingState(store)
 
         store.handleStreamEvent({ type: 'token', content: '你' } as StreamEvent)
         store.handleStreamEvent({ type: 'token', content: '好' } as StreamEvent)
@@ -52,7 +67,7 @@ describe('chat store - handleStreamEvent', () => {
 
     it('should handle thinking event', () => {
         const store = useChatStore()
-        store.isGenerating = true
+        setupGeneratingState(store)
 
         store.handleStreamEvent({ type: 'thinking', content: '分析中' } as StreamEvent)
         store.handleStreamEvent({ type: 'thinking', content: '...' } as StreamEvent)
@@ -62,6 +77,7 @@ describe('chat store - handleStreamEvent', () => {
 
     it('should handle search_start event', () => {
         const store = useChatStore()
+        setupGeneratingState(store)
 
         store.handleStreamEvent({ type: 'search_start', content: 'test query' } as StreamEvent)
 
@@ -70,6 +86,7 @@ describe('chat store - handleStreamEvent', () => {
 
     it('should handle search_result event with string content', () => {
         const store = useChatStore()
+        setupGeneratingState(store)
 
         const searchResults = JSON.stringify([
             { title: '测试结果', url: 'https://example.com', snippet: '摘要' }
@@ -82,6 +99,7 @@ describe('chat store - handleStreamEvent', () => {
 
     it('should handle search_result event with object content', () => {
         const store = useChatStore()
+        setupGeneratingState(store)
 
         const searchResp = {
             results: [
@@ -96,9 +114,10 @@ describe('chat store - handleStreamEvent', () => {
 
     it('should handle done event', () => {
         const store = useChatStore()
-        store.isGenerating = true
-        store.streamingContent = 'test'
-        store.thinkingContent = 'think'
+        setupGeneratingState(store)
+        const state = store.convStreamingStates.get('')!
+        state.streamingContent = 'test'
+        state.thinkingContent = 'think'
 
         store.handleStreamEvent({ type: 'done', content: null } as StreamEvent)
 
@@ -210,8 +229,9 @@ describe('chat store - handleStreamEvent', () => {
 
     it('should handle error event', () => {
         const store = useChatStore()
-        store.isGenerating = true
-        store.streamingContent = 'partial'
+        setupGeneratingState(store)
+        const state = store.convStreamingStates.get('')!
+        state.streamingContent = 'partial'
 
         store.handleStreamEvent({ type: 'error', content: 'connection failed' } as StreamEvent)
 

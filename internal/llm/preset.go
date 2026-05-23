@@ -1,14 +1,14 @@
 package llm
 
 import (
-	"encoding/binary"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+
+	"douya/internal/system"
 )
 
 var quantSuffixRe = regexp.MustCompile(`(?i)-(Q\d+(_[A-Z0-9]+)+|IQ\d+_[A-Z0-9]+|BF16|F16|F32)$`)
@@ -348,147 +348,19 @@ func ReadMmprojCapabilities(mmprojPath string) MmprojCapabilities {
 		absPath = filepath.Join(".", mmprojPath)
 	}
 
-	f, err := os.Open(absPath)
+	kvMap, err := system.ParseGGUFKV(absPath)
 	if err != nil {
 		return caps
 	}
-	defer f.Close()
 
-	magic := make([]byte, 4)
-	if _, err := io.ReadFull(f, magic); err != nil || string(magic) != "GGUF" {
-		return caps
+	if v, ok := kvMap["clip.has_vision_encoder"].(bool); ok {
+		caps.HasVision = v
 	}
-
-	var version uint32
-	if err := binary.Read(f, binary.LittleEndian, &version); err != nil {
-		return caps
-	}
-
-	var nTensors uint64
-	if err := binary.Read(f, binary.LittleEndian, &nTensors); err != nil {
-		return caps
-	}
-
-	var nKV uint64
-	if err := binary.Read(f, binary.LittleEndian, &nKV); err != nil {
-		return caps
-	}
-
-	for i := uint64(0); i < nKV; i++ {
-		key, err := readGGUFString(f)
-		if err != nil {
-			return caps
-		}
-
-		var vtype uint32
-		if err := binary.Read(f, binary.LittleEndian, &vtype); err != nil {
-			return caps
-		}
-
-		if key == "clip.has_vision_encoder" {
-			if vtype == 7 {
-				var val bool
-				if err := binary.Read(f, binary.LittleEndian, &val); err == nil {
-					caps.HasVision = val
-				}
-			} else {
-				if err := skipGGUFValue(f, vtype); err != nil {
-					return caps
-				}
-			}
-		} else if key == "clip.has_audio_encoder" {
-			if vtype == 7 {
-				var val bool
-				if err := binary.Read(f, binary.LittleEndian, &val); err == nil {
-					caps.HasAudio = val
-				}
-			} else {
-				if err := skipGGUFValue(f, vtype); err != nil {
-					return caps
-				}
-			}
-		} else {
-			if err := skipGGUFValue(f, vtype); err != nil {
-				return caps
-			}
-		}
+	if v, ok := kvMap["clip.has_audio_encoder"].(bool); ok {
+		caps.HasAudio = v
 	}
 
 	return caps
-}
-
-func readGGUFString(f io.Reader) (string, error) {
-	var length uint64
-	if err := binary.Read(f, binary.LittleEndian, &length); err != nil {
-		return "", err
-	}
-	buf := make([]byte, length)
-	if _, err := io.ReadFull(f, buf); err != nil {
-		return "", err
-	}
-	return string(buf), nil
-}
-
-func skipGGUFValue(f io.ReadSeeker, vtype uint32) error {
-	switch vtype {
-	case 0:
-		_, err := f.Seek(1, 1)
-		return err
-	case 1:
-		_, err := f.Seek(1, 1)
-		return err
-	case 2:
-		_, err := f.Seek(2, 1)
-		return err
-	case 3:
-		_, err := f.Seek(2, 1)
-		return err
-	case 4:
-		_, err := f.Seek(4, 1)
-		return err
-	case 5:
-		_, err := f.Seek(4, 1)
-		return err
-	case 6:
-		_, err := f.Seek(4, 1)
-		return err
-	case 7:
-		_, err := f.Seek(1, 1)
-		return err
-	case 8:
-		var length uint64
-		if err := binary.Read(f, binary.LittleEndian, &length); err != nil {
-			return err
-		}
-		_, err := f.Seek(int64(length), 1)
-		return err
-	case 9:
-		var elemType uint32
-		if err := binary.Read(f, binary.LittleEndian, &elemType); err != nil {
-			return err
-		}
-		var count uint64
-		if err := binary.Read(f, binary.LittleEndian, &count); err != nil {
-			return err
-		}
-		for i := uint64(0); i < count; i++ {
-			if err := skipGGUFValue(f, elemType); err != nil {
-				return err
-			}
-		}
-		return nil
-	case 10:
-		_, err := f.Seek(8, 1)
-		return err
-	case 11:
-		_, err := f.Seek(8, 1)
-		return err
-	case 12:
-		_, err := f.Seek(8, 1)
-		return err
-	default:
-		return fmt.Errorf("unknown GGUF value type: %d", vtype)
-	}
 }
 
 func StripQuantSuffix(name string) string {

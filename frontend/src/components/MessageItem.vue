@@ -68,11 +68,12 @@ import { useMessage, useDialog } from 'naive-ui'
 import ThinkBlock from './ThinkBlock.vue'
 import SearchStatus from './SearchStatus.vue'
 import { renderMarkdown, renderMermaidInElement } from '../utils/markdown'
+import { bindCodeCopyButtons } from '../utils/codeCopy'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import type { Message, AttachmentSummary } from '../services/wails'
 import defaultUserAvatar from '../assets/images/user-avatar.svg'
-import defaultAiAvatar from '../assets/images/ai-avatar.svg'
+import defaultAiAvatar from '../assets/images/appicon.png'
 
 const props = defineProps<{ message: Message }>()
 const chatStore = useChatStore()
@@ -153,14 +154,20 @@ const findPreviousUserMessage = () => {
 const rootRef = ref<HTMLElement>()
 
 onMounted(() => {
-  const el = rootRef.value
-  if (el) renderMermaidInElement(el)
+    const el = rootRef.value
+    if (el) {
+        renderMermaidInElement(el)
+        bindCodeCopyButtons(el)
+    }
 })
 
 watch(renderedContent, async () => {
-  await Promise.resolve()
-  const el = rootRef.value
-  if (el) renderMermaidInElement(el)
+    await Promise.resolve()
+    const el = rootRef.value
+    if (el) {
+        renderMermaidInElement(el)
+        bindCodeCopyButtons(el)
+    }
 })
 
 function copyContent() {
@@ -207,7 +214,7 @@ function regenerate() {
 .message-item {
   display: flex;
   gap: 12px;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
   position: relative;
   width: 100%;
   max-width: var(--msg-max-width);
@@ -224,9 +231,9 @@ function regenerate() {
 }
 
 .message-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -237,31 +244,12 @@ function regenerate() {
   box-shadow: var(--shadow-sm);
 }
 
-.message-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.message-avatar .default-avatar {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
 .user-avatar {
-  background: linear-gradient(135deg, #95ec69 0%, #7dd456 100%);
-  color: white;
+  background: transparent;
 }
 
 .ai-avatar {
-  background: linear-gradient(135deg, #788c5d 0%, #6a7b52 100%);
-  color: white;
-}
-
-:global(.dark) .user-avatar {
-  background: linear-gradient(135deg, #86e6ab 0%, #6cd394 100%);
-  color: #0f1a13;
+  background: transparent;
 }
 
 .message-bubble-wrapper {
@@ -283,10 +271,8 @@ function regenerate() {
 
 .message-bubble {
   padding: 16px 20px;
-  border-radius: 16px;
-  word-break: break-word;
-  position: relative;
-  box-shadow: var(--shadow-sm);
+  border-radius: 18px;
+  box-shadow: var(--shadow-md);
   transition: all var(--transition-fast);
   box-sizing: border-box;
 }
@@ -297,7 +283,7 @@ function regenerate() {
   min-width: 0;
   background: var(--bg-user-msg);
   color: var(--text-user-msg);
-  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
 }
 
 .ai-bubble {
@@ -306,7 +292,7 @@ function regenerate() {
   min-width: 0;
   background: var(--bg-ai-msg);
   color: var(--text-ai-msg);
-  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
   border: 1px solid var(--border-color);
 }
 
@@ -466,81 +452,18 @@ function regenerate() {
 }
 
 .message-image {
-  max-width: 220px;
-  max-height: 220px;
-  border-radius: 12px;
+  max-width: 240px;
+  max-height: 240px;
+  border-radius: 14px;
   cursor: zoom-in;
   object-fit: cover;
-  transition: opacity 0.2s;
-  border: 2px solid rgba(255, 255, 255, 0.1);
+  transition: transform 0.2s, box-shadow 0.2s;
+  border: 1px solid var(--border-color);
 }
 
 .message-image:hover {
-  opacity: 0.9;
-  border-color: rgba(255, 255, 255, 0.2);
-}
-
-.message-bubble.user-bubble::before {
-  content: '';
-  position: absolute;
-  right: -8px;
-  top: 16px;
-  width: 0;
-  height: 0;
-  border-style: solid;
-  border-width: 8px 0 8px 10px;
-  border-color: transparent transparent transparent var(--bg-user-msg);
-}
-
-.message-bubble.ai-bubble::before {
-  content: '';
-  position: absolute;
-  left: -8px;
-  top: 16px;
-  width: 0;
-  height: 0;
-  border-style: solid;
-  border-width: 8px 10px 8px 0;
-  border-color: transparent var(--bg-ai-msg) transparent transparent;
-}
-
-.message-bubble :deep(.markdown-body) p {
-  margin-bottom: 12px;
-  line-height: 1.65;
-}
-
-.message-bubble :deep(.markdown-body) p:last-child {
-  margin-bottom: 0;
-}
-
-.message-bubble :deep(.markdown-body) pre {
-  background: var(--bg-code);
-  border-radius: 12px;
-  padding: 16px 18px;
-  overflow-x: auto;
-  margin: 14px 0;
-}
-
-.message-bubble :deep(.markdown-body) code {
-  font-family: 'SF Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
-  font-size: 14.5px;
-}
-
-.message-bubble :deep(.markdown-body) :not(pre) > code {
-  background: rgba(0, 0, 0, 0.08);
-  padding: 4px 10px;
-  border-radius: 8px;
-  font-size: 0.92em;
-  color: var(--text-primary);
-}
-
-:global(.dark) .message-bubble :deep(.markdown-body) :not(pre) > code {
-  background: rgba(255, 255, 255, 0.12);
-  color: var(--text-primary);
-}
-
-:global(.dark) .message-bubble :deep(.markdown-body) pre code {
-  color: var(--text-ai-msg);
+  transform: scale(1.02);
+  box-shadow: var(--shadow-md);
 }
 
 .message-bubble :deep(.markdown-body) blockquote {
@@ -595,25 +518,5 @@ function regenerate() {
   max-width: 100%;
   border-radius: 12px;
   margin: 12px 0;
-}
-
-.message-bubble.ai-bubble :deep(a) {
-  color: var(--link-light);
-  text-decoration: none;
-  font-weight: 400;
-  transition: color 0.2s;
-}
-
-.message-bubble.ai-bubble :deep(a:hover) {
-  color: var(--link-hover-light);
-  text-decoration: underline;
-}
-
-:global(.dark) .message-bubble.ai-bubble :deep(a) {
-  color: var(--link-dark);
-}
-
-:global(.dark) .message-bubble.ai-bubble :deep(a:hover) {
-  color: var(--link-hover-dark);
 }
 </style>
