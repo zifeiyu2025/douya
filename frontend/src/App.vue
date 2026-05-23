@@ -18,7 +18,7 @@
               </div>
               <div class="main-header-right">
                 <n-select
-                  v-model:value="selectedModel"
+                  :value="selectedModel"
                   :options="modelOptions"
                   size="small"
                   placeholder="选择模型"
@@ -129,6 +129,7 @@ function stopSwitchDurationTimer() {
 }
 
 watch(() => settingsStore.currentModel, (newModel) => {
+  if (isModelSwitching.value) return
   if (newModel && newModel !== selectedModel.value) {
     const match = modelOptions.value.find(m => m.value === newModel)
     if (match) {
@@ -137,7 +138,7 @@ watch(() => settingsStore.currentModel, (newModel) => {
   }
 })
 
-const modelOptions = ref<{ label: string; value: string; fullName: string; quantSuffix: string; isLoaded: boolean }[]>([])
+const modelOptions = ref<{ label: string; value: string; fullName: string; quantSuffix: string; isLoaded: boolean; mmprojVision: boolean; mmprojAudio: boolean; status: string }[]>([])
 const availableModels = ref<ModelOption[]>([])
 const selectedModel = ref('')
 
@@ -165,14 +166,30 @@ const currentTitle = computed(() => {
   return fixUtf8(conv?.title || '豆芽 AI')
 })
 
-function renderModelLabel(option: { label: string; value: string; fullName?: string; quantSuffix?: string; isLoaded?: boolean }) {
+function renderModelLabel(option: { label: string; value: string; fullName?: string; quantSuffix?: string; isLoaded?: boolean; mmprojVision?: boolean; mmprojAudio?: boolean; status?: string }) {
   const children = [h('span', option.label)]
   if (option.quantSuffix) {
     children.push(h('span', {
       style: 'color: var(--text-muted); font-size: 11px; margin-left: 4px; font-weight: 400;'
     }, option.quantSuffix))
   }
-  if (option.isLoaded) {
+  const tags: string[] = []
+  if (option.mmprojVision) tags.push('📷')
+  if (option.mmprojAudio) tags.push('🎤')
+  if (tags.length > 0) {
+    children.push(h('span', {
+      style: 'margin-left: 6px; font-size: 11px;'
+    }, tags.join(' ')))
+  }
+  if (option.status === 'sleeping') {
+    children.push(h('span', {
+      style: 'color: #f0a020; margin-left: 6px; font-size: 10px;'
+    }, '💤'))
+  } else if (option.status === 'loading') {
+    children.push(h('span', {
+      style: 'color: var(--accent-primary); margin-left: 6px; font-size: 10px;'
+    }, '⏳'))
+  } else if (option.isLoaded) {
     children.push(h('span', {
       style: 'color: var(--accent-primary); margin-left: 6px; font-size: 10px;'
     }, '●'))
@@ -197,6 +214,9 @@ async function loadAvailableModels() {
         fullName: m.file_name || m.name,
         quantSuffix,
         isLoaded: m.is_loaded,
+        mmprojVision: m.mmproj_vision,
+        mmprojAudio: m.mmproj_audio,
+        status: m.status,
       }
     })
 
@@ -218,9 +238,7 @@ async function handleModelChange(value: string) {
     return
   }
 
-  if (selectedModel.value === value) return
-
-  const previousModel = selectedModel.value
+  const previousModel = settingsStore.currentModel || selectedModel.value
   selectedModel.value = value
 
   try {

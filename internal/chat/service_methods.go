@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"douya/internal/config"
 	"time"
 	"encoding/json"
@@ -99,16 +100,137 @@ func (s *Service) GetMessages(conversationID string) ([]*Message, error) {
 	return filtered, nil
 }
 
-// DeleteMessage deletes a single message.
+// DeleteMessage deletes a message and, if it's a user message, also deletes
+// the subsequent assistant reply in the same conversation.
 func (s *Service) DeleteMessage(id string) error {
-	return store.DeleteMessage(s.db, id)
+	msg, err := store.GetMessage(s.db, id)
+	if err != nil {
+		return fmt.Errorf("get message: %w", err)
+	}
+
+	convID := msg.ConversationID
+
+	deletedIDs := []string{id}
+
+	if msg.Role == "user" {
+		msgs, err := store.GetMessagesByConversation(s.db, convID)
+		if err != nil {
+			return fmt.Errorf("load conversation messages: %w", err)
+		}
+		found := false
+		for _, m := range msgs {
+			if m.ID == id {
+				found = true
+				continue
+			}
+			if found && m.Role == "assistant" {
+				deletedIDs = append(deletedIDs, m.ID)
+			}
+			if found && m.Role != "assistant" {
+				break
+			}
+		}
+	}
+
+	for _, delID := range deletedIDs {
+		if delErr := store.DeleteMessage(s.db, delID); delErr != nil {
+			log.Error().Err(delErr).Str("id", delID).Msg("[chat] delete message failed")
+		}
+		s.emitForConv(convID, "message_deleted", delID)
+	}
+
+	return nil
 }
 
 // RegenerateMessage regenerates the last assistant message in a conversation.
 func (s *Service) RegenerateMessage(msgID string, searchEnabled bool) error {
-	s.StopGeneration()
-	log.Info().Str("msgID", msgID).Bool("searchEnabled", searchEnabled).Msg("[chat] RegenerateMessage called")
-	return nil
+	s.mutex.Lock()
+	var oldCancel context.CancelFunc
+	var oldConvID string
+	if s.currentCancel != nil {
+		oldCancel = s.currentCancel
+		oldConvID = s.currentConvID
+	}
+	cancelCtx, cancel := context.WithCancel(s.wailsCtx)
+	s.currentCancel = cancel
+	s.mutex.Unlock()
+	if oldCancel != nil {
+		oldCancel()
+		if oldConvID != "" {
+			s.emitForConv(oldConvID, "stopped", nil)
+		}
+	}
+	defer func() {
+		s.mutex.Lock()
+		s.currentCancel = nil
+		s.currentConvID = ""
+		s.mutex.Unlock()
+	}()
+
+	targetMsg, err := store.GetMessage(s.db, msgID)
+	if err != nil {
+		return fmt.Errorf("message %s not found: %w", msgID, err)
+	}
+
+	convID := targetMsg.ConversationID
+
+	msgs, err := store.GetMessagesByConversation(s.db, convID)
+	if err != nil {
+		return fmt.Errorf("load messages: %w", err)
+	}
+
+	var targetIdx int
+	found := false
+	for i, m := range msgs {
+		if m.ID == msgID {
+			targetIdx = i
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("message %s not found in conversation", msgID)
+	}
+
+	var assistantMsgIDs []string
+	for i := targetIdx + 1; i < len(msgs); i++ {
+		if msgs[i].Role == "assistant" {
+			assistantMsgIDs = append(assistantMsgIDs, msgs[i].ID)
+		} else {
+			break
+		}
+	}
+	for _, id := range assistantMsgIDs {
+		if delErr := store.DeleteMessage(s.db, id); delErr != nil {
+			log.Error().Err(delErr).Str("id", id).Msg("delete assistant message for regeneration")
+		}
+		s.emitForConv(convID, "message_deleted", id)
+	}
+
+	s.mutex.Lock()
+	s.currentConvID = convID
+	s.mutex.Unlock()
+
+	var userContent string
+	var userAttachments []Attachment
+	if targetMsg.Role == "user" {
+		userContent = targetMsg.Content
+		if targetMsg.Attachments != "" {
+			_ = json.Unmarshal([]byte(targetMsg.Attachments), &userAttachments)
+		}
+	}
+
+	dbMsgs, err := store.GetMessagesByConversation(s.db, convID)
+	if err != nil {
+		return fmt.Errorf("reload messages: %w", err)
+	}
+
+	llmMessages, err := s.buildLLMMessages(dbMsgs, userContent, userAttachments, searchEnabled)
+	if err != nil {
+		return err
+	}
+
+	return s.streamWithSearch(cancelCtx, convID, llmMessages, searchEnabled, userContent, userContent)
 }
 
 // SearchMessages searches messages across all conversations.

@@ -50,6 +50,7 @@ type Service struct {
 	currentConvID     string
 	mutex             sync.Mutex
 	modelCaps         llm.ModelCapabilities
+	modelCapsMu       sync.RWMutex
 	detectedModelName string
 	sysPromptCache    string
 	sysPromptDate     string
@@ -125,6 +126,7 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 	caps := llm.DetectCapabilities(*info)
 
 	var supportsReasoning bool
+	var mmprojLoaded bool
 
 	props, propsErr := s.llmClient.GetServerProps(ctx, modelName)
 	if propsErr == nil {
@@ -134,12 +136,9 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 			Interface("chat_template_caps", props.ChatTemplateCaps).
 			Msg("[model] /props")
 
-		if props.Modalities.Vision {
-			caps.ImageInput = true
-		}
-		if props.Modalities.Audio {
-			caps.AudioInput = true
-		}
+		mmprojLoaded = props.Modalities.Vision || props.Modalities.Audio
+		caps.ImageInput = props.Modalities.Vision
+		caps.AudioInput = props.Modalities.Audio
 
 		if props.ChatTemplateCaps != nil {
 			if v, ok := props.ChatTemplateCaps["supports_preserve_reasoning"]; ok && v {
@@ -150,12 +149,15 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 		log.Warn().Err(propsErr).Msg("[model] /props failed, using /v1/models capabilities as fallback")
 	}
 
+	s.modelCapsMu.Lock()
 	s.modelCaps = llm.ModelCapabilities{
-		ImageInput: caps.ImageInput,
-		AudioInput: caps.AudioInput,
-		TextInput:  caps.TextInput,
-		Reasoning:  supportsReasoning,
+		ImageInput:   caps.ImageInput,
+		AudioInput:   caps.AudioInput,
+		TextInput:    caps.TextInput,
+		Reasoning:    supportsReasoning,
+		MmprojLoaded: mmprojLoaded,
 	}
+	s.modelCapsMu.Unlock()
 	// FIX: Only set detectedModelName when it's empty (called from DetectModelArchitecture without model name).
 	// When called from SwitchModel, SetDetectedModelName() has already set the correct name.
 	// Do NOT overwrite with info.Name, which may differ from the user-selected model name.
@@ -190,17 +192,9 @@ func (s *Service) InvalidatePromptCache() {
 	s.sysPromptConfig = ""
 }
 
-func (s *Service) GetModelArchitecture() string {
-	if s.modelCaps.ImageInput && s.modelCaps.AudioInput {
-		return "multimodal"
-	}
-	if s.modelCaps.ImageInput {
-		return "vision"
-	}
-	return "text"
-}
-
 func (s *Service) GetModelCapabilities() llm.ModelCapabilities {
+	s.modelCapsMu.RLock()
+	defer s.modelCapsMu.RUnlock()
 	return s.modelCaps
 }
 func (s *Service) modelNameForRequest() string {
@@ -935,12 +929,15 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 		maxContext = 4096
 	}
 
-	// Phase 1: Check model capabilities against current attachments (Ollama-style strict check)
+	s.modelCapsMu.RLock()
+	caps := s.modelCaps
+	s.modelCapsMu.RUnlock()
+
 	for _, att := range currentAttachments {
-		if att.Type == "image" && !s.modelCaps.ImageInput {
+		if att.Type == "image" && !caps.ImageInput {
 			return nil, fmt.Errorf("当前模型不支持图片输入，请加载支持视觉的模型（如 llava 系列）")
 		}
-		if att.Type == "audio" && !s.modelCaps.AudioInput {
+		if att.Type == "audio" && !caps.AudioInput {
 			return nil, fmt.Errorf("当前模型不支持音频输入，请加载支持音频的模型（如 whisper 系列）")
 		}
 	}
@@ -1071,11 +1068,11 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 				// Phase1: Check model capabilities for historical attachments
 				supportsAll := true
 				for _, att := range dbAttachments {
-					if att.Type == "image" && !s.modelCaps.ImageInput {
+					if att.Type == "image" && !caps.ImageInput {
 						supportsAll = false
 						break
 					}
-					if att.Type == "audio" && !s.modelCaps.AudioInput {
+					if att.Type == "audio" && !caps.AudioInput {
 						supportsAll = false
 						break
 					}
@@ -1086,8 +1083,7 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 					msg = llm.NewTextMessage(m.Role, content)
 				}
 			} else if m.Images != "" {
-				// Check if model supports vision
-				if s.modelCaps.ImageInput {
+				if caps.ImageInput {
 					var imageUrls []string
 					if err := json.Unmarshal([]byte(m.Images), &imageUrls); err == nil && len(imageUrls) > 0 {
 						msg = llm.NewVisionMessage(m.Role, content, imageUrls)
@@ -1101,8 +1097,7 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 				msg = llm.NewTextMessage(m.Role, content)
 			}
 		} else if m.Role == "user" && m.Images != "" {
-			// Phase1: Check if model supports vision
-			if s.modelCaps.ImageInput {
+		if caps.ImageInput {
 				var imageUrls []string
 				if err := json.Unmarshal([]byte(m.Images), &imageUrls); err == nil && len(imageUrls) > 0 {
 					msg = llm.NewVisionMessage(m.Role, content, imageUrls)
@@ -1184,7 +1179,6 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 				}
 			}
 		}
-		_ = ctxRag
 	}
 
 	var messages []llm.ChatMessage

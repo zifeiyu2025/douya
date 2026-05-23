@@ -434,6 +434,7 @@ func parseCapabilitiesRaw(raw json.RawMessage) []string {
 type ListedModel struct {
 	ID           string   `json:"id"`
 	Capabilities []string `json:"capabilities"`
+	Status       string   `json:"status"`
 }
 
 type ServerProps struct {
@@ -560,8 +561,11 @@ func (c *Client) GetModelsList(ctx context.Context) ([]ListedModel, error) {
 
 	var raw struct {
 		Data []struct {
-			ID           string   `json:"id"`
+			ID           string `json:"id"`
 			Capabilities []string `json:"capabilities"`
+			Status       struct {
+				Value string `json:"value"`
+			} `json:"status"`
 		} `json:"data"`
 	}
 
@@ -574,10 +578,31 @@ func (c *Client) GetModelsList(ctx context.Context) ([]ListedModel, error) {
 		models = append(models, ListedModel{
 			ID:           d.ID,
 			Capabilities: d.Capabilities,
+			Status:       d.Status.Value,
 		})
 	}
 
 	return models, nil
+}
+
+func (c *Client) ReloadModels(ctx context.Context) error {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/models?reload", nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("reload models request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("reload models returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return nil
 }
 
 type ModelStatus struct {

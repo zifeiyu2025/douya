@@ -138,9 +138,6 @@ type ChatCompletionRequest struct {
 	TopP          float64          `json:"top_p,omitempty"`
 	TopK          int              `json:"top_k,omitempty"`
 	RepeatPenalty float64          `json:"repeat_penalty,omitempty"`
-	TopNSigma     float64          `json:"top_nsigma,omitempty"`
-	AdaptiveTarget float64         `json:"adaptive_target,omitempty"`
-	AdaptiveDecay float64          `json:"adaptive_decay,omitempty"`
 	Tools         []ToolDefinition `json:"tools,omitempty"`
 }
 
@@ -176,10 +173,11 @@ type ServerStatus struct {
 }
 
 type ModelCapabilities struct {
-	ImageInput bool `json:"image_input"`
-	AudioInput bool `json:"audio_input"`
-	TextInput  bool `json:"text_input"`
-	Reasoning  bool `json:"reasoning"`
+	ImageInput   bool `json:"image_input"`
+	AudioInput   bool `json:"audio_input"`
+	TextInput    bool `json:"text_input"`
+	Reasoning    bool `json:"reasoning"`
+	MmprojLoaded bool `json:"mmproj_loaded"`
 }
 
 // EmbeddingRequest represents a request to /v1/embeddings

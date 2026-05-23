@@ -13,7 +13,7 @@ import (
 
 // waitForVRAMRelease blocks until nvidia-smi reports no llama-server GPU usage.
 // Times out after vramCheckTimeout seconds.
-func (s *Server) waitForVRAMRelease() {
+func (s *Server) WaitForVRAMRelease() {
 	log.Info().Msg("[VRAM] waiting for VRAM to be released...")
 	deadline := time.Now().Add(vramCheckTimeout * time.Second)
 	for time.Now().Before(deadline) {

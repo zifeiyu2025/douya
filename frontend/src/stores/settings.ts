@@ -79,6 +79,7 @@ export const useSettingsStore = defineStore('settings', () => {
         audio_input: false,
         text_input: true,
         reasoning: false,
+        mmproj_loaded: false,
     })
     const currentModel = ref('')
     const modelLoadError = ref('')
@@ -288,35 +289,6 @@ export const useSettingsStore = defineStore('settings', () => {
                 modelCapabilities.value = status.capabilities
             }
 
-            // Handle switching progress from server status updates
-            if (status.switching && isModelSwitching.value) {
-                // Server indicates switching in progress
-                const currentStage = switchProgress.value.stage
-
-                // Update stage based on current progress
-                if (currentStage === 'unloading') {
-                    switchProgress.value = {
-                        ...switchProgress.value,
-                        stage: 'loading',
-                    }
-                } else if (currentStage === 'loading') {
-                    switchProgress.value = {
-                        ...switchProgress.value,
-                        stage: 'waiting',
-                    }
-                } else if (currentStage === 'waiting') {
-                    switchProgress.value = {
-                        ...switchProgress.value,
-                        stage: 'detecting',
-                    }
-                }
-
-                const chatStore = useChatStore()
-                chatStore.forceResetGenerating()
-                modelLoadError.value = ''
-            }
-
-            // Handle model change completion
             if (status.current_model && !isModelSwitching.value) {
                 const oldModel = currentModel.value
                 currentModel.value = status.current_model
@@ -325,30 +297,9 @@ export const useSettingsStore = defineStore('settings', () => {
                 }
             }
 
-            // Handle running state - may indicate switch completed
-            if (status.running && isModelSwitching.value && switchProgress.value.stage !== 'idle') {
-                // Server is running - check if switch is complete
-                if (status.current_model && status.current_model !== previousModelBeforeSwitch.value) {
-                    // Model changed successfully
-                    switchProgress.value = {
-                        ...switchProgress.value,
-                        stage: 'done',
-                        endTime: Date.now(),
-                    }
-
-                    setTimeout(() => {
-                        isModelSwitching.value = false
-                        switchingModelDisplay.value = ''
-                        switchStartedAt.value = 0
-                        previousModelBeforeSwitch.value = ''
-                        resetSwitchProgress()
-                    }, 1500)
-                }
-            }
-
             if (status.running) {
                 stopStatusPolling()
-            } else if (!status.switching) {
+            } else if (!status.switching && !isModelSwitching.value) {
                 startStatusPolling()
             }
         })

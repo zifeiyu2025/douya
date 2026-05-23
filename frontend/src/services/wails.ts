@@ -29,6 +29,7 @@ export interface ModelCapabilities {
     audio_input: boolean
     text_input: boolean
     reasoning: boolean
+    mmproj_loaded: boolean
 }
 
 export interface Attachment {
@@ -99,6 +100,9 @@ export interface ModelOption {
     file_name: string
     is_default: boolean
     is_loaded: boolean
+    mmproj_vision: boolean
+    mmproj_audio: boolean
+    status: string
 }
 
 export interface SwitchResult {
@@ -135,6 +139,7 @@ import {
     PrepareShutdown,
     GetAvailableModels,
     SwitchModel,
+    ReloadModels,
 } from '../../wailsjs/go/main/App'
 
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
@@ -157,6 +162,7 @@ export const wails = {
     regenerateMessage: RegenerateMessage as (userMessageID: string, searchEnabled: boolean) => Promise<void>,
     getAvailableModels: GetAvailableModels as () => Promise<ModelOption[]>,
     switchModel: SwitchModel as unknown as (modelName: string) => Promise<SwitchResult>,
+    reloadModels: ReloadModels as () => Promise<void>,
     onChatStream: (callback: (event: StreamEvent) => void) => {
         EventsOn('chat:stream', callback)
     },

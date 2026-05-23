@@ -81,7 +81,7 @@ func (s *Server) Start() error {
 			log.Error().Err(err).Msg("stop existing server before restart")
 		}
 		// wait for VRAM to be fully released before loading new model
-		s.waitForVRAMRelease()
+		s.WaitForVRAMRelease()
 		log.Info().Msg("old model VRAM released, now starting new model...")
 		s.mu.Lock()  // re-acquire lock
 	}

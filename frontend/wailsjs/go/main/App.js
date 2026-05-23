@@ -38,10 +38,6 @@ export function GetMessages(arg1) {
   return window['go']['main']['App']['GetMessages'](arg1);
 }
 
-export function GetModelArchitecture() {
-  return window['go']['main']['App']['GetModelArchitecture']();
-}
-
 export function GetModelCapabilities() {
   return window['go']['main']['App']['GetModelCapabilities']();
 }
@@ -56,6 +52,10 @@ export function PrepareShutdown() {
 
 export function RegenerateMessage(arg1, arg2) {
   return window['go']['main']['App']['RegenerateMessage'](arg1, arg2);
+}
+
+export function ReloadModels() {
+  return window['go']['main']['App']['ReloadModels']();
 }
 
 export function RenameConversation(arg1, arg2) {

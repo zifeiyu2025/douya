@@ -53,7 +53,8 @@
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
                 <span>图片</span>
-                <span v-if="!capabilities.image_input" class="unsupported-tag">不支持</span>
+                <span v-if="!capabilities.mmproj_loaded" class="unsupported-tag">未加载mmproj</span>
+                <span v-else-if="!capabilities.image_input" class="unsupported-tag">不支持</span>
               </button>
               <button
                 class="attach-menu-item"
@@ -62,7 +63,8 @@
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
                 <span>音频</span>
-                <span v-if="!capabilities.audio_input" class="unsupported-tag">不支持</span>
+                <span v-if="!capabilities.mmproj_loaded" class="unsupported-tag">未加载mmproj</span>
+                <span v-else-if="!capabilities.audio_input" class="unsupported-tag">不支持</span>
               </button>
               <button
                 class="attach-menu-item"
@@ -190,7 +192,7 @@ const speechSupported = computed(() => {
 
 const searchEnabled = computed(() => settingsStore.searchEnabled)
 const capabilities = computed(() => settingsStore.modelCapabilities)
-const isSwitching = computed(() => !!settingsStore.serverStatus.switching)
+const isSwitching = computed(() => settingsStore.isModelSwitching)
 const canSend = computed(() => !isSwitching.value && (inputText.value.trim() || attachments.value.length > 0))
 
 function adjustHeight() {

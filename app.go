@@ -241,6 +241,9 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 	a.watchCancel = watchCancel
 	a.serverMu.Unlock()
 	go srv.WatchWithCallback(watchCtx, func(status llm.ServerStatus) {
+		if a.isSwitching.Load() {
+			return
+		}
 		if status.Running {
 			a.serverReady.Store(true)
 			caps := a.service.GetModelCapabilities()
@@ -678,13 +681,6 @@ func (a *App) GetCleanupResult() []*chat.AbnormalConversation {
 	return result
 }
 
-func (a *App) GetModelArchitecture() string {
-	if a.service == nil {
-		return ""
-	}
-	return a.service.GetModelArchitecture()
-}
-
 func (a *App) GetModelCapabilities() llm.ModelCapabilities {
 	if a.service == nil {
 		return llm.ModelCapabilities{TextInput: true}
@@ -736,10 +732,12 @@ func (a *App) GetAvailableModels() ([]llm.ModelOption, error) {
 	options := make([]llm.ModelOption, 0, len(a.presets))
 
 	loadedModels := map[string]bool{}
+	modelStatuses := map[string]string{}
 	if a.client != nil && a.serverReady.Load() {
 		if models, err := a.client.GetModelsList(a.ctx); err == nil {
 			for _, m := range models {
 				loadedModels[m.ID] = true
+				modelStatuses[m.ID] = m.Status
 			}
 		}
 	}
@@ -748,11 +746,14 @@ func (a *App) GetAvailableModels() ([]llm.ModelOption, error) {
 		isDefault := p.Alias == "default"
 		fileName := filepath.Base(p.ModelPath)
 		options = append(options, llm.ModelOption{
-			Name:      p.Name,
-			ModelPath: p.ModelPath,
-			FileName:  fileName,
-			IsDefault: isDefault,
-			IsLoaded:  loadedModels[p.Name],
+			Name:         p.Name,
+			ModelPath:    p.ModelPath,
+			FileName:     fileName,
+			IsDefault:    isDefault,
+			IsLoaded:     loadedModels[p.Name],
+			MmprojVision: p.MmprojVision,
+			MmprojAudio:  p.MmprojAudio,
+			Status:       modelStatuses[p.Name],
 		})
 	}
 
@@ -789,59 +790,6 @@ func (a *App) emitSwitchSuccess(modelName string) {
 	})
 }
 
-// rollbackModel attempts to restore the previous model after a switch failure.
-// It runs asynchronously (called from a goroutine) and handles panic recovery,
-// switchingTo conflict detection, and state cleanup.
-func (a *App) rollbackModel(previousModel, failedModel, reason string) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("[router] panic during model rollback (%s): %v", reason, r)
-			runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
-				Running: false,
-				Error:   fmt.Sprintf("模型回滚时发生内部错误: %v", r),
-			})
-		}
-		a.isSwitching.Store(false)
-		a.switchingToMu.Lock()
-		a.switchingTo = ""
-		a.switchingToMu.Unlock()
-	}()
-
-	// Check if user has initiated a new switch during rollback
-	a.switchingToMu.RLock()
-	currentSwitchingTo := a.switchingTo
-	a.switchingToMu.RUnlock()
-	if currentSwitchingTo != "" && currentSwitchingTo != previousModel {
-		log.Printf("[router] user switched to %s during rollback, skipping rollback", currentSwitchingTo)
-		return
-	}
-
-	// Attempt to restore the previous model
-	if previousModel != "" && previousModel != failedModel {
-		log.Printf("[router] attempting to restore model %s after %s", previousModel, reason)
-		if restoreErr := a.client.LoadModel(a.ctx, previousModel); restoreErr == nil {
-			if waitErr := a.client.WaitForModelLoaded(a.ctx, previousModel, 60*time.Second); waitErr != nil {
-				log.Printf("[router] wait for restored model %s failed: %v", previousModel, waitErr)
-			}
-			a.currentModelMu.Lock()
-			a.currentModelName = previousModel
-			a.currentModelMu.Unlock()
-			a.emitSwitchSuccess(previousModel)
-		} else {
-			log.Printf("[router] failed to restore model %s: %v", previousModel, restoreErr)
-			runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
-				Running: false,
-				Error:   fmt.Sprintf("模型加载失败，恢复旧模型也失败: %s", reason),
-			})
-		}
-	} else {
-		runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
-			Running: false,
-			Error:   fmt.Sprintf("模型加载失败: %s", reason),
-		})
-	}
-}
-
 func (a *App) SwitchModel(modelName string) SwitchResult {
 	// 1. Pre-checks
 	if a.server == nil || a.client == nil {
@@ -866,25 +814,12 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 	a.switchingTo = modelName
 	a.switchingToMu.Unlock()
 
+	a.serverReady.Store(false)
+
 	// 4. Emit switching status
 	a.emitSwitchingStatus(modelName)
 
-	// 5. Unload previous model if needed
-	if a.config.ModelsMax > 1 && previousModel != "" && previousModel != modelName {
-		if err := a.client.UnloadModel(a.ctx, previousModel); err != nil {
-			log.Printf("[router] unload current model %s failed: %v", previousModel, err)
-			a.isSwitching.Store(false)
-			a.switchingToMu.Lock()
-			a.switchingTo = ""
-			a.switchingToMu.Unlock()
-			return SwitchResult{
-				Error:         fmt.Sprintf("卸载旧模型失败: %v", err),
-				PreviousModel: previousModel,
-			}
-		}
-	}
-
-	// 6. Load new model
+	// 5. Load new model (router handles LRU unloading automatically)
 	loadErr := a.client.LoadModel(a.ctx, modelName)
 	if loadErr != nil {
 		if isAlreadyRunningError(loadErr) {
@@ -894,9 +829,33 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 			a.currentModelName = modelName
 			a.currentModelMu.Unlock()
 		} else {
-			// Load failed — async rollback
 			log.Printf("[router] model switch failed: %v", loadErr)
-			go a.rollbackModel(previousModel, modelName, fmt.Sprintf("加载失败: %v", loadErr))
+			a.isSwitching.Store(false)
+			a.switchingToMu.Lock()
+			a.switchingTo = ""
+			a.switchingToMu.Unlock()
+			if previousModel != "" && previousModel != modelName {
+				log.Printf("[router] attempting to restore model %s", previousModel)
+				if restoreErr := a.client.LoadModel(a.ctx, previousModel); restoreErr == nil {
+					_ = a.client.WaitForModelLoaded(a.ctx, previousModel, 60*time.Second)
+					a.currentModelMu.Lock()
+					a.currentModelName = previousModel
+					a.currentModelMu.Unlock()
+					a.emitSwitchSuccess(previousModel)
+					a.serverReady.Store(true)
+				} else {
+					log.Printf("[router] failed to restore model %s: %v", previousModel, restoreErr)
+					runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
+						Running: false,
+						Error:   fmt.Sprintf("模型加载失败，恢复旧模型也失败: %v", loadErr),
+					})
+				}
+			} else {
+				runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
+					Running: false,
+					Error:   fmt.Sprintf("模型加载失败: %v", loadErr),
+				})
+			}
 			return SwitchResult{
 				Error:         fmt.Sprintf("模型加载失败: %v", loadErr),
 				PreviousModel: previousModel,
@@ -905,14 +864,39 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 		}
 	}
 
-	// 7. Wait for model loaded (skip if already running)
+	// 6. Wait for model loaded (skip if already running)
 	if !isAlreadyRunningError(loadErr) {
 		waitCtx, waitCancel := context.WithTimeout(a.ctx, 120*time.Second)
 		defer waitCancel()
 
 		if err := a.client.WaitForModelLoaded(waitCtx, modelName, 120*time.Second); err != nil {
 			log.Printf("[router] WaitForModelLoaded failed for %s: %v", modelName, err)
-			go a.rollbackModel(previousModel, modelName, fmt.Sprintf("加载超时: %v", err))
+			a.isSwitching.Store(false)
+			a.switchingToMu.Lock()
+			a.switchingTo = ""
+			a.switchingToMu.Unlock()
+			if previousModel != "" && previousModel != modelName {
+				log.Printf("[router] attempting to restore model %s after timeout", previousModel)
+				if restoreErr := a.client.LoadModel(a.ctx, previousModel); restoreErr == nil {
+					_ = a.client.WaitForModelLoaded(a.ctx, previousModel, 60*time.Second)
+					a.currentModelMu.Lock()
+					a.currentModelName = previousModel
+					a.currentModelMu.Unlock()
+					a.emitSwitchSuccess(previousModel)
+					a.serverReady.Store(true)
+				} else {
+					log.Printf("[router] failed to restore model %s: %v", previousModel, restoreErr)
+					runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
+						Running: false,
+						Error:   fmt.Sprintf("模型加载超时，恢复旧模型也失败: %v", err),
+					})
+				}
+			} else {
+				runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
+					Running: false,
+					Error:   fmt.Sprintf("模型加载超时: %v", err),
+				})
+			}
 			return SwitchResult{
 				Error:         fmt.Sprintf("模型加载超时: %v", err),
 				PreviousModel: previousModel,
@@ -921,12 +905,12 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 		}
 	}
 
-	// 8. Update current model name (with lock)
+	// 7. Update current model name (with lock)
 	a.currentModelMu.Lock()
 	a.currentModelName = modelName
 	a.currentModelMu.Unlock()
 
-	// 9. Save config
+	// 8. Save config
 	if relPath, ok := a.presetRelPaths[modelName]; ok {
 		a.config.ModelPath = relPath
 		if err := config.Save(filepath.Join(appDir(), "config.json"), a.config); err != nil {
@@ -939,7 +923,7 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 		}
 	}
 
-	// 10. Detect model architecture
+	// 9. Detect model architecture
 	a.service.SetDetectedModelName(modelName)
 	if err := a.service.DetectModelArchitectureForModel(modelName); err != nil {
 		log.Printf("[router] detect model architecture after switch: %v", err)
@@ -950,14 +934,16 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 		})
 	}
 
-	// 11. Clear switching state
+	// 10. Clear switching state
 	a.isSwitching.Store(false)
 	a.switchingToMu.Lock()
 	a.switchingTo = ""
 	a.switchingToMu.Unlock()
 
-	// 12. Emit success status
+	// 11. Emit success status
 	a.emitSwitchSuccess(modelName)
+
+	a.serverReady.Store(true)
 
 	log.Printf("[router] model switched to %s (from %s)", modelName, previousModel)
 
@@ -971,4 +957,17 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 		Capabilities:  &caps,
 		PreviousModel: previousModel,
 	}
+}
+
+func (a *App) ReloadModels() error {
+	if a.client == nil {
+		return fmt.Errorf("客户端未初始化")
+	}
+	if err := a.client.ReloadModels(a.ctx); err != nil {
+		return fmt.Errorf("热重载模型列表失败: %w", err)
+	}
+	if err := a.generatePresetFile(); err != nil {
+		log.Printf("[reload] regenerate preset file: %v", err)
+	}
+	return nil
 }

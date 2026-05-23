@@ -71,6 +71,17 @@ export const useChatStore = defineStore('chat', () => {
     const thinkingDuration = ref(0)
     const searchQuery = ref('')
 
+    function resetStreamingState() {
+        isGenerating.value = false
+        streamingContent.value = ''
+        thinkingContent.value = ''
+        searchResults.value = ''
+        isSearching.value = false
+        isThinking.value = false
+        thinkingDuration.value = 0
+        searchQuery.value = ''
+    }
+
     function forceResetGenerating() {
         clearGeneratingTimeout()
         clearFirstTokenOnResponse()
@@ -79,13 +90,7 @@ export const useChatStore = defineStore('chat', () => {
             clearConvState(state)
         }
         generatingConvId.value = ''
-        isGenerating.value = false
-        streamingContent.value = ''
-        thinkingContent.value = ''
-        searchResults.value = ''
-        isSearching.value = false
-        isThinking.value = false
-        thinkingDuration.value = 0
+        resetStreamingState()
     }
 
     function startGeneratingTimeout() {
@@ -96,13 +101,7 @@ export const useChatStore = defineStore('chat', () => {
                 if (state.isGenerating) {
                     clearConvState(state)
                     generatingConvId.value = ''
-                    isGenerating.value = false
-                    streamingContent.value = ''
-                    thinkingContent.value = ''
-                    searchResults.value = ''
-                    isSearching.value = false
-                    isThinking.value = false
-                    thinkingDuration.value = 0
+                    resetStreamingState()
                     waitingFirstToken.value = false
                     lastError.value = ''
                     nextTick(() => {
@@ -122,13 +121,7 @@ export const useChatStore = defineStore('chat', () => {
                 if (state.isGenerating && !state.streamingContent && !state.thinkingContent) {
                     clearConvState(state)
                     generatingConvId.value = ''
-                    isGenerating.value = false
-                    streamingContent.value = ''
-                    thinkingContent.value = ''
-                    searchResults.value = ''
-                    isSearching.value = false
-                    isThinking.value = false
-                    thinkingDuration.value = 0
+                    resetStreamingState()
                     waitingFirstToken.value = false
                     lastError.value = ''
                     nextTick(() => {
@@ -236,14 +229,7 @@ export const useChatStore = defineStore('chat', () => {
         }
         if (!convId || generatingConvId.value === convId) {
             generatingConvId.value = ''
-            isGenerating.value = false
-            streamingContent.value = ''
-            isSearching.value = false
-            thinkingContent.value = ''
-            searchResults.value = ''
-            isThinking.value = false
-            thinkingDuration.value = 0
-            searchQuery.value = ''
+            resetStreamingState()
         }
     }
 
@@ -486,13 +472,7 @@ export const useChatStore = defineStore('chat', () => {
                         if (currentConversationId.value === deletedId) {
                             currentConversationId.value = ''
                             messages.value = []
-                            isGenerating.value = false
-                            streamingContent.value = ''
-                            thinkingContent.value = ''
-                            searchResults.value = ''
-                            isSearching.value = false
-                            isThinking.value = false
-                            thinkingDuration.value = 0
+                            resetStreamingState()
                         }
                     }
                 }
@@ -524,6 +504,14 @@ export const useChatStore = defineStore('chat', () => {
         const convId = currentConversationId.value
         if (!convId) return
 
+        const userMsgIdx = messages.value.findIndex((m: Message) => m.id === userMessageID)
+        if (userMsgIdx >= 0) {
+            messages.value = messages.value.filter((m: Message, idx: number) => {
+                if (idx <= userMsgIdx) return true
+                return m.role !== 'assistant'
+            })
+        }
+
         generatingConvId.value = convId
         const state = getConvState(convId)
         state.isGenerating = true
@@ -551,13 +539,7 @@ export const useChatStore = defineStore('chat', () => {
             clearFirstTokenOnResponse()
             state.isGenerating = false
             generatingConvId.value = ''
-            isGenerating.value = false
-            streamingContent.value = ''
-            thinkingContent.value = ''
-            searchResults.value = ''
-            isSearching.value = false
-            isThinking.value = false
-            thinkingDuration.value = 0
+            resetStreamingState()
             console.error('重新生成失败:', e)
         }
     }
@@ -629,13 +611,7 @@ export const useChatStore = defineStore('chat', () => {
                 clearConvState(currentState)
             }
             generatingConvId.value = ''
-            isGenerating.value = false
-            streamingContent.value = ''
-            thinkingContent.value = ''
-            searchResults.value = ''
-            isSearching.value = false
-            isThinking.value = false
-            thinkingDuration.value = 0
+            resetStreamingState()
             messages.value = messages.value.filter((m: Message) => !m.id.startsWith('temp-'))
             lastError.value = ''
             nextTick(() => {
@@ -664,14 +640,7 @@ export const useChatStore = defineStore('chat', () => {
                 clearConvState(state)
             }
             generatingConvId.value = ''
-            isGenerating.value = false
-            streamingContent.value = ''
-            thinkingContent.value = ''
-            searchResults.value = ''
-            isSearching.value = false
-            isThinking.value = false
-            thinkingDuration.value = 0
-            searchQuery.value = ''
+            resetStreamingState()
             stopTimeout = null
         }, 5000)
     }
@@ -709,13 +678,7 @@ export const useChatStore = defineStore('chat', () => {
             if (currentConversationId.value === id) {
                 currentConversationId.value = ''
                 messages.value = []
-                isGenerating.value = false
-                streamingContent.value = ''
-                thinkingContent.value = ''
-                searchResults.value = ''
-                isSearching.value = false
-                isThinking.value = false
-                thinkingDuration.value = 0
+                resetStreamingState()
             }
         } catch (e) {
             console.error('删除会话失败:', e)

@@ -273,6 +273,7 @@ export namespace llm {
 	    audio_input: boolean;
 	    text_input: boolean;
 	    reasoning: boolean;
+	    mmproj_loaded: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ModelCapabilities(source);
@@ -284,6 +285,7 @@ export namespace llm {
 	        this.audio_input = source["audio_input"];
 	        this.text_input = source["text_input"];
 	        this.reasoning = source["reasoning"];
+	        this.mmproj_loaded = source["mmproj_loaded"];
 	    }
 	}
 	export class ModelOption {
@@ -292,6 +294,9 @@ export namespace llm {
 	    file_name: string;
 	    is_default: boolean;
 	    is_loaded: boolean;
+	    mmproj_vision: boolean;
+	    mmproj_audio: boolean;
+	    status: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ModelOption(source);
@@ -304,6 +309,9 @@ export namespace llm {
 	        this.file_name = source["file_name"];
 	        this.is_default = source["is_default"];
 	        this.is_loaded = source["is_loaded"];
+	        this.mmproj_vision = source["mmproj_vision"];
+	        this.mmproj_audio = source["mmproj_audio"];
+	        this.status = source["status"];
 	    }
 	}
 	export class ServerStatus {

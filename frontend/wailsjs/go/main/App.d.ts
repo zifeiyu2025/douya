@@ -23,8 +23,6 @@ export function GetConversations():Promise<Array<chat.Conversation>>;
 
 export function GetMessages(arg1:string):Promise<Array<chat.Message>>;
 
-export function GetModelArchitecture():Promise<string>;
-
 export function GetModelCapabilities():Promise<llm.ModelCapabilities>;
 
 export function GetServerStatus():Promise<llm.ServerStatus>;
@@ -32,6 +30,8 @@ export function GetServerStatus():Promise<llm.ServerStatus>;
 export function PrepareShutdown():Promise<void>;
 
 export function RegenerateMessage(arg1:string,arg2:boolean):Promise<void>;
+
+export function ReloadModels():Promise<void>;
 
 export function RenameConversation(arg1:string,arg2:string):Promise<void>;
 
