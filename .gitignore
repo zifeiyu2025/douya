@@ -12,12 +12,19 @@ frontend/dist/
 
 # Runtime data
 data/
-engines/
-engines_backup/
-runtime/
-models/
 config.json
 router-preset.ini
+
+# Engine binaries (keep structure txt files)
+engines/*.exe
+engines/*.dll
+engines_backup/
+runtime/*.dll
+
+# Model files (keep structure txt files)
+models/*.gguf
+models/*/*.gguf
+models/*.md5
 
 # IDE
 .trae/
