@@ -43,7 +43,7 @@ func (s *Service) GetConversations() ([]*Conversation, error) {
 
 // CreateConversation creates a new conversation.
 func (s *Service) CreateConversation() (*Conversation, error) {
-	conv := &store.Conversation{Title: "新的对话"}
+	conv := &store.Conversation{Title: "新对话"}
 	err := store.CreateConversation(s.db, conv)
 	if err != nil {
 		log.Error().Err(err).Msg("[chat] CreateConversation failed")

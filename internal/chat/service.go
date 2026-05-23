@@ -850,17 +850,22 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 		s.emitForConv(convID, "assistant_message", storeMsgToChat(aiMsg))
 	}
 
-	conv, _ := store.GetConversation(s.db, convID)
-	if conv != nil {
-		if conv.Title == "新对话" && len(titleContent) > 0 {
+	conv, err := store.GetConversation(s.db, convID)
+	if err != nil {
+		log.Error().Err(err).Str("convID", convID).Msg("[chat] 无法获取会话以更新标题")
+	} else if conv != nil {
+		if (conv.Title == "新对话" || conv.Title == "新的对话") && len(titleContent) > 0 {
 			title := strings.ToValidUTF8(titleContent, "\uFFFD")
 			runeTitle := []rune(title)
-			if len(runeTitle) > 20 {
-				title = string(runeTitle[:20]) + "..."
+			maxLen := 30
+			if len(runeTitle) > maxLen {
+				title = string(runeTitle[:maxLen]) + "..."
 			}
 			conv.Title = title
+			if err := store.UpdateConversation(s.db, conv); err != nil {
+				log.Error().Err(err).Str("convID", convID).Msg("[chat] 更新会话标题失败")
+			}
 		}
-		store.UpdateConversation(s.db, conv)
 		s.emitForConv(convID, "conversation_updated", &Conversation{
 			ID:        conv.ID,
 			Title:     conv.Title,
