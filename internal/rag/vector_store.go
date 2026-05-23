@@ -6,6 +6,7 @@ package rag
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -37,9 +38,17 @@ var ErrEmptyCollectionName = errors.New("collection name cannot be empty")
 
 // SearchResult represents a single search result.
 type SearchResult struct {
-	ID           string  // the stored vector ID
-	Score        float64 // cosine similarity score (0-1, higher = more similar)
-	ChunkContent string  // the original chunk text (loaded after search)
+	ID           string            // the stored vector ID
+	Score        float64           // cosine similarity score (0-1, higher = more similar)
+	ChunkContent string            // the original chunk text (loaded after search)
+	Metadata     map[string]string // optional metadata from the chunk
+}
+
+// CollectionInfo holds summary information about a collection.
+type CollectionInfo struct {
+	Name        string `json:"name"`
+	Dim         int    `json:"dim"`
+	VectorCount int64  `json:"vector_count"`
 }
 
 // collectionMeta stores metadata for a collection.
@@ -209,6 +218,10 @@ func chunkKey(collection, id string) []byte {
 	return []byte("chunk:" + collection + ":" + id)
 }
 
+func chunkMetaKey(collection, id string) []byte {
+	return []byte("chunkmeta:" + collection + ":" + id)
+}
+
 func metaToBytes(m collectionMeta) ([]byte, error) {
 	buf := bytes.NewBuffer(nil)
 	if err := binary.Write(buf, binary.LittleEndian, m.Dim); err != nil {
@@ -344,9 +357,6 @@ func (vs *VectorStore) CreateCollection(name string, dim int) error {
 	if name == "" {
 		return ErrEmptyCollectionName
 	}
-	if dim <= 0 {
-		return ErrZeroDimension
-	}
 
 	err := vs.db.Update(func(txn *badger.Txn) error {
 		_, err := txn.Get(collectionKey(name))
@@ -466,16 +476,15 @@ func (vs *VectorStore) Search(collection string, query []float64, topK int) ([]S
 
 	out := make([]SearchResult, len(positions))
 	for i, pos := range positions {
-		out[i] = SearchResult{ID: idx.ids[pos], Score: scores[i]}
+		out[i] = SearchResult{ID: idx.ids[pos], Score: scores[i], Metadata: make(map[string]string)}
 	}
 
-	// Load chunk contents from Badger
 	for i := range out {
 		var buf bytes.Buffer
 		readErr := vs.db.View(func(txn *badger.Txn) error {
 			item, err := txn.Get(chunkKey(collection, out[i].ID))
 			if err != nil {
-				return nil // not found, skip
+				return nil
 			}
 			return item.Value(func(val []byte) error {
 				buf.Reset()
@@ -485,6 +494,24 @@ func (vs *VectorStore) Search(collection string, query []float64, topK int) ([]S
 		})
 		if readErr == nil {
 			out[i].ChunkContent = buf.String()
+		}
+
+		var metaBuf bytes.Buffer
+		metaReadErr := vs.db.View(func(txn *badger.Txn) error {
+			item, err := txn.Get(chunkMetaKey(collection, out[i].ID))
+			if err != nil {
+				return nil
+			}
+			return item.Value(func(val []byte) error {
+				metaBuf.Reset()
+				metaBuf.Write(val)
+				return nil
+			})
+		})
+		if metaReadErr == nil && metaBuf.Len() > 0 {
+			if err := json.Unmarshal(metaBuf.Bytes(), &out[i].Metadata); err != nil {
+				out[i].Metadata = make(map[string]string)
+			}
 		}
 	}
 
@@ -536,7 +563,154 @@ func (vs *VectorStore) DeleteCollection(name string) error {
 	return nil
 }
 
+// ListCollections returns summary information for all collections.
+func (vs *VectorStore) ListCollections() ([]CollectionInfo, error) {
+	var result []CollectionInfo
+	prefix := []byte("collection:")
+	err := vs.db.View(func(txn *badger.Txn) error {
+		it := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer it.Close()
+		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+			item := it.Item()
+			name := string(item.Key()[len(prefix):])
+			b, err := item.ValueCopy(nil)
+			if err != nil {
+				log.Warn().Err(err).Str("collection", name).Msg("skipping malformed collection meta")
+				continue
+			}
+			meta, err := bytesToMeta(b)
+			if err != nil {
+				log.Warn().Err(err).Str("collection", name).Msg("skipping malformed collection meta")
+				continue
+			}
+			result = append(result, CollectionInfo{
+				Name:        name,
+				Dim:         int(meta.Dim),
+				VectorCount: meta.VectorCount,
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list collections: %w", err)
+	}
+	if result == nil {
+		result = []CollectionInfo{}
+	}
+	return result, nil
+}
+
+// SearchWithThreshold finds the topK most similar vectors to the query,
+// but only returns results with a cosine similarity score >= minScore.
+func (vs *VectorStore) SearchWithThreshold(collection string, query []float64, topK int, minScore float64) ([]SearchResult, error) {
+	all, err := vs.Search(collection, query, topK)
+	if err != nil {
+		return nil, err
+	}
+	var filtered []SearchResult
+	for _, r := range all {
+		if r.Score >= minScore {
+			filtered = append(filtered, r)
+		}
+	}
+	if filtered == nil {
+		filtered = []SearchResult{}
+	}
+	return filtered, nil
+}
+
+// DeleteDocument removes all vectors and chunk data for a specific document
+// from a collection. The docID prefix is used to identify the document's chunks.
+func (vs *VectorStore) DeleteDocument(collection string, docID string) error {
+	_, err := vs.getCollectionMeta(collection)
+	if err != nil {
+		return err
+	}
+
+	var deletedCount int64
+
+	err = vs.db.Update(func(txn *badger.Txn) error {
+		vecPrefix := []byte("vector:" + collection + ":")
+		it := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer it.Close()
+		var vecKeys [][]byte
+		for it.Seek(vecPrefix); it.ValidForPrefix(vecPrefix); it.Next() {
+			item := it.Item()
+			key := item.Key()
+			id := key[len(vecPrefix):]
+			if strings.HasPrefix(string(id), docID+"_") {
+				vecKeys = append(vecKeys, item.KeyCopy(nil))
+			}
+		}
+		for _, k := range vecKeys {
+			if err := txn.Delete(k); err != nil {
+				return fmt.Errorf("delete vector key: %w", err)
+			}
+			deletedCount++
+		}
+
+		chunkPrefix := []byte("chunk:" + collection + ":")
+		it2 := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer it2.Close()
+		var chunkKeys [][]byte
+		for it2.Seek(chunkPrefix); it2.ValidForPrefix(chunkPrefix); it2.Next() {
+			item := it2.Item()
+			key := item.Key()
+			id := key[len(chunkPrefix):]
+			if strings.HasPrefix(string(id), docID+"_") {
+				chunkKeys = append(chunkKeys, item.KeyCopy(nil))
+			}
+		}
+		for _, k := range chunkKeys {
+			if err := txn.Delete(k); err != nil {
+				return fmt.Errorf("delete chunk key: %w", err)
+			}
+		}
+
+		meta, err := vs.getCollectionMeta(collection)
+		if err != nil {
+			return err
+		}
+		meta.VectorCount -= deletedCount
+		if meta.VectorCount < 0 {
+			meta.VectorCount = 0
+		}
+		data, err := metaToBytes(meta)
+		if err != nil {
+			return err
+		}
+		return txn.Set(collectionKey(collection), data)
+	})
+	if err != nil {
+		return fmt.Errorf("delete document %q from %q: %w", docID, collection, err)
+	}
+
+	vs.mu.Lock()
+	if idx, ok := vs.indexes[collection]; ok {
+		idx.vecMu.Lock()
+		var newVecs [][]float64
+		var newIDs []string
+		for i, id := range idx.ids {
+			if !strings.HasPrefix(id, docID+"_") {
+				newVecs = append(newVecs, idx.vecs[i])
+				newIDs = append(newIDs, id)
+			}
+		}
+		idx.vecs = newVecs
+		idx.ids = newIDs
+		idx.vecMu.Unlock()
+	}
+	vs.mu.Unlock()
+
+	log.Info().Str("collection", collection).Str("docID", docID).Int64("deleted", deletedCount).Msg("document deleted")
+	return nil
+}
+
 // Close closes the underlying Badger database.
+func (vs *VectorStore) DB() *badger.DB {
+	return vs.db
+}
+
 func (vs *VectorStore) Close() error {
 	vs.mu.Lock()
 	defer vs.mu.Unlock()

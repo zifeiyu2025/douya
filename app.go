@@ -59,6 +59,7 @@ type App struct {
 	switchingTo      string
 	switchingToMu    sync.RWMutex
 	ragVS            *rag.VectorStore
+	ragDS            *rag.DocumentStore
 }
 
 func NewApp() *App {
@@ -366,9 +367,14 @@ func (a *App) startup(ctx context.Context) {
 		log.Printf("[startup] RAG vector store init failed (RAG disabled): %v", err)
 	} else {
 		a.ragVS = ragVS
+		a.ragDS = rag.NewDocumentStore(ragVS.DB())
 		embedder := &rag.ClientEmbedder{Client: a.client}
-		a.service.SetRAG(ragVS, embedder, "default")
-		log.Printf("[startup] RAG initialized: dir=%s", ragDir)
+		collection := a.config.RAGActiveKB
+		if collection == "" {
+			collection = "default"
+		}
+		a.service.SetRAG(ragVS, a.ragDS, embedder, collection, a.config.RAGEnabled)
+		log.Printf("[startup] RAG initialized: dir=%s collection=%s enabled=%v", ragDir, collection, a.config.RAGEnabled)
 	}
 
 	a.serverMu.Lock()
@@ -477,6 +483,102 @@ func (a *App) SendMessage(params chat.SendMessageParams) error {
 		}
 	}()
 	return nil
+}
+
+func (a *App) ListKnowledgeBases() ([]rag.CollectionInfo, error) {
+	if a.ragVS == nil {
+		return nil, fmt.Errorf("知识库未初始化")
+	}
+	return a.ragVS.ListCollections()
+}
+
+func (a *App) CreateKnowledgeBase(name string) error {
+	if a.ragVS == nil {
+		return fmt.Errorf("知识库未初始化")
+	}
+	if name == "" {
+		return fmt.Errorf("知识库名称不能为空")
+	}
+	return a.ragVS.CreateCollection(name, 0)
+}
+
+func (a *App) DeleteKnowledgeBase(name string) error {
+	if a.ragVS == nil {
+		return fmt.Errorf("知识库未初始化")
+	}
+	if name == "default" {
+		return fmt.Errorf("不能删除默认知识库")
+	}
+	return a.ragVS.DeleteCollection(name)
+}
+
+func (a *App) UploadDocument(kbName string, fileName string, fileData string, mimeType string) error {
+	if a.ragVS == nil {
+		return fmt.Errorf("知识库未初始化")
+	}
+	if !a.serverReady.Load() {
+		return fmt.Errorf("AI 服务未启动，无法生成嵌入向量")
+	}
+	embedder := &rag.ClientEmbedder{Client: a.client}
+	chunkCfg := rag.ChunkConfig{
+		ChunkSize:    a.config.RAGChunkSize,
+		ChunkOverlap: a.config.RAGChunkOverlap,
+	}
+	if chunkCfg.ChunkSize <= 0 {
+		chunkCfg.ChunkSize = 512
+	}
+	if chunkCfg.ChunkOverlap <= 0 {
+		chunkCfg.ChunkOverlap = 64
+	}
+	_, err := rag.IngestFileFromBase64(a.ctx, a.ragVS, a.ragDS, embedder, kbName, fileName, fileData, mimeType, chunkCfg)
+	if err != nil {
+		return fmt.Errorf("上传文档失败: %w", err)
+	}
+	return nil
+}
+
+func (a *App) ListDocuments(kbName string) ([]rag.DocumentMeta, error) {
+	if a.ragDS == nil {
+		return nil, fmt.Errorf("知识库未初始化")
+	}
+	return a.ragDS.List(kbName)
+}
+
+func (a *App) DeleteDocument(kbName string, docID string) error {
+	if a.ragVS == nil {
+		return fmt.Errorf("知识库未初始化")
+	}
+	if a.ragDS != nil {
+		if err := a.ragDS.Delete(kbName, docID); err != nil {
+			log.Printf("[rag] delete document meta: %v", err)
+		}
+	}
+	return a.ragVS.DeleteDocument(kbName, docID)
+}
+
+func (a *App) SetActiveKnowledgeBase(kbName string) error {
+	if a.ragVS == nil {
+		return fmt.Errorf("知识库未初始化")
+	}
+	a.config.RAGActiveKB = kbName
+	a.service.SetRAGCollection(kbName)
+	return config.Save(filepath.Join(appDir(), "config.json"), a.config)
+}
+
+func (a *App) GetActiveKnowledgeBase() string {
+	return a.config.RAGActiveKB
+}
+
+func (a *App) SetRAGEnabled(enabled bool) {
+	a.config.RAGEnabled = enabled
+	a.service.SetRAGEnabled(enabled)
+	if err := config.Save(filepath.Join(appDir(), "config.json"), a.config); err != nil {
+		log.Printf("[rag] save config: %v", err)
+	}
+}
+
+func (a *App) IsRAGEnabled() bool {
+	return a.config.RAGEnabled
 }
 
 func (a *App) StopGeneration() {
@@ -721,7 +823,26 @@ func (a *App) generatePresetFile() error {
 
 	a.presets = presets
 
-	content := llm.GeneratePreset(presets, nil)
+	var globalDefaults map[string]string
+	if a.hwInfo != nil {
+		defaultModelPath := ""
+		if len(presets) > 0 {
+			defaultModelPath = presets[0].ModelPath
+			for _, p := range presets {
+				if p.Alias == "default" {
+					defaultModelPath = p.ModelPath
+					break
+				}
+			}
+		}
+		sp := system.CalculateSmartParams(a.hwInfo, defaultModelPath)
+		globalDefaults = map[string]string{
+			"ctx-size": fmt.Sprintf("%d", sp.ContextSize),
+		}
+		log.Printf("[preset] global defaults: ctx-size=%d", sp.ContextSize)
+	}
+
+	content := llm.GeneratePreset(presets, globalDefaults)
 	presetPath := filepath.Join(appDir(), "router-preset.ini")
 	if err := llm.WritePresetFile(presetPath, content); err != nil {
 		return fmt.Errorf("write preset file: %w", err)

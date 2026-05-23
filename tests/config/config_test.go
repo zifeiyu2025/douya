@@ -14,8 +14,8 @@ import (
 func TestDefaultConfig(t *testing.T) {
 	cfg := config.DefaultConfig()
 
-	if cfg.ContextSize != 32768 {
-		t.Fatalf("expected ContextSize=32768, got %d", cfg.ContextSize)
+	if cfg.ContextSize != 8192 {
+		t.Fatalf("expected ContextSize=8192, got %d", cfg.ContextSize)
 	}
 	if cfg.Temperature != 0.8 {
 		t.Fatalf("expected Temperature=0.8, got %f", cfg.Temperature)
@@ -186,8 +186,8 @@ func TestLoad_PartialOverride(t *testing.T) {
 	if cfg.Temperature != 0.3 {
 		t.Fatalf("expected Temperature=0.3, got %f", cfg.Temperature)
 	}
-	if cfg.ContextSize != 32768 {
-		t.Fatalf("expected default ContextSize=32768 for unspecified field, got %d", cfg.ContextSize)
+	if cfg.ContextSize != 8192 {
+		t.Fatalf("expected default ContextSize=8192 for unspecified field, got %d", cfg.ContextSize)
 	}
 }
 

@@ -46,6 +46,12 @@ type Config struct {
 	SearchEnabled    bool          `json:"search_enabled"`
 	SleepIdleSeconds int           `json:"sleep_idle_seconds"`
 	ModelsMax        int           `json:"models_max"`
+	RAGEnabled       bool          `json:"rag_enabled"`
+	RAGActiveKB      string        `json:"rag_active_kb"`
+	RAGTopK          int           `json:"rag_top_k"`
+	RAGMinScore      float64       `json:"rag_min_score"`
+	RAGChunkSize     int           `json:"rag_chunk_size"`
+	RAGChunkOverlap  int           `json:"rag_chunk_overlap"`
 }
 
 func DefaultConfig() *Config {
@@ -57,7 +63,7 @@ func DefaultConfig() *Config {
 		LlamaServerPath:  "engines/llama-server.exe",
 		APIBase:          "http://127.0.0.1:8080",
 		Port:             8080,
-		ContextSize:      32768,
+		ContextSize:      8192,
 		Temperature:      0.8,
 		TopP:             0.95,
 		TopK:             20,
@@ -68,6 +74,12 @@ func DefaultConfig() *Config {
 		SearchEnabled:    false,
 		SleepIdleSeconds: 120,
 		ModelsMax:        1,
+		RAGEnabled:       false,
+		RAGActiveKB:      "default",
+		RAGTopK:          3,
+		RAGMinScore:      0.3,
+		RAGChunkSize:     512,
+		RAGChunkOverlap:  64,
 	}
 }
 

@@ -11,6 +11,7 @@ export default defineConfig({
     }
   },
   build: {
+    chunkSizeWarningLimit: 1500,
     rollupOptions: {
       output: {
         banner: '/*!\n * 豆芽 - AI 聊天助手\n * Copyright © 2025 zifeiyu. All rights reserved.\n */'

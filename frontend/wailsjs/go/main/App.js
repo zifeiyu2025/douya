@@ -6,8 +6,20 @@ export function CreateConversation() {
   return window['go']['main']['App']['CreateConversation']();
 }
 
+export function CreateKnowledgeBase(arg1) {
+  return window['go']['main']['App']['CreateKnowledgeBase'](arg1);
+}
+
 export function DeleteConversation(arg1) {
   return window['go']['main']['App']['DeleteConversation'](arg1);
+}
+
+export function DeleteDocument(arg1, arg2) {
+  return window['go']['main']['App']['DeleteDocument'](arg1, arg2);
+}
+
+export function DeleteKnowledgeBase(arg1) {
+  return window['go']['main']['App']['DeleteKnowledgeBase'](arg1);
 }
 
 export function DeleteMessage(arg1) {
@@ -16,6 +28,10 @@ export function DeleteMessage(arg1) {
 
 export function ExportConversation(arg1, arg2) {
   return window['go']['main']['App']['ExportConversation'](arg1, arg2);
+}
+
+export function GetActiveKnowledgeBase() {
+  return window['go']['main']['App']['GetActiveKnowledgeBase']();
 }
 
 export function GetAvailableModels() {
@@ -46,6 +62,18 @@ export function GetServerStatus() {
   return window['go']['main']['App']['GetServerStatus']();
 }
 
+export function IsRAGEnabled() {
+  return window['go']['main']['App']['IsRAGEnabled']();
+}
+
+export function ListDocuments(arg1) {
+  return window['go']['main']['App']['ListDocuments'](arg1);
+}
+
+export function ListKnowledgeBases() {
+  return window['go']['main']['App']['ListKnowledgeBases']();
+}
+
 export function PrepareShutdown() {
   return window['go']['main']['App']['PrepareShutdown']();
 }
@@ -70,6 +98,14 @@ export function SendMessage(arg1) {
   return window['go']['main']['App']['SendMessage'](arg1);
 }
 
+export function SetActiveKnowledgeBase(arg1) {
+  return window['go']['main']['App']['SetActiveKnowledgeBase'](arg1);
+}
+
+export function SetRAGEnabled(arg1) {
+  return window['go']['main']['App']['SetRAGEnabled'](arg1);
+}
+
 export function StopGeneration() {
   return window['go']['main']['App']['StopGeneration']();
 }
@@ -80,4 +116,8 @@ export function SwitchModel(arg1) {
 
 export function UpdateConfig(arg1) {
   return window['go']['main']['App']['UpdateConfig'](arg1);
+}
+
+export function UploadDocument(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['UploadDocument'](arg1, arg2, arg3, arg4);
 }

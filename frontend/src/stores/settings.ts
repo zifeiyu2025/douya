@@ -59,7 +59,7 @@ export const useSettingsStore = defineStore('settings', () => {
         llama_server_path: '',
         api_base: '',
         port: 8080,
-        context_size: 32768,
+        context_size: 8192,
         temperature: 0.8,
         top_p: 0.95,
         top_k: 20,
@@ -88,6 +88,7 @@ export const useSettingsStore = defineStore('settings', () => {
     const switchStartedAt = ref(0)
     const previousModelBeforeSwitch = ref('')
     const modelLoadFailed = ref(false)
+    const waitingForStatusReady = ref(false)
 
     // Enhanced switch progress state
     const switchProgress = ref<SwitchProgress>({
@@ -101,6 +102,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
     let statusPollingTimer: ReturnType<typeof setInterval> | null = null
     let switchDoneTimer: ReturnType<typeof setTimeout> | null = null
+    let switchTimeoutTimer: ReturnType<typeof setTimeout> | null = null
 
     async function loadConfig() {
         try {
@@ -157,6 +159,15 @@ export const useSettingsStore = defineStore('settings', () => {
      * Reset switch progress to idle state
      */
     function resetSwitchProgress() {
+        if (switchDoneTimer !== null) {
+            clearTimeout(switchDoneTimer)
+            switchDoneTimer = null
+        }
+        if (switchTimeoutTimer !== null) {
+            clearTimeout(switchTimeoutTimer)
+            switchTimeoutTimer = null
+        }
+        waitingForStatusReady.value = false
         switchProgress.value = {
             stage: 'idle',
             targetModel: '',
@@ -175,10 +186,15 @@ export const useSettingsStore = defineStore('settings', () => {
             clearTimeout(switchDoneTimer)
             switchDoneTimer = null
         }
+        if (switchTimeoutTimer !== null) {
+            clearTimeout(switchTimeoutTimer)
+            switchTimeoutTimer = null
+        }
         isModelSwitching.value = true
         switchingModelDisplay.value = formatModelName(modelName).display
         switchStartedAt.value = Date.now()
         previousModelBeforeSwitch.value = currentModel.value
+        waitingForStatusReady.value = false
 
         // Initialize switch progress state
         switchProgress.value = {
@@ -189,6 +205,20 @@ export const useSettingsStore = defineStore('settings', () => {
             endTime: 0,
             rolledBack: false,
         }
+        
+        // Safety timeout - if nothing happens in 60 seconds, clear the switch overlay
+        switchTimeoutTimer = setTimeout(() => {
+            if (isModelSwitching.value) {
+                console.warn('Model switch timed out, force clearing switch overlay')
+                waitingForStatusReady.value = false
+                isModelSwitching.value = false
+                switchingModelDisplay.value = ''
+                switchStartedAt.value = 0
+                previousModelBeforeSwitch.value = ''
+                resetSwitchProgress()
+                switchTimeoutTimer = null
+            }
+        }, 60000)
     }
 
     /**
@@ -203,22 +233,15 @@ export const useSettingsStore = defineStore('settings', () => {
                 endTime: Date.now(),
             }
 
-            // Clear switching state after a short delay for visual feedback
-            switchDoneTimer = setTimeout(() => {
-                isModelSwitching.value = false
-                switchingModelDisplay.value = ''
-                switchStartedAt.value = 0
-                previousModelBeforeSwitch.value = ''
-                resetSwitchProgress()
-                switchDoneTimer = null
-            }, 1500)
-
             if (result.current_model) {
                 currentModel.value = result.current_model
             }
             if (result.capabilities) {
                 modelCapabilities.value = result.capabilities
             }
+            
+            // Wait for server status to show as running and ready before clearing switch overlay
+            waitingForStatusReady.value = true
         } else {
             // Mark failed
             handleSwitchFailure(
@@ -238,6 +261,11 @@ export const useSettingsStore = defineStore('settings', () => {
             clearTimeout(switchDoneTimer)
             switchDoneTimer = null
         }
+        if (switchTimeoutTimer !== null) {
+            clearTimeout(switchTimeoutTimer)
+            switchTimeoutTimer = null
+        }
+        waitingForStatusReady.value = false
         modelLoadFailed.value = true
         isModelSwitching.value = false
         switchStartedAt.value = 0
@@ -312,6 +340,24 @@ export const useSettingsStore = defineStore('settings', () => {
             } else if (!status.switching && !isModelSwitching.value) {
                 startStatusPolling()
             }
+
+            // If we're waiting for status to be ready and it's now running and not switching
+            if (waitingForStatusReady.value && status.running && !status.switching) {
+                waitingForStatusReady.value = false
+                if (switchTimeoutTimer !== null) {
+                    clearTimeout(switchTimeoutTimer)
+                    switchTimeoutTimer = null
+                }
+                // Clear switching state after a short delay for visual feedback
+                switchDoneTimer = setTimeout(() => {
+                    isModelSwitching.value = false
+                    switchingModelDisplay.value = ''
+                    switchStartedAt.value = 0
+                    previousModelBeforeSwitch.value = ''
+                    resetSwitchProgress()
+                    switchDoneTimer = null
+                }, 1200)
+            }
         })
         checkServerStatus()
         startStatusPolling()
@@ -364,6 +410,7 @@ export const useSettingsStore = defineStore('settings', () => {
         switchingModelDisplay,
         switchStartedAt,
         previousModelBeforeSwitch,
+        waitingForStatusReady,
         // Expose new switch progress state
         switchProgress,
         loadConfig,

@@ -207,6 +207,12 @@ export namespace config {
 	    search_enabled: boolean;
 	    sleep_idle_seconds: number;
 	    models_max: number;
+	    rag_enabled: boolean;
+	    rag_active_kb: string;
+	    rag_top_k: number;
+	    rag_min_score: number;
+	    rag_chunk_size: number;
+	    rag_chunk_overlap: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -243,6 +249,12 @@ export namespace config {
 	        this.search_enabled = source["search_enabled"];
 	        this.sleep_idle_seconds = source["sleep_idle_seconds"];
 	        this.models_max = source["models_max"];
+	        this.rag_enabled = source["rag_enabled"];
+	        this.rag_active_kb = source["rag_active_kb"];
+	        this.rag_top_k = source["rag_top_k"];
+	        this.rag_min_score = source["rag_min_score"];
+	        this.rag_chunk_size = source["rag_chunk_size"];
+	        this.rag_chunk_overlap = source["rag_chunk_overlap"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -379,6 +391,72 @@ export namespace main {
 	        this.capabilities = this.convertValues(source["capabilities"], llm.ModelCapabilities);
 	        this.previous_model = source["previous_model"];
 	        this.rolled_back = source["rolled_back"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
+export namespace rag {
+	
+	export class CollectionInfo {
+	    name: string;
+	    dim: number;
+	    vector_count: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.dim = source["dim"];
+	        this.vector_count = source["vector_count"];
+	    }
+	}
+	export class DocumentMeta {
+	    id: string;
+	    collection: string;
+	    file_name: string;
+	    file_size: number;
+	    mime_type: string;
+	    chunk_count: number;
+	    // Go type: time
+	    ingested_at: any;
+	    tags?: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocumentMeta(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.collection = source["collection"];
+	        this.file_name = source["file_name"];
+	        this.file_size = source["file_size"];
+	        this.mime_type = source["mime_type"];
+	        this.chunk_count = source["chunk_count"];
+	        this.ingested_at = this.convertValues(source["ingested_at"], null);
+	        this.tags = source["tags"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

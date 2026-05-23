@@ -13,6 +13,11 @@ const router = createRouter({
             name: 'settings',
             component: () => import('../views/SettingsView.vue'),
         },
+        {
+            path: '/knowledge',
+            name: 'knowledge',
+            component: () => import('../views/KnowledgeView.vue'),
+        },
     ],
 })
 

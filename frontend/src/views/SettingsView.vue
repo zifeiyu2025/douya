@@ -38,14 +38,16 @@
             <div class="avatar-preview">
               <img :src="formConfig.user_avatar || defaultUserAvatar" class="avatar-img" />
             </div>
-            <n-upload
-              :show-file-list="false"
-              :custom-request="handleUserAvatarUpload"
-              accept="image/*"
-            >
-              <n-button size="small" quaternary>上传</n-button>
-            </n-upload>
-            <n-button size="small" text @click="clearUserAvatar" v-if="formConfig.user_avatar">清除</n-button>
+            <div class="avatar-buttons">
+              <n-upload
+                :show-file-list="false"
+                :custom-request="handleUserAvatarUpload"
+                accept="image/*"
+              >
+                <n-button size="small" quaternary>上传</n-button>
+              </n-upload>
+              <n-button size="small" text @click="clearUserAvatar" v-if="formConfig.user_avatar">清除</n-button>
+            </div>
           </div>
         </n-form-item>
 
@@ -54,19 +56,21 @@
             <div class="avatar-preview ai-avatar">
               <img :src="formConfig.ai_avatar || defaultAiAvatar" class="avatar-img" />
             </div>
-            <n-upload
-              :show-file-list="false"
-              :custom-request="handleAIAvatarUpload"
-              accept="image/*"
-            >
-              <n-button size="small" quaternary>上传</n-button>
-            </n-upload>
-            <n-button size="small" text @click="clearAIAvatar" v-if="formConfig.ai_avatar">清除</n-button>
+            <div class="avatar-buttons">
+              <n-upload
+                :show-file-list="false"
+                :custom-request="handleAIAvatarUpload"
+                accept="image/*"
+              >
+                <n-button size="small" quaternary>上传</n-button>
+              </n-upload>
+              <n-button size="small" text @click="clearAIAvatar" v-if="formConfig.ai_avatar">清除</n-button>
+            </div>
           </div>
         </n-form-item>
 
         <n-divider>系统提示词</n-divider>
-        <n-form-item label="系统提示词">
+        <n-form-item>
           <n-input v-model:value="formConfig.system_prompt" type="textarea" placeholder="设置 AI 的角色和行为指令..." :autosize="{ minRows: 4, maxRows: 12 }" class="rounded-textarea" style="width: 100%;" />
         </n-form-item>
 
@@ -106,8 +110,9 @@
           <n-button v-if="currentModelRef" quaternary size="tiny" class="reset-btn" @click="formConfig.top_k = currentModelRef.raw.top_k">{{ currentModelRef.raw.top_k }}</n-button>
         </n-form-item>
         <n-form-item label="上下文长度">
-          <n-input-number v-model:value="formConfig.context_size" :min="256" :max="131072" :step="256" />
-          <n-button v-if="currentModelRef" quaternary size="tiny" class="reset-btn" @click="formConfig.context_size = currentModelRef.raw.context_size">{{ currentModelRef.raw.context_size }}</n-button>
+          <n-slider v-model:value="contextSizeIndex" :min="0" :max="contextSizeSteps.length - 1" :step="1" :marks="contextSizeMarks" />
+          <span class="slider-value">{{ formatContextSize(formConfig.context_size) }}</span>
+          <n-button v-if="currentModelRef" quaternary size="tiny" class="reset-btn" @click="applyContextSizeRef">{{ formatContextSize(currentModelRef.raw.context_size) }}</n-button>
         </n-form-item>
         <n-form-item label="重复惩罚">
           <n-slider v-model:value="formConfig.repeat_penalty" :min="0" :max="2" :step="0.01" />
@@ -115,15 +120,8 @@
         </n-form-item>
 
         <div class="gen-params-save-row">
-          <span class="gen-params-status" v-if="genParamsDirty">参数已修改，2秒后自动保存</span>
+          <span class="gen-params-status" v-if="genParamsDirty">设置已修改，自动保存中...</span>
           <span class="gen-params-status saved" v-else-if="formConfig.context_size > 0">✓ 已保存</span>
-          <n-button size="small" type="primary" @click="saveGenParams" :loading="saving" :disabled="!genParamsDirty">
-            保存参数
-          </n-button>
-        </div>
-
-        <div class="settings-actions">
-          <n-button type="primary" @click="handleSave" :loading="saving">保存设置</n-button>
         </div>
       </n-form>
     </div>
@@ -133,7 +131,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import {
-  NButton, NIcon, NForm, NFormItem, NInput, NInputNumber,
+  NButton, NIcon, NForm, NFormItem, NInput,
   NSlider, NDivider, useMessage, NUpload,
 } from 'naive-ui'
 import { ArrowBackOutline } from '@vicons/ionicons5'
@@ -142,7 +140,7 @@ import { matchModelRef } from '../stores/settings'
 import { type Config } from '../services/wails'
 import { wails } from '../services/wails'
 import defaultUserAvatar from '../assets/images/user-avatar.svg'
-import defaultAiAvatar from '../assets/images/ai-avatar.svg'
+import defaultAiAvatar from '../assets/images/appicon.png'
 
 const settingsStore = useSettingsStore()
 const message = useMessage()
@@ -150,12 +148,59 @@ const saving = ref(false)
 const genParamsDirty = ref(false)
 let genParamsSaveTimer: ReturnType<typeof setTimeout> | null = null
 
+const contextSizeSteps = [2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144]
+const contextSizeMarks: Record<number, string> = {
+  0: '2K',
+  1: '4K',
+  2: '8K',
+  3: '16K',
+  4: '32K',
+  5: '64K',
+  6: '128K',
+  7: '256K',
+}
+
+function formatContextSize(size: number): string {
+  if (size >= 1024) {
+    const k = size / 1024
+    return k >= 1024 ? `${(k / 1024).toFixed(0)}M` : `${k >= 100 ? Math.round(k) : k}K`
+  }
+  return `${size}`
+}
+
+function findClosestStepIndex(size: number): number {
+  let closest = 0
+  let minDiff = Math.abs(contextSizeSteps[0] - size)
+  for (let i = 1; i < contextSizeSteps.length; i++) {
+    const diff = Math.abs(contextSizeSteps[i] - size)
+    if (diff < minDiff) {
+      minDiff = diff
+      closest = i
+    }
+  }
+  return closest
+}
+
+const contextSizeIndex = ref(2)
+
+watch(contextSizeIndex, (idx) => {
+  formConfig.value.context_size = contextSizeSteps[idx]
+})
+
+function applyContextSizeRef() {
+  const ref = currentModelRef.value
+  if (!ref) return
+  const idx = findClosestStepIndex(ref.raw.context_size)
+  contextSizeIndex.value = idx
+  formConfig.value.context_size = contextSizeSteps[idx]
+}
+
 const formConfig = ref<Config>({
   model_path: '',
   llama_server_path: '',
   api_base: '',
   port: 8080,
-  context_size: 32768,
+  context_size: 8192,
   temperature: 0.8,
   top_p: 0.95,
   top_k: 20,
@@ -188,9 +233,9 @@ interface ModelRefConfig {
 const MODEL_REFS: Record<string, ModelRefConfig> = {
   'qwen3.5-9b': {
     name: 'Qwen3.5U-9B',
-    raw: { temperature: 0.6, top_p: 0.95, top_k: 20, context_size: 8192, repeat_penalty: 1.0 },
+    raw: { temperature: 0.6, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
     params: [
-      { label: '上下文长度', value: '8,192 (推荐) / 最大 131,072' },
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K (YaRN)' },
       { label: '温度', value: '0.6 (非思考) / 0.8 (思考模式)' },
       { label: 'Top P', value: '0.95' },
       { label: 'Top K', value: '20' },
@@ -198,27 +243,27 @@ const MODEL_REFS: Record<string, ModelRefConfig> = {
       { label: '量化格式', value: 'Q4_K_M (~5.4GB VRAM)' },
       { label: '参数量', value: '~9B' },
     ],
-    note: 'Qwen3.5U 支持思考/非思考模式，非思考模式建议 temperature=0.6，思考模式建议 temperature=0.8',
+    note: 'Qwen3.5U 原生上下文 32K，通过 YaRN 扩展可达 128K。非思考模式建议 temperature=0.6，思考模式建议 temperature=0.8',
   },
   'gemma-4-e4b': {
     name: 'Gemma4-E4B',
-    raw: { temperature: 0.8, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw: { temperature: 1.0, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
     params: [
-      { label: '上下文长度', value: '32,768 (推荐) / 最大 131,072' },
-      { label: '温度', value: '0.8' },
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '1.0 (Google 官方推荐)' },
       { label: 'Top P', value: '0.95' },
       { label: 'Top K', value: '20' },
       { label: '重复惩罚', value: '1.0' },
       { label: '量化格式', value: 'Q4_K_M (~5.1GB VRAM)' },
       { label: '参数量', value: '~7.5B (E4B 架构)' },
     ],
-    note: 'Gemma4 支持多模态输入（图片），建议 context_size=32768 以获得最佳体验',
+    note: 'Gemma4 E4B 最大支持 128K 上下文，Google 官方推荐 temperature=1.0，建议 context_size=32K 以获得最佳体验',
   },
   'qwen3.5-9b-deepseek': {
     name: 'Qwen3.5-9B-DeepSeek-V4-Flash',
-    raw: { temperature: 0.6, top_p: 0.95, top_k: 20, context_size: 8192, repeat_penalty: 1.0 },
+    raw: { temperature: 0.6, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
     params: [
-      { label: '上下文长度', value: '8,192 (推荐) / 最大 262,144' },
+      { label: '上下文长度', value: '32K (推荐) / 最大 1M' },
       { label: '温度', value: '0.6' },
       { label: 'Top P', value: '0.95' },
       { label: 'Top K', value: '20' },
@@ -226,13 +271,13 @@ const MODEL_REFS: Record<string, ModelRefConfig> = {
       { label: '量化格式', value: 'Q4_K_M (~5.4GB VRAM)' },
       { label: '参数量', value: '~9B' },
     ],
-    note: 'DeepSeek-V4-Flash 蒸馏版，支持图片和音频输入',
+    note: 'DeepSeek-V4-Flash 蒸馏版，原生支持 1M 上下文，本地受限于显存推荐 32K',
   },
   'qwen3.5-9b-glm': {
     name: 'Qwen3.5-9B-GLM5.1-Distill-v1',
-    raw: { temperature: 0.6, top_p: 0.95, top_k: 20, context_size: 8192, repeat_penalty: 1.0 },
+    raw: { temperature: 0.6, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
     params: [
-      { label: '上下文长度', value: '8,192 (推荐) / 最大 262,144' },
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
       { label: '温度', value: '0.6' },
       { label: 'Top P', value: '0.95' },
       { label: 'Top K', value: '20' },
@@ -254,8 +299,8 @@ function applyModelRef() {
   formConfig.value.temperature = ref.raw.temperature
   formConfig.value.top_p = ref.raw.top_p
   formConfig.value.top_k = ref.raw.top_k
-  formConfig.value.context_size = ref.raw.context_size
   formConfig.value.repeat_penalty = ref.raw.repeat_penalty
+  applyContextSizeRef()
   message.success(`已应用 ${ref.name} 参考参数`)
 }
 
@@ -273,7 +318,6 @@ async function handleBackgroundUpload(data: any) {
   try {
     const base64 = await fileToBase64(file)
     formConfig.value.chat_background = base64
-    message.success('背景图片已设置')
   } catch {
     message.error('上传失败')
   }
@@ -281,7 +325,6 @@ async function handleBackgroundUpload(data: any) {
 
 function clearBackground() {
   formConfig.value.chat_background = ''
-  message.success('背景图片已清除')
 }
 
 async function handleUserAvatarUpload(data: any) {
@@ -289,7 +332,6 @@ async function handleUserAvatarUpload(data: any) {
   try {
     const base64 = await fileToBase64(file)
     formConfig.value.user_avatar = base64
-    message.success('用户头像已设置')
   } catch {
     message.error('上传失败')
   }
@@ -297,7 +339,6 @@ async function handleUserAvatarUpload(data: any) {
 
 function clearUserAvatar() {
   formConfig.value.user_avatar = ''
-  message.success('用户头像已清除')
 }
 
 async function handleAIAvatarUpload(data: any) {
@@ -305,7 +346,6 @@ async function handleAIAvatarUpload(data: any) {
   try {
     const base64 = await fileToBase64(file)
     formConfig.value.ai_avatar = base64
-    message.success('AI头像已设置')
   } catch {
     message.error('上传失败')
   }
@@ -313,12 +353,12 @@ async function handleAIAvatarUpload(data: any) {
 
 function clearAIAvatar() {
   formConfig.value.ai_avatar = ''
-  message.success('AI头像已清除')
 }
 
 onMounted(async () => {
   await settingsStore.loadConfig()
   formConfig.value = JSON.parse(JSON.stringify(settingsStore.config))
+  contextSizeIndex.value = findClosestStepIndex(formConfig.value.context_size)
   genParamsDirty.value = false
 })
 
@@ -326,35 +366,41 @@ watch(() => settingsStore.currentModel, async () => {
   if (!genParamsDirty.value) {
     await settingsStore.loadConfig()
     formConfig.value = JSON.parse(JSON.stringify(settingsStore.config))
+    contextSizeIndex.value = findClosestStepIndex(formConfig.value.context_size)
   }
 })
 
-const GEN_PARAMS_KEYS: (keyof Config)[] = [
+const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'temperature', 'top_p', 'top_k', 'context_size', 'repeat_penalty',
+  'system_prompt', 'chat_background', 'user_avatar', 'ai_avatar',
+  'search_enabled', 'sleep_idle_seconds', 'models_max',
+  'mmproj_auto', 'mmproj_offload', 'kv_unified', 'cache_idle_slots',
+  'cache_ram', 'image_min_tokens', 'image_max_tokens',
+  'fit_target', 'fit_ctx', 'reasoning', 'reasoning_budget', 'reasoning_format',
 ]
 
 watch(
-  () => GEN_PARAMS_KEYS.map(k => formConfig.value[k]),
+  () => ALL_CONFIG_KEYS.map(k => formConfig.value[k]),
   () => {
     const savedConfig = settingsStore.config
-    const dirty = GEN_PARAMS_KEYS.some(k => formConfig.value[k] !== savedConfig[k])
+    const dirty = ALL_CONFIG_KEYS.some(k => formConfig.value[k] !== savedConfig[k])
     genParamsDirty.value = dirty
     if (dirty) {
-      scheduleGenParamsSave()
+      scheduleAutoSave()
     }
   }
 )
 
-function scheduleGenParamsSave() {
+function scheduleAutoSave() {
   if (genParamsSaveTimer) {
     clearTimeout(genParamsSaveTimer)
   }
   genParamsSaveTimer = setTimeout(() => {
-    saveGenParams()
-  }, 2000)
+    autoSave()
+  }, 1500)
 }
 
-async function saveGenParams() {
+async function autoSave() {
   if (genParamsSaveTimer) {
     clearTimeout(genParamsSaveTimer)
     genParamsSaveTimer = null
@@ -364,20 +410,6 @@ async function saveGenParams() {
     await settingsStore.updateConfig(formConfig.value)
     formConfig.value = JSON.parse(JSON.stringify(settingsStore.config))
     genParamsDirty.value = false
-    message.success('生成参数已保存')
-  } catch {
-    message.error('保存失败')
-  } finally {
-    saving.value = false
-  }
-}
-
-async function handleSave() {
-  saving.value = true
-  try {
-    await settingsStore.updateConfig(formConfig.value)
-    formConfig.value = JSON.parse(JSON.stringify(settingsStore.config))
-    message.success('设置已保存')
   } catch {
     message.error('保存失败')
   } finally {
@@ -437,8 +469,8 @@ async function handleSave() {
 }
 
 .upload-placeholder:hover {
-  border-color: #07c160;
-  background: rgba(7, 193, 96, 0.04);
+  border-color: var(--accent-primary);
+  background: var(--accent-tertiary);
 }
 
 .upload-icon {
@@ -477,17 +509,31 @@ async function handleSave() {
 .avatar-upload-wrapper {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
+}
+
+.avatar-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .avatar-preview {
   width: 64px;
   height: 64px;
-  border-radius: 12px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  box-shadow: var(--shadow-md);
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.avatar-preview:hover {
+  transform: scale(1.05);
+  box-shadow: var(--shadow-lg);
 }
 
 .avatar-preview.ai-avatar {
@@ -497,12 +543,8 @@ async function handleSave() {
   width: 100%;
   height: 100%;
   object-fit: cover;
-}
-
-.settings-actions {
-  padding-top: 20px;
-  display: flex;
-  justify-content: flex-end;
+  border-radius: 50%;
+  aspect-ratio: 1;
 }
 
 .slider-value {
@@ -514,7 +556,19 @@ async function handleSave() {
 }
 
 .rounded-textarea :deep(.n-input__textarea-wrapper) {
-  border-radius: 12px;
+  border-radius: 16px;
+}
+
+.rounded-textarea :deep(.n-input__textarea) {
+  border-radius: 16px;
+}
+
+.rounded-textarea :deep(.n-input__border) {
+  border-radius: 16px;
+}
+
+.rounded-textarea :deep(.n-input__state-border) {
+  border-radius: 16px;
 }
 
 .reset-btn {
@@ -605,10 +659,10 @@ async function handleSave() {
 
 .gen-params-status {
   font-size: 12px;
-  color: var(--accent-warning, #ff976a);
+  color: var(--accent-warning);
 }
 
 .gen-params-status.saved {
-  color: var(--accent-success, #07c160);
+  color: var(--accent-success);
 }
 </style>

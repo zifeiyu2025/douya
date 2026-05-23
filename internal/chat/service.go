@@ -57,6 +57,7 @@ type Service struct {
 	sysPromptConfig   string
 	// RAG
 	ragVectorStore  *rag.VectorStore
+	ragDocStore     *rag.DocumentStore
 	ragEmbedder    rag.Embedder
 	ragCollection  string
 	ragEnabled     bool
@@ -90,11 +91,20 @@ func (s *Service) UpdateSearchChain(chain *search.SearchChain) {
 	s.searchChain = chain
 }
 
-func (s *Service) SetRAG(vs *rag.VectorStore, embedder rag.Embedder, collection string) {
+func (s *Service) SetRAG(vs *rag.VectorStore, ds *rag.DocumentStore, embedder rag.Embedder, collection string, enabled bool) {
 	s.ragVectorStore = vs
+	s.ragDocStore = ds
 	s.ragEmbedder = embedder
 	s.ragCollection = collection
-	s.ragEnabled = true
+	s.ragEnabled = enabled
+}
+
+func (s *Service) SetRAGCollection(collection string) {
+	s.ragCollection = collection
+}
+
+func (s *Service) SetRAGEnabled(enabled bool) {
+	s.ragEnabled = enabled
 }
 
 
@@ -1171,16 +1181,28 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 		defer cancelRag()
 		vecs, err := s.ragEmbedder.Embed(ctxRag, []string{currentUserContent})
 		if err == nil && len(vecs) > 0 && len(vecs[0]) > 0 {
-			results, err2 := s.ragVectorStore.Search(s.ragCollection, vecs[0], 3)
+			topK := s.config.RAGTopK
+			if topK <= 0 {
+				topK = 3
+			}
+			minScore := s.config.RAGMinScore
+			if minScore <= 0 {
+				minScore = 0.3
+			}
+			results, err2 := s.ragVectorStore.SearchWithThreshold(s.ragCollection, vecs[0], topK, minScore)
 			if err2 == nil && len(results) > 0 {
-				var parts []string
-				for _, r := range results {
-					if r.ChunkContent != "" {
-						parts = append(parts, r.ChunkContent)
+				var refParts []string
+				for i, r := range results {
+					source := r.Metadata["source"]
+					if source != "" {
+						refParts = append(refParts, fmt.Sprintf("[%d] (来源: %s)\n%s", i+1, source, r.ChunkContent))
+					} else {
+						refParts = append(refParts, fmt.Sprintf("[%d]\n%s", i+1, r.ChunkContent))
 					}
 				}
-				if len(parts) > 0 {
-					systemContent += "\n\n## 参考资料\n" + strings.Join(parts, "\n---\n")
+				if len(refParts) > 0 {
+					systemContent += "\n\n## 参考资料\n" + strings.Join(refParts, "\n---\n")
+					systemContent += "\n\n请优先参考以上资料回答用户问题，并在回答中标注引用来源。如果参考资料与问题无关，请忽略并使用自身知识回答。"
 				}
 			}
 		}

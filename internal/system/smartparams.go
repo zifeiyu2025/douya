@@ -31,20 +31,20 @@ type SmartParams struct {
 	ContextSize   int
 }
 
-func detectModelTier(resolvedModelPath string) ModelTier {
+func detectModelTier(resolvedModelPath string) (ModelTier, *GGUFMetadata) {
 	meta, err := ParseGGUFMetadata(resolvedModelPath)
 	if err != nil {
 		log.Error().Err(err).Msg("[smart-params] GGUF parse failed, using unknown tier")
-		return ModelTierUnknown
+		return ModelTierUnknown, nil
 	}
 
-	log.Info().Str("arch", meta.Architecture).Int("block_count", meta.BlockCount).Int("embedding_length", meta.EmbeddingLength).Msg("[smart-params] GGUF metadata")
+	log.Info().Str("arch", meta.Architecture).Int("block_count", meta.BlockCount).Int("embedding_length", meta.EmbeddingLength).Int("context_length", meta.ContextLength).Msg("[smart-params] GGUF metadata")
 
 	if meta.BlockCount <= 0 || meta.EmbeddingLength <= 0 {
-		return ModelTierUnknown
+		return ModelTierUnknown, meta
 	}
 
-	return estimateModelTier(meta.BlockCount, meta.EmbeddingLength)
+	return estimateModelTier(meta.BlockCount, meta.EmbeddingLength), meta
 }
 
 func estimateModelTier(blockCount, embeddingLength int) ModelTier {
@@ -96,7 +96,7 @@ func CalculateSmartParams(hw *HardwareInfo, resolvedModelPath string) *SmartPara
 }
 
 func calculateContextSize(hw *HardwareInfo, resolvedModelPath string) int {
-	tier := detectModelTier(resolvedModelPath)
+	tier, meta := detectModelTier(resolvedModelPath)
 
 	if !hw.HasGPU || hw.GPUVRAMMB <= 0 {
 		return 4096
@@ -104,68 +104,73 @@ func calculateContextSize(hw *HardwareInfo, resolvedModelPath string) int {
 
 	vramGB := float64(hw.GPUVRAMMB) / 1024.0
 
+	var vramBased int
 	switch tier {
 	case ModelTierTiny:
 		if vramGB >= 8 {
-			return 32768
+			vramBased = 32768
+		} else if vramGB >= 4 {
+			vramBased = 16384
+		} else {
+			vramBased = 8192
 		}
-		if vramGB >= 4 {
-			return 16384
-		}
-		return 8192
 	case ModelTierSmall:
 		if vramGB >= 12 {
-			return 32768
+			vramBased = 32768
+		} else if vramGB >= 8 {
+			vramBased = 16384
+		} else if vramGB >= 6 {
+			vramBased = 8192
+		} else {
+			vramBased = 4096
 		}
-		if vramGB >= 8 {
-			return 16384
-		}
-		if vramGB >= 6 {
-			return 8192
-		}
-		return 4096
 	case ModelTierMedium:
 		if vramGB >= 16 {
-			return 32768
+			vramBased = 32768
+		} else if vramGB >= 12 {
+			vramBased = 16384
+		} else if vramGB >= 8 {
+			vramBased = 8192
+		} else if vramGB >= 6 {
+			vramBased = 4096
+		} else {
+			vramBased = 2048
 		}
-		if vramGB >= 12 {
-			return 16384
-		}
-		if vramGB >= 8 {
-			return 8192
-		}
-		if vramGB >= 6 {
-			return 4096
-		}
-		return 2048
 	case ModelTierLarge:
 		if vramGB >= 24 {
-			return 16384
+			vramBased = 16384
+		} else if vramGB >= 16 {
+			vramBased = 8192
+		} else if vramGB >= 12 {
+			vramBased = 4096
+		} else {
+			vramBased = 2048
 		}
-		if vramGB >= 16 {
-			return 8192
-		}
-		if vramGB >= 12 {
-			return 4096
-		}
-		return 2048
 	case ModelTierXL:
 		if vramGB >= 24 {
-			return 8192
+			vramBased = 8192
+		} else if vramGB >= 16 {
+			vramBased = 4096
+		} else {
+			vramBased = 2048
 		}
-		if vramGB >= 16 {
-			return 4096
-		}
-		return 2048
 	default:
 		if vramGB >= 12 {
-			return 16384
+			vramBased = 16384
+		} else if vramGB >= 8 {
+			vramBased = 8192
+		} else {
+			vramBased = 4096
 		}
-		if vramGB >= 8 {
-			return 8192
-		}
-		return 4096
 	}
+
+	if meta != nil && meta.ContextLength > 0 {
+		if vramBased > meta.ContextLength {
+			return meta.ContextLength
+		}
+	}
+
+	return vramBased
 }
 
 func calculateBatchSize(hw *HardwareInfo) int {

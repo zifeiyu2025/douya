@@ -41,6 +41,9 @@
                 <button class="search-btn" :class="{ active: searchEnabled }" @click="settingsStore.toggleSearch()" :title="searchEnabled ? '联网搜索已开启' : '开启联网搜索'">
                   <n-icon size="22"><GlobeOutline /></n-icon>
                 </button>
+                <button class="search-btn rag-btn" :class="{ active: ragEnabled }" @click="toggleRAG" :title="ragEnabled ? '知识库检索已开启' : '开启知识库检索'">
+                  <n-icon size="22"><BookOutline /></n-icon>
+                </button>
                 <div class="attach-wrapper">
                   <button class="attach-btn" @click="toggleAttachMenu" :disabled="isSwitching" title="添加附件">
                     <n-icon size="22"><AttachOutline /></n-icon>
@@ -135,9 +138,10 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { NIcon } from 'naive-ui'
-import { GlobeOutline, AttachOutline } from '@vicons/ionicons5'
+import { GlobeOutline, AttachOutline, BookOutline } from '@vicons/ionicons5'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
+import { wails } from '../services/wails'
 import type { Attachment } from '../services/wails'
 
 interface SpeechRecognitionEvent {
@@ -191,9 +195,20 @@ const speechSupported = computed(() => {
 })
 
 const searchEnabled = computed(() => settingsStore.searchEnabled)
+const ragEnabled = ref(true)
 const capabilities = computed(() => settingsStore.modelCapabilities)
 const isSwitching = computed(() => settingsStore.isModelSwitching)
 const canSend = computed(() => !isSwitching.value && (inputText.value.trim() || attachments.value.length > 0))
+
+async function toggleRAG() {
+  const newVal = !ragEnabled.value
+  try {
+    await wails.setRAGEnabled(newVal)
+    ragEnabled.value = newVal
+  } catch (e) {
+    console.warn('toggle RAG failed:', e)
+  }
+}
 
 function adjustHeight() {
   if (textareaRef.value) {
@@ -490,6 +505,7 @@ onMounted(() => {
   if (speechSupported.value) {
     initSpeechRecognition()
   }
+  wails.isRAGEnabled().then(v => { ragEnabled.value = v }).catch(() => {})
 })
 
 onUnmounted(() => {
@@ -504,7 +520,7 @@ onUnmounted(() => {
 
 <style scoped>
 .input-area {
-  padding: 12px 24px 16px;
+  padding: 16px 24px 20px;
   border-top: 1px solid var(--border-color);
   background: var(--bg-primary);
 }
@@ -517,8 +533,8 @@ onUnmounted(() => {
 
 .attachment-preview-bar {
   display: flex;
-  gap: 8px;
-  padding: 8px 12px 4px;
+  gap: 10px;
+  padding: 8px 12px 6px;
   flex-wrap: wrap;
 }
 
@@ -526,21 +542,22 @@ onUnmounted(() => {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 10px;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 12px;
   border: 1px solid var(--border-color);
   background: var(--bg-secondary);
-  max-width: 200px;
-  transition: border-color 0.2s;
+  max-width: 220px;
+  transition: all 0.2s;
 }
 
 .attachment-preview-item:hover {
-  border-color: var(--text-tertiary);
+  border-color: var(--accent-primary);
+  box-shadow: var(--shadow-sm);
 }
 
 .attachment-preview-item.image {
-  padding: 4px;
+  padding: 6px;
   max-width: none;
 }
 
@@ -552,9 +569,9 @@ onUnmounted(() => {
 }
 
 .att-thumb.image-thumb {
-  width: 48px;
-  height: 48px;
-  border-radius: 6px;
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
   overflow: hidden;
 }
 
@@ -565,9 +582,9 @@ onUnmounted(() => {
 }
 
 .att-thumb.file-thumb {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
   background: var(--bg-hover);
   color: var(--text-secondary);
 }
@@ -576,7 +593,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  gap: 2px;
+  gap: 3px;
 }
 
 .att-name {
@@ -585,24 +602,25 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 120px;
+  max-width: 130px;
+  font-weight: 500;
 }
 
 .att-type-label {
-  font-size: 10px;
-  color: var(--text-tertiary);
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 .remove-att-btn {
   position: absolute;
-  top: -4px;
-  right: -4px;
-  width: 18px;
-  height: 18px;
+  top: -6px;
+  right: -6px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--accent-danger);
   color: white;
-  border: none;
+  border: 2px solid var(--bg-primary);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -610,7 +628,7 @@ onUnmounted(() => {
   padding: 0;
   line-height: 1;
   opacity: 0;
-  transition: opacity 0.2s;
+  transition: opacity 0.2s, transform 0.2s;
 }
 
 .attachment-preview-item:hover .remove-att-btn {
@@ -618,18 +636,18 @@ onUnmounted(() => {
 }
 
 .remove-att-btn:hover {
-  background: rgba(240, 68, 68, 0.8);
+  transform: scale(1.1);
 }
 
 .voice-indicator-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  margin: 0 0 2px;
+  gap: 10px;
+  padding: 8px 14px;
+  margin: 0 0 4px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: 12px;
   animation: fadeIn 0.2s ease;
 }
 
@@ -643,16 +661,16 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  color: #f04444;
+  width: 30px;
+  height: 30px;
+  color: var(--accent-danger);
 }
 
 .pulse-ring {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: rgba(240, 68, 68, 0.15);
+  background: rgba(239, 68, 68, 0.15);
   animation: pulse 1.5s ease-in-out infinite;
 }
 
@@ -673,19 +691,20 @@ onUnmounted(() => {
 
 .voice-stop-btn {
   font-size: 12px;
-  padding: 2px 10px;
-  border-radius: 6px;
+  padding: 4px 12px;
+  border-radius: 8px;
   border: 1px solid var(--border-color);
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s;
+  font-weight: 500;
 }
 
 .voice-stop-btn:hover {
-  background: rgba(240, 68, 68, 0.1);
-  border-color: #f04444;
-  color: #f04444;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: var(--accent-danger);
+  color: var(--accent-danger);
 }
 
 .chat-input-container {
@@ -694,10 +713,16 @@ onUnmounted(() => {
   gap: 12px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 14px;
-  padding: 10px 12px;
+  border-radius: 16px;
+  padding: 12px 14px;
   width: 100%;
   box-sizing: border-box;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.chat-input-container:focus-within {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-tertiary);
 }
 
 .left-buttons {
@@ -710,9 +735,9 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -727,19 +752,17 @@ onUnmounted(() => {
 
 .search-btn:hover, .attach-btn:hover:not(:disabled), .voice-btn:hover {
   background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .search-btn.active {
-  color: #07c160;
-}
-
-:global(.dark) .search-btn.active {
   color: var(--accent-primary);
+  background: var(--accent-tertiary);
 }
 
 .voice-btn.active {
   color: var(--accent-danger);
-  background: rgba(240, 68, 68, 0.1);
+  background: rgba(239, 68, 68, 0.1);
 }
 
 .voice-btn.unsupported {
@@ -753,23 +776,23 @@ onUnmounted(() => {
 
 .attach-menu {
   position: absolute;
-  bottom: 48px;
+  bottom: 52px;
   left: 0;
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 10px;
-  box-shadow: var(--shadow-md);
-  padding: 4px 0;
-  min-width: 140px;
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  padding: 6px 0;
+  min-width: 160px;
   z-index: 100;
 }
 
 .attach-menu-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
-  padding: 8px 14px;
+  padding: 10px 14px;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -790,10 +813,10 @@ onUnmounted(() => {
 .unsupported-tag {
   margin-left: auto;
   font-size: 10px;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   background: var(--bg-hover);
-  padding: 1px 6px;
-  border-radius: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
 }
 
 .hidden-file-input {
@@ -822,7 +845,7 @@ onUnmounted(() => {
 }
 
 .chat-textarea::placeholder {
-  color: var(--text-tertiary);
+  color: var(--text-muted);
 }
 
 .right-buttons {
@@ -833,11 +856,11 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
   border: none;
-  background: #07c160;
+  background: var(--accent-primary);
   color: white;
   cursor: pointer;
   transition: all 0.2s;
@@ -850,25 +873,17 @@ onUnmounted(() => {
 }
 
 .send-btn:not(:disabled):hover {
-  transform: scale(1.1);
-  box-shadow: 0 2px 10px rgba(7, 193, 96, 0.3);
-}
-
-:global(.dark) .send-btn {
-  background: var(--accent-primary);
-}
-
-:global(.dark) .send-btn:not(:disabled):hover {
-  box-shadow: 0 2px 10px rgba(134, 230, 171, 0.3);
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
 }
 
 .stop-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
   border: none;
   background: var(--accent-danger);
   color: white;
@@ -878,7 +893,7 @@ onUnmounted(() => {
 }
 
 .stop-btn:hover {
-  transform: scale(1.1);
-  box-shadow: 0 2px 10px rgba(250, 81, 81, 0.3);
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
 }
 </style>

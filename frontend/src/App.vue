@@ -5,8 +5,8 @@
         <div class="app-layout" :class="{ dark: isDark }">
           <Sidebar :collapsed="sidebarCollapsed" @toggle="sidebarCollapsed = !sidebarCollapsed" />
           <div class="main-area">
-            <div class="main-header">
-              <div class="main-header-left">
+            <div class="main-header" style="--wails-draggable:drag">
+              <div class="main-header-left" style="--wails-draggable:no-drag">
                 <n-button quaternary circle @click="sidebarCollapsed = !sidebarCollapsed" size="large">
                   <template #icon>
                     <n-icon size="20"><MenuOutline /></n-icon>
@@ -16,7 +16,7 @@
                   <div class="header-title">{{ currentTitle }}</div>
                 </div>
               </div>
-              <div class="main-header-right">
+              <div class="main-header-right" style="--wails-draggable:no-drag">
                 <n-select
                   :value="selectedModel"
                   :options="modelOptions"
@@ -46,6 +46,32 @@
                   </template>
                 </div>
               </div>
+              <div class="window-controls" style="--wails-draggable:no-drag">
+                <button class="win-btn theme-btn" @click="themeStore.toggleTheme()" :title="isDark ? '切换亮色模式' : '切换暗色模式'">
+                  <n-icon size="16">
+                    <SunnyOutline v-if="isDark" />
+                    <MoonOutline v-else />
+                  </n-icon>
+                </button>
+                <button class="win-btn" @click="handleMinimize" title="最小化">
+                  <svg width="12" height="12" viewBox="0 0 12 12"><rect y="5" width="12" height="1.5" fill="currentColor"/></svg>
+                </button>
+                <button class="win-btn" @click="handleToggleMaximize" title="最大化">
+                  <svg v-if="isMaximized" width="12" height="12" viewBox="0 0 12 12">
+                    <rect x="2.5" y="0" width="9.5" height="9.5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+                    <rect x="0" y="2.5" width="9.5" height="9.5" fill="var(--bg-primary)" stroke="currentColor" stroke-width="1.2"/>
+                  </svg>
+                  <svg v-else width="12" height="12" viewBox="0 0 12 12">
+                    <rect x="0.5" y="0.5" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.2"/>
+                  </svg>
+                </button>
+                <button class="win-btn win-btn-close" @click="handleClose" title="关闭">
+                  <svg width="12" height="12" viewBox="0 0 12 12">
+                    <line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" stroke-width="1.4"/>
+                    <line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" stroke-width="1.4"/>
+                  </svg>
+                </button>
+              </div>
             </div>
             <router-view />
           </div>
@@ -57,9 +83,9 @@
 
 <script setup lang="ts">
 import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
-import { darkTheme, zhCN, dateZhCN, createDiscreteApi, NTooltip } from 'naive-ui'
-import { NConfigProvider, NMessageProvider, NDialogProvider, NButton, NIcon, NSelect } from 'naive-ui'
-import { MenuOutline } from '@vicons/ionicons5'
+import { darkTheme, zhCN, dateZhCN, createDiscreteApi } from 'naive-ui'
+import { NConfigProvider, NMessageProvider, NDialogProvider, NButton, NIcon, NSelect, NTooltip } from 'naive-ui'
+import { MenuOutline, SunnyOutline, MoonOutline } from '@vicons/ionicons5'
 import Sidebar from './components/Sidebar.vue'
 import { useChatStore } from './stores/chat'
 import { fixUtf8 } from './utils/utf8'
@@ -68,6 +94,7 @@ import { useThemeStore } from './stores/theme'
 import { formatModelName, formatModelNameFromPath, extractQuantSuffix } from './utils/model'
 import type { Conversation, ModelOption } from './services/wails'
 import { wails } from './services/wails'
+import { WindowMinimise, WindowToggleMaximise, WindowIsMaximised, Quit } from '../wailsjs/runtime/runtime'
 
 const { message: discreteMessage } = createDiscreteApi(['message'])
 
@@ -103,6 +130,8 @@ const errorModelName = computed(() => {
 
 const switchDuration = ref('')
 let switchDurationTimer: ReturnType<typeof setInterval> | null = null
+
+const isMaximized = ref(false)
 
 watch(() => settingsStore.isModelSwitching, (isSwitching) => {
   if (isSwitching) {
@@ -266,6 +295,28 @@ async function handleModelChange(value: string) {
   }
 }
 
+function handleMinimize() {
+  WindowMinimise()
+}
+
+function handleToggleMaximize() {
+  WindowToggleMaximise()
+  updateMaximizedState()
+}
+
+function handleClose() {
+  wails.prepareShutdown()
+  Quit()
+}
+
+async function updateMaximizedState() {
+  try {
+    isMaximized.value = await WindowIsMaximised()
+  } catch {
+    isMaximized.value = false
+  }
+}
+
 function handleBeforeUnload() {
     wails.prepareShutdown()
 }
@@ -292,7 +343,9 @@ onMounted(async () => {
   }
 
   loadAvailableModels()
+  updateMaximizedState()
 
+  window.addEventListener('resize', updateMaximizedState)
   window.addEventListener('beforeunload', handleBeforeUnload)
 })
 
@@ -300,49 +353,35 @@ onUnmounted(() => {
   chatStore.cleanupStreamListener()
   settingsStore.cleanupStatusListener()
   wails.offAbnormalCleanup()
+  window.removeEventListener('resize', updateMaximizedState)
   window.removeEventListener('beforeunload', handleBeforeUnload)
 })
 </script>
 
 <style scoped>
 .model-selector {
-  min-width: 140px;
-  max-width: 200px;
+  min-width: 120px;
+  max-width: 260px;
+  flex-shrink: 0;
 }
 
-.server-status {
-  min-width: 180px;
-  margin-left: 8px;
-  justify-content: flex-end;
-}
-
-.loading-animation {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-secondary);
-  font-size: 14px;
-}
-
-.switching-animation {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--accent-warning);
-  font-size: 14px;
-  font-weight: 500;
-  animation: switchingPulse 1.5s ease-in-out infinite;
-}
-
+.loading-animation,
+.switching-animation,
 .error-animation {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
+  font-size: 13px;
+}
+
+.switching-animation {
+  color: var(--accent-warning);
+  font-weight: 500;
+  animation: switchingPulse 1.5s ease-in-out infinite;
 }
 
 .error-text {
-  color: #f04444;
+  color: var(--accent-danger);
 }
 
 @keyframes switchingPulse {
@@ -367,5 +406,66 @@ onUnmounted(() => {
   to {
     transform: rotate(360deg);
   }
+}
+
+.window-controls {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  -webkit-app-region: no-drag;
+  flex-shrink: 0;
+  z-index: 100;
+}
+
+.win-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.win-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.win-btn:active {
+  background: var(--bg-active);
+}
+
+.win-btn-close:hover {
+  background: #e81123;
+  color: #ffffff;
+}
+
+.win-btn-close:active {
+  background: #bf0f1d;
+  color: #ffffff;
+}
+
+:global(.dark) .theme-btn {
+  background: transparent;
+}
+
+:global(.dark) .theme-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+:global(.dark) .win-btn-close:hover {
+  background: #e81123;
+  color: #ffffff;
+}
+
+:global(.dark) .win-btn-close:active {
+  background: #bf0f1d;
+  color: #ffffff;
 }
 </style>

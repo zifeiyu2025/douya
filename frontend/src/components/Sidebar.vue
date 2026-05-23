@@ -1,7 +1,7 @@
 <template>
   <div class="sidebar" :class="{ collapsed }">
-    <div class="sidebar-header">
-      <div class="sidebar-logo">
+    <div class="sidebar-header" style="--wails-draggable:drag">
+      <div class="sidebar-logo" style="--wails-draggable:no-drag">
         <div class="logo-text">
           <span class="logo-dou">Dou</span><span class="logo-ya">Ya</span>
         </div>
@@ -60,14 +60,11 @@
     </div>
     <div class="sidebar-footer">
       <div class="sidebar-footer-actions">
-        <n-button quaternary @click="themeStore.toggleTheme()" size="medium" class="footer-btn">
+        <n-button quaternary @click="$router.push('/knowledge')" size="medium" class="footer-btn">
           <template #icon>
-            <n-icon size="18">
-              <SunnyOutline v-if="themeStore.isDark" />
-              <MoonOutline v-else />
-            </n-icon>
+            <n-icon size="18"><BookOutline /></n-icon>
           </template>
-          <span>{{ themeStore.isDark ? '亮色' : '暗色' }}</span>
+          <span>知识库</span>
         </n-button>
         <n-button quaternary @click="$router.push('/settings')" size="medium" class="footer-btn">
           <template #icon>
@@ -83,17 +80,15 @@
 <script setup lang="ts">
 import { ref, computed, h } from 'vue'
 import { NButton, NIcon, NInput, NDropdown, useDialog, useMessage } from 'naive-ui'
-import { AddOutline, SearchOutline, SunnyOutline, MoonOutline, SettingsOutline } from '@vicons/ionicons5'
+import { AddOutline, SearchOutline, SettingsOutline, BookOutline } from '@vicons/ionicons5'
 import { useChatStore } from '../stores/chat'
 import { fixUtf8 } from '../utils/utf8'
-import { useThemeStore } from '../stores/theme'
 import type { Conversation } from '../services/wails'
 
 const props = defineProps<{ collapsed: boolean }>()
 const emit = defineEmits<{ toggle: [] }>()
 
 const chatStore = useChatStore()
-const themeStore = useThemeStore()
 const dialog = useDialog()
 const message = useMessage()
 
@@ -240,13 +235,9 @@ async function handleExport(id: string, format: string) {
   width: 32px;
   height: 32px;
   border: 3px solid var(--border-color);
-  border-top-color: #07c160;
+  border-top-color: var(--accent-primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
-}
-
-:global(.dark) .loading-spinner {
-  border-top-color: var(--accent-primary);
 }
 
 @keyframes spin {
@@ -273,10 +264,6 @@ async function handleExport(id: string, format: string) {
 }
 
 .logo-ya {
-  color: #07c160;
-}
-
-:global(.dark) .logo-ya {
   color: var(--accent-primary);
 }
 
@@ -286,7 +273,8 @@ async function handleExport(id: string, format: string) {
 
 .create-btn {
   border-radius: 12px !important;
-  height: 40px !important;
+  height: 44px !important;
+  font-weight: 600;
 }
 
 .search-input {
@@ -294,12 +282,13 @@ async function handleExport(id: string, format: string) {
 }
 
 .footer-btn {
-  border-radius: 10px !important;
+  border-radius: 12px !important;
   display: flex !important;
   gap: 8px;
-  padding: 8px 12px !important;
-  height: 40px !important;
+  padding: 10px 12px !important;
+  height: 44px !important;
   flex: 1;
   justify-content: center;
+  font-weight: 500;
 }
 </style>

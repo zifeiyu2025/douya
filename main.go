@@ -1,6 +1,3 @@
-// Copyright zifeiyu. All rights reserved.
-// 豆芽本地AI
-
 package main
 
 import (
@@ -19,10 +16,10 @@ func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:  "豆芽 - AI 聊天助手",
-		Width:  1200,
-		Height: 800,
-		MinWidth: 800,
+		Title:     "豆芽 - AI 聊天助手",
+		Width:     1200,
+		Height:    800,
+		MinWidth:  800,
 		MinHeight: 600,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
@@ -33,6 +30,7 @@ func main() {
 		Bind: []interface{}{
 			app,
 		},
+		Frameless: true,
 		Windows: &windows.Options{
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,

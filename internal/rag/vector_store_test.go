@@ -66,8 +66,8 @@ func TestCreateCollection_ZeroDim(t *testing.T) {
 	defer cleanup()
 
 	err := vs.CreateCollection("zero_dim", 0)
-	if !errors.Is(err, ErrZeroDimension) {
-		t.Fatalf("expected ErrZeroDimension, got %v", err)
+	if err != nil {
+		t.Fatalf("expected no error for zero dim (lazy init), got %v", err)
 	}
 }
 
@@ -76,8 +76,8 @@ func TestCreateCollection_NegativeDim(t *testing.T) {
 	defer cleanup()
 
 	err := vs.CreateCollection("neg_dim", -5)
-	if !errors.Is(err, ErrZeroDimension) {
-		t.Fatalf("expected ErrZeroDimension, got %v", err)
+	if err != nil {
+		t.Fatalf("expected no error for negative dim (lazy init), got %v", err)
 	}
 }
 

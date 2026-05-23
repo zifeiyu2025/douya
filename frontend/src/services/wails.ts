@@ -83,6 +83,12 @@ export interface Config {
     search_enabled: boolean
     sleep_idle_seconds?: number
     models_max?: number
+    rag_enabled?: boolean
+    rag_active_kb?: string
+    rag_top_k?: number
+    rag_min_score?: number
+    rag_chunk_size?: number
+    rag_chunk_overlap?: number
 }
 
 export interface ServerStatus {
@@ -120,6 +126,23 @@ export interface StreamEvent {
     conversation_id?: string
 }
 
+export interface CollectionInfo {
+    name: string
+    dim: number
+    vector_count: number
+}
+
+export interface DocumentMeta {
+    id: string
+    collection: string
+    file_name: string
+    file_size: number
+    mime_type: string
+    chunk_count: number
+    ingested_at: string
+    tags?: Record<string, string>
+}
+
 import {
     SendMessage,
     StopGeneration,
@@ -140,6 +163,16 @@ import {
     GetAvailableModels,
     SwitchModel,
     ReloadModels,
+    ListKnowledgeBases,
+    CreateKnowledgeBase,
+    DeleteKnowledgeBase,
+    UploadDocument,
+    ListDocuments,
+    DeleteDocument as DeleteDocumentAPI,
+    SetActiveKnowledgeBase,
+    GetActiveKnowledgeBase,
+    SetRAGEnabled,
+    IsRAGEnabled,
 } from '../../wailsjs/go/main/App'
 
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
@@ -176,4 +209,14 @@ export const wails = {
         EventsOn('chat:abnormal_cleanup', callback)
     },
     offAbnormalCleanup: () => EventsOff('chat:abnormal_cleanup'),
+    listKnowledgeBases: ListKnowledgeBases as () => Promise<CollectionInfo[]>,
+    createKnowledgeBase: CreateKnowledgeBase as (name: string) => Promise<void>,
+    deleteKnowledgeBase: DeleteKnowledgeBase as (name: string) => Promise<void>,
+    uploadDocument: UploadDocument as (kbName: string, fileName: string, fileData: string, mimeType: string) => Promise<void>,
+    listDocuments: ListDocuments as (kbName: string) => Promise<DocumentMeta[]>,
+    deleteDocument: DeleteDocumentAPI as (kbName: string, docID: string) => Promise<void>,
+    setActiveKnowledgeBase: SetActiveKnowledgeBase as (kbName: string) => Promise<void>,
+    getActiveKnowledgeBase: GetActiveKnowledgeBase as () => Promise<string>,
+    setRAGEnabled: SetRAGEnabled as (enabled: boolean) => Promise<void>,
+    isRAGEnabled: IsRAGEnabled as () => Promise<boolean>,
 }

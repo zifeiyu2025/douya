@@ -11,12 +11,15 @@ const md = new MarkdownIt({
         if (lang === 'mermaid') {
             return `<div class="mermaid">${str}</div>`
         }
+        const escapedCode = md.utils.escapeHtml(str)
+        const langLabel = lang && hljs.getLanguage(lang) ? lang : (lang || '')
+        const header = `<div class="code-header">${langLabel ? `<span class="code-lang">${langLabel}</span>` : '<span class="code-lang"></span>'}<button class="code-copy-btn" data-code="${escapedCode.replace(/"/g, '&quot;')}">复制</button></div>`
         if (lang && hljs.getLanguage(lang)) {
             try {
-                return `<pre class="hljs"><code>${hljs.highlight(str, { language: lang, ignoreIllegals: true }).value}</code></pre>`
+                return `<pre class="hljs">${header}<code>${hljs.highlight(str, { language: lang, ignoreIllegals: true }).value}</code></pre>`
             } catch (_) { /* empty */ }
         }
-        return `<pre class="hljs"><code>${md.utils.escapeHtml(str)}</code></pre>`
+        return `<pre class="hljs">${header}<code>${escapedCode}</code></pre>`
     },
 })
 

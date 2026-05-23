@@ -3,15 +3,24 @@
 import {chat} from '../models';
 import {llm} from '../models';
 import {config} from '../models';
+import {rag} from '../models';
 import {main} from '../models';
 
 export function CreateConversation():Promise<chat.Conversation>;
 
+export function CreateKnowledgeBase(arg1:string):Promise<void>;
+
 export function DeleteConversation(arg1:string):Promise<void>;
+
+export function DeleteDocument(arg1:string,arg2:string):Promise<void>;
+
+export function DeleteKnowledgeBase(arg1:string):Promise<void>;
 
 export function DeleteMessage(arg1:string):Promise<void>;
 
 export function ExportConversation(arg1:string,arg2:string):Promise<string>;
+
+export function GetActiveKnowledgeBase():Promise<string>;
 
 export function GetAvailableModels():Promise<Array<llm.ModelOption>>;
 
@@ -27,6 +36,12 @@ export function GetModelCapabilities():Promise<llm.ModelCapabilities>;
 
 export function GetServerStatus():Promise<llm.ServerStatus>;
 
+export function IsRAGEnabled():Promise<boolean>;
+
+export function ListDocuments(arg1:string):Promise<Array<rag.DocumentMeta>>;
+
+export function ListKnowledgeBases():Promise<Array<rag.CollectionInfo>>;
+
 export function PrepareShutdown():Promise<void>;
 
 export function RegenerateMessage(arg1:string,arg2:boolean):Promise<void>;
@@ -39,8 +54,14 @@ export function SearchMessages(arg1:string):Promise<Array<chat.Message>>;
 
 export function SendMessage(arg1:chat.SendMessageParams):Promise<void>;
 
+export function SetActiveKnowledgeBase(arg1:string):Promise<void>;
+
+export function SetRAGEnabled(arg1:boolean):Promise<void>;
+
 export function StopGeneration():Promise<void>;
 
 export function SwitchModel(arg1:string):Promise<main.SwitchResult>;
 
 export function UpdateConfig(arg1:config.Config):Promise<void>;
+
+export function UploadDocument(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
