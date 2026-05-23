@@ -100,6 +100,7 @@ export const useSettingsStore = defineStore('settings', () => {
     })
 
     let statusPollingTimer: ReturnType<typeof setInterval> | null = null
+    let switchDoneTimer: ReturnType<typeof setTimeout> | null = null
 
     async function loadConfig() {
         try {
@@ -170,6 +171,10 @@ export const useSettingsStore = defineStore('settings', () => {
      * Start model switch - initialize progress state
      */
     function startSwitch(modelName: string) {
+        if (switchDoneTimer !== null) {
+            clearTimeout(switchDoneTimer)
+            switchDoneTimer = null
+        }
         isModelSwitching.value = true
         switchingModelDisplay.value = formatModelName(modelName).display
         switchStartedAt.value = Date.now()
@@ -199,12 +204,13 @@ export const useSettingsStore = defineStore('settings', () => {
             }
 
             // Clear switching state after a short delay for visual feedback
-            setTimeout(() => {
+            switchDoneTimer = setTimeout(() => {
                 isModelSwitching.value = false
                 switchingModelDisplay.value = ''
                 switchStartedAt.value = 0
                 previousModelBeforeSwitch.value = ''
                 resetSwitchProgress()
+                switchDoneTimer = null
             }, 1500)
 
             if (result.current_model) {
@@ -228,6 +234,10 @@ export const useSettingsStore = defineStore('settings', () => {
      * Enhanced handle switch failure with progress state
      */
     function handleSwitchFailure(error: string, previousModel: string, rolledBack: boolean, failedModelName?: string) {
+        if (switchDoneTimer !== null) {
+            clearTimeout(switchDoneTimer)
+            switchDoneTimer = null
+        }
         modelLoadFailed.value = true
         isModelSwitching.value = false
         switchStartedAt.value = 0

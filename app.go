@@ -244,11 +244,14 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 		if a.isSwitching.Load() {
 			return
 		}
+		a.currentModelMu.RLock()
+		curModel := a.currentModelName
+		a.currentModelMu.RUnlock()
 		if status.Running {
 			a.serverReady.Store(true)
 			caps := a.service.GetModelCapabilities()
 			status.Capabilities = &caps
-			status.CurrentModel = a.currentModelName
+			status.CurrentModel = curModel
 		} else {
 			a.serverReady.Store(false)
 		}
@@ -903,6 +906,20 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 				RolledBack:    previousModel != "" && previousModel != modelName,
 			}
 		}
+
+		// Wait briefly for mmproj and other post-load initialization
+		propsCtx, propsCancel := context.WithTimeout(a.ctx, 15*time.Second)
+		defer propsCancel()
+		for i := 0; i < 10; i++ {
+			if _, propsErr := a.client.GetServerProps(propsCtx, modelName); propsErr == nil {
+				break
+			}
+			select {
+			case <-propsCtx.Done():
+				break
+			case <-time.After(500 * time.Millisecond):
+			}
+		}
 	}
 
 	// 7. Update current model name (with lock)
@@ -934,16 +951,17 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 		})
 	}
 
-	// 10. Clear switching state
+	// 10. Emit success status BEFORE clearing switching state
+	// This ensures the frontend receives the success event before
+	// WatchWithCallback can emit a stale status
+	a.emitSwitchSuccess(modelName)
+	a.serverReady.Store(true)
+
+	// 11. Clear switching state
 	a.isSwitching.Store(false)
 	a.switchingToMu.Lock()
 	a.switchingTo = ""
 	a.switchingToMu.Unlock()
-
-	// 11. Emit success status
-	a.emitSwitchSuccess(modelName)
-
-	a.serverReady.Store(true)
 
 	log.Printf("[router] model switched to %s (from %s)", modelName, previousModel)
 
