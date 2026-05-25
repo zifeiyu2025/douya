@@ -81,7 +81,11 @@ if (Test-Path $srcConfig) {
         top_k             = 20
         repeat_penalty    = 1.0
         reasoning         = "auto"
-        search_engines    = @{}
+        search_engines    = @{
+            ollama_api_key  = ""
+            tavily_api_key  = ""
+            github_api_key  = ""
+        }
         search_enabled    = $false
         sleep_idle_seconds = 120
         models_max        = 1
@@ -100,6 +104,19 @@ if (Test-Path $srcConfig) {
             if ($existingConfig.ContainsKey($key)) {
                 $defaultConfig[$key] = $existingConfig[$key]
             }
+        }
+        $se = $defaultConfig["search_engines"]
+        $sensitiveKeys = @("ollama_api_key", "tavily_api_key", "github_api_key")
+        $clearedCount = 0
+        foreach ($sk in $sensitiveKeys) {
+            if ($se -is [System.Collections.IDictionary]) {
+                if ($se.ContainsKey($sk) -and $se[$sk]) { $se[$sk] = ""; $clearedCount++ }
+            } elseif ($se.PSObject.Properties.Name -contains $sk) {
+                if ($se.$sk) { $se.$sk = ""; $clearedCount++ }
+            }
+        }
+        if ($clearedCount -gt 0) {
+            Write-Host "    [安全] 已清除 $clearedCount 个 API 密钥（运行时请重新配置）" -ForegroundColor Yellow
         }
         $defaultConfig | ConvertTo-Json -Depth 3 | Set-Content -Path $dstConfig -Encoding UTF8
         Write-Host "  已生成: config.json（合并已有配置）" -ForegroundColor Green
@@ -262,6 +279,33 @@ foreach ($item in $optionalItems) {
             }
         }
     }
+}
+
+$sensitiveApiKeys = @("ollama_api_key", "tavily_api_key", "github_api_key")
+$securityWarnings = @()
+if (Test-Path "$OutputDir\config.json") {
+    $cfg = Get-Content "$OutputDir\config.json" -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($cfg.search_engines) {
+        foreach ($field in $sensitiveApiKeys) {
+            $val = $null
+            if ($cfg.search_engines.PSObject.Properties.Name -contains $field) {
+                $val = $cfg.search_engines.$field
+            }
+            if ($val -and $val -is [string] -and $val.Length -gt 0) {
+                $masked = $val.Substring(0, [Math]::Min(4, $val.Length)) + "****"
+                $securityWarnings += "search_engines.$field = $masked"
+            }
+        }
+    }
+}
+if ($securityWarnings.Count -gt 0) {
+    Write-Host ""
+    Write-Host "  === 安全提示 ===" -ForegroundColor Yellow
+    Write-Host "  发布包 config.json 包含以下 API 密钥：" -ForegroundColor Yellow
+    foreach ($w in $securityWarnings) {
+        Write-Host "    [!] $w" -ForegroundColor Yellow
+    }
+    Write-Host "  发布前请确认这些密钥不应被移除" -ForegroundColor Yellow
 }
 
 if ($criticalMissing.Count -eq 0 -and $optionalMissing.Count -eq 0) {
