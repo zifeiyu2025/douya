@@ -398,6 +398,20 @@ export const useSettingsStore = defineStore('settings', () => {
     }
 
 
+    function initSwitchProgressListener() {
+        wails.onSwitchProgress((progress) => {
+            switchProgress.value = {
+                ...switchProgress.value,
+                stage: progress.stage as SwitchProgressStage,
+                targetModel: progress.targetModel,
+            }
+        })
+    }
+
+    function cleanupSwitchProgressListener() {
+        wails.offSwitchProgress()
+    }
+
     return {
         config,
         searchEnabled,
@@ -420,6 +434,8 @@ export const useSettingsStore = defineStore('settings', () => {
         checkServerStatus,
         initStatusListener,
         cleanupStatusListener,
+        initSwitchProgressListener,
+        cleanupSwitchProgressListener,
         // Export additional helpers
         resetSwitchProgress,
     }

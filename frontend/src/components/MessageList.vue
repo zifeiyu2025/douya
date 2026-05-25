@@ -6,7 +6,20 @@
           <div class="switch-spinner"></div>
           <div class="switch-model-name">{{ switchingToModel }}</div>
           <div class="switch-progress-msg">
-            {{ settingsStore.waitingForStatusReady ? '正在启动模型...' : '正在切换模型...' }}
+            {{ getSwitchProgressText() }}
+          </div>
+          <div class="switch-stage-indicator">
+            <div 
+              v-for="(stage, idx) in switchStages" 
+              :key="idx"
+              :class="['stage-item', { 
+                'active': getCurrentStageIndex() >= idx,
+                'completed': getCurrentStageIndex() > idx 
+              }]"
+            >
+              <span class="stage-dot"></span>
+              <span class="stage-label">{{ stage }}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -123,6 +136,45 @@ const switchingToModel = computed(() => {
   return ''
 })
 
+const switchStages = ['准备切换', '卸载旧模型', '加载新模型', '初始化完成']
+
+function getCurrentStageIndex(): number {
+  const stage = settingsStore.switchProgress.stage
+  switch (stage) {
+    case 'unloading':
+      return 1
+    case 'loading':
+      return 2
+    case 'done':
+      return 3
+    default:
+      return 0
+  }
+}
+
+function getSwitchProgressText(): string {
+  const stage = settingsStore.switchProgress.stage
+  const prevModel = settingsStore.previousModelBeforeSwitch
+    ? formatModelName(settingsStore.previousModelBeforeSwitch).display
+    : ''
+  const newModel = switchingToModel.value
+
+  switch (stage) {
+    case 'unloading':
+      return prevModel ? `正在卸载模型 ${prevModel}...` : '正在卸载旧模型...'
+    case 'loading':
+      return `正在加载模型 ${newModel}...`
+    case 'waiting':
+      return '等待服务器就绪...'
+    case 'done':
+      return '模型初始化完成！'
+    case 'failed':
+      return '模型加载失败'
+    default:
+      return '正在切换模型...'
+  }
+}
+
 const renderedStreaming = computed(() => renderMarkdown(streamingContent.value))
 
 const messageListRef = ref<HTMLElement | null>(null)
@@ -145,8 +197,13 @@ const isNearBottom = () => {
   return el.scrollHeight - el.scrollTop - el.clientHeight < 100
 }
 
-watch(() => chatStore.messages?.length, () => {
-  if (isNearBottom()) {
+// 监听消息变化 - 新增消息时总是滚动到底部
+watch(() => chatStore.messages?.length, (newLen, oldLen) => {
+  if (newLen > oldLen) {
+    // 消息数量增加，说明有新消息，总是滚动到底部
+    nextTick(scrollToBottom)
+  } else if (isNearBottom()) {
+    // 其他情况下只有在底部时才滚动
     nextTick(scrollToBottom)
   }
 })
@@ -375,14 +432,18 @@ watch(() => chatStore.lastError, (err) => {
 }
 
 .switch-overlay {
-  position: absolute;
-  inset: 0;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   background: var(--bg-primary);
   opacity: 0.85;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 50;
+  z-index: 1000;
+  pointer-events: auto;
 }
 
 .switch-overlay-content {
@@ -410,6 +471,66 @@ watch(() => chatStore.lastError, (err) => {
 .switch-progress-msg {
   font-size: 13px;
   color: var(--text-secondary);
+}
+
+.switch-stage-indicator {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.stage-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  opacity: 0.3;
+  transition: opacity 0.3s ease;
+}
+
+.stage-item.active {
+  opacity: 1;
+}
+
+.stage-item.completed {
+  opacity: 0.7;
+}
+
+.stage-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: var(--border-color);
+  transition: background-color 0.3s ease;
+}
+
+.stage-item.active .stage-dot {
+  background-color: var(--accent-primary);
+  box-shadow: 0 0 8px var(--accent-primary);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.stage-item.completed .stage-dot {
+  background-color: var(--accent-primary);
+}
+
+.stage-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.stage-item.active .stage-label {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 .switch-overlay-enter-active,

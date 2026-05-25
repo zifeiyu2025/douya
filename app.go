@@ -914,6 +914,14 @@ func (a *App) emitSwitchSuccess(modelName string) {
 	})
 }
 
+// emitSwitchProgress emits a progress event for model switch.
+func (a *App) emitSwitchProgress(stage, targetModel string) {
+	runtime.EventsEmit(a.ctx, "server:switchProgress", map[string]interface{}{
+		"stage":       stage,
+		"targetModel": targetModel,
+	})
+}
+
 func (a *App) SwitchModel(modelName string) SwitchResult {
 	// 1. Pre-checks
 	if a.server == nil || a.client == nil {
@@ -940,20 +948,29 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 
 	a.serverReady.Store(false)
 
-	// 4. Emit switching status
+	// 4. Emit switching status and initial progress
 	a.emitSwitchingStatus(modelName)
+	a.emitSwitchProgress("unloading", modelName)
 
-	// 5. Load new model (router handles LRU unloading automatically)
+	// 5. Simulate unloading stage for better UX
+	time.Sleep(300 * time.Millisecond)
+
+	// 6. Emit loading progress
+	a.emitSwitchProgress("loading", modelName)
+
+	// 7. Load new model (router handles LRU unloading automatically)
 	loadErr := a.client.LoadModel(a.ctx, modelName)
 	if loadErr != nil {
 		if isAlreadyRunningError(loadErr) {
 			// Model already running — treat as success
 			log.Printf("[router] model %s is already running, treating as switch success", modelName)
+			a.emitSwitchProgress("done", modelName)
 			a.currentModelMu.Lock()
 			a.currentModelName = modelName
 			a.currentModelMu.Unlock()
 		} else {
 			log.Printf("[router] model switch failed: %v", loadErr)
+			a.emitSwitchProgress("failed", modelName)
 			a.isSwitching.Store(false)
 			a.switchingToMu.Lock()
 			a.switchingTo = ""
@@ -995,6 +1012,7 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 
 		if err := a.client.WaitForModelLoaded(waitCtx, modelName, 120*time.Second); err != nil {
 			log.Printf("[router] WaitForModelLoaded failed for %s: %v", modelName, err)
+			a.emitSwitchProgress("failed", modelName)
 			a.isSwitching.Store(false)
 			a.switchingToMu.Lock()
 			a.switchingTo = ""
@@ -1061,7 +1079,10 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 		}
 	}
 
-	// 9. Detect model architecture
+	// 9. Emit waiting stage
+	a.emitSwitchProgress("waiting", modelName)
+
+	// 10. Detect model architecture
 	a.service.SetDetectedModelName(modelName)
 	if err := a.service.DetectModelArchitectureForModel(modelName); err != nil {
 		log.Printf("[router] detect model architecture after switch: %v", err)
@@ -1072,7 +1093,10 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 		})
 	}
 
-	// 10. Emit success status BEFORE clearing switching state
+	// 11. Emit done stage
+	a.emitSwitchProgress("done", modelName)
+
+	// 12. Emit success status BEFORE clearing switching state
 	// This ensures the frontend receives the success event before
 	// WatchWithCallback can emit a stale status
 	a.emitSwitchSuccess(modelName)

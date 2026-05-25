@@ -258,6 +258,33 @@ async function loadAvailableModels() {
   }
 }
 
+// 保存模型切换结果，等动效结束后再显示提示
+let pendingModelSwitchResult: any = null
+
+// 监听模型切换状态变化，当切换结束时显示提示
+watch(() => settingsStore.isModelSwitching, (newVal, oldVal) => {
+  if (oldVal && !newVal && pendingModelSwitchResult) {
+    // 动效结束了，现在显示提示消息
+    const result = pendingModelSwitchResult
+    pendingModelSwitchResult = null
+    // 等待 0.3s 过渡动画完全结束
+    setTimeout(() => {
+      if (result.success) {
+        const caps = result.capabilities || settingsStore.modelCapabilities
+        const features: string[] = []
+        if (caps.image_input) features.push('图片')
+        if (caps.audio_input) features.push('音频')
+        if (caps.reasoning) features.push('推理')
+        const featureText = features.length > 0 ? ` · 支持${features.join('、')}` : ' · 仅文本'
+        discreteMessage.success(`${formatModelName(result.current_model).display}${featureText} 已就绪`, { duration: 3000 })
+        loadAvailableModels()
+      } else {
+        discreteMessage.error(result.error || '模型加载失败', { duration: 5000 })
+      }
+    }, 300)
+  }
+})
+
 async function handleModelChange(value: string) {
   if (isModelSwitching.value) return
 
@@ -272,21 +299,13 @@ async function handleModelChange(value: string) {
 
   try {
     const result = await settingsStore.switchModel(value, previousModel)
+    pendingModelSwitchResult = result
     if (result.success) {
       selectedModel.value = result.current_model || value
-      const caps = result.capabilities || settingsStore.modelCapabilities
-      const features: string[] = []
-      if (caps.image_input) features.push('图片')
-      if (caps.audio_input) features.push('音频')
-      if (caps.reasoning) features.push('推理')
-      const featureText = features.length > 0 ? ` · 支持${features.join('、')}` : ' · 仅文本'
-      discreteMessage.success(`${formatModelName(result.current_model || value).display}${featureText} 已就绪`, { duration: 3000 })
-      loadAvailableModels()
     } else {
       selectedModel.value = result.rolled_back
         ? (result.current_model || previousModel)
         : previousModel
-      discreteMessage.error(result.error || '模型加载失败', { duration: 5000 })
     }
   } catch (e) {
     console.error('Failed to switch model:', e)
@@ -324,6 +343,7 @@ function handleBeforeUnload() {
 onMounted(async () => {
   chatStore.initStreamListener()
   settingsStore.initStatusListener()
+  settingsStore.initSwitchProgressListener()
   chatStore.loadConversations()
   await settingsStore.loadConfig()
 
@@ -352,7 +372,9 @@ onMounted(async () => {
 onUnmounted(() => {
   chatStore.cleanupStreamListener()
   settingsStore.cleanupStatusListener()
+  settingsStore.cleanupSwitchProgressListener()
   wails.offAbnormalCleanup()
+  wails.offSwitchProgress()
   window.removeEventListener('resize', updateMaximizedState)
   window.removeEventListener('beforeunload', handleBeforeUnload)
 })

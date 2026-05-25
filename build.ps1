@@ -1,4 +1,4 @@
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+﻿[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::InputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 chcp 65001 > $null 2>&1
@@ -24,46 +24,247 @@ Set-Location $ProjectRoot
 wails build
 if ($LASTEXITCODE -ne 0) { throw "Wails 构建失败" }
 
-Write-Host "[3/5] 准备发布目录（增量模式）..." -ForegroundColor Yellow
+Write-Host "[3/5] 同步发布目录（增量模式）..." -ForegroundColor Yellow
 New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 
 $BinDir = Join-Path $OutputDir "bin"
 New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
 
-Copy-Item (Join-Path $ProjectRoot "build\bin\douya.exe") $BinDir -Force
-Copy-Item (Join-Path $ProjectRoot "config.json") $OutputDir -Force
+$builtExe = Join-Path $ProjectRoot "build\bin\douya.exe"
+if (-not (Test-Path $builtExe)) {
+    throw "构建产物缺失: $builtExe`nWails 构建可能未成功完成。"
+}
+
+$needCopyExe = $true
+$dstExe = Join-Path $BinDir "douya.exe"
+if (Test-Path $dstExe) {
+    $srcTime = (Get-Item $builtExe).LastWriteTimeUtc
+    $dstTime = (Get-Item $dstExe).LastWriteTimeUtc
+    if ($srcTime -le $dstTime) {
+        Write-Host "  [增量] douya.exe 已是最新，跳过" -ForegroundColor Gray
+        $needCopyExe = $false
+    }
+}
+if ($needCopyExe) {
+    Copy-Item $builtExe $BinDir -Force
+    Write-Host "  已复制: douya.exe" -ForegroundColor Green
+}
+
+$srcConfig = Join-Path $ProjectRoot "config.json"
+$dstConfig = Join-Path $OutputDir "config.json"
+if (Test-Path $srcConfig) {
+    $needCopyCfg = $true
+    if (Test-Path $dstConfig) {
+        $srcCfgTime = (Get-Item $srcConfig).LastWriteTimeUtc
+        $dstCfgTime = (Get-Item $dstConfig).LastWriteTimeUtc
+        if ($srcCfgTime -le $dstCfgTime) {
+            Write-Host "  [增量] config.json 已是最新，跳过" -ForegroundColor Gray
+            $needCopyCfg = $false
+        }
+    }
+    if ($needCopyCfg) {
+        Copy-Item $srcConfig $OutputDir -Force
+        Write-Host "  已复制: config.json" -ForegroundColor Green
+    }
+} else {
+    Write-Host "  源目录无 config.json，将在发布目录生成默认配置" -ForegroundColor Yellow
+    $defaultConfig = @{
+        model_path        = "models/Gemma-4-E4B-U-Q4_K_M/Gemma-4-E4B-U-Q4_K_M.gguf"
+        mmproj_auto       = $true
+        mmproj_offload    = $true
+        llama_server_path = "engines/llama-server.exe"
+        api_base          = "http://127.0.0.1:8080"
+        port              = 8080
+        context_size      = 8192
+        temperature       = 0.8
+        top_p             = 0.95
+        top_k             = 20
+        repeat_penalty    = 1.0
+        reasoning         = "auto"
+        search_engines    = @{}
+        search_enabled    = $false
+        sleep_idle_seconds = 120
+        models_max        = 1
+        rag_enabled       = $false
+        rag_active_kb     = "default"
+        rag_top_k         = 3
+        rag_min_score     = 0.3
+        rag_chunk_size    = 512
+        rag_chunk_overlap = 64
+    } | ConvertTo-Json -Depth 3
+    if (Test-Path $dstConfig) {
+        $existing = Get-Content $dstConfig -Raw -Encoding UTF8 | ConvertFrom-Json
+        $existingConfig = @{}
+        foreach ($prop in $existing.PSObject.Properties) { $existingConfig[$prop.Name] = $prop.Value }
+        foreach ($key in $defaultConfig.Keys) {
+            if ($existingConfig.ContainsKey($key)) {
+                $defaultConfig[$key] = $existingConfig[$key]
+            }
+        }
+        $defaultConfig | ConvertTo-Json -Depth 3 | Set-Content -Path $dstConfig -Encoding UTF8
+        Write-Host "  已生成: config.json（合并已有配置）" -ForegroundColor Green
+    } else {
+        Set-Content -Path $dstConfig -Value ($defaultConfig | ConvertTo-Json -Depth 3) -Encoding UTF8
+        Write-Host "  已生成: config.json（默认配置）" -ForegroundColor Green
+    }
+}
 
 $syncDirs = @("engines", "models", "runtime")
 foreach ($dir in $syncDirs) {
     $src = Join-Path $ProjectRoot $dir
     $dst = Join-Path $OutputDir $dir
     if (Test-Path $src) {
-        robocopy $src $dst /MIR /NJH /NJS /NDL /NFL /NC /NS
-        if ($LASTEXITCODE -ge 8) { throw "robocopy $dir 失败 (exit code $LASTEXITCODE)" }
+        $hasContent = (Get-ChildItem -Path $src -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count -gt 0
+        if ($hasContent) {
+            robocopy $src $dst /MIR /NJH /NJS /NDL /NFL /NC /NS
+            $rc = $LASTEXITCODE
+            if ($rc -ge 8) { throw "robocopy $dir 失败 (exit code $rc)" }
+            Write-Host "  已同步: $dir\" -ForegroundColor Green
+        } else {
+            New-Item -ItemType Directory -Path $dst -Force | Out-Null
+            Write-Host "  已创建空目录: $dir\（源目录无文件）" -ForegroundColor Yellow
+        }
+    } else {
+        New-Item -ItemType Directory -Path $dst -Force | Out-Null
+        Write-Host "  已创建空目录: $dir\（源目录不存在）" -ForegroundColor Yellow
     }
 }
 
 New-Item -ItemType Directory -Path (Join-Path $OutputDir "data") -Force | Out-Null
 
-Write-Host "[4/5] 验证发布包..." -ForegroundColor Yellow
-$requiredFiles = @(
-    @{ Path = (Join-Path $BinDir "douya.exe"); Name = "douya.exe" },
-    @{ Path = (Join-Path $OutputDir "config.json"); Name = "config.json" },
-    @{ Path = (Join-Path $OutputDir "engines\llama-server.exe"); Name = "engines\llama-server.exe" },
-    @{ Path = (Join-Path $OutputDir "runtime"); Name = "runtime\" }
+Write-Host "[4/5] 验证并修复发布包..." -ForegroundColor Yellow
+
+function CopyFileFromProject {
+    param([string]$DstPath, [string[]]$SrcCandidates)
+
+    foreach ($src in $SrcCandidates) {
+        if (-not (Test-Path -LiteralPath $src)) { continue }
+
+        if (Test-Path -LiteralPath $DstPath) {
+            $srcTime = (Get-Item -LiteralPath $src).LastWriteTimeUtc
+            $dstTime = (Get-Item -LiteralPath $DstPath).LastWriteTimeUtc
+            if ($srcTime -le $dstTime) {
+                return "skipped"
+            }
+        }
+
+        $dstDir = Split-Path -Parent $DstPath
+        if ($dstDir -and -not (Test-Path -LiteralPath $dstDir)) {
+            New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
+        }
+        Copy-Item -LiteralPath $src -Destination $DstPath -Force
+        return "fixed"
+    }
+
+    return "missing"
+}
+
+function SyncDirFromProject {
+    param([string]$DstPath, [string]$SrcDir)
+
+    if ($SrcDir -and (Test-Path -LiteralPath $SrcDir)) {
+        $hasContent = (Get-ChildItem -Path $SrcDir -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count -gt 0
+        if ($hasContent) {
+            robocopy $SrcDir $DstPath /MIR /NJH /NJS /NDL /NFL /NC /NS
+            $rc = $LASTEXITCODE
+            if ($rc -ge 8) { throw "robocopy 失败 (exit code $rc)" }
+            return "fixed"
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $DstPath)) {
+        New-Item -ItemType Directory -Path $DstPath -Force | Out-Null
+    }
+    return "empty"
+}
+
+$criticalItems = @(
+    @{ Name = "bin\douya.exe";  Dst = "$BinDir\douya.exe";
+       Src = @("$ProjectRoot\build\bin\douya.exe") },
+    @{ Name = "config.json";    Dst = "$OutputDir\config.json";
+       Src = @("$ProjectRoot\config.json") }
 )
 
-$allOk = $true
-foreach ($f in $requiredFiles) {
-    if (-not (Test-Path $f.Path)) {
-        Write-Host "  缺失: $($f.Name)" -ForegroundColor Red
-        $allOk = $false
+$optionalItems = @(
+    @{ Name = "engines\llama-server.exe"; Dst = "$OutputDir\engines\llama-server.exe";
+       Src = @("$ProjectRoot\engines\llama-server.exe", "$ProjectRoot\runtime\llama-server.exe") },
+    @{ Name = "engines\"; Dst = "$OutputDir\engines"; IsDir = $true;
+       SrcDir = "$ProjectRoot\engines" },
+    @{ Name = "models\";  Dst = "$OutputDir\models";  IsDir = $true;
+       SrcDir = "$ProjectRoot\models" },
+    @{ Name = "runtime\"; Dst = "$OutputDir\runtime"; IsDir = $true;
+       SrcDir = "$ProjectRoot\runtime" },
+    @{ Name = "data\";    Dst = "$OutputDir\data";    IsDir = $true;
+       SrcDir = $null }
+)
+
+$criticalMissing = @()
+foreach ($item in $criticalItems) {
+    if (Test-Path -LiteralPath $item.Dst) {
+        $size = if ((Get-Item -LiteralPath $item.Dst).PSIsContainer) { "-" } else { "$([math]::Round((Get-Item -LiteralPath $item.Dst).Length / 1MB, 2)) MB" }
+        Write-Host "  [关键] 存在: $($item.Name) ($size)" -ForegroundColor Green
     } else {
-        Write-Host "  存在: $($f.Name)" -ForegroundColor Green
+        $result = CopyFileFromProject $item.Dst $item.Src
+        if ($result -eq "fixed") {
+            Write-Host "  [关键] 已从项目复制: $($item.Name)" -ForegroundColor Green
+        } else {
+            Write-Host "  [关键缺失] $($item.Name) - 项目中未找到" -ForegroundColor Red
+            $criticalMissing += $item.Name
+        }
     }
 }
 
-if ($allOk) {
+$optionalMissing = @()
+foreach ($item in $optionalItems) {
+    if (Test-Path -LiteralPath $item.Dst) {
+        $isDir = (Get-Item -LiteralPath $item.Dst).PSIsContainer
+        if ($isDir) {
+            $fileCount = (Get-ChildItem -Path $item.Dst -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count
+            if ($fileCount -eq 0 -and $item.SrcDir) {
+                $result = SyncDirFromProject $item.Dst $item.SrcDir
+                if ($result -eq "fixed") {
+                    $newCount = (Get-ChildItem -Path $item.Dst -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count
+                    Write-Host "  [可选] 已从项目同步: $($item.Name) ($newCount 个文件)" -ForegroundColor Green
+                } else {
+                    Write-Host "  [可选] 存在但为空: $($item.Name)（项目源也无文件）" -ForegroundColor Yellow
+                }
+            } elseif ($fileCount -eq 0) {
+                Write-Host "  [可选] 存在但为空: $($item.Name)" -ForegroundColor Yellow
+            } else {
+                Write-Host "  [可选] 存在: $($item.Name) ($fileCount 个文件)" -ForegroundColor Green
+            }
+        } else {
+            $sizeMB = [math]::Round((Get-Item -LiteralPath $item.Dst).Length / 1MB, 2)
+            Write-Host "  [可选] 存在: $($item.Name) ($sizeMB MB)" -ForegroundColor Green
+        }
+    } else {
+        if ($isDir = $item.IsDir) {
+            if ($item.SrcDir) {
+                $result = SyncDirFromProject $item.Dst $item.SrcDir
+                if ($result -eq "fixed") {
+                    $newCount = (Get-ChildItem -Path $item.Dst -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count
+                    Write-Host "  [可选] 已从项目同步: $($item.Name) ($newCount 个文件)" -ForegroundColor Green
+                } else {
+                    New-Item -ItemType Directory -Path $item.Dst -Force | Out-Null
+                    Write-Host "  [可选] 已创建空目录: $($item.Name)" -ForegroundColor Yellow
+                }
+            } else {
+                New-Item -ItemType Directory -Path $item.Dst -Force | Out-Null
+                Write-Host "  [可选] 已创建空目录: $($item.Name)" -ForegroundColor Yellow
+            }
+        } else {
+            $result = CopyFileFromProject $item.Dst $item.Src
+            if ($result -eq "fixed") {
+                Write-Host "  [可选] 已从项目复制: $($item.Name)" -ForegroundColor Green
+            } else {
+                Write-Host "  [可选缺失] $($item.Name) - 项目中未找到，运行时需手动放置" -ForegroundColor Yellow
+                $optionalMissing += $item.Name
+            }
+        }
+    }
+}
+
+if ($criticalMissing.Count -eq 0 -and $optionalMissing.Count -eq 0) {
     Write-Host ""
     Write-Host "=== 构建成功 ===" -ForegroundColor Green
     Write-Host "发布包位于: $OutputDir" -ForegroundColor Cyan
@@ -76,8 +277,23 @@ if ($allOk) {
     Write-Host "    models\"
     Write-Host "    runtime\"
     Write-Host "    data\"
+} elseif ($criticalMissing.Count -eq 0) {
+    Write-Host ""
+    Write-Host "=== 构建完成，部分可选文件缺失 ===" -ForegroundColor Yellow
+    Write-Host "发布包位于: $OutputDir" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "缺失的可选文件（运行前需手动放置）:" -ForegroundColor Yellow
+    foreach ($m in $optionalMissing) {
+        Write-Host "  - $m" -ForegroundColor Yellow
+    }
 } else {
     Write-Host ""
-    Write-Host "=== 构建完成，但部分文件缺失 ===" -ForegroundColor Yellow
+    Write-Host "=== 构建失败，关键文件缺失 ===" -ForegroundColor Red
     Write-Host "发布包位于: $OutputDir" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "缺失的关键文件:" -ForegroundColor Red
+    foreach ($m in $criticalMissing) {
+        Write-Host "  - $m" -ForegroundColor Red
+    }
+    throw "关键文件缺失，构建未完成"
 }

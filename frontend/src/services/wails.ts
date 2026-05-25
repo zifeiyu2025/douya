@@ -209,6 +209,10 @@ export const wails = {
         EventsOn('chat:abnormal_cleanup', callback)
     },
     offAbnormalCleanup: () => EventsOff('chat:abnormal_cleanup'),
+    onSwitchProgress: (callback: (progress: { stage: string, targetModel: string }) => void) => {
+        EventsOn('server:switchProgress', callback)
+    },
+    offSwitchProgress: () => EventsOff('server:switchProgress'),
     listKnowledgeBases: ListKnowledgeBases as () => Promise<CollectionInfo[]>,
     createKnowledgeBase: CreateKnowledgeBase as (name: string) => Promise<void>,
     deleteKnowledgeBase: DeleteKnowledgeBase as (name: string) => Promise<void>,
