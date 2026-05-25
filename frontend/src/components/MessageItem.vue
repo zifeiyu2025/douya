@@ -213,12 +213,24 @@ function regenerate() {
 <style scoped>
 .message-item {
   display: flex;
-  gap: 12px;
-  margin-bottom: 24px;
+  gap: 14px;
+  margin-bottom: 26px;
   position: relative;
   width: 100%;
   max-width: var(--msg-max-width);
   align-items: flex-start;
+  animation: messageSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes messageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .message-item.user {
@@ -231,8 +243,8 @@ function regenerate() {
 }
 
 .message-avatar {
-  width: 44px;
-  height: 44px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -241,15 +253,21 @@ function regenerate() {
   font-weight: 600;
   flex-shrink: 0;
   overflow: hidden;
-  box-shadow: var(--shadow-sm);
+  background: transparent;
+}
+
+.message-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  display: block;
 }
 
 .user-avatar {
-  background: transparent;
 }
 
 .ai-avatar {
-  background: transparent;
 }
 
 .message-bubble-wrapper {
@@ -270,11 +288,16 @@ function regenerate() {
 }
 
 .message-bubble {
-  padding: 16px 20px;
-  border-radius: 18px;
-  box-shadow: var(--shadow-md);
-  transition: all var(--transition-fast);
+  padding: 18px 22px;
+  border-radius: 20px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   box-sizing: border-box;
+  position: relative;
+}
+
+.message-bubble:hover {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1);
 }
 
 .user-bubble {
@@ -283,7 +306,18 @@ function regenerate() {
   min-width: 0;
   background: var(--bg-user-msg);
   color: var(--text-user-msg);
-  border-bottom-right-radius: 4px;
+  border-bottom-right-radius: 6px;
+  box-shadow: 0 8px 24px rgba(7, 193, 96, 0.15);
+}
+
+.user-bubble::after {
+  content: '';
+  position: absolute;
+  right: -8px;
+  top: 20px;
+  border-width: 10px 0 10px 10px;
+  border-style: solid;
+  border-color: transparent transparent transparent var(--bg-user-msg);
 }
 
 .ai-bubble {
@@ -292,25 +326,46 @@ function regenerate() {
   min-width: 0;
   background: var(--bg-ai-msg);
   color: var(--text-ai-msg);
-  border-bottom-left-radius: 4px;
+  border-bottom-left-radius: 6px;
   border: 1px solid var(--border-color);
+}
+
+.ai-bubble::after {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 20px;
+  border-width: 10px 10px 10px 0;
+  border-style: solid;
+  border-color: transparent var(--bg-ai-msg) transparent transparent;
+}
+
+:global(.dark) .user-bubble {
+  box-shadow: 0 8px 24px rgba(134, 230, 171, 0.2);
+}
+
+:global(.dark) .user-bubble::after {
+  border-color: transparent transparent transparent var(--accent-primary);
 }
 
 .user-text {
   white-space: pre-wrap;
-  line-height: 1.65;
+  line-height: 1.7;
   font-size: 15px;
+  font-weight: 400;
 }
 
 .msg-actions {
-  margin-top: 6px;
-  min-height: 28px;
+  margin-top: 8px;
+  min-height: 32px;
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  transform: translateY(-4px);
 }
 
 .message-item:hover .msg-actions {
   opacity: 1;
+  transform: translateY(0);
 }
 
 .user-actions {
@@ -325,22 +380,23 @@ function regenerate() {
 
 .action-row {
   display: flex;
-  gap: 4px;
+  gap: 6px;
   align-items: center;
 }
 
 .action-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+  gap: 7px;
+  padding: 7px 14px;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   background: transparent;
   color: var(--text-muted);
   font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.18s ease;
   line-height: 1;
   white-space: nowrap;
 }
@@ -348,20 +404,26 @@ function regenerate() {
 .action-btn:hover {
   background: var(--bg-hover);
   color: var(--text-secondary);
+  transform: translateY(-1px);
+}
+
+.action-btn:active {
+  transform: translateY(0);
 }
 
 .action-btn.active {
   color: var(--accent-primary);
+  background: rgba(7, 193, 96, 0.1);
 }
 
 .action-btn.danger:hover {
   color: var(--accent-danger);
-  background: rgba(250, 81, 81, 0.1);
+  background: rgba(250, 81, 81, 0.12);
 }
 
 .action-icon {
-  width: 16px;
-  height: 16px;
+  width: 17px;
+  height: 17px;
   flex-shrink: 0;
 }
 
@@ -394,54 +456,67 @@ function regenerate() {
 
 .message-images {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .message-attachments {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .attachment-tag {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.06);
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.05);
   font-size: 13px;
+  font-weight: 500;
   line-height: 1;
-  max-width: 220px;
+  max-width: 240px;
   overflow: hidden;
+  transition: all 0.2s ease;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.attachment-tag:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 :global(.dark) .attachment-tag {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .attachment-tag.att-audio {
-  background: rgba(52, 152, 219, 0.12);
+  background: rgba(52, 152, 219, 0.1);
+  border-color: rgba(52, 152, 219, 0.2);
 }
 
 :global(.dark) .attachment-tag.att-audio {
-  background: rgba(52, 152, 219, 0.2);
+  background: rgba(52, 152, 219, 0.15);
+  border-color: rgba(52, 152, 219, 0.25);
 }
 
 .attachment-tag.att-pdf {
-  background: rgba(231, 76, 60, 0.1);
+  background: rgba(231, 76, 60, 0.08);
+  border-color: rgba(231, 76, 60, 0.18);
 }
 
 :global(.dark) .attachment-tag.att-pdf {
-  background: rgba(231, 76, 60, 0.18);
+  background: rgba(231, 76, 60, 0.12);
+  border-color: rgba(231, 76, 60, 0.22);
 }
 
 .att-icon {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
 }
 
@@ -452,50 +527,54 @@ function regenerate() {
 }
 
 .message-image {
-  max-width: 240px;
-  max-height: 240px;
-  border-radius: 14px;
+  max-width: 260px;
+  max-height: 260px;
+  border-radius: 16px;
   cursor: zoom-in;
   object-fit: cover;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   border: 1px solid var(--border-color);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 .message-image:hover {
-  transform: scale(1.02);
-  box-shadow: var(--shadow-md);
+  transform: scale(1.03);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
 }
 
 .message-bubble :deep(.markdown-body) blockquote {
   border-left: 4px solid var(--accent-primary);
-  padding-left: 16px;
-  margin: 14px 0;
+  padding-left: 18px;
+  margin: 16px 0;
   color: var(--text-secondary);
-  background: transparent;
-  padding-top: 8px;
-  padding-bottom: 8px;
-  padding-right: 0;
-  border-radius: 0 12px 12px 0;
+  background: rgba(7, 193, 96, 0.05);
+  padding-top: 12px;
+  padding-bottom: 12px;
+  padding-right: 16px;
+  border-radius: 0 14px 14px 0;
 }
 
 :global(.dark) .message-bubble :deep(.markdown-body) blockquote {
   border-left-color: var(--accent-secondary);
   color: var(--text-secondary);
+  background: rgba(134, 230, 171, 0.08);
 }
 
 .message-bubble :deep(.markdown-body) table {
   border-collapse: collapse;
   width: 100%;
-  margin: 14px 0;
+  margin: 16px 0;
   font-size: 14.5px;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .message-bubble :deep(.markdown-body) th,
 .message-bubble :deep(.markdown-body) td {
   border: 1px solid var(--border-color);
-  padding: 12px 16px;
+  padding: 14px 18px;
   text-align: left;
-  border-radius: 6px;
 }
 
 .message-bubble :deep(.markdown-body) th {
@@ -505,18 +584,19 @@ function regenerate() {
 
 .message-bubble :deep(.markdown-body) ul,
 .message-bubble :deep(.markdown-body) ol {
-  padding-left: 26px;
-  margin: 12px 0;
+  padding-left: 28px;
+  margin: 14px 0;
 }
 
 .message-bubble :deep(.markdown-body) li {
-  margin: 8px 0;
-  line-height: 1.65;
+  margin: 10px 0;
+  line-height: 1.7;
 }
 
 .message-bubble :deep(.markdown-body) img {
   max-width: 100%;
-  border-radius: 12px;
-  margin: 12px 0;
+  border-radius: 14px;
+  margin: 14px 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
 }
 </style>

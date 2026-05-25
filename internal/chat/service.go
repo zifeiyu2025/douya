@@ -255,6 +255,67 @@ func cleanThinkingContent(s string) string {
 	return strings.TrimSpace(cleaned.String())
 }
 
+func generateConversationTitle(content string) string {
+	// 去除首尾空白
+	content = strings.TrimSpace(content)
+	
+	// 如果内容为空，返回默认标题
+	if content == "" {
+		return "新对话"
+	}
+	
+	// 过滤掉无意义的纯标点/表情符号
+	hasMeaningfulChar := false
+	for _, r := range content {
+		// 检查是否是有意义的字符（字母、数字、汉字等）
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || 
+		   (r >= '0' && r <= '9') || 
+		   (r >= 0x4e00 && r <= 0x9fff) { // 汉字范围
+			hasMeaningfulChar = true
+			break
+		}
+	}
+	
+	if !hasMeaningfulChar {
+		return "新对话"
+	}
+	
+	// 将最大长度从30增加到50
+	maxLen := 50
+	runes := []rune(content)
+	
+	if len(runes) <= maxLen {
+		return content
+	}
+	
+	// 尝试在合适的位置截断（空格、标点符号处）
+	truncateAt := maxLen
+	
+	// 从后向前搜索合适的截断点（在前40-50字符范围内）
+	for i := maxLen; i >= 40 && i < len(runes); i-- {
+		r := runes[i]
+		// 检查是否是适合截断的字符
+		if r == ' ' || r == '，' || r == ',' || r == '。' || r == '.' || 
+		   r == '！' || r == '!' || r == '？' || r == '?' ||
+		   r == '；' || r == ';' || r == '：' || r == ':' ||
+		   r == '\n' || r == '\t' {
+			truncateAt = i
+			break
+		}
+	}
+	
+	// 提取截断前的内容并添加省略号
+	title := string(runes[:truncateAt])
+	title = strings.TrimSpace(title)
+	
+	// 确保我们不会返回空字符串
+	if title == "" {
+		title = string(runes[:maxLen])
+	}
+	
+	return title + "…"
+}
+
 func storeMsgToChat(m *store.Message) *Message {
 	msg := &Message{
 		ID:               m.ID,
@@ -865,12 +926,7 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 		log.Error().Err(err).Str("convID", convID).Msg("[chat] 无法获取会话以更新标题")
 	} else if conv != nil {
 		if (conv.Title == "新对话" || conv.Title == "新的对话") && len(titleContent) > 0 {
-			title := strings.ToValidUTF8(titleContent, "\uFFFD")
-			runeTitle := []rune(title)
-			maxLen := 30
-			if len(runeTitle) > maxLen {
-				title = string(runeTitle[:maxLen]) + "..."
-			}
+			title := generateConversationTitle(titleContent)
 			conv.Title = title
 			if err := store.UpdateConversation(s.db, conv); err != nil {
 				log.Error().Err(err).Str("convID", convID).Msg("[chat] 更新会话标题失败")

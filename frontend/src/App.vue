@@ -13,7 +13,7 @@
                   </template>
                 </n-button>
                 <div class="header-content">
-                  <div class="header-title">{{ currentTitle }}</div>
+                  <div class="header-title" :title="currentTitle">{{ currentTitle }}</div>
                 </div>
               </div>
               <div class="main-header-right" style="--wails-draggable:no-drag">
@@ -76,6 +76,15 @@
             <router-view />
           </div>
         </div>
+    <Transition name="switch-overlay">
+      <div v-if="isExiting" class="switch-overlay">
+        <div class="switch-overlay-content">
+          <div class="switch-spinner"></div>
+          <div class="switch-model-name">正在退出豆芽</div>
+          <div class="switch-progress-msg">{{ exitMessage }}</div>
+        </div>
+      </div>
+    </Transition>
       </n-dialog-provider>
     </n-message-provider>
   </n-config-provider>
@@ -94,7 +103,7 @@ import { useThemeStore } from './stores/theme'
 import { formatModelName, formatModelNameFromPath, extractQuantSuffix } from './utils/model'
 import type { Conversation, ModelOption } from './services/wails'
 import { wails } from './services/wails'
-import { WindowMinimise, WindowToggleMaximise, WindowIsMaximised, Quit } from '../wailsjs/runtime/runtime'
+import { WindowMinimise, WindowToggleMaximise, WindowIsMaximised, WindowHide } from '../wailsjs/runtime/runtime'
 
 const { message: discreteMessage } = createDiscreteApi(['message'])
 
@@ -132,6 +141,8 @@ const switchDuration = ref('')
 let switchDurationTimer: ReturnType<typeof setInterval> | null = null
 
 const isMaximized = ref(false)
+const isExiting = ref(false)
+const exitMessage = ref('')
 
 watch(() => settingsStore.isModelSwitching, (isSwitching) => {
   if (isSwitching) {
@@ -324,8 +335,7 @@ function handleToggleMaximize() {
 }
 
 function handleClose() {
-  wails.prepareShutdown()
-  Quit()
+  WindowHide()
 }
 
 async function updateMaximizedState() {
@@ -337,7 +347,6 @@ async function updateMaximizedState() {
 }
 
 function handleBeforeUnload() {
-    wails.prepareShutdown()
 }
 
 onMounted(async () => {
@@ -365,6 +374,11 @@ onMounted(async () => {
   loadAvailableModels()
   updateMaximizedState()
 
+  wails.onShutdownProgress((progress: { stage: string, message: string }) => {
+    isExiting.value = true
+    exitMessage.value = progress.message
+  })
+
   window.addEventListener('resize', updateMaximizedState)
   window.addEventListener('beforeunload', handleBeforeUnload)
 })
@@ -375,6 +389,7 @@ onUnmounted(() => {
   settingsStore.cleanupSwitchProgressListener()
   wails.offAbnormalCleanup()
   wails.offSwitchProgress()
+  wails.offShutdownProgress()
   window.removeEventListener('resize', updateMaximizedState)
   window.removeEventListener('beforeunload', handleBeforeUnload)
 })
@@ -489,5 +504,63 @@ onUnmounted(() => {
 :global(.dark) .win-btn-close:active {
   background: #bf0f1d;
   color: #ffffff;
+}
+
+.switch-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-primary);
+  opacity: 0.85;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  pointer-events: auto;
+}
+
+.switch-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.switch-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border-color);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: exit-spin 0.8s linear infinite;
+}
+
+.switch-model-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.switch-progress-msg {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.switch-overlay-enter-active,
+.switch-overlay-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.switch-overlay-enter-from,
+.switch-overlay-leave-to {
+  opacity: 0;
+}
+
+@keyframes exit-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

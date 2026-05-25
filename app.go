@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"fyne.io/systray"
 	"douya/internal/chat"
 	"douya/internal/config"
 	"douya/internal/llm"
@@ -66,6 +67,8 @@ type App struct {
 	switchingToMu    sync.RWMutex
 	ragVS            *rag.VectorStore
 	ragDS            *rag.DocumentStore
+	hidden           atomic.Bool
+	exiting          atomic.Bool
 }
 
 func NewApp() *App {
@@ -801,6 +804,127 @@ func (a *App) PrepareShutdown() {
 			}()
 		}
 	})
+}
+
+func (a *App) beforeClose(ctx context.Context) bool {
+	if a.exiting.Load() {
+		return false
+	}
+	runtime.WindowHide(ctx)
+	a.hidden.Store(true)
+	return true
+}
+
+func (a *App) ShowWindow() {
+	if a.ctx != nil {
+		runtime.WindowShow(a.ctx)
+		a.hidden.Store(false)
+	}
+}
+
+func (a *App) GracefulExit() {
+	if a.ctx == nil {
+		return
+	}
+
+	if !a.exiting.CompareAndSwap(false, true) {
+		return
+	}
+
+	runtime.WindowShow(a.ctx)
+	a.hidden.Store(false)
+
+	go func() {
+		a.stopOnce.Do(func() {
+			if a.service != nil {
+				a.service.StopGeneration()
+			}
+			runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]interface{}{
+				"stage":   "stopping_generation",
+				"message": "正在停止生成...",
+			})
+
+			a.serverMu.Lock()
+			if a.watchCancel != nil {
+				a.watchCancel()
+				a.watchCancel = nil
+			}
+			srv := a.server
+			a.serverMu.Unlock()
+
+			if srv != nil {
+				runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]interface{}{
+					"stage":   "stopping_server",
+					"message": "正在卸载模型...",
+				})
+				if err := srv.Stop(); err != nil {
+					log.Printf("graceful exit: stop server failed: %v", err)
+				}
+				srv.CloseJob()
+				runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]interface{}{
+					"stage":   "server_stopped",
+					"message": "模型已卸载，显存已释放",
+				})
+			}
+
+			if a.ragVS != nil {
+				runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]interface{}{
+					"stage":   "closing_rag",
+					"message": "正在关闭知识库...",
+				})
+				if err := a.ragVS.Close(); err != nil {
+					log.Printf("graceful exit: close RAG vector store: %v", err)
+				}
+			}
+
+			if a.db != nil {
+				runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]interface{}{
+					"stage":   "closing_db",
+					"message": "正在关闭数据库...",
+				})
+				if err := a.db.Close(); err != nil {
+					log.Printf("graceful exit: close database: %v", err)
+				}
+			}
+
+			runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]interface{}{
+				"stage":   "done",
+				"message": "清理完成",
+			})
+		})
+
+		runtime.Quit(a.ctx)
+		systray.Quit()
+	}()
+}
+
+func (a *App) onSystrayReady() {
+	systray.SetTitle("豆芽")
+	systray.SetTooltip("豆芽 - AI 聊天助手")
+	systray.SetIcon(iconData)
+	systray.SetOnTapped(func() {
+		a.ShowWindow()
+	})
+
+	mShow := systray.AddMenuItem("显示豆芽", "显示主窗口")
+	systray.AddSeparator()
+	mQuit := systray.AddMenuItem("退出豆芽", "退出程序")
+
+	go func() {
+		for {
+			select {
+			case <-mShow.ClickedCh:
+				a.ShowWindow()
+			case <-mQuit.ClickedCh:
+				a.GracefulExit()
+				return
+			}
+		}
+	}()
+}
+
+func (a *App) onSystrayExit() {
+	systray.SetIcon([]byte{})
 }
 
 func (a *App) DeleteMessage(id string) error {

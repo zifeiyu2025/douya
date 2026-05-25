@@ -40,7 +40,9 @@
             {{ getAvatarText(conv.title) }}
           </div>
           <div class="conversation-item-info">
-            <div class="conversation-item-title">{{ fixUtf8(conv.title) || '新对话' }}</div>
+            <div class="conversation-item-title" :title="fixUtf8(conv.title) || '新对话'">
+              {{ fixUtf8(conv.title) || '新对话' }}
+            </div>
             <div class="conversation-item-preview">
               <template v-if="chatStore.generatingConvId === conv.id">生成中...</template>
               <template v-else>{{ getPreview(conv) }}</template>
@@ -80,7 +82,7 @@
 <script setup lang="ts">
 import { ref, computed, h } from 'vue'
 import { NButton, NIcon, NInput, NDropdown, useDialog, useMessage } from 'naive-ui'
-import { AddOutline, SearchOutline, SettingsOutline, BookOutline } from '@vicons/ionicons5'
+import { AddOutline, SearchOutline, SettingsOutline, BookOutline, PencilOutline, DocumentTextOutline, CodeSlashOutline, TrashOutline } from '@vicons/ionicons5'
 import { useChatStore } from '../stores/chat'
 import { fixUtf8 } from '../utils/utf8'
 import type { Conversation } from '../services/wails'
@@ -98,10 +100,36 @@ const contextMenuX = ref(0)
 const contextMenuY = ref(0)
 
 const contextMenuOptions = [
-  { label: '重命名', key: 'rename' },
-  { label: '导出 Markdown', key: 'export-md' },
-  { label: '导出 JSON', key: 'export-json' },
-  { label: '删除', key: 'delete' },
+  { 
+    key: 'rename',
+    label: () => h('div', { class: 'context-menu-item' }, [
+      h(NIcon, { size: 16, class: 'menu-icon' }, { default: () => h(PencilOutline) }),
+      h('span', { class: 'menu-text' }, '重命名')
+    ])
+  },
+  { 
+    key: 'export-md',
+    label: () => h('div', { class: 'context-menu-item' }, [
+      h(NIcon, { size: 16, class: 'menu-icon' }, { default: () => h(DocumentTextOutline) }),
+      h('span', { class: 'menu-text' }, '导出 Markdown')
+    ])
+  },
+  { 
+    key: 'export-json',
+    label: () => h('div', { class: 'context-menu-item' }, [
+      h(NIcon, { size: 16, class: 'menu-icon' }, { default: () => h(CodeSlashOutline) }),
+      h('span', { class: 'menu-text' }, '导出 JSON')
+    ])
+  },
+  { type: 'divider', key: 'divider' },
+  { 
+    key: 'delete',
+    props: { style: { color: 'var(--accent-danger)' } },
+    label: () => h('div', { class: 'context-menu-item danger' }, [
+      h(NIcon, { size: 16, class: 'menu-icon' }, { default: () => h(TrashOutline) }),
+      h('span', { class: 'menu-text' }, '删除')
+    ])
+  },
 ]
 
 const filteredConversations = computed(() => {

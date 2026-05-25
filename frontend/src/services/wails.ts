@@ -215,6 +215,10 @@ export const wails = {
         EventsOn('server:switchProgress', callback)
     },
     offSwitchProgress: () => EventsOff('server:switchProgress'),
+    onShutdownProgress: (callback: (progress: { stage: string, message: string }) => void) => {
+        EventsOn('shutdown:progress', callback)
+    },
+    offShutdownProgress: () => EventsOff('shutdown:progress'),
     listKnowledgeBases: ListKnowledgeBases as () => Promise<CollectionInfo[]>,
     createKnowledgeBase: CreateKnowledgeBase as (name: string) => Promise<void>,
     deleteKnowledgeBase: DeleteKnowledgeBase as (name: string) => Promise<void>,

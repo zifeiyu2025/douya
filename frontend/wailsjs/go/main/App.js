@@ -66,6 +66,10 @@ export function GetServerStatus() {
   return window['go']['main']['App']['GetServerStatus']();
 }
 
+export function GracefulExit() {
+  return window['go']['main']['App']['GracefulExit']();
+}
+
 export function IsRAGEnabled() {
   return window['go']['main']['App']['IsRAGEnabled']();
 }
@@ -112,6 +116,10 @@ export function SetRAGEnabled(arg1) {
 
 export function SetSearchAPIKeys(arg1) {
   return window['go']['main']['App']['SetSearchAPIKeys'](arg1);
+}
+
+export function ShowWindow() {
+  return window['go']['main']['App']['ShowWindow']();
 }
 
 export function StopGeneration() {

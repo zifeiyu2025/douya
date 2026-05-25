@@ -38,6 +38,8 @@ export function GetSearchAPIKeys():Promise<main.SearchAPIKeys>;
 
 export function GetServerStatus():Promise<llm.ServerStatus>;
 
+export function GracefulExit():Promise<void>;
+
 export function IsRAGEnabled():Promise<boolean>;
 
 export function ListDocuments(arg1:string):Promise<Array<rag.DocumentMeta>>;
@@ -61,6 +63,8 @@ export function SetActiveKnowledgeBase(arg1:string):Promise<void>;
 export function SetRAGEnabled(arg1:boolean):Promise<void>;
 
 export function SetSearchAPIKeys(arg1:main.SearchAPIKeys):Promise<void>;
+
+export function ShowWindow():Promise<void>;
 
 export function StopGeneration():Promise<void>;
 
