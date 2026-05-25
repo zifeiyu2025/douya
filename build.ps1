@@ -1,4 +1,4 @@
-﻿[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::InputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 chcp 65001 > $null 2>&1
@@ -48,82 +48,6 @@ if (Test-Path $dstExe) {
 if ($needCopyExe) {
     Copy-Item $builtExe $BinDir -Force
     Write-Host "  已复制: douya.exe" -ForegroundColor Green
-}
-
-$srcConfig = Join-Path $ProjectRoot "config.json"
-$dstConfig = Join-Path $OutputDir "config.json"
-if (Test-Path $srcConfig) {
-    $needCopyCfg = $true
-    if (Test-Path $dstConfig) {
-        $srcCfgTime = (Get-Item $srcConfig).LastWriteTimeUtc
-        $dstCfgTime = (Get-Item $dstConfig).LastWriteTimeUtc
-        if ($srcCfgTime -le $dstCfgTime) {
-            Write-Host "  [增量] config.json 已是最新，跳过" -ForegroundColor Gray
-            $needCopyCfg = $false
-        }
-    }
-    if ($needCopyCfg) {
-        Copy-Item $srcConfig $OutputDir -Force
-        Write-Host "  已复制: config.json" -ForegroundColor Green
-    }
-} else {
-    Write-Host "  源目录无 config.json，将在发布目录生成默认配置" -ForegroundColor Yellow
-    $defaultConfig = @{
-        model_path        = "models/Gemma-4-E4B-U-Q4_K_M/Gemma-4-E4B-U-Q4_K_M.gguf"
-        mmproj_auto       = $true
-        mmproj_offload    = $true
-        llama_server_path = "engines/llama-server.exe"
-        api_base          = "http://127.0.0.1:8080"
-        port              = 8080
-        context_size      = 8192
-        temperature       = 0.8
-        top_p             = 0.95
-        top_k             = 20
-        repeat_penalty    = 1.0
-        reasoning         = "auto"
-        search_engines    = @{
-            ollama_api_key  = ""
-            tavily_api_key  = ""
-            github_api_key  = ""
-        }
-        search_enabled    = $false
-        sleep_idle_seconds = 120
-        models_max        = 1
-        rag_enabled       = $false
-        rag_active_kb     = "default"
-        rag_top_k         = 3
-        rag_min_score     = 0.3
-        rag_chunk_size    = 512
-        rag_chunk_overlap = 64
-    } | ConvertTo-Json -Depth 3
-    if (Test-Path $dstConfig) {
-        $existing = Get-Content $dstConfig -Raw -Encoding UTF8 | ConvertFrom-Json
-        $existingConfig = @{}
-        foreach ($prop in $existing.PSObject.Properties) { $existingConfig[$prop.Name] = $prop.Value }
-        foreach ($key in $defaultConfig.Keys) {
-            if ($existingConfig.ContainsKey($key)) {
-                $defaultConfig[$key] = $existingConfig[$key]
-            }
-        }
-        $se = $defaultConfig["search_engines"]
-        $sensitiveKeys = @("ollama_api_key", "tavily_api_key", "github_api_key")
-        $clearedCount = 0
-        foreach ($sk in $sensitiveKeys) {
-            if ($se -is [System.Collections.IDictionary]) {
-                if ($se.ContainsKey($sk) -and $se[$sk]) { $se[$sk] = ""; $clearedCount++ }
-            } elseif ($se.PSObject.Properties.Name -contains $sk) {
-                if ($se.$sk) { $se.$sk = ""; $clearedCount++ }
-            }
-        }
-        if ($clearedCount -gt 0) {
-            Write-Host "    [安全] 已清除 $clearedCount 个 API 密钥（运行时请重新配置）" -ForegroundColor Yellow
-        }
-        $defaultConfig | ConvertTo-Json -Depth 3 | Set-Content -Path $dstConfig -Encoding UTF8
-        Write-Host "  已生成: config.json（合并已有配置）" -ForegroundColor Green
-    } else {
-        Set-Content -Path $dstConfig -Value ($defaultConfig | ConvertTo-Json -Depth 3) -Encoding UTF8
-        Write-Host "  已生成: config.json（默认配置）" -ForegroundColor Green
-    }
 }
 
 $syncDirs = @("engines", "models", "runtime")
@@ -197,9 +121,7 @@ function SyncDirFromProject {
 
 $criticalItems = @(
     @{ Name = "bin\douya.exe";  Dst = "$BinDir\douya.exe";
-       Src = @("$ProjectRoot\build\bin\douya.exe") },
-    @{ Name = "config.json";    Dst = "$OutputDir\config.json";
-       Src = @("$ProjectRoot\config.json") }
+       Src = @("$ProjectRoot\build\bin\douya.exe") }
 )
 
 $optionalItems = @(
@@ -281,33 +203,6 @@ foreach ($item in $optionalItems) {
     }
 }
 
-$sensitiveApiKeys = @("ollama_api_key", "tavily_api_key", "github_api_key")
-$securityWarnings = @()
-if (Test-Path "$OutputDir\config.json") {
-    $cfg = Get-Content "$OutputDir\config.json" -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($cfg.search_engines) {
-        foreach ($field in $sensitiveApiKeys) {
-            $val = $null
-            if ($cfg.search_engines.PSObject.Properties.Name -contains $field) {
-                $val = $cfg.search_engines.$field
-            }
-            if ($val -and $val -is [string] -and $val.Length -gt 0) {
-                $masked = $val.Substring(0, [Math]::Min(4, $val.Length)) + "****"
-                $securityWarnings += "search_engines.$field = $masked"
-            }
-        }
-    }
-}
-if ($securityWarnings.Count -gt 0) {
-    Write-Host ""
-    Write-Host "  === 安全提示 ===" -ForegroundColor Yellow
-    Write-Host "  发布包 config.json 包含以下 API 密钥：" -ForegroundColor Yellow
-    foreach ($w in $securityWarnings) {
-        Write-Host "    [!] $w" -ForegroundColor Yellow
-    }
-    Write-Host "  发布前请确认这些密钥不应被移除" -ForegroundColor Yellow
-}
-
 if ($criticalMissing.Count -eq 0 -and $optionalMissing.Count -eq 0) {
     Write-Host ""
     Write-Host "=== 构建成功 ===" -ForegroundColor Green
@@ -315,7 +210,6 @@ if ($criticalMissing.Count -eq 0 -and $optionalMissing.Count -eq 0) {
     Write-Host ""
     Write-Host "目录结构:" -ForegroundColor Cyan
     Write-Host "  $OutputDir\"
-    Write-Host "    config.json"
     Write-Host "    bin\douya.exe"
     Write-Host "    engines\"
     Write-Host "    models\"
