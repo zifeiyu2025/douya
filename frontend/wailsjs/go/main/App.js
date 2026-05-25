@@ -58,6 +58,10 @@ export function GetModelCapabilities() {
   return window['go']['main']['App']['GetModelCapabilities']();
 }
 
+export function GetSearchAPIKeys() {
+  return window['go']['main']['App']['GetSearchAPIKeys']();
+}
+
 export function GetServerStatus() {
   return window['go']['main']['App']['GetServerStatus']();
 }
@@ -104,6 +108,10 @@ export function SetActiveKnowledgeBase(arg1) {
 
 export function SetRAGEnabled(arg1) {
   return window['go']['main']['App']['SetRAGEnabled'](arg1);
+}
+
+export function SetSearchAPIKeys(arg1) {
+  return window['go']['main']['App']['SetSearchAPIKeys'](arg1);
 }
 
 export function StopGeneration() {

@@ -3,8 +3,8 @@
 import {chat} from '../models';
 import {llm} from '../models';
 import {config} from '../models';
-import {rag} from '../models';
 import {main} from '../models';
+import {rag} from '../models';
 
 export function CreateConversation():Promise<chat.Conversation>;
 
@@ -34,6 +34,8 @@ export function GetMessages(arg1:string):Promise<Array<chat.Message>>;
 
 export function GetModelCapabilities():Promise<llm.ModelCapabilities>;
 
+export function GetSearchAPIKeys():Promise<main.SearchAPIKeys>;
+
 export function GetServerStatus():Promise<llm.ServerStatus>;
 
 export function IsRAGEnabled():Promise<boolean>;
@@ -57,6 +59,8 @@ export function SendMessage(arg1:chat.SendMessageParams):Promise<void>;
 export function SetActiveKnowledgeBase(arg1:string):Promise<void>;
 
 export function SetRAGEnabled(arg1:boolean):Promise<void>;
+
+export function SetSearchAPIKeys(arg1:main.SearchAPIKeys):Promise<void>;
 
 export function StopGeneration():Promise<void>;
 

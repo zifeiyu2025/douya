@@ -35,6 +35,12 @@ type SwitchResult struct {
 	RolledBack    bool                    `json:"rolled_back,omitempty"`
 }
 
+type SearchAPIKeys struct {
+	OllamaAPIKey string `json:"ollama_api_key"`
+	TavilyAPIKey string `json:"tavily_api_key"`
+	GitHubAPIKey string `json:"github_api_key"`
+}
+
 type App struct {
 	ctx              context.Context
 	config           *config.Config
@@ -337,6 +343,36 @@ func (a *App) startup(ctx context.Context) {
 		return
 	}
 
+	if raw, rawErr := config.LoadRaw(cfgPath); rawErr == nil {
+		if se, ok := raw["search_engines"]; ok {
+			if seMap, ok := se.(map[string]interface{}); ok {
+				migrated := false
+				if v, ok := seMap["ollama_api_key"]; ok && v != "" {
+					if existing, _ := store.GetSetting(a.db, "search_ollama_api_key"); existing == "" {
+						store.SetSetting(a.db, "search_ollama_api_key", fmt.Sprintf("%v", v))
+						migrated = true
+					}
+				}
+				if v, ok := seMap["tavily_api_key"]; ok && v != "" {
+					if existing, _ := store.GetSetting(a.db, "search_tavily_api_key"); existing == "" {
+						store.SetSetting(a.db, "search_tavily_api_key", fmt.Sprintf("%v", v))
+						migrated = true
+					}
+				}
+				if v, ok := seMap["github_api_key"]; ok && v != "" {
+					if existing, _ := store.GetSetting(a.db, "search_github_api_key"); existing == "" {
+						store.SetSetting(a.db, "search_github_api_key", fmt.Sprintf("%v", v))
+						migrated = true
+					}
+				}
+				if migrated {
+					log.Printf("[startup] migrated search API keys from config.json to database")
+					config.Save(cfgPath, a.config)
+				}
+			}
+		}
+	}
+
 	if err := a.generatePresetFile(); err != nil {
 		log.Printf("[startup] generate preset file: %v", err)
 	}
@@ -344,16 +380,17 @@ func (a *App) startup(ctx context.Context) {
 	a.client = llm.NewClient(a.config.APIBase)
 
 	var searchProviders []search.CategorizedProvider
-	if a.config.SearchEngines.TavilyAPIKey != "" {
-		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewTavilyProvider(a.config.SearchEngines.TavilyAPIKey), Categories: []string{"general", "code"}})
+	keys := a.loadSearchAPIKeys()
+	if keys.TavilyAPIKey != "" {
+		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewTavilyProvider(keys.TavilyAPIKey), Categories: []string{"general", "code"}})
 	}
-	if a.config.SearchEngines.OllamaAPIKey != "" {
-		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewOllamaProvider(a.config.SearchEngines.OllamaAPIKey), Categories: []string{"general", "code"}})
+	if keys.OllamaAPIKey != "" {
+		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewOllamaProvider(keys.OllamaAPIKey), Categories: []string{"general", "code"}})
 	}
 	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewDuckDuckGoProvider(), Categories: []string{"general"}})
 	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewBingProvider(), Categories: []string{"general"}})
-	if a.config.SearchEngines.GitHubAPIKey != "" {
-		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewGitHubProvider(a.config.SearchEngines.GitHubAPIKey), Categories: []string{"code"}})
+	if keys.GitHubAPIKey != "" {
+		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewGitHubProvider(keys.GitHubAPIKey), Categories: []string{"code"}})
 	}
 	searchChain := search.NewCategorizedSearchChain(searchProviders)
 
@@ -636,6 +673,46 @@ func (a *App) ExportConversation(id string, format string) (string, error) {
 	return a.service.ExportConversation(id, format)
 }
 
+func (a *App) GetSearchAPIKeys() SearchAPIKeys {
+	return a.loadSearchAPIKeys()
+}
+
+func (a *App) SetSearchAPIKeys(keys SearchAPIKeys) error {
+	if err := store.SetSetting(a.db, "search_ollama_api_key", keys.OllamaAPIKey); err != nil {
+		return fmt.Errorf("save ollama api key: %w", err)
+	}
+	if err := store.SetSetting(a.db, "search_tavily_api_key", keys.TavilyAPIKey); err != nil {
+		return fmt.Errorf("save tavily api key: %w", err)
+	}
+	if err := store.SetSetting(a.db, "search_github_api_key", keys.GitHubAPIKey); err != nil {
+		return fmt.Errorf("save github api key: %w", err)
+	}
+	return nil
+}
+
+func (a *App) loadSearchAPIKeys() SearchAPIKeys {
+	keys := SearchAPIKeys{}
+	if v, err := store.GetSetting(a.db, "search_ollama_api_key"); err == nil {
+		keys.OllamaAPIKey = v
+	}
+	if v, err := store.GetSetting(a.db, "search_tavily_api_key"); err == nil {
+		keys.TavilyAPIKey = v
+	}
+	if v, err := store.GetSetting(a.db, "search_github_api_key"); err == nil {
+		keys.GitHubAPIKey = v
+	}
+	if apiKey := os.Getenv("OLLAMA_API_KEY"); apiKey != "" {
+		keys.OllamaAPIKey = apiKey
+	}
+	if apiKey := os.Getenv("TAVILY_API_KEY"); apiKey != "" {
+		keys.TavilyAPIKey = apiKey
+	}
+	if apiKey := os.Getenv("GITHUB_API_KEY"); apiKey != "" {
+		keys.GitHubAPIKey = apiKey
+	}
+	return keys
+}
+
 func (a *App) GetConfig() *config.Config {
 	if a.config == nil {
 		cfgPath := filepath.Join(appDir(), "config.json")
@@ -661,16 +738,17 @@ func (a *App) UpdateConfig(cfg *config.Config) error {
 	a.client = llm.NewClient(a.config.APIBase)
 
 	var searchProviders []search.CategorizedProvider
-	if a.config.SearchEngines.TavilyAPIKey != "" {
-		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewTavilyProvider(a.config.SearchEngines.TavilyAPIKey), Categories: []string{"general", "code"}})
+	keys := a.loadSearchAPIKeys()
+	if keys.TavilyAPIKey != "" {
+		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewTavilyProvider(keys.TavilyAPIKey), Categories: []string{"general", "code"}})
 	}
-	if a.config.SearchEngines.OllamaAPIKey != "" {
-		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewOllamaProvider(a.config.SearchEngines.OllamaAPIKey), Categories: []string{"general", "code"}})
+	if keys.OllamaAPIKey != "" {
+		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewOllamaProvider(keys.OllamaAPIKey), Categories: []string{"general", "code"}})
 	}
 	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewDuckDuckGoProvider(), Categories: []string{"general"}})
 	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewBingProvider(), Categories: []string{"general"}})
-	if a.config.SearchEngines.GitHubAPIKey != "" {
-		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewGitHubProvider(a.config.SearchEngines.GitHubAPIKey), Categories: []string{"code"}})
+	if keys.GitHubAPIKey != "" {
+		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewGitHubProvider(keys.GitHubAPIKey), Categories: []string{"code"}})
 	}
 	searchChain := search.NewCategorizedSearchChain(searchProviders)
 

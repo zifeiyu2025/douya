@@ -69,6 +69,38 @@
           </div>
         </n-form-item>
 
+        <n-divider>搜索 API KEY</n-divider>
+
+        <n-form-item label="Ollama API Key">
+          <n-input
+            v-model:value="searchKeys.ollama_api_key"
+            type="password"
+            show-password-on="click"
+            placeholder="输入 Ollama API Key"
+            @blur="saveSearchKeys"
+          />
+        </n-form-item>
+
+        <n-form-item label="Tavily API Key">
+          <n-input
+            v-model:value="searchKeys.tavily_api_key"
+            type="password"
+            show-password-on="click"
+            placeholder="输入 Tavily API Key"
+            @blur="saveSearchKeys"
+          />
+        </n-form-item>
+
+        <n-form-item label="GitHub API Key">
+          <n-input
+            v-model:value="searchKeys.github_api_key"
+            type="password"
+            show-password-on="click"
+            placeholder="输入 GitHub API Key"
+            @blur="saveSearchKeys"
+          />
+        </n-form-item>
+
         <n-divider>系统提示词</n-divider>
         <n-form-item>
           <n-input v-model:value="formConfig.system_prompt" type="textarea" placeholder="设置 AI 的角色和行为指令..." :autosize="{ minRows: 4, maxRows: 12 }" class="rounded-textarea" style="width: 100%;" />
@@ -137,7 +169,7 @@ import {
 import { ArrowBackOutline } from '@vicons/ionicons5'
 import { useSettingsStore } from '../stores/settings'
 import { matchModelRef } from '../stores/settings'
-import { type Config } from '../services/wails'
+import { type Config, type SearchAPIKeys } from '../services/wails'
 import { wails } from '../services/wails'
 import defaultUserAvatar from '../assets/images/user-avatar.svg'
 import defaultAiAvatar from '../assets/images/appicon.png'
@@ -201,10 +233,10 @@ const formConfig = ref<Config>({
   api_base: '',
   port: 8080,
   context_size: 8192,
-  temperature: 0.8,
+  temperature: 0.6,
   top_p: 0.95,
   top_k: 20,
-  repeat_penalty: 1.0,
+  repeat_penalty: 1,
   mmproj_auto: true,
   mmproj_offload: true,
   kv_unified: false,
@@ -214,6 +246,9 @@ const formConfig = ref<Config>({
   image_max_tokens: 0,
   fit_target: 0,
   fit_ctx: 0,
+  reasoning: 'auto',
+  reasoning_budget: 0,
+  reasoning_format: '',
   system_prompt: '',
   chat_background: '',
   user_avatar: '',
@@ -221,7 +256,23 @@ const formConfig = ref<Config>({
   search_enabled: false,
   sleep_idle_seconds: 120,
   models_max: 1,
+  rag_enabled: false,
+  rag_active_kb: 'default',
+  rag_top_k: 3,
+  rag_min_score: 0.3,
+  rag_chunk_size: 512,
+  rag_chunk_overlap: 64,
 })
+
+const searchKeys = ref<SearchAPIKeys>({
+    ollama_api_key: '',
+    tavily_api_key: '',
+    github_api_key: '',
+})
+
+function saveSearchKeys() {
+    settingsStore.saveSearchAPIKeys(searchKeys.value)
+}
 
 interface ModelRefConfig {
   name: string
@@ -360,6 +411,8 @@ onMounted(async () => {
   formConfig.value = JSON.parse(JSON.stringify(settingsStore.config))
   contextSizeIndex.value = findClosestStepIndex(formConfig.value.context_size)
   genParamsDirty.value = false
+  await settingsStore.loadSearchAPIKeys()
+  searchKeys.value = { ...settingsStore.searchAPIKeys }
 })
 
 watch(() => settingsStore.currentModel, async () => {
@@ -371,12 +424,13 @@ watch(() => settingsStore.currentModel, async () => {
 })
 
 const ALL_CONFIG_KEYS: (keyof Config)[] = [
-  'temperature', 'top_p', 'top_k', 'context_size', 'repeat_penalty',
+  'model_path', 'temperature', 'top_p', 'top_k', 'context_size', 'repeat_penalty',
   'system_prompt', 'chat_background', 'user_avatar', 'ai_avatar',
   'search_enabled', 'sleep_idle_seconds', 'models_max',
   'mmproj_auto', 'mmproj_offload', 'kv_unified', 'cache_idle_slots',
   'cache_ram', 'image_min_tokens', 'image_max_tokens',
   'fit_target', 'fit_ctx', 'reasoning', 'reasoning_budget', 'reasoning_format',
+  'rag_enabled', 'rag_active_kb', 'rag_top_k', 'rag_min_score', 'rag_chunk_size', 'rag_chunk_overlap',
 ]
 
 watch(

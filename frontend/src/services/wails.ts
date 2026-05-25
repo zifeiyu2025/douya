@@ -48,9 +48,14 @@ export interface SendMessageParams {
     attachments?: Attachment[]
 }
 
+export interface SearchAPIKeys {
+    ollama_api_key: string
+    tavily_api_key: string
+    github_api_key: string
+}
+
 export interface Config {
     model_path: string
-    mmproj_path?: string
     mmproj_auto?: boolean
     mmproj_offload?: boolean
     llama_server_path: string
@@ -75,11 +80,6 @@ export interface Config {
     chat_background?: string
     user_avatar?: string
     ai_avatar?: string
-    search_engines?: {
-        ollama_api_key?: string
-        tavily_api_key?: string
-        github_api_key?: string
-    }
     search_enabled: boolean
     sleep_idle_seconds?: number
     models_max?: number
@@ -173,6 +173,8 @@ import {
     GetActiveKnowledgeBase,
     SetRAGEnabled,
     IsRAGEnabled,
+    GetSearchAPIKeys,
+    SetSearchAPIKeys,
 } from '../../wailsjs/go/main/App'
 
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
@@ -223,4 +225,6 @@ export const wails = {
     getActiveKnowledgeBase: GetActiveKnowledgeBase as () => Promise<string>,
     setRAGEnabled: SetRAGEnabled as (enabled: boolean) => Promise<void>,
     isRAGEnabled: IsRAGEnabled as () => Promise<boolean>,
+    getSearchAPIKeys: GetSearchAPIKeys as () => Promise<SearchAPIKeys>,
+    setSearchAPIKeys: SetSearchAPIKeys as (keys: SearchAPIKeys) => Promise<void>,
 }

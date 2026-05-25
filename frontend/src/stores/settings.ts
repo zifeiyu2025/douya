@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { wails, type Config, type ServerStatus, type ModelCapabilities, type SwitchResult } from '../services/wails'
+import { wails, type Config, type ServerStatus, type ModelCapabilities, type SwitchResult, type SearchAPIKeys } from '../services/wails'
 import { useChatStore } from './chat'
 import { formatModelName } from '../utils/model'
 
@@ -60,10 +60,22 @@ export const useSettingsStore = defineStore('settings', () => {
         api_base: '',
         port: 8080,
         context_size: 8192,
-        temperature: 0.8,
+        temperature: 0.6,
         top_p: 0.95,
         top_k: 20,
         repeat_penalty: 1.0,
+        mmproj_auto: true,
+        mmproj_offload: true,
+        kv_unified: false,
+        cache_idle_slots: false,
+        cache_ram: 0,
+        image_min_tokens: 0,
+        image_max_tokens: 0,
+        fit_target: 0,
+        fit_ctx: 0,
+        reasoning: 'auto',
+        reasoning_budget: 0,
+        reasoning_format: '',
         system_prompt: '',
         chat_background: '',
         user_avatar: '',
@@ -71,8 +83,19 @@ export const useSettingsStore = defineStore('settings', () => {
         search_enabled: false,
         sleep_idle_seconds: 120,
         models_max: 1,
+        rag_enabled: false,
+        rag_active_kb: 'default',
+        rag_top_k: 3,
+        rag_min_score: 0.3,
+        rag_chunk_size: 512,
+        rag_chunk_overlap: 64,
     })
     const searchEnabled = ref(false)
+    const searchAPIKeys = ref<SearchAPIKeys>({
+        ollama_api_key: '',
+        tavily_api_key: '',
+        github_api_key: '',
+    })
     const serverStatus = ref<ServerStatus>({ running: false })
     const modelCapabilities = ref<ModelCapabilities>({
         image_input: false,
@@ -368,11 +391,31 @@ export const useSettingsStore = defineStore('settings', () => {
         stopStatusPolling()
     }
 
+    async function loadSearchAPIKeys() {
+        try {
+            const keys = await wails.getSearchAPIKeys()
+            searchAPIKeys.value = keys
+        } catch (e) {
+            console.error('Failed to load search API keys:', e)
+        }
+    }
+
+    async function saveSearchAPIKeys(keys: SearchAPIKeys) {
+        try {
+            await wails.setSearchAPIKeys(keys)
+            searchAPIKeys.value = keys
+        } catch (e) {
+            console.error('Failed to save search API keys:', e)
+        }
+    }
+
     async function toggleSearch() {
         searchEnabled.value = !searchEnabled.value
-        config.value.search_enabled = searchEnabled.value
         try {
-            await wails.updateConfig(config.value)
+            const fullConfig = await wails.getConfig()
+            fullConfig.search_enabled = searchEnabled.value
+            await wails.updateConfig(fullConfig)
+            config.value = fullConfig
         } catch (e) {
             console.error('保存搜索设置失败:', e)
         }
@@ -415,6 +458,7 @@ export const useSettingsStore = defineStore('settings', () => {
     return {
         config,
         searchEnabled,
+        searchAPIKeys,
         serverStatus,
         modelCapabilities,
         currentModel,
@@ -429,6 +473,8 @@ export const useSettingsStore = defineStore('settings', () => {
         switchProgress,
         loadConfig,
         updateConfig,
+        loadSearchAPIKeys,
+        saveSearchAPIKeys,
         toggleSearch,
         switchModel,
         checkServerStatus,

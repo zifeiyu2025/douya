@@ -161,22 +161,6 @@ export namespace chat {
 
 export namespace config {
 	
-	export class SearchEngines {
-	    ollama_api_key: string;
-	    tavily_api_key: string;
-	    github_api_key: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new SearchEngines(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.ollama_api_key = source["ollama_api_key"];
-	        this.tavily_api_key = source["tavily_api_key"];
-	        this.github_api_key = source["github_api_key"];
-	    }
-	}
 	export class Config {
 	    model_path: string;
 	    mmproj_auto: boolean;
@@ -203,7 +187,6 @@ export namespace config {
 	    chat_background: string;
 	    user_avatar: string;
 	    ai_avatar: string;
-	    search_engines: SearchEngines;
 	    search_enabled: boolean;
 	    sleep_idle_seconds: number;
 	    models_max: number;
@@ -245,7 +228,6 @@ export namespace config {
 	        this.chat_background = source["chat_background"];
 	        this.user_avatar = source["user_avatar"];
 	        this.ai_avatar = source["ai_avatar"];
-	        this.search_engines = this.convertValues(source["search_engines"], SearchEngines);
 	        this.search_enabled = source["search_enabled"];
 	        this.sleep_idle_seconds = source["sleep_idle_seconds"];
 	        this.models_max = source["models_max"];
@@ -256,24 +238,6 @@ export namespace config {
 	        this.rag_chunk_size = source["rag_chunk_size"];
 	        this.rag_chunk_overlap = source["rag_chunk_overlap"];
 	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 
 }
@@ -371,6 +335,22 @@ export namespace llm {
 
 export namespace main {
 	
+	export class SearchAPIKeys {
+	    ollama_api_key: string;
+	    tavily_api_key: string;
+	    github_api_key: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SearchAPIKeys(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ollama_api_key = source["ollama_api_key"];
+	        this.tavily_api_key = source["tavily_api_key"];
+	        this.github_api_key = source["github_api_key"];
+	    }
+	}
 	export class SwitchResult {
 	    success: boolean;
 	    error?: string;
@@ -439,8 +419,7 @@ export namespace rag {
 	    file_size: number;
 	    mime_type: string;
 	    chunk_count: number;
-	    // Go type: time
-	    ingested_at: any;
+	    ingested_at: string;
 	    tags?: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
@@ -455,27 +434,9 @@ export namespace rag {
 	        this.file_size = source["file_size"];
 	        this.mime_type = source["mime_type"];
 	        this.chunk_count = source["chunk_count"];
-	        this.ingested_at = this.convertValues(source["ingested_at"], null);
+	        this.ingested_at = source["ingested_at"];
 	        this.tags = source["tags"];
 	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 
 }
