@@ -3,7 +3,6 @@ package rag
 import (
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/rs/zerolog/log"
@@ -16,7 +15,7 @@ type DocumentMeta struct {
 	FileSize   int64             `json:"file_size"`
 	MimeType   string            `json:"mime_type"`
 	ChunkCount int               `json:"chunk_count"`
-	IngestedAt time.Time         `json:"ingested_at"`
+	IngestedAt string            `json:"ingested_at"`
 	Tags       map[string]string `json:"tags,omitempty"`
 }
 

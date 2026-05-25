@@ -226,7 +226,7 @@ func IngestDocumentWithMeta(ctx context.Context, vs *VectorStore, ds *DocumentSt
 			FileSize:   fileSize,
 			MimeType:   mimeType,
 			ChunkCount: len(chunks),
-			IngestedAt: time.Now(),
+			IngestedAt: time.Now().Format(time.RFC3339),
 		}
 		if putErr := ds.Put(meta); putErr != nil {
 			log.Warn().Err(putErr).Str("docID", docID).Msg("[rag] failed to store document meta")
