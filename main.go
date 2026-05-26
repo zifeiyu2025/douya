@@ -3,6 +3,8 @@ package main
 import (
 	"embed"
 	"fmt"
+	"os"
+	"path/filepath"
 	"syscall"
 	"unsafe"
 
@@ -16,8 +18,17 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-//go:embed app.png
+//go:embed app.ico
 var iconData []byte
+
+func isWailsBindingsProcess() bool {
+	exePath, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	exeName := filepath.Base(exePath)
+	return exeName == "wailsbindings.exe"
+}
 
 var (
 	kernel32             = syscall.NewLazyDLL("kernel32.dll")
@@ -55,6 +66,10 @@ func activateExistingWindow() {
 }
 
 func main() {
+	if isWailsBindingsProcess() {
+		return
+	}
+
 	mutexHandle, isFirst := tryAcquireMutex()
 	if !isFirst {
 		activateExistingWindow()

@@ -288,16 +288,16 @@ function regenerate() {
 }
 
 .message-bubble {
-  padding: 18px 22px;
-  border-radius: 20px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+  padding: 12px 16px;
+  border-radius: 18px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   box-sizing: border-box;
   position: relative;
 }
 
 .message-bubble:hover {
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12);
 }
 
 .user-bubble {
@@ -307,7 +307,7 @@ function regenerate() {
   background: var(--bg-user-msg);
   color: var(--text-user-msg);
   border-bottom-right-radius: 6px;
-  box-shadow: 0 8px 24px rgba(7, 193, 96, 0.15);
+  box-shadow: 0 4px 12px rgba(149, 236, 105, 0.25);
 }
 
 .user-bubble::after {
@@ -341,11 +341,12 @@ function regenerate() {
 }
 
 :global(.dark) .user-bubble {
-  box-shadow: 0 8px 24px rgba(134, 230, 171, 0.2);
+  background: var(--bg-user-msg);
+  box-shadow: 0 4px 12px rgba(149, 236, 105, 0.25);
 }
 
 :global(.dark) .user-bubble::after {
-  border-color: transparent transparent transparent var(--accent-primary);
+  border-color: transparent transparent transparent var(--bg-user-msg);
 }
 
 .user-text {

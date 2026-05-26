@@ -806,8 +806,19 @@ func (a *App) PrepareShutdown() {
 	})
 }
 
+func (a *App) shouldPreventClose() bool {
+	return !a.exiting.Load()
+}
+
+func (a *App) tryStartExit() bool {
+	if a.ctx == nil {
+		return false
+	}
+	return a.exiting.CompareAndSwap(false, true)
+}
+
 func (a *App) beforeClose(ctx context.Context) bool {
-	if a.exiting.Load() {
+	if !a.shouldPreventClose() {
 		return false
 	}
 	runtime.WindowHide(ctx)
@@ -823,11 +834,7 @@ func (a *App) ShowWindow() {
 }
 
 func (a *App) GracefulExit() {
-	if a.ctx == nil {
-		return
-	}
-
-	if !a.exiting.CompareAndSwap(false, true) {
+	if !a.tryStartExit() {
 		return
 	}
 
@@ -902,6 +909,7 @@ func (a *App) onSystrayReady() {
 	systray.SetTitle("豆芽")
 	systray.SetTooltip("豆芽 - AI 聊天助手")
 	systray.SetIcon(iconData)
+
 	systray.SetOnTapped(func() {
 		a.ShowWindow()
 	})

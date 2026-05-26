@@ -61,7 +61,7 @@
   --link-hover-light: #8ab3db;
 }
 
-.dark {
+html.dark {
   /* 主色调 - 深色模式主色保持较亮 */
   --accent-primary: #86e6ab;
   --accent-secondary: #78d89c;
@@ -756,7 +756,7 @@ html, body, #app {
   background: rgba(255, 255, 255, 0.1);
 }
 
-/* 右键菜单样式 */
+/* 右键菜单样式 - 完全使用主题变量，配合 Naive UI 主题系统 */
 .n-dropdown-menu {
   border-radius: 14px !important;
   padding: 6px !important;
@@ -767,7 +767,13 @@ html, body, #app {
   width: auto !important;
   backdrop-filter: blur(12px) !important;
   -webkit-backdrop-filter: blur(12px) !important;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15) !important;
+  box-shadow: var(--shadow-lg) !important;
+}
+
+/* 确保 Naive UI 的主题色在菜单中正确显示 */
+.dark .n-dropdown-menu {
+  background: var(--bg-tertiary) !important;
+  color: var(--text-primary) !important;
 }
 
 @keyframes menuFadeIn {
@@ -787,25 +793,55 @@ html, body, #app {
   padding: 10px 14px !important;
   transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1) !important;
   cursor: pointer;
+  color: var(--text-primary) !important;
 }
 
-/* 浅色模式悬停 */
+/* 悬停效果 - 完全使用主题变量 */
 .n-dropdown-option:hover {
   transform: translateX(2px);
   background: var(--bg-hover) !important;
 }
 
-/* 深色模式悬停效果优化 */
-.dark .n-dropdown-option:hover {
-  background: rgba(134, 230, 171, 0.15) !important;
-  transform: translateX(2px);
+/* 确保深色模式下所有内部元素都正确显示 */
+.dark .n-dropdown-menu,
+.dark .n-dropdown-option,
+.dark .n-dropdown-option-body {
+  color: var(--text-primary) !important;
+}
+
+.dark .n-dropdown-option:hover,
+.dark .n-dropdown-option-body:hover {
+  background-color: var(--bg-hover) !important;
+}
+
+/* 确保分隔线在深色模式下也正确显示 */
+.dark .n-dropdown-divider {
+  border-color: var(--border-color) !important;
+}
+
+/* 菜单文本和图标 - 使用主题变量 */
+.menu-text {
+  color: var(--text-primary) !important;
+}
+
+.menu-icon {
+  color: var(--text-secondary) !important;
+  flex-shrink: 0;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  opacity: 0.8;
+}
+
+.n-dropdown-option:hover .menu-text {
+  color: var(--text-primary) !important;
 }
 
 .n-dropdown-option:hover .menu-icon {
+  color: var(--accent-primary) !important;
+  opacity: 1;
   transform: scale(1.1);
 }
 
-/* 危险选项悬停优化 - 使用简单的后代选择器 */
+/* 危险选项 - 使用主题变量 */
 .n-dropdown-option .context-menu-item.danger {
   color: var(--accent-danger) !important;
 }
@@ -814,18 +850,17 @@ html, body, #app {
   color: var(--accent-danger) !important;
 }
 
-/* 危险选项悬停背景 */
-.n-dropdown-option .context-menu-item.danger,
-.dark .n-dropdown-option .context-menu-item.danger {
+/* 危险选项悬停背景 - 使用 rgba 确保兼容性 */
+.n-dropdown-option .context-menu-item.danger {
   transition: background-color 0.18s ease;
 }
 
 .n-dropdown-option:hover:has(.context-menu-item.danger) {
-  background: rgba(255, 107, 107, 0.15) !important;
+  background: rgba(250, 81, 81, 0.15) !important;
 }
 
 .dark .n-dropdown-option:hover:has(.context-menu-item.danger) {
-  background: rgba(255, 107, 107, 0.2) !important;
+  background: rgba(255, 107, 107, 0.25) !important;
 }
 
 .n-dropdown-divider {
@@ -846,16 +881,6 @@ html, body, #app {
 
 .context-menu-item.danger .menu-icon {
   color: var(--accent-danger) !important;
-}
-
-.menu-icon {
-  flex-shrink: 0;
-  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
-  opacity: 0.8;
-}
-
-.n-dropdown-option:hover .menu-icon {
-  opacity: 1;
 }
 
 .menu-text {

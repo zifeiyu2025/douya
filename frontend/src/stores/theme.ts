@@ -5,8 +5,19 @@ export const useThemeStore = defineStore('theme', () => {
     const stored = localStorage.getItem('douya-theme')
     const isDark = ref(stored === 'dark')
 
+    function applyThemeClass(dark: boolean) {
+        if (dark) {
+            document.documentElement.classList.add('dark')
+        } else {
+            document.documentElement.classList.remove('dark')
+        }
+    }
+
+    applyThemeClass(isDark.value)
+
     watch(isDark, (val) => {
         localStorage.setItem('douya-theme', val ? 'dark' : 'light')
+        applyThemeClass(val)
     })
 
     function toggleTheme() {
