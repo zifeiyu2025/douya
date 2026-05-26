@@ -77,8 +77,8 @@ html.dark {
   --bg-sidebar: #1a1a1a;
   --bg-hover: #252525;
   --bg-active: #303030;
-  /* 用户气泡在深色模式下保持微信绿色 */
-  --bg-user-msg: #95ec69;
+  /* 用户气泡在深色模式下调成微信风格暗绿 */
+  --bg-user-msg: #4a9f44;
   --bg-ai-msg: #2d2d2d;
   --bg-input: #2d2d2d;
   --bg-code: #121212;

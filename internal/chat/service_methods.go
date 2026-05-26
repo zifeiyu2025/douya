@@ -272,6 +272,10 @@ func (s *Service) ExportConversation(id string, format string) (string, error) {
 		return s.exportMarkdown(conv, filtered), nil
 	case "json":
 		return s.exportJSON(conv, filtered)
+	case "txt", "plain", "plaintext":
+		return s.exportPlainText(conv, filtered), nil
+	case "csv":
+		return s.exportCSV(conv, filtered)
 	default:
 		return "", fmt.Errorf("unsupported export format: %s", format)
 	}
@@ -322,6 +326,55 @@ func (s *Service) exportJSON(conv *store.Conversation, msgs []*store.Message) (s
 		return "", err
 	}
 	return string(data), nil
+}
+
+func (s *Service) exportPlainText(conv *store.Conversation, msgs []*store.Message) string {
+	var sb strings.Builder
+	sb.WriteString(conv.Title)
+	sb.WriteString("\n\n")
+	for _, m := range msgs {
+		role := "用户"
+		if m.Role == "assistant" {
+			role = "助手"
+		}
+		sb.WriteString("[")
+		sb.WriteString(role)
+		sb.WriteString("]\n\n")
+		sb.WriteString(m.Content)
+		sb.WriteString("\n\n")
+	}
+	return sb.String()
+}
+
+func (s *Service) exportCSV(conv *store.Conversation, msgs []*store.Message) (string, error) {
+	var sb strings.Builder
+	sb.WriteString("instruction,input,output\n")
+	for i := 0; i < len(msgs); i++ {
+		if msgs[i].Role != "user" {
+			continue
+		}
+		instruction := ""
+		input := csvEscape(msgs[i].Content)
+		output := ""
+		if i+1 < len(msgs) && msgs[i+1].Role == "assistant" {
+			output = csvEscape(msgs[i+1].Content)
+		}
+		sb.WriteString("\"")
+		sb.WriteString(instruction)
+		sb.WriteString("\",\"")
+		sb.WriteString(input)
+		sb.WriteString("\",\"")
+		sb.WriteString(output)
+		sb.WriteString("\"\n")
+	}
+	return sb.String(), nil
+}
+
+func csvEscape(s string) string {
+	s = strings.ReplaceAll(s, "\"", "\"\"")
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	return s
 }
 
 // CleanupAbnormalConversations removes abnormal conversations.

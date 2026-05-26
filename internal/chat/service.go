@@ -26,13 +26,13 @@ var searchToolDef = llm.ToolDefinition{
 	Type: "function",
 	Function: llm.FunctionDef{
 		Name:        "search",
-		Description: "Search the internet for up-to-date information. Use this tool when: (1) you need current news, latest data, or real-time information; (2) you are not confident about facts; (3) the user asks about recent events or specific URLs. For programming/code queries, the search engine will automatically use GitHub. Construct a concise and specific search query in the same language as the user's question. If the search returns no results, use your own knowledge to answer.",
+		Description: "获取联网实时信息。在以下情况自动调用：(1)需要最新资讯、实时数据；(2)对事实不确定；(3)用户询问近期事件。编程类查询会自动从GitHub获取。构建与用户问题语言一致的精简搜索词。调用此工具是内部流程，不要在回答中提及'搜索'或'查找'这一行为。",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
 				"query": map[string]interface{}{
 					"type":        "string",
-					"description": "The search query string. Should be concise and specific, in the same language as the user's question.",
+					"description": "搜索词，需精简明确，语言与用户问题一致。",
 				},
 			},
 			"required": []string{"query"},
@@ -718,6 +718,9 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 		ThinkingContent:  acc.FullThinking,
 		ThinkingDuration: clampDuration(acc.ThinkingDuration),
 	}
+	if aiMsg.ThinkingContent != "" && aiMsg.ThinkingDuration == 0 && acc.FirstRoundThinkingDuration > 0 {
+		aiMsg.ThinkingDuration = clampDuration(acc.FirstRoundThinkingDuration)
+	}
 	if acc.LastSearchJSON != "" {
 		aiMsg.SearchResults = acc.LastSearchJSON
 	}
@@ -912,6 +915,9 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 			ThinkingContent:  acc.FullThinking,
 			ThinkingDuration: clampDuration(acc.ThinkingDuration),
 		}
+		if aiMsg.ThinkingContent != "" && aiMsg.ThinkingDuration == 0 && acc.FirstRoundThinkingDuration > 0 {
+			aiMsg.ThinkingDuration = clampDuration(acc.FirstRoundThinkingDuration)
+		}
 		if acc.LastSearchJSON != "" {
 			aiMsg.SearchResults = acc.LastSearchJSON
 		}
@@ -1037,15 +1043,17 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 
 ## 能力
 - 拥有训练截止前的广泛知识
-- 支持联网搜索获取实时信息
+- 具备实时信息感知能力，可获取最新资讯
 - 擅长编程、写作、翻译、分析、推理、创意等任务
 - 支持图像理解和多模态输入（取决于模型）
 
 ## 行为规范
 - 复杂问题分步骤、分要点回答，善用标题和列表
 - 代码提供完整可运行示例，标注语言类型
-- 使用外部信息时以[1][2]形式标注来源
-- 对争议话题客观陈述各方观点`, modelName)
+- 回答中引用外部信息时以[1][2]形式标注来源编号
+- 对争议话题客观陈述各方观点
+- 获取实时信息属于内部流程，回答时直接呈现结果即可，无需提及"搜索""查找""联网"等过程
+- 数学表达规则：简单运算（如 3+5=8、x=10）直接用纯文本，不要用 LaTeX；只有复杂公式（如分数、积分、矩阵、求和等无法用纯文本清晰表达的）才用 LaTeX，并用 $...$ 包裹行内公式、$$...$$ 包裹独立公式，不要输出未包裹的 LaTeX 源码`, modelName)
 		}
 		s.sysPromptCache = systemContent
 		s.sysPromptDate = today
@@ -1072,7 +1080,7 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 	}
 	systemContent := s.sysPromptCache + fmt.Sprintf("\n\n当前时间: %s %s", now.Format("2006-01-02 15:04:05"), weekday)
 	if !searchEnabled {
-		systemContent += "\n\n可使用search工具获取实时信息。"
+		systemContent += "\n\n需要获取实时信息时可调用内置工具。"
 	}
 
 	estimatedTokens := len([]rune(systemContent)) * 3
@@ -1252,7 +1260,7 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 				}
 				if len(refParts) > 0 {
 					systemContent += "\n\n## 参考资料\n" + strings.Join(refParts, "\n---\n")
-					systemContent += "\n\n请优先参考以上资料回答用户问题，并在回答中标注引用来源。如果参考资料与问题无关，请忽略并使用自身知识回答。"
+					systemContent += "\n\n请消化吸收以上资料，像运用自身知识一样自然融入回答并标注引用编号。若资料与问题无关则忽略。"
 				}
 			}
 		}

@@ -20,6 +20,8 @@ export function DeleteMessage(arg1:string):Promise<void>;
 
 export function ExportConversation(arg1:string,arg2:string):Promise<string>;
 
+export function ExportConversationWithDialog(arg1:string,arg2:string):Promise<boolean>;
+
 export function GetActiveKnowledgeBase():Promise<string>;
 
 export function GetAvailableModels():Promise<Array<llm.ModelOption>>;

@@ -82,7 +82,7 @@
 <script setup lang="ts">
 import { ref, computed, h } from 'vue'
 import { NButton, NIcon, NInput, NDropdown, useDialog, useMessage } from 'naive-ui'
-import { AddOutline, SearchOutline, SettingsOutline, BookOutline, PencilOutline, DocumentTextOutline, CodeSlashOutline, TrashOutline } from '@vicons/ionicons5'
+import { AddOutline, SearchOutline, SettingsOutline, BookOutline, PencilOutline, DocumentTextOutline, CodeSlashOutline, TrashOutline, FileTrayFullOutline, GridOutline } from '@vicons/ionicons5'
 import { useChatStore } from '../stores/chat'
 import { fixUtf8 } from '../utils/utf8'
 import type { Conversation } from '../services/wails'
@@ -119,6 +119,20 @@ const contextMenuOptions = [
     label: () => h('div', { class: 'context-menu-item' }, [
       h(NIcon, { size: 16, class: 'menu-icon' }, { default: () => h(CodeSlashOutline) }),
       h('span', { class: 'menu-text' }, '导出 JSON')
+    ])
+  },
+  { 
+    key: 'export-txt',
+    label: () => h('div', { class: 'context-menu-item' }, [
+      h(NIcon, { size: 16, class: 'menu-icon' }, { default: () => h(FileTrayFullOutline) }),
+      h('span', { class: 'menu-text' }, '导出纯文本')
+    ])
+  },
+  { 
+    key: 'export-csv',
+    label: () => h('div', { class: 'context-menu-item' }, [
+      h(NIcon, { size: 16, class: 'menu-icon' }, { default: () => h(GridOutline) }),
+      h('span', { class: 'menu-text' }, '导出 CSV (微调)')
     ])
   },
   { type: 'divider', key: 'divider' },
@@ -212,6 +226,12 @@ async function handleContextAction(key: string, conv: Conversation) {
     case 'export-json':
       await handleExport(conv.id, 'json')
       break
+    case 'export-txt':
+      await handleExport(conv.id, 'txt')
+      break
+    case 'export-csv':
+      await handleExport(conv.id, 'csv')
+      break
     case 'delete':
       dialog.warning({
         title: '删除对话',
@@ -228,17 +248,10 @@ async function handleContextAction(key: string, conv: Conversation) {
 }
 
 async function handleExport(id: string, format: string) {
-  const result = await chatStore.exportConversation(id, format)
-  if (result) {
-    const blob = new Blob([result], { type: format === 'json' ? 'application/json' : 'text/markdown' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `conversation.${format === 'json' ? 'json' : 'md'}`
-    a.click()
-    URL.revokeObjectURL(url)
-    message.success('导出成功')
-  }
+    const success = await chatStore.exportConversationWithDialog(id, format)
+    if (success) {
+        message.success('导出成功')
+    }
 }
 </script>
 

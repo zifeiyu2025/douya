@@ -170,9 +170,30 @@ watch(renderedContent, async () => {
     }
 })
 
-function copyContent() {
-  navigator.clipboard.writeText(props.message.content)
-  messageApi.success('已复制')
+async function copyContent() {
+  try {
+    const markdownEl = rootRef.value?.querySelector('.markdown-body') as HTMLElement | null
+    if (markdownEl) {
+      const htmlBlob = new Blob([markdownEl.innerHTML], { type: 'text/html' })
+      const textBlob = new Blob([markdownEl.innerText], { type: 'text/plain' })
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': htmlBlob,
+          'text/plain': textBlob,
+        })
+      ])
+    } else {
+      await navigator.clipboard.writeText(props.message.content)
+    }
+    messageApi.success('已复制')
+  } catch {
+    try {
+      await navigator.clipboard.writeText(props.message.content)
+      messageApi.success('已复制')
+    } catch {
+      messageApi.error('复制失败')
+    }
+  }
 }
 
 function previewImage(src: string) {

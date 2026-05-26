@@ -676,6 +676,63 @@ func (a *App) ExportConversation(id string, format string) (string, error) {
 	return a.service.ExportConversation(id, format)
 }
 
+func (a *App) ExportConversationWithDialog(id string, format string) (bool, error) {
+	if !a.ready.Load() {
+		return false, fmt.Errorf("应用未就绪。")
+	}
+
+	content, err := a.service.ExportConversation(id, format)
+	if err != nil {
+		return false, err
+	}
+
+	var defaultName string
+	var filterName string
+	var filterPattern string
+	switch format {
+	case "json":
+		defaultName = "对话导出.json"
+		filterName = "JSON 文件 (*.json)"
+		filterPattern = "*.json"
+	case "txt", "plain", "plaintext":
+		defaultName = "对话导出.txt"
+		filterName = "纯文本文件 (*.txt)"
+		filterPattern = "*.txt"
+	case "csv":
+		defaultName = "对话导出.csv"
+		filterName = "CSV 文件 (*.csv)"
+		filterPattern = "*.csv"
+	default:
+		defaultName = "对话导出.md"
+		filterName = "Markdown 文件 (*.md)"
+		filterPattern = "*.md"
+	}
+
+	savePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		DefaultFilename: defaultName,
+		Title:           "导出对话",
+		Filters: []runtime.FileFilter{
+			{
+				DisplayName: filterName,
+				Pattern:     filterPattern,
+			},
+		},
+	})
+	if err != nil {
+		return false, err
+	}
+	if savePath == "" {
+		return false, nil
+	}
+
+	err = os.WriteFile(savePath, []byte(content), 0644)
+	if err != nil {
+		return false, fmt.Errorf("写入文件失败: %w", err)
+	}
+
+	return true, nil
+}
+
 func (a *App) GetSearchAPIKeys() SearchAPIKeys {
 	return a.loadSearchAPIKeys()
 }

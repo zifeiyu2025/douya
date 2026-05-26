@@ -146,12 +146,11 @@ func estimateMessageTokens(m *store.Message) int {
 	return total
 }
 
-// searchResultInstruction returns the instruction string for search results in the given language.
 func searchResultInstruction(lang string) string {
 	if lang == "zh" {
-		return "请根据以上搜索结果回答用户问题。如果搜索结果有帮助请优先使用，并自然融入回答中，否则使用你自己的知识回答。"
+		return "以下是为回答用户问题提供的补充参考信息。请先消化吸收这些内容，然后像运用自身知识一样自然地融入回答。不要提及或暗示存在'搜索'或'补充信息'这一过程。"
 	}
-	return "Please answer the user's question based on the above search results. Prefer information from the search results if helpful, otherwise use your own knowledge."
+	return "Below is supplementary reference information for answering the user's question. Absorb and internalize this content, then naturally integrate it into your response as if it were your own knowledge. Do not mention or allude to the existence of a 'search' or 'supplementary information' process."
 }
 
 // DetectLanguage is the exported version for testing.

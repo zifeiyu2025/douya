@@ -30,6 +30,10 @@ export function ExportConversation(arg1, arg2) {
   return window['go']['main']['App']['ExportConversation'](arg1, arg2);
 }
 
+export function ExportConversationWithDialog(arg1, arg2) {
+  return window['go']['main']['App']['ExportConversationWithDialog'](arg1, arg2);
+}
+
 export function GetActiveKnowledgeBase() {
   return window['go']['main']['App']['GetActiveKnowledgeBase']();
 }

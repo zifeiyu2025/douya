@@ -218,8 +218,10 @@ export const useChatStore = defineStore('chat', () => {
                 resetGeneratingTimeout()
                 clearFirstTokenOnResponse()
                 const state = getConvState(convId)
-                if (!state.isThinking && state.thinkingContent) {
+                if (state.isThinking && state.thinkingContent) {
                     state.isThinking = false
+                    state.thinkingDuration = (Date.now() - state.thinkingStartTime) / 1000
+                } else if (!state.isThinking && state.thinkingContent && state.thinkingDuration === 0) {
                     state.thinkingDuration = (Date.now() - state.thinkingStartTime) / 1000
                 }
                 state.streamingContent += event.content
@@ -420,6 +422,22 @@ export const useChatStore = defineStore('chat', () => {
 
     async function deleteMessage(id: string) {
         try {
+            const msg = messages.value.find((m: Message) => m.id === id)
+            if (!msg) return
+
+            const idsToRemove = [id]
+            if (msg.role === 'user') {
+                const idx = messages.value.findIndex((m: Message) => m.id === id)
+                for (let i = idx + 1; i < messages.value.length; i++) {
+                    if (messages.value[i].role === 'assistant') {
+                        idsToRemove.push(messages.value[i].id)
+                    } else {
+                        break
+                    }
+                }
+            }
+
+            messages.value = messages.value.filter((m: Message) => !idsToRemove.includes(m.id))
             await wails.deleteMessage(id)
         } catch (e) {
             console.error('删除消息失败:', e)
@@ -601,6 +619,15 @@ export const useChatStore = defineStore('chat', () => {
         }
     }
 
+    async function exportConversationWithDialog(id: string, format: string): Promise<boolean> {
+        try {
+            return await wails.exportConversationWithDialog(id, format)
+        } catch (e) {
+            console.error('导出会话失败:', e)
+            return false
+        }
+    }
+
     function initStreamListener() {
         wails.onChatStream((event: StreamEvent) => {
             handleStreamEvent(event)
@@ -637,6 +664,7 @@ export const useChatStore = defineStore('chat', () => {
         deleteConversation,
         searchMessages,
         exportConversation,
+        exportConversationWithDialog,
         deleteMessage,
         regenerateMessage,
         initStreamListener,

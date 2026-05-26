@@ -80,7 +80,7 @@ import ThinkBlock from './ThinkBlock.vue'
 import SearchStatus from './SearchStatus.vue'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
-import { renderMarkdown } from '../utils/markdown'
+import { renderMarkdownStreaming } from '../utils/markdown'
 import { formatModelName } from '../utils/model'
 import { bindCodeCopyButtons } from '../utils/codeCopy'
 import defaultAiAvatar from '../assets/images/appicon.png'
@@ -175,7 +175,7 @@ function getSwitchProgressText(): string {
   }
 }
 
-const renderedStreaming = computed(() => renderMarkdown(streamingContent.value))
+const renderedStreaming = computed(() => renderMarkdownStreaming(streamingContent.value))
 
 const messageListRef = ref<HTMLElement | null>(null)
 

@@ -23,7 +23,24 @@ const md = new MarkdownIt({
     },
 })
 
-md.use(mk)
+md.use(mk, {
+    throwOnError: false,
+    errorColor: '#cc0000',
+    strict: 'warn',
+    maxSize: 500,
+    maxExpand: 5000,
+    minRuleThickness: 0.05,
+    displayMode: false,
+    output: 'htmlAndMathml',
+    trust: (context: any) => ['\\url', '\\href', '_relative'].includes(context.protocol || context.command),
+    macros: {
+        '\\R': '\\mathbb{R}',
+        '\\N': '\\mathbb{N}',
+        '\\Z': '\\mathbb{Z}',
+        '\\Q': '\\mathbb{Q}',
+        '\\C': '\\mathbb{C}',
+    },
+})
 
 mermaid.initialize({
     startOnLoad: false,
@@ -43,6 +60,80 @@ export async function renderMermaidInElement(el: HTMLElement) {
             mermaidEl.innerHTML = svg
         } catch (_) { /* empty */ }
     }
+}
+
+function stripIncompleteMath(text: string): string {
+    let i = 0
+    const len = text.length
+    let inCodeBlock = false
+    let inInlineCode = false
+    let inMath = false
+    let mathStart = -1
+    let isDisplayMath = false
+
+    while (i < len) {
+        const ch = text[i]
+        const next = i + 1 < len ? text[i + 1] : ''
+
+        if (!inInlineCode && ch === '`' && text.substring(i, i + 3) === '```') {
+            inCodeBlock = !inCodeBlock
+            i += 3
+            continue
+        }
+
+        if (!inCodeBlock && ch === '`') {
+            inInlineCode = !inInlineCode
+            i++
+            continue
+        }
+
+        if (inCodeBlock || inInlineCode) {
+            i++
+            continue
+        }
+
+        if (ch === '\\' && next === '$') {
+            i += 2
+            continue
+        }
+
+        if (ch === '$' && next === '$') {
+            if (!inMath) {
+                inMath = true
+                isDisplayMath = true
+                mathStart = i
+            } else if (isDisplayMath) {
+                inMath = false
+            }
+            i += 2
+            continue
+        }
+
+        if (ch === '$') {
+            if (!inMath) {
+                inMath = true
+                isDisplayMath = false
+                mathStart = i
+            } else if (!isDisplayMath) {
+                inMath = false
+            }
+            i++
+            continue
+        }
+
+        i++
+    }
+
+    if (inMath && mathStart >= 0) {
+        return text.substring(0, mathStart)
+    }
+
+    return text
+}
+
+export function renderMarkdownStreaming(content: string): string {
+    const safeContent = stripIncompleteMath(content)
+    return renderMarkdown(safeContent)
 }
 
 export function renderMarkdown(content: string): string {
