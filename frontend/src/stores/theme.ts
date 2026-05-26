@@ -6,10 +6,12 @@ export const useThemeStore = defineStore('theme', () => {
     const isDark = ref(stored === 'dark')
 
     function applyThemeClass(dark: boolean) {
-        if (dark) {
-            document.documentElement.classList.add('dark')
-        } else {
-            document.documentElement.classList.remove('dark')
+        if (typeof document !== 'undefined') {
+            if (dark) {
+                document.documentElement.classList.add('dark')
+            } else {
+                document.documentElement.classList.remove('dark')
+            }
         }
     }
 

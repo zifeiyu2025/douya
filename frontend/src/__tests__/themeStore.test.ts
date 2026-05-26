@@ -16,6 +16,14 @@ describe('useThemeStore', () => {
             get length() { return Object.keys(storage).length },
             key: vi.fn((index: number) => Object.keys(storage)[index] ?? null),
         })
+        vi.stubGlobal('document', {
+            documentElement: {
+                classList: {
+                    add: vi.fn(),
+                    remove: vi.fn(),
+                },
+            },
+        })
         setActivePinia(createPinia())
     })
 

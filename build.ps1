@@ -1,7 +1,8 @@
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+﻿[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::InputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
-chcp 65001 > $null 2>&1
+# 兼容 PowerShell 5.1：不依赖 >$null 2>&1 重定向语法
+try { $null = cmd /c 'chcp 65001 > nul' } catch { }
 
 $ErrorActionPreference = "Stop"
 
@@ -57,8 +58,9 @@ foreach ($dir in $syncDirs) {
     if (Test-Path $src) {
         $hasContent = (Get-ChildItem -Path $src -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count -gt 0
         if ($hasContent) {
-            robocopy $src $dst /MIR /NJH /NJS /NDL /NFL /NC /NS
+            & robocopy.exe $src $dst /MIR /NJH /NJS /NDL /NFL /NC /NS
             $rc = $LASTEXITCODE
+            # robocopy 退出码 0-7 表示成功（0=无变化，1-7=成功复制），8+ 表示错误
             if ($rc -ge 8) { throw "robocopy $dir 失败 (exit code $rc)" }
             Write-Host "  已同步: $dir\" -ForegroundColor Green
         } else {
@@ -106,8 +108,9 @@ function SyncDirFromProject {
     if ($SrcDir -and (Test-Path -LiteralPath $SrcDir)) {
         $hasContent = (Get-ChildItem -Path $SrcDir -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count -gt 0
         if ($hasContent) {
-            robocopy $SrcDir $DstPath /MIR /NJH /NJS /NDL /NFL /NC /NS
+            & robocopy.exe $SrcDir $DstPath /MIR /NJH /NJS /NDL /NFL /NC /NS
             $rc = $LASTEXITCODE
+            # robocopy 退出码 0-7 表示成功，8+ 表示错误
             if ($rc -ge 8) { throw "robocopy 失败 (exit code $rc)" }
             return "fixed"
         }

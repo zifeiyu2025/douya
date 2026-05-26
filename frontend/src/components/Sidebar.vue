@@ -99,51 +99,25 @@ const contextMenuConv = ref<Conversation | null>(null)
 const contextMenuX = ref(0)
 const contextMenuY = ref(0)
 
+function createMenuItem(key: string, icon: any, text: string, danger = false) {
+  return {
+    key,
+    props: danger ? { style: { color: 'var(--accent-danger)' } } : undefined,
+    label: () => h('div', { class: `context-menu-item${danger ? ' danger' : ''}` }, [
+      h(NIcon, { size: 16, class: 'menu-icon' }, { default: () => h(icon) }),
+      h('span', { class: 'menu-text' }, text)
+    ])
+  }
+}
+
 const contextMenuOptions = [
-  { 
-    key: 'rename',
-    label: () => h('div', { class: 'context-menu-item' }, [
-      h(NIcon, { size: 16, class: 'menu-icon' }, { default: () => h(PencilOutline) }),
-      h('span', { class: 'menu-text' }, '重命名')
-    ])
-  },
-  { 
-    key: 'export-md',
-    label: () => h('div', { class: 'context-menu-item' }, [
-      h(NIcon, { size: 16, class: 'menu-icon' }, { default: () => h(DocumentTextOutline) }),
-      h('span', { class: 'menu-text' }, '导出 Markdown')
-    ])
-  },
-  { 
-    key: 'export-json',
-    label: () => h('div', { class: 'context-menu-item' }, [
-      h(NIcon, { size: 16, class: 'menu-icon' }, { default: () => h(CodeSlashOutline) }),
-      h('span', { class: 'menu-text' }, '导出 JSON')
-    ])
-  },
-  { 
-    key: 'export-txt',
-    label: () => h('div', { class: 'context-menu-item' }, [
-      h(NIcon, { size: 16, class: 'menu-icon' }, { default: () => h(FileTrayFullOutline) }),
-      h('span', { class: 'menu-text' }, '导出纯文本')
-    ])
-  },
-  { 
-    key: 'export-csv',
-    label: () => h('div', { class: 'context-menu-item' }, [
-      h(NIcon, { size: 16, class: 'menu-icon' }, { default: () => h(GridOutline) }),
-      h('span', { class: 'menu-text' }, '导出 CSV (微调)')
-    ])
-  },
+  createMenuItem('rename', PencilOutline, '重命名'),
+  createMenuItem('export-md', DocumentTextOutline, '导出 Markdown'),
+  createMenuItem('export-json', CodeSlashOutline, '导出 JSON'),
+  createMenuItem('export-txt', FileTrayFullOutline, '导出纯文本'),
+  createMenuItem('export-csv', GridOutline, '导出 CSV (微调)'),
   { type: 'divider', key: 'divider' },
-  { 
-    key: 'delete',
-    props: { style: { color: 'var(--accent-danger)' } },
-    label: () => h('div', { class: 'context-menu-item danger' }, [
-      h(NIcon, { size: 16, class: 'menu-icon' }, { default: () => h(TrashOutline) }),
-      h('span', { class: 'menu-text' }, '删除')
-    ])
-  },
+  createMenuItem('delete', TrashOutline, '删除', true),
 ]
 
 const filteredConversations = computed(() => {
@@ -201,6 +175,16 @@ function handleContextMenu(e: MouseEvent, conv: Conversation) {
 
 async function handleContextAction(key: string, conv: Conversation) {
   contextMenuConv.value = null
+  const exportFormatMap: Record<string, string> = {
+    'export-md': 'markdown',
+    'export-json': 'json',
+    'export-txt': 'txt',
+    'export-csv': 'csv'
+  }
+  if (exportFormatMap[key]) {
+    await handleExport(conv.id, exportFormatMap[key])
+    return
+  }
   switch (key) {
     case 'rename':
       const input = ref(conv.title)
@@ -219,18 +203,6 @@ async function handleContextAction(key: string, conv: Conversation) {
           await chatStore.renameConversation(conv.id, input.value)
         },
       })
-      break
-    case 'export-md':
-      await handleExport(conv.id, 'markdown')
-      break
-    case 'export-json':
-      await handleExport(conv.id, 'json')
-      break
-    case 'export-txt':
-      await handleExport(conv.id, 'txt')
-      break
-    case 'export-csv':
-      await handleExport(conv.id, 'csv')
       break
     case 'delete':
       dialog.warning({
