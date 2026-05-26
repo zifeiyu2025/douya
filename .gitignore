@@ -43,6 +43,7 @@ Thumbs.db
 # Misc
 *.md5
 focus_*.ps1
+human_segmentation_*.png
 
 # Wails
 wails.json
