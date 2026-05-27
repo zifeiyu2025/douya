@@ -38,6 +38,8 @@ export function GetModelCapabilities():Promise<llm.ModelCapabilities>;
 
 export function GetSearchAPIKeys():Promise<main.SearchAPIKeys>;
 
+export function GetServerAPIKey():Promise<string>;
+
 export function GetServerStatus():Promise<llm.ServerStatus>;
 
 export function GracefulExit():Promise<void>;
@@ -58,6 +60,8 @@ export function RenameConversation(arg1:string,arg2:string):Promise<void>;
 
 export function SearchMessages(arg1:string):Promise<Array<chat.Message>>;
 
+export function SelectImageFile():Promise<string>;
+
 export function SendMessage(arg1:chat.SendMessageParams):Promise<void>;
 
 export function SetActiveKnowledgeBase(arg1:string):Promise<void>;
@@ -65,6 +69,8 @@ export function SetActiveKnowledgeBase(arg1:string):Promise<void>;
 export function SetRAGEnabled(arg1:boolean):Promise<void>;
 
 export function SetSearchAPIKeys(arg1:main.SearchAPIKeys):Promise<void>;
+
+export function SetServerAPIKey(arg1:string):Promise<void>;
 
 export function ShowWindow():Promise<void>;
 

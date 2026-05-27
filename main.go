@@ -3,8 +3,10 @@ package main
 import (
 	"embed"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -20,6 +22,42 @@ var assets embed.FS
 
 //go:embed app.ico
 var iconData []byte
+
+type LocalFileLoader struct {
+	http.Handler
+}
+
+func (h *LocalFileLoader) ServeHTTP(res http.ResponseWriter, req *http.Request) {
+	filePath := strings.TrimPrefix(req.URL.Path, "/local-file/")
+	if filePath == "" {
+		res.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	fileData, err := os.ReadFile(filePath)
+	if err != nil {
+		res.WriteHeader(http.StatusNotFound)
+		res.Write([]byte("file not found: " + filePath))
+		return
+	}
+	ext := strings.ToLower(filepath.Ext(filePath))
+	switch ext {
+	case ".jpg", ".jpeg":
+		res.Header().Set("Content-Type", "image/jpeg")
+	case ".png":
+		res.Header().Set("Content-Type", "image/png")
+	case ".gif":
+		res.Header().Set("Content-Type", "image/gif")
+	case ".webp":
+		res.Header().Set("Content-Type", "image/webp")
+	case ".bmp":
+		res.Header().Set("Content-Type", "image/bmp")
+	case ".svg":
+		res.Header().Set("Content-Type", "image/svg+xml")
+	default:
+		res.Header().Set("Content-Type", "application/octet-stream")
+	}
+	res.Write(fileData)
+}
 
 func isWailsBindingsProcess() bool {
 	exePath, err := os.Executable()
@@ -91,7 +129,8 @@ func main() {
 		MinWidth:  800,
 		MinHeight: 600,
 		AssetServer: &assetserver.Options{
-			Assets: assets,
+			Assets:  assets,
+			Handler: &LocalFileLoader{},
 		},
 		BackgroundColour: &options.RGBA{R: 30, G: 30, B: 30, A: 1},
 		OnStartup:        app.startup,

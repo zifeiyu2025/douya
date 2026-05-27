@@ -3,6 +3,8 @@
 
 package llm
 
+import "strings"
+
 type ContentPart struct {
 	Type       string      `json:"type"`
 	Text       string      `json:"text"`
@@ -138,7 +140,10 @@ type ChatCompletionRequest struct {
 	TopP          float64          `json:"top_p,omitempty"`
 	TopK          int              `json:"top_k,omitempty"`
 	RepeatPenalty float64          `json:"repeat_penalty,omitempty"`
-	Tools         []ToolDefinition `json:"tools,omitempty"`
+	Reasoning     string           `json:"reasoning,omitempty"`
+	ReasoningBudget int            `json:"reasoning_budget,omitempty"`
+	Tools         []ToolDefinition       `json:"tools,omitempty"`
+	ChatTemplateKwargs map[string]interface{} `json:"chat_template_kwargs,omitempty"`
 }
 
 type ChatCompletionResponse struct {
@@ -172,12 +177,21 @@ type ServerStatus struct {
 	Capabilities   *ModelCapabilities `json:"capabilities,omitempty"`
 }
 
+const (
+	ThinkingModeNone     = "none"
+	ThinkingModeTemplate = "template"
+	ThinkingModeReasoning = "reasoning"
+)
+
 type ModelCapabilities struct {
-	ImageInput   bool `json:"image_input"`
-	AudioInput   bool `json:"audio_input"`
-	TextInput    bool `json:"text_input"`
-	Reasoning    bool `json:"reasoning"`
-	MmprojLoaded bool `json:"mmproj_loaded"`
+	ImageInput   bool    `json:"image_input"`
+	AudioInput   bool    `json:"audio_input"`
+	TextInput    bool    `json:"text_input"`
+	Reasoning    bool    `json:"reasoning"`
+	MmprojLoaded bool    `json:"mmproj_loaded"`
+	HasMTP       bool    `json:"has_mtp"`
+	ThinkingMode string  `json:"thinking_mode"`
+	NParams      float64 `json:"n_params"`
 }
 
 // EmbeddingRequest represents a request to /v1/embeddings
@@ -206,4 +220,23 @@ type Embedding struct {
 type Usage struct {
 	PromptTokens int `json:"prompt_tokens"`
 	TotalTokens  int `json:"total_tokens"`
+}
+
+// IsWeakModel 判断当前加载的模型是否为弱模型。
+// 弱模型判定标准：
+//   - 模型名中包含 MoE 特征关键词（如 "a3b", "a2b", "a1b", "moe", "mixture"），
+//     MoE 模型激活参数少，工具调用能力弱
+//   - 模型总参数量 NParams 低于 200 亿（20e9）
+func IsWeakModel(caps ModelCapabilities, modelName string) bool {
+	lowerName := strings.ToLower(modelName)
+	moelKeywords := []string{"a3b", "a2b", "a1b", "moe", "mixture"}
+	for _, kw := range moelKeywords {
+		if strings.Contains(lowerName, kw) {
+			return true
+		}
+	}
+	if caps.NParams < 20e9 {
+		return true
+	}
+	return false
 }

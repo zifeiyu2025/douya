@@ -32,7 +32,7 @@ func NewClient(baseURL string) *Client {
 	return &Client{
 		baseURL:      strings.TrimRight(baseURL, "/"),
 		httpClient:   &http.Client{Timeout: 300 * time.Second},
-		streamClient: &http.Client{Timeout: 600 * time.Second},
+		streamClient: &http.Client{Timeout: 900 * time.Second},
 	}
 }
 

@@ -62,8 +62,28 @@ const formattedDuration = computed(() => {
   transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.think-block {
+  margin-bottom: 12px;
+}
+
+.think-block-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.think-block-header:hover {
+  color: var(--text-primary);
+}
+
 .think-icon {
-  color: #f0a020;
+  color: var(--accent-warning);
 }
 
 .think-status {
@@ -71,11 +91,23 @@ const formattedDuration = computed(() => {
 }
 
 .think-status.thinking {
-  color: #f0a020;
+  color: var(--accent-warning);
 }
 
 .think-status.done {
   color: var(--text-secondary);
+}
+
+.think-block-content {
+  margin-top: 8px;
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.65;
+  white-space: pre-wrap;
 }
 
 .thinking-dots span {

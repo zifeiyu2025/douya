@@ -34,6 +34,10 @@ type GGUFMetadata struct {
 	BlockCount      int
 	EmbeddingLength int
 	ContextLength   int
+	FileSize        int64
+	ExpertCount     int
+	ExpertUsed      int
+	HasMTP          bool
 }
 
 func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
@@ -67,8 +71,28 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 				if n, ok := toInt(v); ok {
 					meta.ContextLength = n
 				}
+			case "expert_count":
+				if n, ok := toInt(v); ok {
+					meta.ExpertCount = n
+				}
+			case "expert_used_per_token":
+				if n, ok := toInt(v); ok {
+					meta.ExpertUsed = n
+				}
+			case "mtp_count":
+				if n, ok := toInt(v); ok && n > 0 {
+					meta.HasMTP = true
+				}
+			case "n_mtp":
+				if n, ok := toInt(v); ok && n > 0 {
+					meta.HasMTP = true
+				}
 			}
 		}
+	}
+
+	if fi, err := os.Stat(path); err == nil {
+		meta.FileSize = fi.Size()
 	}
 
 	return meta, nil

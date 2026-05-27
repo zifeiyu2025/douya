@@ -327,16 +327,16 @@ function regenerate() {
 }
 
 .message-bubble {
-  padding: 12px 16px;
-  border-radius: 18px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 12px 18px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
   box-sizing: border-box;
   position: relative;
+  line-height: 1.65;
 }
 
 .message-bubble:hover {
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 .user-bubble {
@@ -345,18 +345,7 @@ function regenerate() {
   min-width: 0;
   background: var(--bg-user-msg);
   color: var(--text-user-msg);
-  border-bottom-right-radius: 6px;
-  box-shadow: 0 4px 12px rgba(149, 236, 105, 0.25);
-}
-
-.user-bubble::after {
-  content: '';
-  position: absolute;
-  right: -8px;
-  top: 20px;
-  border-width: 10px 0 10px 10px;
-  border-style: solid;
-  border-color: transparent transparent transparent var(--bg-user-msg);
+  border-radius: 18px 18px 6px 18px;
 }
 
 .ai-bubble {
@@ -365,27 +354,12 @@ function regenerate() {
   min-width: 0;
   background: var(--bg-ai-msg);
   color: var(--text-ai-msg);
-  border-bottom-left-radius: 6px;
+  border-radius: 18px 18px 18px 6px;
   border: 1px solid var(--border-color);
-}
-
-.ai-bubble::after {
-  content: '';
-  position: absolute;
-  left: -8px;
-  top: 20px;
-  border-width: 10px 10px 10px 0;
-  border-style: solid;
-  border-color: transparent var(--bg-ai-msg) transparent transparent;
 }
 
 :global(.dark) .user-bubble {
   background: var(--bg-user-msg);
-  box-shadow: 0 4px 12px rgba(149, 236, 105, 0.25);
-}
-
-:global(.dark) .user-bubble::after {
-  border-color: transparent transparent transparent var(--bg-user-msg);
 }
 
 .user-text {
@@ -396,10 +370,10 @@ function regenerate() {
 }
 
 .msg-actions {
-  margin-top: 8px;
-  min-height: 32px;
+  margin-top: 5px;
+  min-height: 30px;
   opacity: 0;
-  transition: opacity 0.25s ease, transform 0.25s ease;
+  transition: opacity 0.22s ease, transform 0.22s ease;
   transform: translateY(-4px);
 }
 
@@ -427,16 +401,16 @@ function regenerate() {
 .action-btn {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 7px 14px;
+  gap: 6px;
+  padding: 6px 12px;
   border: none;
-  border-radius: 10px;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition: all 0.15s ease;
   line-height: 1;
   white-space: nowrap;
 }
@@ -444,31 +418,21 @@ function regenerate() {
 .action-btn:hover {
   background: var(--bg-hover);
   color: var(--text-secondary);
-  transform: translateY(-1px);
-}
-
-.action-btn:active {
-  transform: translateY(0);
-}
-
-.action-btn.active {
-  color: var(--accent-primary);
-  background: rgba(7, 193, 96, 0.1);
 }
 
 .action-btn.danger:hover {
   color: var(--accent-danger);
-  background: rgba(250, 81, 81, 0.12);
+  background: rgba(250, 81, 81, 0.1);
 }
 
 .action-icon {
-  width: 17px;
-  height: 17px;
+  width: 15px;
+  height: 15px;
   flex-shrink: 0;
 }
 
 .action-label {
-  font-size: 13px;
+  font-size: 12.5px;
   line-height: 1;
 }
 
@@ -643,8 +607,8 @@ function regenerate() {
 
 <style>
 .has-background .ai-bubble {
-  background: color-mix(in srgb, var(--bg-ai-msg) 90%, transparent);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: color-mix(in srgb, var(--bg-ai-msg) 88%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 </style>

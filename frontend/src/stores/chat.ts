@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, reactive, computed, nextTick } from 'vue'
 import { wails, type Conversation, type Message, type StreamEvent, type Attachment } from '../services/wails'
 import { fixUtf8 } from '../utils/utf8'
+import { useSettingsStore } from './settings'
 
 interface ConvStreamingState {
     isGenerating: boolean
@@ -41,6 +42,7 @@ function clearConvState(state: ConvStreamingState) {
 }
 
 export const useChatStore = defineStore('chat', () => {
+    const settingsStore = useSettingsStore()
     const conversations = ref<Conversation[]>([])
     const currentConversationId = ref<string>('')
     const messages = ref<Message[]>([])
@@ -102,6 +104,7 @@ export const useChatStore = defineStore('chat', () => {
 
     function startGeneratingTimeout() {
         clearGeneratingTimeout()
+        const timeout = settingsStore.thinkingEnabled ? 300 * 1000 : 120 * 1000
         generatingTimeout = setTimeout(() => {
             if (generatingConvId.value) {
                 const state = getConvState(generatingConvId.value)
@@ -115,7 +118,7 @@ export const useChatStore = defineStore('chat', () => {
                     })
                 }
             }
-        }, 120 * 1000)
+        }, timeout)
     }
 
     function startFirstTokenTimeout() {

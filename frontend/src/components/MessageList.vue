@@ -264,14 +264,14 @@ watch(() => chatStore.lastError, (err) => {
 
 .message-bubble {
   padding: 16px 20px;
-  border-radius: 16px;
-  box-shadow: var(--shadow-sm);
+  border-radius: 18px 18px 18px 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
   box-sizing: border-box;
+  line-height: 1.65;
 }
 
 .ai-bubble {
   width: 100%;
-  border-top-left-radius: 4px;
   border: 1px solid var(--border-color);
 }
 
@@ -545,5 +545,89 @@ watch(() => chatStore.lastError, (err) => {
   to {
     transform: rotate(360deg);
   }
+}
+</style>
+
+<style>
+/* ===== 欢迎界面：背景图模式毛玻璃 ===== */
+
+.has-background .action-card {
+  background: color-mix(in srgb, var(--bg-primary) 76%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.has-background .action-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  border-color: var(--accent-primary);
+}
+
+.has-background .tip-item {
+  background: color-mix(in srgb, var(--bg-secondary) 74%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.has-background .tip-item:hover {
+  background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
+}
+
+.has-background .welcome-subtitle {
+  color: var(--text-secondary);
+}
+
+/* 暗色模式 + 背景图：更透的玻璃效果 */
+.dark .has-background .action-card {
+  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.dark .has-background .action-card:hover {
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--accent-primary);
+}
+
+.dark .has-background .tip-item {
+  background: color-mix(in srgb, var(--bg-secondary) 68%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.dark .has-background .tip-item:hover {
+  background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+}
+
+/* ===== 欢迎界面：暗色模式基础适配 ===== */
+
+.dark .action-card {
+  background: var(--bg-tertiary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
+}
+
+.dark .action-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  border-color: var(--accent-primary);
+  transform: translateY(-2px);
+}
+
+.dark .action-card:active {
+  transform: translateY(-1px);
+}
+
+.dark .tip-item {
+  background: var(--bg-tertiary);
+  border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
+}
+
+.dark .tip-item:hover {
+  background: var(--bg-active);
+  border-color: var(--accent-primary);
+}
+
+.dark .welcome-subtitle {
+  color: var(--text-secondary);
 }
 </style>

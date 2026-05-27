@@ -1,7 +1,7 @@
 <template>
   <div class="sidebar" :class="{ collapsed }">
     <div class="sidebar-header" style="--wails-draggable:drag">
-      <div class="sidebar-logo" style="--wails-draggable:no-drag">
+      <div class="sidebar-logo">
         <div class="logo-text">
           <span class="logo-dou">Dou</span><span class="logo-ya">Ya</span>
         </div>

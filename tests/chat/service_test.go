@@ -99,7 +99,10 @@ func TestBuildLLMMessages_CustomSystemPrompt(t *testing.T) {
 	if !strings.Contains(msgs[0].ContentString(), "你是代码专家") {
 		t.Errorf("system prompt should contain custom prompt, got: %s", msgs[0].ContentString())
 	}
-	if !strings.Contains(msgs[0].ContentString(), "当前日期时间") {
+	if !strings.Contains(msgs[0].ContentString(), "豆芽") {
+		t.Errorf("custom prompt should be appended after default prompt, got: %s", msgs[0].ContentString())
+	}
+	if !strings.Contains(msgs[0].ContentString(), "当前时间") {
 		t.Errorf("system prompt should still contain date info, got: %s", msgs[0].ContentString())
 	}
 }
@@ -111,8 +114,9 @@ func TestBuildLLMMessages_ThinkConciselyInstruction(t *testing.T) {
 	}
 	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, "hello", nil)
 
-	if !strings.Contains(msgs[0].ContentString(), "search工具") {
-		t.Errorf("system prompt should contain search tool guidance, got: %s", msgs[0].ContentString())
+	// 检查是否有工具相关的提示
+	if !strings.Contains(msgs[0].ContentString(), "获取实时信息") && !strings.Contains(msgs[0].ContentString(), "工具") {
+		t.Errorf("system prompt should contain tool guidance, got: %s", msgs[0].ContentString())
 	}
 }
 

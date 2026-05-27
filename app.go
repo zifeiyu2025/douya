@@ -142,7 +142,7 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 	absServerPath := resolvePath(a.config.LlamaServerPath)
 	modelsDir := filepath.Join(appDir(), "models")
 
-	sp := system.CalculateSmartParams(a.hwInfo, "")
+	sp := system.CalculateSmartParams(a.hwInfo, a.config.ModelPath)
 	log.Printf("[smart-params] models_dir=%s gpu_layers=%d threads=%d flash=%v cache=%s/%s mlock=%v mmproj_offload=%v",
 		modelsDir, sp.GPULayers, sp.Threads, sp.FlashAttn, sp.CacheTypeK, sp.CacheTypeV, sp.Mlock, sp.MmprojOffload)
 
@@ -165,7 +165,7 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		modelsMax = 1
 	}
 
-	return &llm.ServerConfig{
+	serverCfg := &llm.ServerConfig{
 		ModelsDir:        modelsDir,
 		ServerPath:       absServerPath,
 		Port:             a.config.Port,
@@ -189,12 +189,57 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		Reasoning:        a.config.Reasoning,
 		ReasoningBudget:  a.config.ReasoningBudget,
 		ReasoningFormat:  a.config.ReasoningFormat,
+		ReasoningBudgetMessage: a.config.ReasoningBudgetMessage,
 		APIBase:          a.config.APIBase,
 		AppDir:           appDir(),
 		ModelsPreset:     presetPath,
 		ModelsMax:        modelsMax,
 		SleepIdleSeconds: sleepIdle,
+		Mmap:             a.config.Mmap,
+		KVOffload:        a.config.KVOffload,
+		ContextShift:     a.config.ContextShift,
+		MinP:             a.config.MinP,
+		DryMultiplier:    a.config.DryMultiplier,
+		DryBase:          a.config.DryBase,
+		DryAllowedLength: a.config.DryAllowedLength,
+		Device:           a.config.Device,
+		Parallel:         a.config.Parallel,
+		SpecType:         a.config.SpecType,
+		SpecDraftNMax:    a.config.SpecDraftNMax,
+		CacheTypeKDraft:  a.config.CacheTypeKDraft,
+		CacheTypeVDraft:  a.config.CacheTypeVDraft,
 	}
+
+	if a.config.CacheTypeK != "" {
+		serverCfg.CacheTypeK = a.config.CacheTypeK
+	}
+	if a.config.CacheTypeV != "" {
+		serverCfg.CacheTypeV = a.config.CacheTypeV
+	}
+	if a.config.CacheTypeKDraft != "" {
+		serverCfg.CacheTypeKDraft = a.config.CacheTypeKDraft
+	}
+	if a.config.CacheTypeVDraft != "" {
+		serverCfg.CacheTypeVDraft = a.config.CacheTypeVDraft
+	}
+	if a.config.SpecType == "" && sp.SpecType != "" {
+		serverCfg.SpecType = sp.SpecType
+		serverCfg.SpecDraftNMax = sp.SpecDraftNMax
+		if serverCfg.CacheTypeKDraft == "" {
+			serverCfg.CacheTypeKDraft = sp.CacheTypeKDraft
+		}
+		if serverCfg.CacheTypeVDraft == "" {
+			serverCfg.CacheTypeVDraft = sp.CacheTypeVDraft
+		}
+	}
+
+	if a.db != nil {
+		if key, err := store.GetSetting(a.db, "server_api_key"); err == nil && key != "" {
+			serverCfg.APIKey = key
+		}
+	}
+
+	return serverCfg
 }
 
 func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
@@ -461,12 +506,10 @@ func (a *App) shutdown(ctx context.Context) {
 		a.serverMu.Unlock()
 
 		if srv != nil {
-			log.Println("shutting down: stopping llama-server immediately to release VRAM...")
 			if err := srv.Stop(); err != nil {
 				log.Printf("shutting down: stop server failed: %v", err)
 			}
 			srv.CloseJob()
-			log.Println("shutting down: llama-server stopped, VRAM released")
 		}
 
 		if a.ragVS != nil {
@@ -480,8 +523,6 @@ func (a *App) shutdown(ctx context.Context) {
 				log.Printf("shutting down: close database: %v", err)
 			}
 		}
-
-		log.Println("shutting down: cleanup complete")
 	})
 }
 
@@ -733,6 +774,22 @@ func (a *App) ExportConversationWithDialog(id string, format string) (bool, erro
 	return true, nil
 }
 
+func (a *App) SelectImageFile() (string, error) {
+	filePath, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "选择图片",
+		Filters: []runtime.FileFilter{
+			{
+				DisplayName: "图片文件",
+				Pattern:     "*.jpg;*.jpeg;*.png;*.gif;*.webp;*.bmp;*.svg",
+			},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("选择文件失败: %w", err)
+	}
+	return filePath, nil
+}
+
 func (a *App) GetSearchAPIKeys() SearchAPIKeys {
 	return a.loadSearchAPIKeys()
 }
@@ -771,6 +828,17 @@ func (a *App) loadSearchAPIKeys() SearchAPIKeys {
 		keys.GitHubAPIKey = apiKey
 	}
 	return keys
+}
+
+func (a *App) GetServerAPIKey() string {
+	if v, err := store.GetSetting(a.db, "server_api_key"); err == nil {
+		return v
+	}
+	return ""
+}
+
+func (a *App) SetServerAPIKey(key string) error {
+	return store.SetSetting(a.db, "server_api_key", key)
 }
 
 func (a *App) GetConfig() *config.Config {
@@ -919,16 +987,12 @@ func (a *App) GracefulExit() {
 			if srv != nil {
 				runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]interface{}{
 					"stage":   "stopping_server",
-					"message": "正在卸载模型...",
+					"message": "正在关闭服务...",
 				})
 				if err := srv.Stop(); err != nil {
 					log.Printf("graceful exit: stop server failed: %v", err)
 				}
 				srv.CloseJob()
-				runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]interface{}{
-					"stage":   "server_stopped",
-					"message": "模型已卸载，显存已释放",
-				})
 			}
 
 			if a.ragVS != nil {
@@ -953,7 +1017,7 @@ func (a *App) GracefulExit() {
 
 			runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]interface{}{
 				"stage":   "done",
-				"message": "清理完成",
+				"message": "再见 👋",
 			})
 		})
 

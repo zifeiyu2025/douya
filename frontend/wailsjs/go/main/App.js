@@ -66,6 +66,10 @@ export function GetSearchAPIKeys() {
   return window['go']['main']['App']['GetSearchAPIKeys']();
 }
 
+export function GetServerAPIKey() {
+  return window['go']['main']['App']['GetServerAPIKey']();
+}
+
 export function GetServerStatus() {
   return window['go']['main']['App']['GetServerStatus']();
 }
@@ -106,6 +110,10 @@ export function SearchMessages(arg1) {
   return window['go']['main']['App']['SearchMessages'](arg1);
 }
 
+export function SelectImageFile() {
+  return window['go']['main']['App']['SelectImageFile']();
+}
+
 export function SendMessage(arg1) {
   return window['go']['main']['App']['SendMessage'](arg1);
 }
@@ -120,6 +128,10 @@ export function SetRAGEnabled(arg1) {
 
 export function SetSearchAPIKeys(arg1) {
   return window['go']['main']['App']['SetSearchAPIKeys'](arg1);
+}
+
+export function SetServerAPIKey(arg1) {
+  return window['go']['main']['App']['SetServerAPIKey'](arg1);
 }
 
 export function ShowWindow() {

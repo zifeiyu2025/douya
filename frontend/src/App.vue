@@ -118,8 +118,15 @@ const sidebarCollapsed = defineModel<boolean>('sidebarCollapsed', { default: fal
 const mainAreaStyle = computed(() => {
   if (settingsStore.config.chat_background) {
     const opacity = settingsStore.config.chat_background_opacity ?? 0.8
+    const bg = settingsStore.config.chat_background
+    let bgUrl: string
+    if (bg.startsWith('data:')) {
+      bgUrl = bg
+    } else {
+      bgUrl = '/local-file/' + encodeURIComponent(bg)
+    }
     return {
-      '--chat-background': `url(${settingsStore.config.chat_background})`,
+      '--chat-background': `url(${bgUrl})`,
       '--chat-background-opacity': String(opacity)
     } as Record<string, string>
   }

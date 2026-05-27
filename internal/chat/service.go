@@ -20,13 +20,14 @@ import (
 	"douya/internal/rag"
 	"douya/internal/search"
 	"douya/internal/store"
+	"douya/internal/system"
 )
 
 var searchToolDef = llm.ToolDefinition{
 	Type: "function",
 	Function: llm.FunctionDef{
 		Name:        "search",
-		Description: "获取联网实时信息。在以下情况自动调用：(1)需要最新资讯、实时数据；(2)对事实不确定；(3)用户询问近期事件。编程类查询会自动从GitHub获取。构建与用户问题语言一致的精简搜索词。调用此工具是内部流程，不要在回答中提及'搜索'或'查找'这一行为。",
+		Description: "用户已开启联网搜索。根据用户问题需要获取实时信息时调用此工具。构建与用户问题语言一致的精简搜索词。调用此工具是内部流程，不要在回答中提及'搜索'或'查找'这一行为。",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -137,6 +138,7 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 
 	var supportsReasoning bool
 	var mmprojLoaded bool
+	thinkingMode := llm.ThinkingModeNone
 
 	props, propsErr := s.llmClient.GetServerProps(ctx, modelName)
 	if propsErr == nil {
@@ -153,10 +155,31 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 		if props.ChatTemplateCaps != nil {
 			if v, ok := props.ChatTemplateCaps["supports_preserve_reasoning"]; ok && v {
 				supportsReasoning = true
+				thinkingMode = llm.ThinkingModeTemplate
 			}
 		}
 	} else {
 		log.Warn().Err(propsErr).Msg("[model] /props failed, using /v1/models capabilities as fallback")
+	}
+
+	if thinkingMode == llm.ThinkingModeNone {
+		lowerName := strings.ToLower(info.Name)
+		templateKeywords := []string{"qwen3", "gemma-4", "gemma4"}
+		for _, kw := range templateKeywords {
+			if strings.Contains(lowerName, kw) {
+				thinkingMode = llm.ThinkingModeTemplate
+				supportsReasoning = true
+				break
+			}
+		}
+		reasoningKeywords := []string{"deepseek-r1", "deepseek-v2", "deepseek-v3", "deepseek-v4", "deepseek-r"}
+		for _, kw := range reasoningKeywords {
+			if strings.Contains(lowerName, kw) {
+				thinkingMode = llm.ThinkingModeReasoning
+				supportsReasoning = true
+				break
+			}
+		}
 	}
 
 	s.modelCapsMu.Lock()
@@ -166,6 +189,9 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 		TextInput:    caps.TextInput,
 		Reasoning:    supportsReasoning,
 		MmprojLoaded: mmprojLoaded,
+		HasMTP:       s.detectHasMTP(),
+		ThinkingMode: thinkingMode,
+		NParams:      info.Meta.NParams,
 	}
 	s.modelCapsMu.Unlock()
 	// FIX: Only set detectedModelName when it's empty (called from DetectModelArchitecture without model name).
@@ -182,6 +208,7 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 		Bool("audio", caps.AudioInput).
 		Bool("text", caps.TextInput).
 		Bool("reasoning", supportsReasoning).
+		Str("thinking_mode", thinkingMode).
 		Msg("[model] detected capabilities")
 
 	return nil
@@ -207,6 +234,56 @@ func (s *Service) GetModelCapabilities() llm.ModelCapabilities {
 	defer s.modelCapsMu.RUnlock()
 	return s.modelCaps
 }
+
+func (s *Service) detectHasMTP() bool {
+	modelPath := s.config.ModelPath
+	if modelPath == "" {
+		return false
+	}
+	meta, err := system.ParseGGUFMetadata(modelPath)
+	if err != nil {
+		log.Warn().Err(err).Str("path", modelPath).Msg("[model] GGUF parse failed for MTP detection")
+		return false
+	}
+	if meta.HasMTP {
+		log.Info().Str("path", modelPath).Msg("[model] MTP support detected from GGUF metadata")
+	}
+	return meta.HasMTP
+}
+
+func (s *Service) applyThinkingControl(req *llm.ChatCompletionRequest) {
+	s.modelCapsMu.RLock()
+	mode := s.modelCaps.ThinkingMode
+	s.modelCapsMu.RUnlock()
+
+	if mode == llm.ThinkingModeNone {
+		return
+	}
+
+	if !s.config.ThinkingEnabled {
+		switch mode {
+		case llm.ThinkingModeTemplate:
+			req.ChatTemplateKwargs = map[string]interface{}{"enable_thinking": false}
+		case llm.ThinkingModeReasoning:
+			req.Reasoning = "off"
+			req.ReasoningBudget = 0
+		}
+		return
+	}
+
+	switch mode {
+	case llm.ThinkingModeTemplate:
+		req.ChatTemplateKwargs = map[string]interface{}{"enable_thinking": true}
+		if s.config.ReasoningBudget > 0 {
+			req.ReasoningBudget = s.config.ReasoningBudget
+		}
+	case llm.ThinkingModeReasoning:
+		if s.config.ReasoningBudget > 0 {
+			req.ReasoningBudget = s.config.ReasoningBudget
+		}
+	}
+}
+
 func (s *Service) modelNameForRequest() string {
 	if s.detectedModelName != "" {
 		return s.detectedModelName
@@ -689,6 +766,8 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 			req.Tools = []llm.ToolDefinition{searchToolDef}
 		}
 
+		s.applyThinkingControl(req)
+
 		acc.resetForNextCall()
 		toolCtx, toolCancel := context.WithTimeout(cancelCtx, 300*time.Second)
 		err := s.llmClient.StreamChat(toolCtx, req, acc.callback())
@@ -717,6 +796,11 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 		Content:          acc.FullContent,
 		ThinkingContent:  acc.FullThinking,
 		ThinkingDuration: clampDuration(acc.ThinkingDuration),
+	}
+	if aiMsg.Content == "" && aiMsg.ThinkingContent != "" {
+		aiMsg.Content = cleanThinkingContent(aiMsg.ThinkingContent)
+		aiMsg.ThinkingContent = ""
+		aiMsg.ThinkingDuration = 0
 	}
 	if aiMsg.ThinkingContent != "" && aiMsg.ThinkingDuration == 0 && acc.FirstRoundThinkingDuration > 0 {
 		aiMsg.ThinkingDuration = clampDuration(acc.FirstRoundThinkingDuration)
@@ -835,9 +919,12 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llmMessages []llm.ChatMessage, searchEnabled bool, searchQuery string, titleContent string) error {
 	acc := NewStreamAccumulator(convID, s.emit, s.emitForConv)
 
+	caps := s.GetModelCapabilities()
+	isWeak := llm.IsWeakModel(caps, s.detectedModelName)
+
 	var searchResp *search.SearchResponse
 
-	if searchEnabled {
+	if searchEnabled && isWeak {
 		s.emitForConv(convID, "search_start", searchQuery)
 
 		if s.searchChain != nil {
@@ -879,11 +966,13 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 		TopK:          s.config.TopK,
 		RepeatPenalty: s.config.RepeatPenalty,
 	}
-	if !searchEnabled {
+	if searchEnabled && !isWeak {
 		req.Tools = []llm.ToolDefinition{searchToolDef}
 	}
 
 	req.Messages = llmMessages
+
+	s.applyThinkingControl(req)
 
 	streamCtx, streamCancel := context.WithTimeout(cancelCtx, 300*time.Second)
 	defer streamCancel()
@@ -915,17 +1004,22 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 			ThinkingContent:  acc.FullThinking,
 			ThinkingDuration: clampDuration(acc.ThinkingDuration),
 		}
-		if aiMsg.ThinkingContent != "" && aiMsg.ThinkingDuration == 0 && acc.FirstRoundThinkingDuration > 0 {
-			aiMsg.ThinkingDuration = clampDuration(acc.FirstRoundThinkingDuration)
-		}
-		if acc.LastSearchJSON != "" {
-			aiMsg.SearchResults = acc.LastSearchJSON
-		}
-		if err := store.CreateMessage(s.db, aiMsg); err != nil {
-			log.Error().Err(err).Msg("save ai message")
-		}
-		s.emitForConv(convID, "assistant_message", storeMsgToChat(aiMsg))
+		if aiMsg.Content == "" && aiMsg.ThinkingContent != "" {
+		aiMsg.Content = cleanThinkingContent(aiMsg.ThinkingContent)
+		aiMsg.ThinkingContent = ""
+		aiMsg.ThinkingDuration = 0
 	}
+	if aiMsg.ThinkingContent != "" && aiMsg.ThinkingDuration == 0 && acc.FirstRoundThinkingDuration > 0 {
+		aiMsg.ThinkingDuration = clampDuration(acc.FirstRoundThinkingDuration)
+	}
+	if acc.LastSearchJSON != "" {
+		aiMsg.SearchResults = acc.LastSearchJSON
+	}
+	if err := store.CreateMessage(s.db, aiMsg); err != nil {
+		log.Error().Err(err).Msg("save ai message")
+	}
+	s.emitForConv(convID, "assistant_message", storeMsgToChat(aiMsg))
+}
 
 	conv, err := store.GetConversation(s.db, convID)
 	if err != nil {
@@ -1025,13 +1119,11 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 
 	// Rebuild cache if date changed or config changed
 	if s.sysPromptCache == "" || s.sysPromptDate != today || s.sysPromptConfig != configPrompt {
-		systemContent := configPrompt
-		if systemContent == "" {
-			modelName := s.detectedModelName
-			if modelName == "" {
-				modelName = "本地模型"
-			}
-			systemContent = fmt.Sprintf(`你叫豆芽（DouYa），是一个运行在用户本地电脑上的开源AI助手，注重隐私保护和离线可用性。当前底层模型是 %s。
+		modelName := s.detectedModelName
+		if modelName == "" {
+			modelName = "本地模型"
+		}
+		defaultPrompt := fmt.Sprintf(`你叫豆芽（DouYa），是一个运行在用户本地电脑上的开源AI助手，注重隐私保护和离线可用性。当前底层模型是 %s。
 
 - 自称时直接用"我"，不要写成"我（豆芽）"来强调
 - 用户问"你是谁"时回答"我叫豆芽"即可
@@ -1040,10 +1132,16 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 - 准确优先：不确定时明确说明，不编造
 - 语言一致：始终使用与用户相同的语言
 - 精炼友好：不啰嗦不敷衍
+- 时效性边界：对超出知识截止日期的事件或可能已变化的信息，明确说明无法确认最新状态，不猜测不编造；建议用户开启联网搜索获取最新信息
+
+## 思考效率
+- 思考过程只用于分析和推理，不要在思考中组织最终回答内容
+- 思考完成后直接在回答区域输出结果，不要重复思考中已有的分析
+- 简单问题无需深度思考，直接回答即可
 
 ## 能力
 - 拥有训练截止前的广泛知识
-- 具备实时信息感知能力，可获取最新资讯
+- 在用户开启联网搜索后，可获取最新资讯
 - 擅长编程、写作、翻译、分析、推理、创意等任务
 - 支持图像理解和多模态输入（取决于模型）
 
@@ -1059,6 +1157,12 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
   - 当用户提供明显错误的前提或要求违背事实时，礼貌但明确地拒绝，而不是接受或配合
   - 如果用户要求"以后都按这个错误前提回答"，明确表示无法遵守，并坚持正确的事实
   - 纠正错误时保持耐心，用简单易懂的方式解释正确的事实`, modelName)
+
+		var systemContent string
+		if configPrompt == "" {
+			systemContent = defaultPrompt
+		} else {
+			systemContent = fmt.Sprintf("%s\n\n---\n\n## 用户自定义提示词\n\n%s", defaultPrompt, configPrompt)
 		}
 		s.sysPromptCache = systemContent
 		s.sysPromptDate = today
@@ -1084,8 +1188,8 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 		weekday = "星期六"
 	}
 	systemContent := s.sysPromptCache + fmt.Sprintf("\n\n当前时间: %s %s", now.Format("2006-01-02 15:04:05"), weekday)
-	if !searchEnabled {
-		systemContent += "\n\n需要获取实时信息时可调用内置工具。"
+	if searchEnabled && !llm.IsWeakModel(caps, s.detectedModelName) {
+		systemContent += "\n\n用户已开启联网搜索，你可调用 search 工具获取实时信息。"
 	}
 
 	estimatedTokens := len([]rune(systemContent)) * 3

@@ -235,6 +235,22 @@ func TestFunctional_SingleToolCall(t *testing.T) {
 	callCount := 0
 	var firstReqTools []llm.ToolDefinition
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"object": "list",
+				"data": []map[string]interface{}{
+					{
+						"id":   "test-strong-model-30b",
+						"meta": map[string]interface{}{"n_params": float64(30e9)},
+					},
+				},
+			})
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/v1/models/") || r.URL.Path == "/props" {
+			json.NewEncoder(w).Encode(map[string]interface{}{})
+			return
+		}
 		callCount++
 		var req llm.ChatCompletionRequest
 		body := make([]byte, 1024*1024)
@@ -269,8 +285,12 @@ func TestFunctional_SingleToolCall(t *testing.T) {
 	}
 
 	svc := newInteractionTestService(t, server, searchProvider)
+	if err := svc.DetectModelArchitecture(); err != nil {
+		t.Fatalf("DetectModelArchitecture failed: %v", err)
+	}
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content: "search for something",
+		Content:       "search for something",
+		SearchEnabled: true,
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -631,7 +651,7 @@ func TestFunctional_SearchI18n_EnglishQuery(t *testing.T) {
 
 	hasSearchInLastUserMsg := false
 	for _, m := range receivedMessages {
-		if m.Role == "user" && strings.Contains(m.ContentString(), "search results") {
+		if m.Role == "user" && (strings.Contains(m.ContentString(), "search results") || strings.Contains(m.ContentString(), "supplementary information")) {
 			hasSearchInLastUserMsg = true
 		}
 	}

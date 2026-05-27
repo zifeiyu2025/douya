@@ -38,11 +38,11 @@
       </div>
       <div class="chat-input-container">
         <div class="left-buttons">
+                <button class="think-btn" :class="{ active: thinkingEnabled, unsupported: !supportsThinking }" :disabled="!supportsThinking" @click="settingsStore.toggleThinking()" :title="thinkingTitle">
+                  <n-icon size="22"><BulbOutline /></n-icon>
+                </button>
                 <button class="search-btn" :class="{ active: searchEnabled }" @click="settingsStore.toggleSearch()" :title="searchEnabled ? '联网搜索已开启' : '开启联网搜索'">
                   <n-icon size="22"><GlobeOutline /></n-icon>
-                </button>
-                <button class="search-btn rag-btn" :class="{ active: ragEnabled }" @click="toggleRAG" :title="ragEnabled ? '知识库检索已开启' : '开启知识库检索'">
-                  <n-icon size="22"><BookOutline /></n-icon>
                 </button>
                 <div class="attach-wrapper">
                   <button class="attach-btn" @click="toggleAttachMenu" :disabled="isSwitching" title="添加附件">
@@ -138,7 +138,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { NIcon } from 'naive-ui'
-import { GlobeOutline, AttachOutline, BookOutline } from '@vicons/ionicons5'
+import { GlobeOutline, AttachOutline, BulbOutline } from '@vicons/ionicons5'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import { wails } from '../services/wails'
@@ -195,20 +195,15 @@ const speechSupported = computed(() => {
 })
 
 const searchEnabled = computed(() => settingsStore.searchEnabled)
-const ragEnabled = ref(true)
+const thinkingEnabled = computed(() => settingsStore.thinkingEnabled)
 const capabilities = computed(() => settingsStore.modelCapabilities)
 const isSwitching = computed(() => settingsStore.isModelSwitching)
+const supportsThinking = computed(() => settingsStore.modelCapabilities.thinking_mode !== 'none')
+const thinkingTitle = computed(() => {
+    if (!supportsThinking.value) return '当前模型不支持思考'
+    return thinkingEnabled.value ? '深度思考已开启' : '开启深度思考'
+})
 const canSend = computed(() => !isSwitching.value && (inputText.value.trim() || attachments.value.length > 0))
-
-async function toggleRAG() {
-  const newVal = !ragEnabled.value
-  try {
-    await wails.setRAGEnabled(newVal)
-    ragEnabled.value = newVal
-  } catch (e) {
-    console.warn('toggle RAG failed:', e)
-  }
-}
 
 function adjustHeight() {
   if (textareaRef.value) {
@@ -505,7 +500,6 @@ onMounted(() => {
   if (speechSupported.value) {
     initSpeechRecognition()
   }
-  wails.isRAGEnabled().then(v => { ragEnabled.value = v }).catch(() => {})
 })
 
 onUnmounted(() => {
@@ -522,7 +516,7 @@ onUnmounted(() => {
 .input-area {
   padding: 16px 24px 20px;
   border-top: 1px solid var(--border-color);
-  background: transparent;
+  background: var(--bg-primary);
   position: relative;
   z-index: 1;
 }
@@ -724,7 +718,7 @@ onUnmounted(() => {
 
 .chat-input-container:focus-within {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 3px var(--accent-tertiary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 20%, transparent);
 }
 
 .left-buttons {
@@ -733,7 +727,7 @@ onUnmounted(() => {
   gap: 4px;
 }
 
-.search-btn, .attach-btn, .voice-btn {
+.search-btn, .think-btn, .attach-btn, .voice-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -752,7 +746,7 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 
-.search-btn:hover, .attach-btn:hover:not(:disabled), .voice-btn:hover {
+.search-btn:hover, .think-btn:hover, .attach-btn:hover:not(:disabled), .voice-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
@@ -760,6 +754,21 @@ onUnmounted(() => {
 .search-btn.active {
   color: var(--accent-primary);
   background: var(--accent-tertiary);
+}
+
+.think-btn.active {
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.1);
+}
+
+.think-btn.unsupported {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.think-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
 }
 
 .voice-btn.active {
@@ -897,5 +906,18 @@ onUnmounted(() => {
 .stop-btn:hover {
   transform: scale(1.05);
   box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+}
+</style>
+
+<style>
+.has-background .chat-input-container {
+  background: color-mix(in srgb, var(--bg-secondary) 85%, transparent) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.has-background .input-area {
+  background: transparent;
+  border-top-color: transparent;
 }
 </style>

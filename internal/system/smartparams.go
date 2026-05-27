@@ -29,6 +29,10 @@ type SmartParams struct {
 	Mlock         bool
 	MmprojOffload bool
 	ContextSize   int
+	SpecType         string
+	SpecDraftNMax    int
+	CacheTypeKDraft  string
+	CacheTypeVDraft  string
 }
 
 func detectModelTier(resolvedModelPath string) (ModelTier, *GGUFMetadata) {
@@ -83,14 +87,21 @@ func CalculateSmartParams(hw *HardwareInfo, resolvedModelPath string) *SmartPara
 	}
 
 	p.FlashAttn = hw.HasGPU
-	p.CacheTypeK = "q8_0"
-	p.CacheTypeV = "q4_0"
+	_, meta := detectModelTier(resolvedModelPath)
+	p.CacheTypeK, p.CacheTypeV = calculateCacheTypes(hw, meta)
 	p.Mlock = true
 	p.MmprojOffload = hw.HasGPU
 
 	p.ContextSize = calculateContextSize(hw, resolvedModelPath)
 	p.BatchSize = calculateBatchSize(hw)
 	p.UBatchSize = p.BatchSize / 2
+
+	if meta != nil && meta.HasMTP {
+		p.SpecType = "draft-mtp"
+		p.SpecDraftNMax = 3
+		p.CacheTypeKDraft = "q8_0"
+		p.CacheTypeVDraft = "q8_0"
+	}
 
 	return p
 }
@@ -166,8 +177,12 @@ func calculateContextSize(hw *HardwareInfo, resolvedModelPath string) int {
 
 	if meta != nil && meta.ContextLength > 0 {
 		if vramBased > meta.ContextLength {
-			return meta.ContextLength
+			vramBased = meta.ContextLength
 		}
+	}
+
+	if meta != nil && meta.ExpertCount > 0 && vramBased < 4096 {
+		vramBased = 4096
 	}
 
 	return vramBased
@@ -193,5 +208,31 @@ func calculateBatchSize(hw *HardwareInfo) int {
 		return 128
 	default:
 		return 64
+	}
+}
+
+func calculateCacheTypes(hw *HardwareInfo, meta *GGUFMetadata) (string, string) {
+	if !hw.HasGPU || hw.GPUVRAMMB <= 0 {
+		return "q4_0", "q4_0"
+	}
+
+	if meta == nil || meta.FileSize <= 0 {
+		return "q8_0", "q4_0"
+	}
+
+	vramBytes := float64(hw.GPUVRAMMB) * 1024 * 1024
+	modelBytes := float64(meta.FileSize)
+	ratio := modelBytes / vramBytes
+	if meta.ExpertCount > 0 && meta.ExpertUsed > 0 {
+		ratio = ratio * float64(meta.ExpertUsed) / float64(meta.ExpertCount)
+	}
+
+	switch {
+	case ratio <= 0.7:
+		return "q8_0", "q4_0"
+	case ratio <= 1.5:
+		return "q8_0", "turbo3"
+	default:
+		return "turbo3", "turbo2"
 	}
 }

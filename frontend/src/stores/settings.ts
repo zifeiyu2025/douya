@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { wails, type Config, type ServerStatus, type ModelCapabilities, type SwitchResult, type SearchAPIKeys } from '../services/wails'
+import { wails, type Config, DEFAULT_CONFIG, type ServerStatus, type ModelCapabilities, type SwitchResult, type SearchAPIKeys } from '../services/wails'
 import { useChatStore } from './chat'
 import { formatModelName } from '../utils/model'
 
@@ -54,43 +54,9 @@ export function shouldKeepSwitchingVisible(
 }
 
 export const useSettingsStore = defineStore('settings', () => {
-    const config = ref<Config>({
-        model_path: '',
-        llama_server_path: '',
-        api_base: '',
-        port: 8080,
-        context_size: 8192,
-        temperature: 0.6,
-        top_p: 0.95,
-        top_k: 20,
-        repeat_penalty: 1.0,
-        mmproj_auto: true,
-        mmproj_offload: true,
-        kv_unified: false,
-        cache_idle_slots: false,
-        cache_ram: 0,
-        image_min_tokens: 0,
-        image_max_tokens: 0,
-        fit_target: 0,
-        fit_ctx: 0,
-        reasoning: 'auto',
-        reasoning_budget: 0,
-        reasoning_format: '',
-        system_prompt: '',
-        chat_background: '',
-        user_avatar: '',
-        ai_avatar: '',
-        search_enabled: false,
-        sleep_idle_seconds: 120,
-        models_max: 1,
-        rag_enabled: false,
-        rag_active_kb: 'default',
-        rag_top_k: 3,
-        rag_min_score: 0.3,
-        rag_chunk_size: 512,
-        rag_chunk_overlap: 64,
-    })
+    const config = ref<Config>({ ...DEFAULT_CONFIG })
     const searchEnabled = ref(false)
+    const thinkingEnabled = ref(true)
     const searchAPIKeys = ref<SearchAPIKeys>({
         ollama_api_key: '',
         tavily_api_key: '',
@@ -103,6 +69,9 @@ export const useSettingsStore = defineStore('settings', () => {
         text_input: true,
         reasoning: false,
         mmproj_loaded: false,
+        has_mtp: false,
+        thinking_mode: 'none',
+        n_params: 0,
     })
     const currentModel = ref('')
     const modelLoadError = ref('')
@@ -131,6 +100,7 @@ export const useSettingsStore = defineStore('settings', () => {
         try {
             config.value = await wails.getConfig()
             searchEnabled.value = config.value.search_enabled ?? false
+            thinkingEnabled.value = config.value.thinking_enabled ?? true
         } catch (e) {
             console.error('加载配置失败:', e)
         }
@@ -409,6 +379,23 @@ export const useSettingsStore = defineStore('settings', () => {
         }
     }
 
+    async function loadServerAPIKey(): Promise<string> {
+        try {
+            return await wails.getServerAPIKey()
+        } catch (e) {
+            console.error('Failed to load server API key:', e)
+            return ''
+        }
+    }
+
+    async function saveServerAPIKey(key: string) {
+        try {
+            await wails.setServerAPIKey(key)
+        } catch (e) {
+            console.error('Failed to save server API key:', e)
+        }
+    }
+
     async function toggleSearch() {
         searchEnabled.value = !searchEnabled.value
         try {
@@ -418,6 +405,18 @@ export const useSettingsStore = defineStore('settings', () => {
             config.value = fullConfig
         } catch (e) {
             console.error('保存搜索设置失败:', e)
+        }
+    }
+
+    async function toggleThinking() {
+        thinkingEnabled.value = !thinkingEnabled.value
+        try {
+            const fullConfig = await wails.getConfig()
+            fullConfig.thinking_enabled = thinkingEnabled.value
+            await wails.updateConfig(fullConfig)
+            config.value = fullConfig
+        } catch (e) {
+            console.error('保存思考设置失败:', e)
         }
     }
 
@@ -458,6 +457,7 @@ export const useSettingsStore = defineStore('settings', () => {
     return {
         config,
         searchEnabled,
+        thinkingEnabled,
         searchAPIKeys,
         serverStatus,
         modelCapabilities,
@@ -475,7 +475,10 @@ export const useSettingsStore = defineStore('settings', () => {
         updateConfig,
         loadSearchAPIKeys,
         saveSearchAPIKeys,
+        loadServerAPIKey,
+        saveServerAPIKey,
         toggleSearch,
+        toggleThinking,
         switchModel,
         checkServerStatus,
         initStatusListener,

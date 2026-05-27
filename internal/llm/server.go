@@ -44,11 +44,26 @@ type ServerConfig struct {
 	Reasoning        string
 	ReasoningBudget  int
 	ReasoningFormat  string
+	ReasoningBudgetMessage string
 	APIBase          string
 	AppDir           string
 	ModelsPreset     string
 	ModelsMax        int
 	SleepIdleSeconds int
+	Mmap             bool
+	KVOffload        bool
+	ContextShift     bool
+	MinP             float64
+	DryMultiplier    float64
+	DryBase          float64
+	DryAllowedLength int
+	Device           string
+	Parallel         int
+	APIKey           string
+	SpecType         string
+	SpecDraftNMax    int
+	CacheTypeKDraft  string
+	CacheTypeVDraft  string
 }
 
 type Server struct {
@@ -72,18 +87,13 @@ func NewServer(cfg *ServerConfig) *Server {
 func (s *Server) Start() error {
 	s.mu.Lock()
 
-	// ensure old model is fully stopped and VRAM released before starting new one
 	if s.status.Running && s.isAlive() {
 		log.Info().Msg("stopping existing model server before starting new one...")
-		// unlock before stopInternal to avoid deadlock (stopInternal also locks s.mu)
 		s.mu.Unlock()
 		if err := s.stopInternal(); err != nil {
 			log.Error().Err(err).Msg("stop existing server before restart")
 		}
-		// wait for VRAM to be fully released before loading new model
-		s.WaitForVRAMRelease()
-		log.Info().Msg("old model VRAM released, now starting new model...")
-		s.mu.Lock()  // re-acquire lock
+		s.mu.Lock()
 	}
 
 	args := []string{
@@ -136,6 +146,9 @@ func (s *Server) Start() error {
 	if s.config.ReasoningFormat != "" {
 		args = append(args, "--reasoning-format", s.config.ReasoningFormat)
 	}
+	if s.config.ReasoningBudgetMessage != "" {
+		args = append(args, "--reasoning-budget-message", s.config.ReasoningBudgetMessage)
+	}
 	if s.config.Repack {
 		args = append(args, "--repack")
 	}
@@ -162,6 +175,49 @@ func (s *Server) Start() error {
 	}
 	if s.config.FitCtx > 0 {
 		args = append(args, "--fit-ctx", fmt.Sprintf("%d", s.config.FitCtx))
+	}
+	if !s.config.Mmap {
+		args = append(args, "--no-mmap")
+	}
+	if !s.config.KVOffload {
+		args = append(args, "--no-kv-offload")
+	}
+	if s.config.ContextShift {
+		args = append(args, "--context-shift")
+	}
+	if s.config.MinP > 0 {
+		args = append(args, "--min-p", fmt.Sprintf("%.2f", s.config.MinP))
+	}
+	if s.config.DryMultiplier > 0 {
+		args = append(args, "--dry-multiplier", fmt.Sprintf("%.2f", s.config.DryMultiplier))
+		if s.config.DryBase > 0 {
+			args = append(args, "--dry-base", fmt.Sprintf("%.2f", s.config.DryBase))
+		}
+		if s.config.DryAllowedLength > 0 {
+			args = append(args, "--dry-allowed-length", fmt.Sprintf("%d", s.config.DryAllowedLength))
+		}
+	}
+	if s.config.Device != "" {
+		args = append(args, "--device", s.config.Device)
+	}
+	if s.config.Parallel > 0 {
+		args = append(args, "--parallel", fmt.Sprintf("%d", s.config.Parallel))
+	}
+	args = append(args, "--timeout", "900")
+	if s.config.APIKey != "" {
+		args = append(args, "--api-key", s.config.APIKey)
+	}
+	if s.config.SpecType != "" {
+		args = append(args, "--spec-type", s.config.SpecType)
+	}
+	if s.config.SpecDraftNMax > 0 {
+		args = append(args, "--spec-draft-n-max", fmt.Sprintf("%d", s.config.SpecDraftNMax))
+	}
+	if s.config.CacheTypeKDraft != "" {
+		args = append(args, "--cache-type-k-draft", s.config.CacheTypeKDraft)
+	}
+	if s.config.CacheTypeVDraft != "" {
+		args = append(args, "--cache-type-v-draft", s.config.CacheTypeVDraft)
 	}
 
 	s.cmd = exec.Command(s.config.ServerPath, args...)
@@ -284,7 +340,7 @@ func (s *Server) GracefulStop(timeout time.Duration) error {
 	}
 
 	shutdownURL := apiBase + "/shutdown"
-	client := &http.Client{Timeout: 3 * time.Second}
+	client := &http.Client{Timeout: 2 * time.Second}
 
 	resp, err := client.Post(shutdownURL, "application/json", nil)
 	if err != nil {
@@ -303,7 +359,6 @@ func (s *Server) GracefulStop(timeout time.Duration) error {
 			if s.cancel != nil {
 				s.cancel()
 			}
-			log.Info().Msg("server exited gracefully, VRAM released")
 			return nil
 		}
 		<-ticker.C
@@ -319,43 +374,9 @@ func (s *Server) stopInternal() error {
 		s.mu.Unlock()
 		return nil
 	}
-	apiBase := s.config.APIBase
 	pid := s.cmd.Process.Pid
 	s.mu.Unlock()
 
-	// Try graceful shutdown first (like Ollama does)
-	gracefulTimeout := 5 * time.Second
-	deadline := time.Now().Add(gracefulTimeout)
-	shutdownURL := apiBase + "/shutdown"
-	client := &http.Client{Timeout: 2 * time.Second}
-
-	resp, err := client.Post(shutdownURL, "application/json", nil)
-	if err == nil {
-		resp.Body.Close()
-		log.Info().Int("pid", pid).Str("graceful_timeout", gracefulTimeout.String()).Msg("[server] graceful shutdown request sent, waiting...")
-
-		// Wait for process to exit gracefully
-		ticker := time.NewTicker(200 * time.Millisecond)
-		defer ticker.Stop()
-		for time.Now().Before(deadline) {
-			if !s.isAlive() {
-				s.mu.Lock()
-				s.status = ServerStatus{Running: false}
-				if s.cancel != nil {
-					s.cancel()
-				}
-				s.mu.Unlock()
-				log.Info().Int("pid", pid).Msg("[server] exited gracefully")
-				return nil
-			}
-			<-ticker.C
-		}
-		log.Warn().Int("pid", pid).Msg("[server] graceful shutdown timed out, falling back to taskkill")
-	} else {
-		log.Error().Err(err).Msg("[server] graceful shutdown request failed (server may not be running)")
-	}
-
-	// Fallback: force kill process tree
 	terminateCmd := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/T")
 	terminateCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 	_ = terminateCmd.Run()
@@ -367,7 +388,7 @@ func (s *Server) stopInternal() error {
 		close(waitDone)
 	}()
 
-	timer := time.NewTimer(20 * time.Second)
+	timer := time.NewTimer(3 * time.Second)
 	defer timer.Stop()
 
 	select {

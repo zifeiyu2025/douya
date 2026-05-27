@@ -39,14 +39,31 @@ type Config struct {
 	UserAvatar        string `json:"user_avatar"`
 	AiAvatar          string `json:"ai_avatar"`
 	SearchEnabled     bool   `json:"search_enabled"`
+	ThinkingEnabled   bool   `json:"thinking_enabled"`
 	SleepIdleSeconds  int    `json:"sleep_idle_seconds"`
 	ModelsMax         int    `json:"models_max"`
 	RAGEnabled        bool   `json:"rag_enabled"`
 	RAGActiveKB       string `json:"rag_active_kb"`
 	RAGTopK           int    `json:"rag_top_k"`
 	RAGMinScore       float64 `json:"rag_min_score"`
-	RAGChunkSize      int    `json:"rag_chunk_size"`
-	RAGChunkOverlap   int    `json:"rag_chunk_overlap"`
+	RAGChunkSize      int     `json:"rag_chunk_size"`
+	RAGChunkOverlap   int     `json:"rag_chunk_overlap"`
+	ReasoningBudgetMessage string `json:"reasoning_budget_message"`
+	Mmap              bool    `json:"mmap"`
+	KVOffload         bool    `json:"kv_offload"`
+	ContextShift      bool    `json:"context_shift"`
+	MinP              float64 `json:"min_p"`
+	DryMultiplier     float64 `json:"dry_multiplier"`
+	DryBase           float64 `json:"dry_base"`
+	DryAllowedLength  int     `json:"dry_allowed_length"`
+	Device            string  `json:"device"`
+	Parallel          int     `json:"parallel"`
+	CacheTypeK        string  `json:"cache_type_k"`
+	CacheTypeV        string  `json:"cache_type_v"`
+	SpecType          string  `json:"spec_type"`
+	SpecDraftNMax     int     `json:"spec_draft_n_max"`
+	CacheTypeKDraft   string  `json:"cache_type_k_draft"`
+	CacheTypeVDraft   string  `json:"cache_type_v_draft"`
 }
 
 func DefaultConfig() *Config {
@@ -69,7 +86,7 @@ func DefaultConfig() *Config {
 		ImageMaxTokens:    0,
 		FitTarget:         0,
 		FitCtx:            0,
-		Reasoning:         "auto",
+		Reasoning:         "off",
 		ReasoningBudget:   0,
 		ReasoningFormat:     "",
 		SystemPrompt:      "",
@@ -79,6 +96,7 @@ func DefaultConfig() *Config {
 		UserAvatar:        "",
 		AiAvatar:          "",
 		SearchEnabled:     false,
+		ThinkingEnabled:   true,
 		SleepIdleSeconds: 120,
 		ModelsMax:         1,
 		RAGEnabled:        false,
@@ -87,6 +105,22 @@ func DefaultConfig() *Config {
 		RAGMinScore:      0.3,
 		RAGChunkSize:     512,
 		RAGChunkOverlap:  64,
+		ReasoningBudgetMessage: "",
+		Mmap:             true,
+		KVOffload:        true,
+		ContextShift:     false,
+		MinP:             0.05,
+		DryMultiplier:    0,
+		DryBase:          1.75,
+		DryAllowedLength: 2,
+		Device:           "",
+		Parallel:         0,
+		CacheTypeK:       "",
+		CacheTypeV:       "",
+		SpecType:         "",
+		SpecDraftNMax:    0,
+		CacheTypeKDraft:  "",
+		CacheTypeVDraft:  "",
 	}
 }
 

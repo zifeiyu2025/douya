@@ -1,4 +1,4 @@
-﻿[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::InputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 # 兼容 PowerShell 5.1：不依赖 >$null 2>&1 重定向语法
@@ -31,24 +31,24 @@ New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 $BinDir = Join-Path $OutputDir "bin"
 New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
 
-$builtExe = Join-Path $ProjectRoot "build\bin\douya.exe"
+$builtExe = Join-Path $ProjectRoot "build\bin\Douya.exe"
 if (-not (Test-Path $builtExe)) {
     throw "构建产物缺失: $builtExe`nWails 构建可能未成功完成。"
 }
 
 $needCopyExe = $true
-$dstExe = Join-Path $BinDir "douya.exe"
+$dstExe = Join-Path $BinDir "Douya.exe"
 if (Test-Path $dstExe) {
     $srcTime = (Get-Item $builtExe).LastWriteTimeUtc
     $dstTime = (Get-Item $dstExe).LastWriteTimeUtc
     if ($srcTime -le $dstTime) {
-        Write-Host "  [增量] douya.exe 已是最新，跳过" -ForegroundColor Gray
+        Write-Host "  [增量] Douya.exe 已是最新，跳过" -ForegroundColor Gray
         $needCopyExe = $false
     }
 }
 if ($needCopyExe) {
     Copy-Item $builtExe $BinDir -Force
-    Write-Host "  已复制: douya.exe" -ForegroundColor Green
+    Write-Host "  已复制: Douya.exe" -ForegroundColor Green
 }
 
 $syncDirs = @("engines", "models", "runtime")
@@ -123,8 +123,8 @@ function SyncDirFromProject {
 }
 
 $criticalItems = @(
-    @{ Name = "bin\douya.exe";  Dst = "$BinDir\douya.exe";
-       Src = @("$ProjectRoot\build\bin\douya.exe") }
+    @{ Name = "bin\Douya.exe";  Dst = "$BinDir\Douya.exe";
+       Src = @("$ProjectRoot\build\bin\Douya.exe") }
 )
 
 $optionalItems = @(
@@ -213,7 +213,7 @@ if ($criticalMissing.Count -eq 0 -and $optionalMissing.Count -eq 0) {
     Write-Host ""
     Write-Host "目录结构:" -ForegroundColor Cyan
     Write-Host "  $OutputDir\"
-    Write-Host "    bin\douya.exe"
+    Write-Host "    bin\Douya.exe"
     Write-Host "    engines\"
     Write-Host "    models\"
     Write-Host "    runtime\"

@@ -119,6 +119,27 @@ html, body, #app {
   display: flex;
   height: 100vh;
   width: 100vw;
+  position: relative;
+  background: var(--bg-secondary);
+  isolation: isolate;
+}
+
+.app-layout::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: var(--chat-background, none);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  opacity: var(--chat-background-opacity, 0.8);
+  z-index: 0;
+  pointer-events: none;
+  transition: opacity 0.4s ease;
 }
 
 .sidebar {
@@ -131,6 +152,8 @@ html, body, #app {
   flex-direction: column;
   transition: width var(--transition-normal), min-width var(--transition-normal);
   overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 
 .sidebar.collapsed {
@@ -253,27 +276,124 @@ html, body, #app {
   background: var(--bg-secondary);
   overflow: hidden;
   position: relative;
-}
-
-.main-area::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-image: var(--chat-background, none);
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  opacity: 0.8;
   z-index: 1;
-  pointer-events: none;
-  transition: left var(--transition-normal);
 }
 
-.main-area.sidebar-collapsed::before {
-  left: 0;
+/* ===== 全界面背景覆盖：毛玻璃系统 ===== */
+
+.has-background .main-area {
+  background: transparent;
+}
+
+/* 主头部 — 轻透毛玻璃 */
+.has-background .main-header {
+  background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom-color: color-mix(in srgb, var(--border-color) 55%, transparent);
+}
+
+/* 服务状态标签 */
+.has-background .server-status {
+  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-color: color-mix(in srgb, var(--border-color) 45%, transparent);
+}
+
+/* 侧边栏主体 — 半透明毛玻璃 */
+.has-background .sidebar {
+  background: color-mix(in srgb, var(--bg-sidebar) 76%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-right-color: color-mix(in srgb, var(--border-color) 50%, transparent);
+}
+
+/* 侧边栏子区域 — 完全透明，靠父级毛玻璃覆盖 */
+.has-background .sidebar-header,
+.has-background .sidebar-search,
+.has-background .sidebar-footer {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--border-color) 45%, transparent);
+}
+
+/* 对话列表 — 透明底，hover/active 浮起毛玻璃 */
+.has-background .conversation-list {
+  background: transparent;
+}
+
+.has-background .conversation-item {
+  background: transparent;
+  border-bottom-color: color-mix(in srgb, var(--border-color) 35%, transparent);
+  transition: background 0.2s ease, backdrop-filter 0.2s ease;
+}
+
+.has-background .conversation-item:hover {
+  background: color-mix(in srgb, var(--bg-hover) 65%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.has-background .conversation-item.active {
+  background: color-mix(in srgb, var(--bg-active) 68%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* 对话头像 — 背景图模式下保持辨识度 */
+.has-background .conversation-avatar {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+
+/* 消息列表和容器 — 保持透明让背景透出 */
+.has-background .chat-container,
+.has-background .message-list {
+  background: transparent;
+}
+
+/* 侧边栏底部按钮在毛玻璃上的hover */
+.has-background .sidebar-footer .footer-btn:hover {
+  background: color-mix(in srgb, var(--bg-hover) 65%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* ===== 暗色模式 + 背景图：加深毛玻璃透感 ===== */
+
+.dark .has-background .main-header {
+  background: color-mix(in srgb, var(--bg-primary) 74%, transparent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.dark .has-background .sidebar {
+  background: color-mix(in srgb, var(--bg-sidebar) 70%, transparent);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+}
+
+.dark .has-background .server-status {
+  background: color-mix(in srgb, var(--bg-secondary) 66%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.dark .has-background .conversation-item:hover {
+  background: color-mix(in srgb, var(--bg-hover) 60%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.dark .has-background .conversation-item.active {
+  background: color-mix(in srgb, var(--bg-active) 62%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.dark .has-background .sidebar-footer .footer-btn:hover {
+  background: color-mix(in srgb, var(--bg-hover) 60%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .main-header {

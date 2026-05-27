@@ -13,10 +13,10 @@
     </div>
 
     <div class="knowledge-body">
-      <div class="kb-card">
-        <div class="card-title-row">
-          <span class="card-icon">📚</span>
-          <span class="card-title">知识库</span>
+      <div class="kb-section">
+        <div class="kb-section-header">
+          <span class="section-icon">📚</span>
+          <span class="section-title">知识库</span>
           <span class="kb-count" v-if="knowledgeBases.length > 0">{{ knowledgeBases.length }} 个知识库</span>
         </div>
 
@@ -43,10 +43,10 @@
         </n-modal>
       </div>
 
-      <div class="kb-card">
-        <div class="card-title-row">
-          <span class="card-icon">📄</span>
-          <span class="card-title">文档列表</span>
+      <div class="kb-section">
+        <div class="kb-section-header">
+          <span class="section-icon">📄</span>
+          <span class="section-title">文档列表</span>
           <span class="kb-count" v-if="documents.length > 0">{{ documents.length }} 个文档</span>
         </div>
 
@@ -93,10 +93,10 @@
         </div>
       </div>
 
-      <div class="kb-card">
-        <div class="card-title-row">
-          <span class="card-icon">⚙️</span>
-          <span class="card-title">RAG 设置</span>
+      <div class="kb-section">
+        <div class="kb-section-header">
+          <span class="section-icon">⚙️</span>
+          <span class="section-title">RAG 设置</span>
         </div>
 
         <n-form label-placement="left" label-width="96" :model="ragConfig" class="rag-form">
@@ -352,7 +352,7 @@ onMounted(loadData)
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 14px 20px;
+  padding: 14px 24px;
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
@@ -387,38 +387,34 @@ onMounted(loadData)
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 20px 20px 32px;
+  padding: 24px 28px 32px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
 }
 
-.kb-card {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--border-radius-lg);
-  padding: 20px;
+.kb-section {
   flex-shrink: 0;
-  transition: border-color var(--transition-fast);
+  padding-bottom: 20px;
 }
 
-.kb-card:hover {
-  border-color: var(--accent-primary);
+.kb-section + .kb-section {
+  border-top: 1px solid var(--border-color);
+  padding-top: 20px;
 }
 
-.card-title-row {
+.kb-section-header {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 16px;
 }
 
-.card-icon {
+.section-icon {
   font-size: 18px;
   line-height: 1;
 }
 
-.card-title {
+.section-title {
   font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
@@ -459,15 +455,12 @@ onMounted(loadData)
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 10px 14px;
   border-radius: var(--border-radius);
-  background: var(--bg-tertiary);
-  border: 1px solid transparent;
-  transition: all var(--transition-fast);
+  transition: background var(--transition-fast);
 }
 
 .doc-item:hover {
-  border-color: var(--border-color);
   background: var(--bg-hover);
 }
 
@@ -544,11 +537,10 @@ onMounted(loadData)
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 32px 20px;
+  padding: 36px 20px;
   border: 2px dashed var(--border-color);
   border-radius: var(--border-radius);
   margin-bottom: 14px;
-  background: var(--bg-tertiary);
 }
 
 .empty-icon {
@@ -618,21 +610,16 @@ onMounted(loadData)
 
 <style>
 .has-background .knowledge-container {
-  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border-radius: 12px;
+  background: transparent;
 }
 
 .has-background .knowledge-header {
-  background: color-mix(in srgb, var(--bg-primary) 85%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--bg-primary) 82%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
-.has-background .kb-card {
-  background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+.has-background .kb-section {
+  background: transparent;
 }
 </style>
