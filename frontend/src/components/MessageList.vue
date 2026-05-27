@@ -1,5 +1,5 @@
 <template>
-  <div ref="messageListRef" class="message-list" :style="backgroundStyle">
+  <div ref="messageListRef" class="message-list">
     <Transition name="switch-overlay">
       <div v-if="isSwitching" class="switch-overlay">
         <div class="switch-overlay-content">
@@ -108,15 +108,6 @@ const tips = [
 function handleQuickAction(action: any) {
   chatStore.sendMessage(action.prompt, settingsStore.searchEnabled)
 }
-
-const backgroundStyle = computed(() => {
-  if (settingsStore.config.chat_background) {
-    return {
-      '--chat-background': `url(${settingsStore.config.chat_background})`
-    } as Record<string, string>
-  }
-  return {}
-})
 
 const messages = computed(() => chatStore.messages)
 const isGenerating = computed(() => chatStore.isGenerating)

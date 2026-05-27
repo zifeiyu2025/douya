@@ -4,7 +4,7 @@
       <n-dialog-provider>
         <div class="app-layout" :class="{ dark: isDark }">
           <Sidebar :collapsed="sidebarCollapsed" @toggle="sidebarCollapsed = !sidebarCollapsed" />
-          <div class="main-area">
+          <div class="main-area" :class="{ 'sidebar-collapsed': sidebarCollapsed }" :style="mainAreaStyle">
             <div class="main-header" style="--wails-draggable:drag">
               <div class="main-header-left" style="--wails-draggable:no-drag">
                 <n-button quaternary circle @click="sidebarCollapsed = !sidebarCollapsed" size="large">
@@ -114,6 +114,15 @@ const themeStore = useThemeStore()
 const isDark = computed(() => themeStore.isDark)
 const serverStatus = computed(() => settingsStore.serverStatus)
 const sidebarCollapsed = defineModel<boolean>('sidebarCollapsed', { default: false })
+
+const mainAreaStyle = computed(() => {
+  if (settingsStore.config.chat_background) {
+    return {
+      '--chat-background': `url(${settingsStore.config.chat_background})`
+    } as Record<string, string>
+  }
+  return {}
+})
 
 const isServerLoading = computed(() => {
   return serverStatus.value.switching || (!serverStatus.value.running && !serverStatus.value.error)

@@ -26,7 +26,7 @@
               <div class="upload-preview" v-else>
                 <img :src="formConfig.chat_background" class="background-preview" />
                 <div class="upload-actions">
-                  <n-button size="small" text @click="clearBackground">清除</n-button>
+                  <n-button size="small" text @click.stop="clearBackground">清除</n-button>
                 </div>
               </div>
             </n-upload>
@@ -103,7 +103,7 @@
 
         <n-divider>系统提示词</n-divider>
         <n-form-item>
-          <n-input v-model:value="formConfig.system_prompt" type="textarea" placeholder="设置 AI 的角色和行为指令..." :autosize="{ minRows: 4, maxRows: 12 }" class="rounded-textarea" style="width: 100%;" />
+          <n-input v-model:value="formConfig.system_prompt" type="textarea" placeholder="自定义提示词将追加在豆芽默认提示词后面，用于补充角色设定和行为指令..." :autosize="{ minRows: 6, maxRows: 20 }" class="rounded-textarea" style="width: 100%;" />
         </n-form-item>
 
         <n-divider>生成参数</n-divider>
@@ -555,9 +555,18 @@ async function autoSave() {
   left: 0;
   right: 0;
   padding: 8px;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.6));
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.5));
   display: flex;
   justify-content: center;
+}
+
+:deep(.upload-actions .n-button.n-button--text) {
+  color: #ffffff;
+}
+
+:deep(.upload-actions .n-button.n-button--text:hover) {
+  color: var(--accent-primary);
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .avatar-upload-wrapper {

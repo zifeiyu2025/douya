@@ -522,7 +522,9 @@ onUnmounted(() => {
 .input-area {
   padding: 16px 24px 20px;
   border-top: 1px solid var(--border-color);
-  background: var(--bg-primary);
+  background: transparent;
+  position: relative;
+  z-index: 1;
 }
 
 .input-wrapper {
