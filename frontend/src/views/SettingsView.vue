@@ -33,6 +33,11 @@
           </div>
         </n-form-item>
 
+        <n-form-item label="背景透明度" v-if="formConfig.chat_background">
+          <n-slider v-model:value="formConfig.chat_background_opacity" :min="0.2" :max="1" :step="0.05" />
+          <span class="slider-value">{{ Math.round(formConfig.chat_background_opacity * 100) }}%</span>
+        </n-form-item>
+
         <n-form-item label="用户头像">
           <div class="avatar-upload-wrapper">
             <div class="avatar-preview">
@@ -161,7 +166,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, onUnmounted } from 'vue'
 import {
   NButton, NIcon, NForm, NFormItem, NInput,
   NSlider, NDivider, useMessage, NUpload,
@@ -251,6 +256,7 @@ const formConfig = ref<Config>({
   reasoning_format: '',
   system_prompt: '',
   chat_background: '',
+  chat_background_opacity: 0.8,
   user_avatar: '',
   ai_avatar: '',
   search_enabled: false,
@@ -366,6 +372,10 @@ function fileToBase64(file: File): Promise<string> {
 
 async function handleBackgroundUpload(data: any) {
   const file = data.file.file as File
+  if (file.size > 2 * 1024 * 1024) {
+    message.error('背景图片大小不能超过 2MB')
+    return
+  }
   try {
     const base64 = await fileToBase64(file)
     formConfig.value.chat_background = base64
@@ -376,10 +386,15 @@ async function handleBackgroundUpload(data: any) {
 
 function clearBackground() {
   formConfig.value.chat_background = ''
+  formConfig.value.chat_background_opacity = 0.8
 }
 
 async function handleUserAvatarUpload(data: any) {
   const file = data.file.file as File
+  if (file.size > 1024 * 1024) {
+    message.error('头像图片大小不能超过 1MB')
+    return
+  }
   try {
     const base64 = await fileToBase64(file)
     formConfig.value.user_avatar = base64
@@ -394,6 +409,10 @@ function clearUserAvatar() {
 
 async function handleAIAvatarUpload(data: any) {
   const file = data.file.file as File
+  if (file.size > 1024 * 1024) {
+    message.error('头像图片大小不能超过 1MB')
+    return
+  }
   try {
     const base64 = await fileToBase64(file)
     formConfig.value.ai_avatar = base64
@@ -425,7 +444,7 @@ watch(() => settingsStore.currentModel, async () => {
 
 const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'model_path', 'temperature', 'top_p', 'top_k', 'context_size', 'repeat_penalty',
-  'system_prompt', 'chat_background', 'user_avatar', 'ai_avatar',
+  'system_prompt', 'chat_background', 'chat_background_opacity', 'user_avatar', 'ai_avatar',
   'search_enabled', 'sleep_idle_seconds', 'models_max',
   'mmproj_auto', 'mmproj_offload', 'kv_unified', 'cache_idle_slots',
   'cache_ram', 'image_min_tokens', 'image_max_tokens',
@@ -727,5 +746,32 @@ async function autoSave() {
 
 .gen-params-status.saved {
   color: var(--accent-success);
+}
+</style>
+
+<style>
+.has-background .settings-container {
+  background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 12px;
+}
+
+.has-background .settings-header {
+  background: color-mix(in srgb, var(--bg-primary) 85%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.has-background .model-ref-card {
+  background: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.has-background .model-ref-header {
+  background: color-mix(in srgb, var(--bg-tertiary, var(--bg-primary)) 85%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 </style>

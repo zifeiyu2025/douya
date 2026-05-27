@@ -81,6 +81,15 @@ export const useChatStore = defineStore('chat', () => {
     const thinkingDuration = computed(() => currentConvState.value.thinkingDuration)
     const searchQuery = computed(() => currentConvState.value.searchQuery)
 
+    const lastAIMessageId = computed(() => {
+        for (let i = messages.value.length - 1; i >= 0; i--) {
+            if (messages.value[i].role === 'assistant') {
+                return messages.value[i].id
+            }
+        }
+        return ''
+    })
+
     function forceResetGenerating() {
         clearGeneratingTimeout()
         clearFirstTokenOnResponse()
@@ -162,6 +171,13 @@ export const useChatStore = defineStore('chat', () => {
             const newIdSet = new Set(newConvs.map((c: any) => c.id))
             const keptOld = conversations.value.filter((c: any) => !newIdSet.has(c.id))
             conversations.value = [...keptOld, ...newConvs]
+
+            for (const key of convStreamingStates.keys()) {
+                if (!newIdSet.has(key) && key !== '') {
+                    convStreamingStates.delete(key)
+                }
+            }
+
             if (!currentConversationId.value && conversations.value.length > 0) {
                 await selectConversation(conversations.value[0].id)
             }
@@ -655,6 +671,7 @@ export const useChatStore = defineStore('chat', () => {
         generatingConvId,
         waitingFirstToken,
         isLoadingConversations,
+        lastAIMessageId,
         loadConversations,
         selectConversation,
         sendMessage,

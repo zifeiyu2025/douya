@@ -87,6 +87,15 @@ interface SearchResultItem {
   snippet: string
 }
 
+function isSafeUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 function linkCitations(html: string, searchResultsJson: string): string {
   let items: SearchResultItem[] = []
   try {
@@ -99,7 +108,7 @@ function linkCitations(html: string, searchResultsJson: string): string {
   if (items.length === 0) return html
   return html.replace(/\[(\d+)\]/g, (match, numStr) => {
     const idx = parseInt(numStr, 10) - 1
-    if (idx >= 0 && idx < items.length && items[idx].url) {
+    if (idx >= 0 && idx < items.length && items[idx].url && isSafeUrl(items[idx].url)) {
       return `<a href="${items[idx].url}" target="_blank" rel="noopener noreferrer" class="citation-link">[${numStr}]</a>`
     }
     return match
@@ -135,8 +144,7 @@ const renderedContent = computed(() => {
   return html
 })
 const isLastAIMessage = computed(() => {
-  const aiMessages = chatStore.messages.filter(m => m.role === 'assistant')
-  return aiMessages.length > 0 && aiMessages[aiMessages.length - 1].id === props.message.id
+  return chatStore.lastAIMessageId === props.message.id
 })
 
 const findPreviousUserMessage = () => {
@@ -203,7 +211,17 @@ function previewImage(src: string) {
   img.src = src
   img.style.cssText = 'max-width:90%;max-height:90%;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,0.5)'
   overlay.appendChild(img)
-  overlay.addEventListener('click', () => overlay.remove())
+  const close = () => {
+    overlay.remove()
+    document.body.style.overflow = ''
+    document.removeEventListener('keydown', onKey)
+  }
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') close()
+  }
+  overlay.addEventListener('click', close)
+  document.addEventListener('keydown', onKey)
+  document.body.style.overflow = 'hidden'
   document.body.appendChild(overlay)
 }
 
@@ -620,5 +638,13 @@ function regenerate() {
   border-radius: 14px;
   margin: 14px 0;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+</style>
+
+<style>
+.has-background .ai-bubble {
+  background: color-mix(in srgb, var(--bg-ai-msg) 90%, transparent);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 </style>

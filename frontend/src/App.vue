@@ -2,9 +2,9 @@
   <n-config-provider :theme="isDark ? darkTheme : undefined" :locale="zhCN" :date-locale="dateZhCN">
     <n-message-provider>
       <n-dialog-provider>
-        <div class="app-layout" :class="{ dark: isDark }">
+        <div class="app-layout" :class="{ dark: isDark, 'has-background': !!settingsStore.config.chat_background }" :style="mainAreaStyle">
           <Sidebar :collapsed="sidebarCollapsed" @toggle="sidebarCollapsed = !sidebarCollapsed" />
-          <div class="main-area" :class="{ 'sidebar-collapsed': sidebarCollapsed }" :style="mainAreaStyle">
+          <div class="main-area" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
             <div class="main-header" style="--wails-draggable:drag">
               <div class="main-header-left" style="--wails-draggable:no-drag">
                 <n-button quaternary circle @click="sidebarCollapsed = !sidebarCollapsed" size="large">
@@ -117,8 +117,10 @@ const sidebarCollapsed = defineModel<boolean>('sidebarCollapsed', { default: fal
 
 const mainAreaStyle = computed(() => {
   if (settingsStore.config.chat_background) {
+    const opacity = settingsStore.config.chat_background_opacity ?? 0.8
     return {
-      '--chat-background': `url(${settingsStore.config.chat_background})`
+      '--chat-background': `url(${settingsStore.config.chat_background})`,
+      '--chat-background-opacity': String(opacity)
     } as Record<string, string>
   }
   return {}
@@ -355,9 +357,6 @@ async function updateMaximizedState() {
   }
 }
 
-function handleBeforeUnload() {
-}
-
 onMounted(async () => {
   chatStore.initStreamListener()
   settingsStore.initStatusListener()
@@ -389,7 +388,6 @@ onMounted(async () => {
   })
 
   window.addEventListener('resize', updateMaximizedState)
-  window.addEventListener('beforeunload', handleBeforeUnload)
 })
 
 onUnmounted(() => {
@@ -400,7 +398,6 @@ onUnmounted(() => {
   wails.offSwitchProgress()
   wails.offShutdownProgress()
   window.removeEventListener('resize', updateMaximizedState)
-  window.removeEventListener('beforeunload', handleBeforeUnload)
 })
 </script>
 

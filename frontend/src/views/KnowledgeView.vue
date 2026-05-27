@@ -139,12 +139,13 @@ import { ref, computed, onMounted } from 'vue'
 import {
   NButton, NIcon, NSelect, NUpload, NModal,
   NInput, NForm, NFormItem, NSwitch, NSlider, NInputNumber,
-  useMessage,
+  useMessage, useDialog,
 } from 'naive-ui'
 import { ArrowBackOutline, AddOutline, TrashOutline, CloseOutline, CloudUploadOutline, CheckmarkCircleOutline } from '@vicons/ionicons5'
 import { wails, type CollectionInfo, type DocumentMeta } from '../services/wails'
 
 const message = useMessage()
+const dialog = useDialog()
 
 const knowledgeBases = ref<CollectionInfo[]>([])
 const activeKB = ref('default')
@@ -226,14 +227,22 @@ async function handleCreateKB() {
 }
 
 async function handleDeleteKB() {
-  try {
-    await wails.deleteKnowledgeBase(activeKB.value)
-    message.success('知识库已删除')
-    activeKB.value = 'default'
-    await loadData()
-  } catch (e: any) {
-    message.error('删除失败: ' + (e.message || e))
-  }
+  dialog.warning({
+    title: '删除知识库',
+    content: `确定要删除知识库「${activeKB.value}」吗？此操作不可撤销，所有文档和向量数据将被永久删除。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        await wails.deleteKnowledgeBase(activeKB.value)
+        message.success('知识库已删除')
+        activeKB.value = 'default'
+        await loadData()
+      } catch (e: any) {
+        message.error('删除失败: ' + (e.message || e))
+      }
+    },
+  })
 }
 
 async function handleDeleteDoc(docID: string) {
@@ -250,6 +259,10 @@ async function handleFileUpload({ file }: any) {
   uploading.value = true
   try {
     const f = file.file as File
+    if (f.size > 20 * 1024 * 1024) {
+      message.error('文件大小不能超过 20MB')
+      return
+    }
     const arrayBuffer = await f.arrayBuffer()
     const bytes = new Uint8Array(arrayBuffer)
     let binary = ''
@@ -600,5 +613,26 @@ onMounted(loadData)
 
 .save-btn {
   font-weight: 600;
+}
+</style>
+
+<style>
+.has-background .knowledge-container {
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 12px;
+}
+
+.has-background .knowledge-header {
+  background: color-mix(in srgb, var(--bg-primary) 85%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.has-background .kb-card {
+  background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 </style>

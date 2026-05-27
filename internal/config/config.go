@@ -11,73 +11,77 @@ import (
 )
 
 type Config struct {
-	ModelPath        string  `json:"model_path"`
-	MmprojAuto       bool    `json:"mmproj_auto"`
-	MmprojOffload    bool    `json:"mmproj_offload"`
-	LlamaServerPath  string  `json:"llama_server_path"`
-	APIBase          string  `json:"api_base"`
-	Port             int     `json:"port"`
-	ContextSize      int     `json:"context_size"`
-	Temperature      float64 `json:"temperature"`
-	TopP             float64 `json:"top_p"`
-	TopK             int     `json:"top_k"`
-	RepeatPenalty    float64 `json:"repeat_penalty"`
-	KVUnified        bool    `json:"kv_unified"`
-	CacheIdleSlots   bool    `json:"cache_idle_slots"`
-	CacheRAM         int     `json:"cache_ram"`
-	ImageMinTokens   int     `json:"image_min_tokens"`
-	ImageMaxTokens   int     `json:"image_max_tokens"`
-	FitTarget        int     `json:"fit_target"`
-	FitCtx           int     `json:"fit_ctx"`
-	Reasoning        string  `json:"reasoning"`
-	ReasoningBudget  int     `json:"reasoning_budget"`
-	ReasoningFormat  string  `json:"reasoning_format"`
-	SystemPrompt     string  `json:"system_prompt"`
-	ChatBackground   string  `json:"chat_background"`
-	UserAvatar       string  `json:"user_avatar"`
-	AiAvatar         string  `json:"ai_avatar"`
-	SearchEnabled    bool    `json:"search_enabled"`
-	SleepIdleSeconds int     `json:"sleep_idle_seconds"`
-	ModelsMax        int     `json:"models_max"`
-	RAGEnabled       bool    `json:"rag_enabled"`
-	RAGActiveKB      string  `json:"rag_active_kb"`
-	RAGTopK          int     `json:"rag_top_k"`
-	RAGMinScore      float64 `json:"rag_min_score"`
-	RAGChunkSize     int     `json:"rag_chunk_size"`
-	RAGChunkOverlap  int     `json:"rag_chunk_overlap"`
+	ModelPath         string `json:"model_path"`
+	MmprojAuto        bool   `json:"mmproj_auto"`
+	MmprojOffload     bool   `json:"mmproj_offload"`
+	LlamaServerPath   string `json:"llama_server_path"`
+	APIBase           string `json:"api_base"`
+	Port              int    `json:"port"`
+	ContextSize       int    `json:"context_size"`
+	Temperature       float64 `json:"temperature"`
+	TopP              float64 `json:"top_p"`
+	TopK              int    `json:"top_k"`
+	RepeatPenalty     float64 `json:"repeat_penalty"`
+	KVUnified         bool   `json:"kv_unified"`
+	CacheIdleSlots    bool   `json:"cache_idle_slots"`
+	CacheRAM          int    `json:"cache_ram"`
+	ImageMinTokens    int    `json:"image_min_tokens"`
+	ImageMaxTokens    int    `json:"image_max_tokens"`
+	FitTarget         int    `json:"fit_target"`
+	FitCtx            int    `json:"fit_ctx"`
+	Reasoning         string `json:"reasoning"`
+	ReasoningBudget   int    `json:"reasoning_budget"`
+	ReasoningFormat   string `json:"reasoning_format"`
+	SystemPrompt      string `json:"system_prompt"`
+	SystemPromptMode  string `json:"system_prompt_mode"` // "append" (追加) or "replace" (替换), 默认 "append"
+	ChatBackground        string  `json:"chat_background"`
+	ChatBackgroundOpacity float64 `json:"chat_background_opacity"`
+	UserAvatar        string `json:"user_avatar"`
+	AiAvatar          string `json:"ai_avatar"`
+	SearchEnabled     bool   `json:"search_enabled"`
+	SleepIdleSeconds  int    `json:"sleep_idle_seconds"`
+	ModelsMax         int    `json:"models_max"`
+	RAGEnabled        bool   `json:"rag_enabled"`
+	RAGActiveKB       string `json:"rag_active_kb"`
+	RAGTopK           int    `json:"rag_top_k"`
+	RAGMinScore       float64 `json:"rag_min_score"`
+	RAGChunkSize      int    `json:"rag_chunk_size"`
+	RAGChunkOverlap   int    `json:"rag_chunk_overlap"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
-		ModelPath:        "",
-		MmprojAuto:       true,
-		MmprojOffload:    true,
+		ModelPath:         "",
+		MmprojAuto:        true,
+		MmprojOffload:     true,
 		LlamaServerPath:  "engines/llama-server.exe",
-		APIBase:          "http://127.0.0.1:8080",
-		Port:             8080,
-		ContextSize:      8192,
-		Temperature:      0.6,
-		TopP:             0.95,
-		TopK:             20,
-		RepeatPenalty:    1,
-		KVUnified:        false,
-		CacheIdleSlots:   false,
-		CacheRAM:         0,
-		ImageMinTokens:   0,
-		ImageMaxTokens:   0,
-		FitTarget:        0,
-		FitCtx:           0,
-		Reasoning:        "auto",
-		ReasoningBudget:  0,
-		ReasoningFormat:  "",
-		SystemPrompt:     "",
-		ChatBackground:   "",
-		UserAvatar:       "",
-		AiAvatar:         "",
-		SearchEnabled:    false,
+		APIBase:           "http://127.0.0.1:8080",
+		Port:              8080,
+		ContextSize:       8192,
+		Temperature:       0.6,
+		TopP:              0.95,
+		TopK:              20,
+		RepeatPenalty:     1,
+		KVUnified:         false,
+		CacheIdleSlots:    false,
+		CacheRAM:          0,
+		ImageMinTokens:    0,
+		ImageMaxTokens:    0,
+		FitTarget:         0,
+		FitCtx:            0,
+		Reasoning:         "auto",
+		ReasoningBudget:   0,
+		ReasoningFormat:     "",
+		SystemPrompt:      "",
+		SystemPromptMode:  "append", // 默认使用追加模式
+		ChatBackground:        "",
+		ChatBackgroundOpacity: 0.8,
+		UserAvatar:        "",
+		AiAvatar:          "",
+		SearchEnabled:     false,
 		SleepIdleSeconds: 120,
-		ModelsMax:        1,
-		RAGEnabled:       false,
+		ModelsMax:         1,
+		RAGEnabled:        false,
 		RAGActiveKB:      "default",
 		RAGTopK:          3,
 		RAGMinScore:      0.3,
@@ -158,6 +162,9 @@ func (c *Config) Validate() error {
 	}
 	if c.RepeatPenalty < 0 {
 		return fmt.Errorf("invalid repeat_penalty: %.2f (must be >= 0)", c.RepeatPenalty)
+	}
+	if c.ChatBackgroundOpacity < 0 || c.ChatBackgroundOpacity > 1 {
+		return fmt.Errorf("invalid chat_background_opacity: %.2f (must be 0-1)", c.ChatBackgroundOpacity)
 	}
 	return nil
 }
