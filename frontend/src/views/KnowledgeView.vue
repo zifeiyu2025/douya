@@ -360,6 +360,25 @@ onMounted(loadData)
   box-sizing: border-box;
 }
 
+.knowledge-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 28px 32px;
+  display: flex;
+  flex-direction: column;
+}
+
+.kb-section {
+  flex-shrink: 0;
+  padding-bottom: 20px;
+}
+
+.kb-section + .kb-section {
+  border-top: 1px solid var(--border-color);
+  padding-top: 20px;
+}
+
 .back-btn {
   flex-shrink: 0;
 }
@@ -608,18 +627,4 @@ onMounted(loadData)
 }
 </style>
 
-<style>
-.has-background .knowledge-container {
-  background: transparent;
-}
 
-.has-background .knowledge-header {
-  background: color-mix(in srgb, var(--bg-primary) 82%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-.has-background .kb-section {
-  background: transparent;
-}
-</style>

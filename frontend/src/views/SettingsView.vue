@@ -963,29 +963,4 @@ async function autoSave() {
 }
 </style>
 
-<style>
-.has-background .settings-container {
-  background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border-radius: 12px;
-}
 
-.has-background .settings-header {
-  background: color-mix(in srgb, var(--bg-primary) 85%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-
-.has-background .model-ref-card {
-  background: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.has-background .model-ref-header {
-  background: color-mix(in srgb, var(--bg-tertiary, var(--bg-primary)) 85%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-</style>
