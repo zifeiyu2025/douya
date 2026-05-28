@@ -4,6 +4,10 @@
   <strong>隐私优先 · 完全离线 · GPU 加速 · 多模态对话</strong>
 </p>
 
+<p align="center">
+  <img src="assets/GUI.png" alt="豆芽界面展示" width="90%">
+</p>
+
 豆芽是一款基于 [llama.cpp](https://github.com/ggml-org/llama.cpp) 的本地大语言模型桌面客户端。所有推理在本地完成，无需联网、无需 API Key、数据不出本机，真正守护你的隐私。
 
 ---
@@ -143,6 +147,8 @@ douya/
 │   ├── search/              # 搜索引擎测试
 │   ├── store/               # 存储层测试
 │   └── config/              # 配置模块测试
+├── assets/                  # 项目资源
+│   └── GUI.png              # 程序界面展示图
 ├── engines/                 # llama-server 可执行文件（gitignore）
 ├── models/                  # GGUF 模型文件（gitignore）
 └── runtime/                 # CUDA 运行时库（gitignore）
