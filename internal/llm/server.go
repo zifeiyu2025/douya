@@ -379,7 +379,9 @@ func (s *Server) stopInternal() error {
 
 	terminateCmd := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/T")
 	terminateCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-	_ = terminateCmd.Run()
+	if err := terminateCmd.Run(); err != nil {
+		log.Debug().Err(err).Int("pid", pid).Msg("terminate process (may already be dead)")
+	}
 
 	cmd := s.cmd
 	waitDone := make(chan struct{})
@@ -403,7 +405,9 @@ func (s *Server) stopInternal() error {
 	case <-timer.C:
 		killCmd := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/F", "/T")
 		killCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-		_ = killCmd.Run()
+		if err := killCmd.Run(); err != nil {
+			log.Debug().Err(err).Int("pid", pid).Msg("force kill process (may already be dead)")
+		}
 		<-waitDone
 		s.mu.Lock()
 		s.status = ServerStatus{Running: false}

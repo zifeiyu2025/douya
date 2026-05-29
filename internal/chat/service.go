@@ -85,14 +85,20 @@ func (s *Service) CurrentConvID() string {
 }
 
 func (s *Service) UpdateClient(client *llm.Client) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 	s.llmClient = client
 }
 
 func (s *Service) UpdateSearchChain(chain *search.SearchChain) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 	s.searchChain = chain
 }
 
 func (s *Service) SetRAG(vs *rag.VectorStore, ds *rag.DocumentStore, embedder rag.Embedder, collection string, enabled bool) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 	s.ragVectorStore = vs
 	s.ragDocStore = ds
 	s.ragEmbedder = embedder
@@ -101,10 +107,14 @@ func (s *Service) SetRAG(vs *rag.VectorStore, ds *rag.DocumentStore, embedder ra
 }
 
 func (s *Service) SetRAGCollection(collection string) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 	s.ragCollection = collection
 }
 
 func (s *Service) SetRAGEnabled(enabled bool) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 	s.ragEnabled = enabled
 }
 
@@ -235,6 +245,12 @@ func (s *Service) GetModelCapabilities() llm.ModelCapabilities {
 	s.modelCapsMu.RLock()
 	defer s.modelCapsMu.RUnlock()
 	return s.modelCaps
+}
+
+func (s *Service) SetModelCapabilities(caps llm.ModelCapabilities) {
+	s.modelCapsMu.Lock()
+	defer s.modelCapsMu.Unlock()
+	s.modelCaps = caps
 }
 
 func (s *Service) detectHasMTP() bool {
@@ -628,10 +644,10 @@ func TruncateSearchContext(searchContext string, ctxSize int) string { // Export
 func StoreMsgToChat(m *store.Message) *Message { return storeMsgToChat(m) } // Exported for testing
 func IsCodeRelated(query string) bool          { return isCodeRelated(query) } // Exported for testing
 func BuildLLMMessages(s *Service, dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment) ([]llm.ChatMessage, error) {
-	return s.buildLLMMessages(dbMsgs, currentUserContent, currentAttachments, false)
+	return s.buildLLMMessages(dbMsgs, currentUserContent, currentAttachments, false, "")
 }
 func BuildLLMMessagesWithSearch(s *Service, dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment, searchEnabled bool) ([]llm.ChatMessage, error) {
-	return s.buildLLMMessages(dbMsgs, currentUserContent, currentAttachments, searchEnabled)
+	return s.buildLLMMessages(dbMsgs, currentUserContent, currentAttachments, searchEnabled, "")
 }
 
 func InjectSearchContext(messages []llm.ChatMessage, searchContext string, instruction string) []llm.ChatMessage {
@@ -924,55 +940,43 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 		return fmt.Errorf("load messages: %w", err)
 	}
 
-	llmMessages, err := s.buildLLMMessages(dbMsgs, userContent, params.Attachments, params.SearchEnabled)
+	var searchContext string
+	var searchResp *search.SearchResponse
+	caps := s.GetModelCapabilities()
+	isWeak := llm.IsWeakModel(caps, s.detectedModelName)
+	if params.SearchEnabled && isWeak {
+		s.emitForConv(convID, "search_start", userContent)
+		searchResp = s.doSearch(cancelCtx, userContent)
+		if searchResp != nil && len(searchResp.Results) > 0 {
+			s.emitForConv(convID, "search_result", searchResp.Results)
+			searchContext = formatSearchResultsWithLang(searchResp.Results, detectLanguage(userContent))
+			searchContext = truncateSearchContext(searchContext, s.config.ContextSize)
+		} else {
+			s.emitForConv(convID, "search_result", []search.SearchResult{})
+			if searchResp != nil && searchResp.Error != "" && len(searchResp.Results) == 0 {
+				log.Info().Str("error", searchResp.Error).Msg("[search] 搜索未返回结果")
+			}
+		}
+	}
+
+	llmMessages, err := s.buildLLMMessages(dbMsgs, userContent, params.Attachments, params.SearchEnabled, searchContext)
 	if err != nil {
 		s.emitForConv(convID, "error", err.Error())
 		return err
 	}
 
-	return s.streamWithSearch(cancelCtx, convID, llmMessages, params.SearchEnabled, params.Content, params.Content)
+	return s.streamWithSearch(cancelCtx, convID, llmMessages, params.SearchEnabled, params.Content, params.Content, searchResp)
 }
 
-func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llmMessages []llm.ChatMessage, searchEnabled bool, searchQuery string, titleContent string) error {
+func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llmMessages []llm.ChatMessage, searchEnabled bool, searchQuery string, titleContent string, searchResp *search.SearchResponse) error {
 	acc := NewStreamAccumulator(convID, s.emit, s.emitForConv)
 
 	caps := s.GetModelCapabilities()
 	isWeak := llm.IsWeakModel(caps, s.detectedModelName)
 
-	var searchResp *search.SearchResponse
-
-	if searchEnabled && isWeak {
-		s.emitForConv(convID, "search_start", searchQuery)
-
-		if s.searchChain != nil {
-			category := "general"
-			if isCodeRelated(searchQuery) {
-				category = "code"
-			}
-			searchCtx, searchCancel := context.WithTimeout(cancelCtx, 10*time.Second)
-			searchResp = s.searchChain.SearchWithCategory(searchCtx, searchQuery, category)
-			searchCancel()
-		}
-
-		if searchResp != nil && len(searchResp.Results) > 0 {
-			s.emitForConv(convID, "search_result", searchResp.Results)
-
-			sj, _ := json.Marshal(searchResp.Results)
-			acc.LastSearchJSON = string(sj)
-
-			searchContext := formatSearchResultsWithLang(searchResp.Results, detectLanguage(searchQuery))
-			searchContext = truncateSearchContext(searchContext, s.config.ContextSize)
-
-			lang := detectLanguage(searchQuery)
-			instruction := searchResultInstruction(lang)
-
-			llmMessages = InjectSearchContext(llmMessages, searchContext, instruction)
-		} else {
-			s.emitForConv(convID, "search_result", []search.SearchResult{})
-		}
-		if searchResp != nil && searchResp.Error != "" && len(searchResp.Results) == 0 {
-			log.Info().Str("error", searchResp.Error).Msg("[search] 搜索未返回结果")
-		}
+	if searchResp != nil && len(searchResp.Results) > 0 {
+		sj, _ := json.Marshal(searchResp.Results)
+		acc.LastSearchJSON = string(sj)
 	}
 
 	req := &llm.ChatCompletionRequest{
@@ -1005,8 +1009,38 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 			s.emitForConv(convID, "error", "生成超时，请重试")
 			return fmt.Errorf("stream chat timeout")
 		}
-		s.emitForConv(convID, "error", err.Error())
-		return fmt.Errorf("stream chat: %w", err)
+
+		exceedInfo := ParseExceedContextError(err)
+		if exceedInfo != nil && exceedInfo.Exceeded {
+			actualCtx := exceedInfo.ContextSize
+			if actualCtx <= 0 {
+				actualCtx = s.config.ContextSize
+			}
+			reserve := actualCtx / 10
+			if reserve < 512 {
+				reserve = 512
+			}
+			trimmed := TrimMessagesToFit(req.Messages, actualCtx, reserve)
+			req.Messages = trimmed
+
+			log.Info().Int("prompt_tokens", exceedInfo.PromptTokens).Int("context_size", actualCtx).Int("messages_after_trim", len(trimmed)).Msg("[chat] context exceeded, trimming and retrying")
+
+			retryCtx, retryCancel := context.WithTimeout(cancelCtx, 300*time.Second)
+			defer retryCancel()
+
+			retryErr := s.llmClient.StreamChat(retryCtx, req, acc.callback())
+			if retryErr != nil {
+				if cancelCtx.Err() == context.Canceled {
+					s.emitForConv(convID, "stopped", nil)
+					return nil
+				}
+				s.emitForConv(convID, "error", retryErr.Error())
+				return fmt.Errorf("stream chat (retry after context trim): %w", retryErr)
+			}
+		} else {
+			s.emitForConv(convID, "error", err.Error())
+			return fmt.Errorf("stream chat: %w", err)
+		}
 	}
 
 	if acc.FinishReason == "tool_calls" && len(acc.toolCalls()) > 0 {
@@ -1113,7 +1147,7 @@ func buildMessageFromAttachments(role, content string, attachments []Attachment)
 
 
 
-func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment, searchEnabled bool) ([]llm.ChatMessage, error) {
+func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment, searchEnabled bool, searchContext string) ([]llm.ChatMessage, error) {
 	maxContext := s.config.ContextSize
 	if maxContext <= 0 {
 		maxContext = 4096
@@ -1211,7 +1245,88 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 		systemContent += "\n\n用户已开启联网搜索，你可调用 search 工具获取实时信息。"
 	}
 
+	if searchContext != "" {
+		lang := detectLanguage(currentUserContent)
+		instruction := searchResultInstruction(lang)
+		systemContent += "\n\n" + instruction + "\n\n" + searchContext
+	}
+
+	if s.ragEnabled && s.ragVectorStore != nil && s.ragEmbedder != nil && s.ragCollection != "" && currentUserContent != "" {
+		ctxRag, cancelRag := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelRag()
+		vecs, err := s.ragEmbedder.Embed(ctxRag, []string{currentUserContent})
+		if err == nil && len(vecs) > 0 && len(vecs[0]) > 0 {
+			topK := s.config.RAGTopK
+			if topK <= 0 {
+				topK = 3
+			}
+			minScore := s.config.RAGMinScore
+			if minScore <= 0 {
+				minScore = 0.3
+			}
+			results, err2 := s.ragVectorStore.SearchWithThreshold(s.ragCollection, vecs[0], topK, minScore)
+			if err2 == nil && len(results) > 0 {
+				var refParts []string
+				for i, r := range results {
+					source := r.Metadata["source"]
+					if source != "" {
+						refParts = append(refParts, fmt.Sprintf("[%d] (来源: %s)\n%s", i+1, source, r.ChunkContent))
+					} else {
+						refParts = append(refParts, fmt.Sprintf("[%d]\n%s", i+1, r.ChunkContent))
+					}
+				}
+				if len(refParts) > 0 {
+					systemContent += "\n\n## 参考资料\n" + strings.Join(refParts, "\n---\n")
+					systemContent += "\n\n请消化吸收以上资料，像运用自身知识一样自然融入回答并标注引用编号。若资料与问题无关则忽略。"
+				}
+			}
+		}
+	}
+
 	estimatedTokens := len([]rune(systemContent)) * 3
+
+	reserve := maxContext / 10
+	if reserve < 512 {
+		reserve = 512
+	}
+	effectiveMax := maxContext - reserve
+
+	currentMsgTokens := 0
+	if len(dbMsgs) > 0 {
+		lastMsg := dbMsgs[len(dbMsgs)-1]
+		currentMsgTokens = estimateMessageTokens(lastMsg)
+		if currentMsgTokens == 0 {
+			currentMsgTokens = 1
+		}
+		if len(currentAttachments) > 0 {
+			for _, att := range currentAttachments {
+				currentMsgTokens += EstimateAttachmentTokens(att.Type)
+			}
+		}
+	}
+
+	if estimatedTokens+currentMsgTokens > effectiveMax {
+		var messages []llm.ChatMessage
+		messages = append(messages, llm.ChatMessage{
+			Role:    "system",
+			Content: systemContent,
+		})
+		if len(dbMsgs) > 0 {
+			lastMsg := dbMsgs[len(dbMsgs)-1]
+			content := currentUserContent
+			if content == "" && (lastMsg.Images != "" || lastMsg.Attachments != "") {
+				content = "请描述这张图片"
+			}
+			var msg llm.ChatMessage
+			if len(currentAttachments) > 0 {
+				msg = buildMessageFromAttachments(lastMsg.Role, content, currentAttachments)
+			} else {
+				msg = llm.NewTextMessage(lastMsg.Role, content)
+			}
+			messages = append(messages, msg)
+		}
+		return messages, nil
+	}
 
 	var history []llm.ChatMessage
 
@@ -1222,7 +1337,12 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 		if estimated == 0 {
 			estimated = 1
 		}
-		if estimatedTokens+estimated > maxContext {
+		if m.ID == dbMsgs[len(dbMsgs)-1].ID && len(currentAttachments) > 0 {
+			for _, att := range currentAttachments {
+				estimated += EstimateAttachmentTokens(att.Type)
+			}
+		}
+		if estimatedTokens+estimated > effectiveMax {
 			break
 		}
 		estimatedTokens += estimated
@@ -1361,46 +1481,12 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 	}
 	history = cleaned
 
-	// RAG: inject relevant document chunks into system prompt before building messages
-	if s.ragEnabled && s.ragVectorStore != nil && s.ragEmbedder != nil && s.ragCollection != "" && currentUserContent != "" {
-		ctxRag, cancelRag := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancelRag()
-		vecs, err := s.ragEmbedder.Embed(ctxRag, []string{currentUserContent})
-		if err == nil && len(vecs) > 0 && len(vecs[0]) > 0 {
-			topK := s.config.RAGTopK
-			if topK <= 0 {
-				topK = 3
-			}
-			minScore := s.config.RAGMinScore
-			if minScore <= 0 {
-				minScore = 0.3
-			}
-			results, err2 := s.ragVectorStore.SearchWithThreshold(s.ragCollection, vecs[0], topK, minScore)
-			if err2 == nil && len(results) > 0 {
-				var refParts []string
-				for i, r := range results {
-					source := r.Metadata["source"]
-					if source != "" {
-						refParts = append(refParts, fmt.Sprintf("[%d] (来源: %s)\n%s", i+1, source, r.ChunkContent))
-					} else {
-						refParts = append(refParts, fmt.Sprintf("[%d]\n%s", i+1, r.ChunkContent))
-					}
-				}
-				if len(refParts) > 0 {
-					systemContent += "\n\n## 参考资料\n" + strings.Join(refParts, "\n---\n")
-					systemContent += "\n\n请消化吸收以上资料，像运用自身知识一样自然融入回答并标注引用编号。若资料与问题无关则忽略。"
-				}
-			}
-		}
-	}
-
 	var messages []llm.ChatMessage
 	messages = append(messages, llm.ChatMessage{
 		Role:    "system",
 		Content: systemContent,
 	})
 	messages = append(messages, history...)
-
 
 	return messages, nil
 }

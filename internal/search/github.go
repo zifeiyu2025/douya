@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -74,7 +73,7 @@ func (p *GitHubProvider) searchRepositories(ctx context.Context, query string) (
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := readBody(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("github read response: %w", err)
 	}
@@ -137,7 +136,7 @@ func (p *GitHubProvider) searchCode(ctx context.Context, query string) (*SearchR
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := readBody(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("github code search read response: %w", err)
 	}

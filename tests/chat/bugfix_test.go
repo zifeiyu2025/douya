@@ -973,3 +973,357 @@ func TestEstimateMessageTokens_AttachmentsAudioFixedEstimate(t *testing.T) {
 		t.Errorf("audio attachment should add at least 500 tokens, got %d", tokens)
 	}
 }
+
+func TestEstimateMessageTokens_VideoAttachmentHigherThanImage(t *testing.T) {
+	msg := &store.Message{
+		Role:    "user",
+		Content: "hello",
+		Attachments: `[{"type":"video","name":"test.mp4","mime_type":"video/mp4","data":"base64video"}]`,
+	}
+	tokens := chat.EstimateMessageTokens(msg)
+
+	if tokens < 3000 {
+		t.Errorf("video attachment should estimate at least 3000 tokens, got %d", tokens)
+	}
+}
+
+func TestEstimateMessageTokens_ImageAttachmentAccurateEstimate(t *testing.T) {
+	msg := &store.Message{
+		Role:    "user",
+		Content: "hello",
+		Attachments: `[{"type":"image","name":"test.png","mime_type":"image/png","data":"base64data"}]`,
+	}
+	tokens := chat.EstimateMessageTokens(msg)
+
+	if tokens < 2500 {
+		t.Errorf("image attachment should estimate at least 2500 tokens (llama.cpp uses ~2000-6000 per image), got %d", tokens)
+	}
+}
+
+func TestEstimateMessageTokens_MultipleImageAttachments(t *testing.T) {
+	msg := &store.Message{
+		Role:    "user",
+		Content: "compare these",
+		Attachments: `[{"type":"image","name":"a.png","mime_type":"image/png","data":"d1"},{"type":"image","name":"b.png","mime_type":"image/png","data":"d2"}]`,
+	}
+	tokens := chat.EstimateMessageTokens(msg)
+
+	if tokens < 7000 {
+		t.Errorf("2 image attachments should estimate at least 7000 tokens (2*3500), got %d", tokens)
+	}
+}
+
+func TestEstimateAttachmentTokens_ImageType(t *testing.T) {
+	tokens := chat.EstimateAttachmentTokens("image")
+	if tokens < 3500 {
+		t.Errorf("image attachment type should estimate at least 3500, got %d", tokens)
+	}
+}
+
+func TestEstimateAttachmentTokens_VideoType(t *testing.T) {
+	tokens := chat.EstimateAttachmentTokens("video")
+	if tokens < 5000 {
+		t.Errorf("video attachment type should estimate at least 5000, got %d", tokens)
+	}
+}
+
+func TestEstimateAttachmentTokens_AudioType(t *testing.T) {
+	tokens := chat.EstimateAttachmentTokens("audio")
+	if tokens < 500 {
+		t.Errorf("audio attachment type should estimate at least 500, got %d", tokens)
+	}
+}
+
+func TestEstimateAttachmentTokens_TextType(t *testing.T) {
+	tokens := chat.EstimateAttachmentTokens("text")
+	if tokens != 0 {
+		t.Errorf("text attachment type should estimate 0 (content is inlined), got %d", tokens)
+	}
+}
+
+func TestBuildLLMMessages_CurrentAttachmentsTokenEstimate(t *testing.T) {
+	svc := newTestService()
+	svc.GetConfig().ContextSize = 4096
+
+	longContent := strings.Repeat("这是一段很长的中文内容用于填充token。", 100)
+	dbMsgs := []*store.Message{
+		{ID: "1", Role: "user", Content: longContent},
+		{ID: "2", Role: "assistant", Content: "好的"},
+		{ID: "3", Role: "user", Content: "hello"},
+	}
+
+	msgsNoAtt, _ := chat.BuildLLMMessages(svc, dbMsgs, "hello", nil)
+
+	svc2 := newTestService()
+	svc2.GetConfig().ContextSize = 4096
+	imageAttachments := []chat.Attachment{
+		{Type: "image", Name: "test.png", MimeType: "image/png", Data: "base64data"},
+	}
+	msgsWithAtt, err := chat.BuildLLMMessages(svc2, dbMsgs, "hello", imageAttachments)
+
+	if err != nil {
+		t.Logf("BuildLLMMessages with image attachment returned error (model may not support vision): %v", err)
+	}
+
+	if err == nil && len(msgsWithAtt) > len(msgsNoAtt) {
+		t.Errorf("with image attachment consuming ~3500 tokens, history should be trimmed more; got %d msgs with att vs %d without", len(msgsWithAtt), len(msgsNoAtt))
+	}
+}
+
+func TestBuildLLMMessages_SmallContextWithImage_NoOverflow(t *testing.T) {
+	svc := newTestService()
+	svc.GetConfig().ContextSize = 8192
+	svc.SetModelCapabilities(llm.ModelCapabilities{TextInput: true, ImageInput: true})
+
+	longContent := strings.Repeat("这是一段很长的中文内容用于填充token。", 50)
+	dbMsgs := []*store.Message{
+		{ID: "1", Role: "user", Content: longContent},
+		{ID: "2", Role: "assistant", Content: longContent},
+		{ID: "3", Role: "user", Content: longContent},
+		{ID: "4", Role: "assistant", Content: longContent},
+		{ID: "5", Role: "user", Content: "请描述这张图片"},
+	}
+
+	imageAttachments := []chat.Attachment{
+		{Type: "image", Name: "test.png", MimeType: "image/png", Data: "base64data"},
+	}
+
+	msgs, err := chat.BuildLLMMessages(svc, dbMsgs, "请描述这张图片", imageAttachments)
+	if err != nil {
+		t.Fatalf("BuildLLMMessages should not error with vision model: %v", err)
+	}
+
+	if len(msgs) < 2 {
+		t.Errorf("should have at least system + current message, got %d", len(msgs))
+	}
+
+	if len(msgs) >= len(dbMsgs)+1 {
+		t.Errorf("with 8192 context and large history, some messages should be trimmed; got %d messages for %d db messages", len(msgs), len(dbMsgs))
+	}
+}
+
+func TestBuildLLMMessages_CurrentMessageNearLimit_NoHistory(t *testing.T) {
+	svc := newTestService()
+	svc.GetConfig().ContextSize = 4096
+	svc.SetModelCapabilities(llm.ModelCapabilities{TextInput: true, ImageInput: true})
+
+	longContent := strings.Repeat("这是一段很长的中文内容用于填充token。", 200)
+	dbMsgs := []*store.Message{
+		{ID: "1", Role: "user", Content: longContent},
+		{ID: "2", Role: "assistant", Content: longContent},
+		{ID: "3", Role: "user", Content: "描述图片"},
+	}
+
+	imageAttachments := []chat.Attachment{
+		{Type: "image", Name: "test.png", MimeType: "image/png", Data: "base64data"},
+	}
+
+	msgs, err := chat.BuildLLMMessages(svc, dbMsgs, "描述图片", imageAttachments)
+	if err != nil {
+		t.Fatalf("BuildLLMMessages should not error with vision model: %v", err)
+	}
+
+	if len(msgs) > 2 {
+		t.Errorf("when current message + system prompt near limit, should not load history; got %d messages (expected <= 2: system + current)", len(msgs))
+	}
+}
+
+func TestParseExceedContextError_VariousFormats(t *testing.T) {
+	tests := []struct {
+		name         string
+		errMsg       string
+		wantExceeded bool
+		wantPrompt   int
+		wantCtx      int
+	}{
+		{
+			name:         "llama_cpp_format",
+			errMsg:       `unexpected status code 400: {"error":{"code":400,"message":"request (8345 tokens) exceeds available context size (8192 tokens)","type":"exceed_context_size_error","n_prompt_tokens":8345,"n_ctx":8192}}`,
+			wantExceeded: true,
+			wantPrompt:   8345,
+			wantCtx:      8192,
+		},
+		{
+			name:         "n_prompt_tokens_format",
+			errMsg:       `exceed_context_size_error: n_prompt_tokens=10000, n_ctx=8192`,
+			wantExceeded: true,
+			wantPrompt:   10000,
+			wantCtx:      8192,
+		},
+		{
+			name:         "available_context_format",
+			errMsg:       `request (5000 tokens) exceeds available context size (4096 tokens)`,
+			wantExceeded: true,
+			wantPrompt:   5000,
+			wantCtx:      4096,
+		},
+		{
+			name:         "context_size_exceeded",
+			errMsg:       `context size exceeded: prompt has 12000 tokens but n_ctx is 8192`,
+			wantExceeded: true,
+			wantPrompt:   0,
+			wantCtx:      0,
+		},
+		{
+			name:         "non_context_error",
+			errMsg:       `connection refused`,
+			wantExceeded: false,
+			wantPrompt:   0,
+			wantCtx:      0,
+		},
+		{
+			name:         "nil_error",
+			errMsg:       "",
+			wantExceeded: false,
+			wantPrompt:   0,
+			wantCtx:      0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var err error
+			if tt.errMsg != "" {
+				err = fmt.Errorf("%s", tt.errMsg)
+			}
+			info := chat.ParseExceedContextError(err)
+			if tt.wantExceeded {
+				if info == nil || !info.Exceeded {
+					t.Fatal("expected exceeded=true")
+				}
+				if info.PromptTokens != tt.wantPrompt {
+					t.Errorf("PromptTokens = %d, want %d", info.PromptTokens, tt.wantPrompt)
+				}
+				if info.ContextSize != tt.wantCtx {
+					t.Errorf("ContextSize = %d, want %d", info.ContextSize, tt.wantCtx)
+				}
+			} else {
+				if info != nil {
+					t.Errorf("expected nil, got %+v", info)
+				}
+			}
+		})
+	}
+}
+
+func TestTrimMessagesToFit_BasicTrimming(t *testing.T) {
+	messages := []llm.ChatMessage{
+		{Role: "system", Content: "You are a helpful assistant."},
+		{Role: "user", Content: strings.Repeat("hello world ", 100)},
+		{Role: "assistant", Content: strings.Repeat("response text ", 100)},
+		{Role: "user", Content: strings.Repeat("another question ", 100)},
+		{Role: "assistant", Content: strings.Repeat("another answer ", 100)},
+		{Role: "user", Content: "final question"},
+	}
+
+	trimmed := chat.TrimMessagesToFit(messages, 200, 50)
+
+	if len(trimmed) >= len(messages) {
+		t.Errorf("expected trimming, got %d messages (same as original %d)", len(trimmed), len(messages))
+	}
+
+	if len(trimmed) < 2 {
+		t.Fatalf("expected at least system + last message, got %d", len(trimmed))
+	}
+
+	if trimmed[0].Role != "system" {
+		t.Error("first message should be system")
+	}
+
+	if trimmed[len(trimmed)-1].Content.(string) != "final question" {
+		t.Error("last message should be preserved")
+	}
+}
+
+func TestTrimMessagesToFit_PreservesSystemAndLast(t *testing.T) {
+	messages := []llm.ChatMessage{
+		{Role: "system", Content: "system prompt"},
+		{Role: "user", Content: "question 1"},
+		{Role: "assistant", Content: "answer 1"},
+		{Role: "user", Content: "question 2"},
+	}
+
+	trimmed := chat.TrimMessagesToFit(messages, 50, 10)
+
+	if len(trimmed) < 2 {
+		t.Fatalf("expected at least 2 messages, got %d", len(trimmed))
+	}
+
+	if trimmed[0].Role != "system" {
+		t.Error("first message should be system")
+	}
+	if trimmed[len(trimmed)-1].Content.(string) != "question 2" {
+		t.Error("last message should be the final user message")
+	}
+}
+
+func TestTrimMessagesToFit_NoTrimNeeded(t *testing.T) {
+	messages := []llm.ChatMessage{
+		{Role: "system", Content: "system"},
+		{Role: "user", Content: "hi"},
+		{Role: "assistant", Content: "hello"},
+		{Role: "user", Content: "bye"},
+	}
+
+	trimmed := chat.TrimMessagesToFit(messages, 10000, 100)
+
+	if len(trimmed) != len(messages) {
+		t.Errorf("no trimming needed, expected %d messages, got %d", len(messages), len(trimmed))
+	}
+}
+
+func TestTrimMessagesToFit_TwoMessagesNoTrim(t *testing.T) {
+	messages := []llm.ChatMessage{
+		{Role: "system", Content: "system"},
+		{Role: "user", Content: "hi"},
+	}
+
+	trimmed := chat.TrimMessagesToFit(messages, 10, 5)
+
+	if len(trimmed) != 2 {
+		t.Errorf("2 messages should not be trimmed, got %d", len(trimmed))
+	}
+}
+
+func TestBuildLLMMessages_WithSearchContext(t *testing.T) {
+	svc := newTestService()
+	svc.GetConfig().ContextSize = 8192
+	svc.SetModelCapabilities(llm.ModelCapabilities{TextInput: true, ImageInput: true})
+
+	dbMsgs := []*store.Message{
+		{ID: "1", Role: "user", Content: "你好"},
+		{ID: "2", Role: "assistant", Content: "你好！"},
+		{ID: "3", Role: "user", Content: "搜索一下最新新闻"},
+	}
+
+	msgs, err := chat.BuildLLMMessagesWithSearch(svc, dbMsgs, "搜索一下最新新闻", nil, true)
+	if err != nil {
+		t.Fatalf("BuildLLMMessagesWithSearch failed: %v", err)
+	}
+
+	if len(msgs) < 2 {
+		t.Fatalf("expected at least system + user message, got %d", len(msgs))
+	}
+
+	if msgs[0].Role != "system" {
+		t.Error("first message should be system")
+	}
+}
+
+func TestEstimateChatMessageTokens_VisionMessage(t *testing.T) {
+	msg := llm.NewVisionMessage("user", "describe this", []string{"data:image/png;base64,abc"})
+	tokens := chat.EstimateTokensByLang(msg.ContentString(), chat.DetectLanguage(msg.ContentString()))
+
+	if tokens <= 0 {
+		t.Error("vision message text should have positive token estimate")
+	}
+}
+
+func TestEstimateChatMessageTokens_TextMessage(t *testing.T) {
+	msg := llm.NewTextMessage("user", "这是一段中文测试内容")
+	tokens := chat.EstimateTokensByLang(msg.ContentString(), chat.DetectLanguage(msg.ContentString()))
+
+	if tokens <= 0 {
+		t.Error("text message should have positive token estimate")
+	}
+}

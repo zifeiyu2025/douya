@@ -216,7 +216,9 @@ func (s *Service) RegenerateMessage(msgID string, searchEnabled bool) error {
 	if targetMsg.Role == "user" {
 		userContent = targetMsg.Content
 		if targetMsg.Attachments != "" {
-			_ = json.Unmarshal([]byte(targetMsg.Attachments), &userAttachments)
+			if err := json.Unmarshal([]byte(targetMsg.Attachments), &userAttachments); err != nil {
+				log.Warn().Err(err).Msg("parse attachments for regeneration")
+			}
 		}
 	}
 
@@ -225,12 +227,12 @@ func (s *Service) RegenerateMessage(msgID string, searchEnabled bool) error {
 		return fmt.Errorf("reload messages: %w", err)
 	}
 
-	llmMessages, err := s.buildLLMMessages(dbMsgs, userContent, userAttachments, searchEnabled)
+	llmMessages, err := s.buildLLMMessages(dbMsgs, userContent, userAttachments, searchEnabled, "")
 	if err != nil {
 		return err
 	}
 
-	return s.streamWithSearch(cancelCtx, convID, llmMessages, searchEnabled, userContent, userContent)
+	return s.streamWithSearch(cancelCtx, convID, llmMessages, searchEnabled, userContent, userContent, nil)
 }
 
 // SearchMessages searches messages across all conversations.

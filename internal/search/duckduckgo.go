@@ -3,7 +3,6 @@ package search
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -51,7 +50,7 @@ func (p *DuckDuckGoProvider) Search(ctx context.Context, query string) (*SearchR
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readBody(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("duckduckgo read response: %w", err)
 	}

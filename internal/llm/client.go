@@ -18,6 +18,12 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const maxResponseBody = 50 * 1024 * 1024
+
+func readBody(r io.Reader) ([]byte, error) {
+	return io.ReadAll(io.LimitReader(r, maxResponseBody))
+}
+
 type Client struct {
 	baseURL        string
 	httpClient     *http.Client
@@ -57,7 +63,7 @@ func (c *Client) StreamChat(ctx context.Context, req *ChatCompletionRequest, onT
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := readBody(resp.Body)
 		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(respBody))
 	}
 
@@ -148,7 +154,7 @@ func (c *Client) Chat(ctx context.Context, req *ChatCompletionRequest) (*ChatCom
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := readBody(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
@@ -185,7 +191,7 @@ func (c *Client) Embedding(ctx context.Context, req *EmbeddingRequest) (*Embeddi
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := readBody(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
@@ -287,7 +293,7 @@ func (c *Client) GetModelInfoByName(ctx context.Context, modelName string) (*Mod
 		if err == nil {
 			defer resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
-				body, err := io.ReadAll(resp.Body)
+				body, err := readBody(resp.Body)
 				if err == nil {
 					var target struct {
 						ID           string    `json:"id"`
@@ -334,11 +340,11 @@ func (c *Client) GetModelInfoByName(ctx context.Context, modelName string) (*Mod
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readBody(resp.Body)
 		return nil, fmt.Errorf("models endpoint returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readBody(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -471,7 +477,7 @@ func (c *Client) GetServerProps(ctx context.Context, modelName string) (*ServerP
 		return nil, fmt.Errorf("props endpoint returned status %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readBody(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -509,7 +515,7 @@ func (c *Client) LoadModel(ctx context.Context, modelName string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := readBody(resp.Body)
 		return fmt.Errorf("load model returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
@@ -535,7 +541,7 @@ func (c *Client) UnloadModel(ctx context.Context, modelName string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := readBody(resp.Body)
 		return fmt.Errorf("unload model returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
@@ -555,11 +561,11 @@ func (c *Client) GetModelsList(ctx context.Context) ([]ListedModel, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readBody(resp.Body)
 		return nil, fmt.Errorf("models endpoint returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readBody(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -603,7 +609,7 @@ func (c *Client) ReloadModels(ctx context.Context) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readBody(resp.Body)
 		return fmt.Errorf("reload models returned status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -628,11 +634,11 @@ func (c *Client) GetModelStatus(ctx context.Context, modelName string) (*ModelSt
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := readBody(resp.Body)
 		return nil, fmt.Errorf("models endpoint returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readBody(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -684,7 +690,7 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 			continue
 		}
 
-		body, readErr := io.ReadAll(resp.Body)
+		body, readErr := readBody(resp.Body)
 		resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK || readErr != nil {

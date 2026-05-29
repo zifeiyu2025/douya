@@ -2,6 +2,7 @@ import MarkdownIt from 'markdown-it'
 import mk from '@traptitech/markdown-it-katex'
 import hljs from 'highlight.js'
 import mermaid from 'mermaid'
+import DOMPurify from 'dompurify'
 
 const md = new MarkdownIt({
     html: false,
@@ -45,7 +46,7 @@ md.use(mk, {
 mermaid.initialize({
     startOnLoad: false,
     theme: 'default',
-    securityLevel: 'loose',
+    securityLevel: 'strict',
 })
 
 let mermaidCounter = 0
@@ -57,7 +58,7 @@ export async function renderMermaidInElement(el: HTMLElement) {
         const id = `mermaid-${++mermaidCounter}`
         try {
             const { svg } = await mermaid.render(id, (mermaidEl as HTMLElement).textContent || '')
-            mermaidEl.innerHTML = svg
+            mermaidEl.innerHTML = sanitizeHtml(svg)
         } catch (_) { /* empty */ }
     }
 }
@@ -133,10 +134,10 @@ function stripIncompleteMath(text: string): string {
 
 export function renderMarkdownStreaming(content: string): string {
     const safeContent = stripIncompleteMath(content)
-    return renderMarkdown(safeContent)
+    return sanitizeHtml(renderMarkdownRaw(safeContent))
 }
 
-export function renderMarkdown(content: string): string {
+function renderMarkdownRaw(content: string): string {
     try {
         return md.render(content)
     } catch (_) {
@@ -144,9 +145,20 @@ export function renderMarkdown(content: string): string {
     }
 }
 
+export function renderMarkdown(content: string): string {
+    return sanitizeHtml(renderMarkdownRaw(content))
+}
+
+export function sanitizeHtml(html: string): string {
+    return DOMPurify.sanitize(html, {
+        ADD_TAGS: ['math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mroot', 'munder', 'mover', 'munderover', 'mtable', 'mtr', 'mtd', 'mtext', 'mspace', 'mpadded', 'mphantom', 'mfenced', 'menclose', 'mstyle', 'merror', 'annotation', 'mglyph', 'mlabeledtr', 'mlongdiv', 'mscarries', 'mscarry', 'msgroup', 'msline', 'msrow', 'mstack', 'maction'],
+        ADD_ATTR: ['mathvariant', 'mathsize', 'mathcolor', 'mathbackground', 'displaystyle', 'scriptlevel', 'linethickness', 'lspace', 'rspace', 'stretchy', 'symmetric', 'largeop', 'movablelimits', 'accent', 'accentunder', 'bevelled', 'close', 'open', 'separators', 'notation', 'subscriptshift', 'superscriptshift', 'align', 'columnalign', 'rowalign', 'equalcolumns', 'equalrows', 'columnspacing', 'rowspacing', 'columnlines', 'rowlines', 'frame', 'framespacing', 'groupalign', 'scope', 'encoding', 'data-code', 'class'],
+    })
+}
+
 export function renderMarkdownInline(content: string): string {
     try {
-        return md.renderInline(content)
+        return sanitizeHtml(md.renderInline(content))
     } catch (_) {
         return md.utils.escapeHtml(content)
     }

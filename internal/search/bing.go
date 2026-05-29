@@ -3,7 +3,6 @@ package search
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -52,7 +51,7 @@ func (p *BingProvider) Search(ctx context.Context, query string) (*SearchRespons
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readBody(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("bing read response: %w", err)
 	}

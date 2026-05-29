@@ -6,6 +6,7 @@ package search
 import (
 	"context"
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 )
@@ -34,6 +35,10 @@ type SearchOpts struct {
 	MaxResults       int
 	IncludeAnswer    bool
 	IncludeRawContent bool
+}
+
+func readBody(r io.Reader) ([]byte, error) {
+	return io.ReadAll(io.LimitReader(r, 10*1024*1024))
 }
 
 var (

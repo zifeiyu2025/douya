@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 )
@@ -54,7 +53,7 @@ func (p *OllamaProvider) Search(ctx context.Context, query string) (*SearchRespo
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := readBody(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("ollama read response: %w", err)
 	}

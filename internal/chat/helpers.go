@@ -2,9 +2,13 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/rs/zerolog/log"
+	"douya/internal/llm"
 	"douya/internal/search"
 	"douya/internal/store"
 )
@@ -93,26 +97,60 @@ func estimateTokensByLang(text string, lang string) int {
 	return (len(text) + 3) / 4
 }
 
-// EstimateTokensByLang is the exported version for testing.
 func EstimateTokensByLang(text string, lang string) int { return estimateTokensByLang(text, lang) }
 
-// estimateMessageTokens estimates the token count for a stored message.
+func EstimateAttachmentTokens(attType string) int {
+	switch strings.ToLower(attType) {
+	case "image":
+		return 3500
+	case "video":
+		return 5000
+	case "audio":
+		return 500
+	default:
+		return 0
+	}
+}
+
+func estimateAttachmentTokensFromJSON(attachmentsJSON string) int {
+	if attachmentsJSON == "" {
+		return 0
+	}
+	var atts []struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal([]byte(attachmentsJSON), &atts); err != nil {
+		if strings.Contains(strings.ToLower(attachmentsJSON), "video") {
+			return 5000
+		}
+		if strings.Contains(strings.ToLower(attachmentsJSON), "audio") {
+			return 500
+		}
+		if strings.Contains(strings.ToLower(attachmentsJSON), "image") {
+			return 3500
+		}
+		return 1500
+	}
+	total := 0
+	for _, att := range atts {
+		total += EstimateAttachmentTokens(att.Type)
+	}
+	return total
+}
+
 func estimateMessageTokens(m *store.Message) int {
 	if m == nil {
 		return 0
 	}
 	total := 0
-	// Content
 	if m.Content != "" {
 		lang := detectLanguage(m.Content)
 		total += estimateTokensByLang(m.Content, lang)
 	}
-	// ToolCalls
 	if m.ToolCalls != "" {
 		lang := detectLanguage(m.ToolCalls)
 		total += estimateTokensByLang(m.ToolCalls, lang)
 	}
-	// Images: estimate 1500 per image
 	if m.Images != "" {
 		imgCount := 1
 		if len(m.Images) >= 2 && m.Images[0] == '[' && m.Images[len(m.Images)-1] == ']' {
@@ -120,33 +158,179 @@ func estimateMessageTokens(m *store.Message) int {
 		} else if strings.Contains(m.Images, ",") {
 			imgCount = strings.Count(m.Images, ",") + 1
 		}
-		total += imgCount * 1500
+		total += imgCount * 3500
 	}
-	// SearchResults
 	if m.SearchResults != "" {
 		lang := detectLanguage(m.SearchResults)
 		total += estimateTokensByLang(m.SearchResults, lang)
 	}
-	// ThinkingContent
 	if m.ThinkingContent != "" {
 		lang := detectLanguage(m.ThinkingContent)
 		total += estimateTokensByLang(m.ThinkingContent, lang)
 	}
-	// Attachments: audio=500, image=1500
 	if m.Attachments != "" {
-		if strings.Contains(strings.ToLower(m.Attachments), "audio") {
-			total += 500
-		} else {
-			total += 1500
-		}
-		if strings.Contains(strings.ToLower(m.Attachments), "video") {
-			total += 1500
-		}
+		total += estimateAttachmentTokensFromJSON(m.Attachments)
 	}
 	if total == 0 {
 		total = 1
 	}
 	return total
+}
+
+type ExceedContextInfo struct {
+	PromptTokens int
+	ContextSize  int
+	Exceeded     bool
+}
+
+func ParseExceedContextError(err error) *ExceedContextInfo {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "exceed_context_size_error") && !strings.Contains(msg, "exceeds available context size") && !strings.Contains(msg, "context size exceeded") {
+		return nil
+	}
+	info := &ExceedContextInfo{Exceeded: true}
+	re := regexp.MustCompile(`n_prompt_tokens["\s:=]+(\d+)`)
+	if m := re.FindStringSubmatch(msg); len(m) > 1 {
+		if v, e := strconv.Atoi(m[1]); e == nil {
+			info.PromptTokens = v
+		}
+	}
+	re2 := regexp.MustCompile(`n_ctx["\s:=]+(\d+)`)
+	if m := re2.FindStringSubmatch(msg); len(m) > 1 {
+		if v, e := strconv.Atoi(m[1]); e == nil {
+			info.ContextSize = v
+		}
+	}
+	if info.PromptTokens == 0 {
+		re3 := regexp.MustCompile(`request \((\d+) tokens\)`)
+		if m := re3.FindStringSubmatch(msg); len(m) > 1 {
+			if v, e := strconv.Atoi(m[1]); e == nil {
+				info.PromptTokens = v
+			}
+		}
+	}
+	if info.ContextSize == 0 {
+		re4 := regexp.MustCompile(`available context size \((\d+) tokens\)`)
+		if m := re4.FindStringSubmatch(msg); len(m) > 1 {
+			if v, e := strconv.Atoi(m[1]); e == nil {
+				info.ContextSize = v
+			}
+		}
+	}
+	return info
+}
+
+func estimateChatMessageTokens(msg llm.ChatMessage) int {
+	total := 0
+	contentStr := msg.ContentString()
+	if contentStr != "" {
+		lang := detectLanguage(contentStr)
+		total += estimateTokensByLang(contentStr, lang)
+	}
+	switch v := msg.Content.(type) {
+	case []llm.ContentPart:
+		for _, part := range v {
+			if part.Type == "image_url" {
+				total += 3500
+			}
+			if part.Type == "input_audio" {
+				total += 500
+			}
+		}
+	case []interface{}:
+		for _, item := range v {
+			if part, ok := item.(map[string]interface{}); ok {
+				if part["type"] == "image_url" {
+					total += 3500
+				}
+				if part["type"] == "input_audio" {
+					total += 500
+				}
+			}
+		}
+	}
+	for _, tc := range msg.ToolCalls {
+		b, _ := json.Marshal(tc)
+		lang := detectLanguage(string(b))
+		total += estimateTokensByLang(string(b), lang)
+	}
+	if total == 0 {
+		total = 1
+	}
+	return total
+}
+
+func TrimMessagesToFit(messages []llm.ChatMessage, maxTokens int, reserve int) []llm.ChatMessage {
+	if len(messages) <= 2 {
+		return messages
+	}
+	effectiveMax := maxTokens - reserve
+	if effectiveMax < 100 {
+		effectiveMax = 100
+	}
+
+	total := 0
+	for _, msg := range messages {
+		total += estimateChatMessageTokens(msg)
+	}
+	if total <= effectiveMax {
+		return messages
+	}
+
+	var systemMsg *llm.ChatMessage
+	startIdx := 0
+	if len(messages) > 0 && messages[0].Role == "system" {
+		systemMsg = &messages[0]
+		startIdx = 1
+	}
+
+	rest := messages[startIdx:]
+	if len(rest) == 0 {
+		return messages
+	}
+
+	lastMsg := rest[len(rest)-1]
+	rest = rest[:len(rest)-1]
+
+	systemTokens := 0
+	if systemMsg != nil {
+		systemTokens = estimateChatMessageTokens(*systemMsg)
+	}
+	lastTokens := estimateChatMessageTokens(lastMsg)
+
+	remaining := effectiveMax - systemTokens - lastTokens
+	if remaining < 0 {
+		if systemMsg != nil {
+			return []llm.ChatMessage{*systemMsg, lastMsg}
+		}
+		return []llm.ChatMessage{lastMsg}
+	}
+
+	var kept []llm.ChatMessage
+	acc := 0
+	for i := len(rest) - 1; i >= 0; i-- {
+		t := estimateChatMessageTokens(rest[i])
+		if acc+t > remaining {
+			break
+		}
+		acc += t
+		kept = append([]llm.ChatMessage{rest[i]}, kept...)
+	}
+
+	for len(kept) > 0 && kept[0].Role != "user" {
+		kept = kept[1:]
+	}
+
+	var result []llm.ChatMessage
+	if systemMsg != nil {
+		result = append(result, *systemMsg)
+	}
+	result = append(result, kept...)
+	result = append(result, lastMsg)
+	return result
 }
 
 func searchResultInstruction(lang string) string {

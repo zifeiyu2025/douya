@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 )
@@ -67,7 +66,7 @@ func (p *TavilyProvider) SearchWithOpts(ctx context.Context, query string, opts 
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := readBody(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("tavily read response: %w", err)
 	}
