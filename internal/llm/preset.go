@@ -18,8 +18,9 @@ type ModelPreset struct {
 	ModelPath       string
 	MmprojPath      string
 	MmprojVision    bool
-	MmprojAudio     bool
-	MmprojOffload   bool
+	MmprojAudio  bool
+	MmprojVideo  bool   `json:"mmproj_video"`
+	MmprojOffload bool
 	Alias           string
 	CtxSize         int
 	BatchSize       int
@@ -46,6 +47,7 @@ type ModelOption struct {
 	IsLoaded     bool   `json:"is_loaded"`
 	MmprojVision bool   `json:"mmproj_vision"`
 	MmprojAudio  bool   `json:"mmproj_audio"`
+	MmprojVideo  bool   `json:"mmproj_video"`
 	Status       string `json:"status"`
 }
 
@@ -225,6 +227,7 @@ func scanFlatModels(modelsDir string) ([]ModelPreset, error) {
 			mmprojCaps := ReadMmprojCapabilities(mmprojPath)
 			preset.MmprojVision = mmprojCaps.HasVision
 			preset.MmprojAudio = mmprojCaps.HasAudio
+			preset.MmprojVideo = mmprojCaps.HasVideo
 		}
 
 		presets = append(presets, preset)
@@ -279,6 +282,7 @@ func scanSubdirModels(modelsDir string) ([]ModelPreset, error) {
 				mmprojCaps := ReadMmprojCapabilities(mmprojPath)
 				preset.MmprojVision = mmprojCaps.HasVision
 				preset.MmprojAudio = mmprojCaps.HasAudio
+				preset.MmprojVideo = mmprojCaps.HasVideo
 			}
 
 			presets = append(presets, preset)
@@ -338,6 +342,7 @@ func makeRelativeModelPath(dir string, fileName string) string {
 type MmprojCapabilities struct {
 	HasVision bool
 	HasAudio  bool
+	HasVideo  bool
 }
 
 func ReadMmprojCapabilities(mmprojPath string) MmprojCapabilities {
@@ -358,6 +363,9 @@ func ReadMmprojCapabilities(mmprojPath string) MmprojCapabilities {
 	}
 	if v, ok := kvMap["clip.has_audio_encoder"].(bool); ok {
 		caps.HasAudio = v
+	}
+	if v, ok := kvMap["clip.has_video_encoder"].(bool); ok {
+		caps.HasVideo = v
 	}
 
 	return caps

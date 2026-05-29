@@ -186,6 +186,7 @@ const (
 type ModelCapabilities struct {
 	ImageInput   bool    `json:"image_input"`
 	AudioInput   bool    `json:"audio_input"`
+	VideoInput   bool    `json:"video_input"`
 	TextInput    bool    `json:"text_input"`
 	Reasoning    bool    `json:"reasoning"`
 	MmprojLoaded bool    `json:"mmproj_loaded"`
@@ -222,20 +223,21 @@ type Usage struct {
 	TotalTokens  int `json:"total_tokens"`
 }
 
-// IsWeakModel 判断当前加载的模型是否为弱模型。
-// 弱模型判定标准：
-//   - 模型名中包含 MoE 特征关键词（如 "a3b", "a2b", "a1b", "moe", "mixture"），
-//     MoE 模型激活参数少，工具调用能力弱
-//   - 模型总参数量 NParams 低于 200 亿（20e9）
 func IsWeakModel(caps ModelCapabilities, modelName string) bool {
 	lowerName := strings.ToLower(modelName)
-	moelKeywords := []string{"a3b", "a2b", "a1b", "moe", "mixture"}
-	for _, kw := range moelKeywords {
+	moeKeywords := []string{"a3b", "a2b", "a1b", "moe", "mixture"}
+	for _, kw := range moeKeywords {
 		if strings.Contains(lowerName, kw) {
 			return true
 		}
 	}
-	if caps.NParams < 20e9 {
+	strongKeywords := []string{"qwen3", "qwen2.5", "qwen2-", "gemma", "llama", "phi-4", "phi-3", "mistral", "yi-", "deepseek", "command-r"}
+	for _, kw := range strongKeywords {
+		if strings.Contains(lowerName, kw) {
+			return false
+		}
+	}
+	if caps.NParams > 0 && caps.NParams < 20e9 {
 		return true
 	}
 	return false

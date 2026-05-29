@@ -13,6 +13,7 @@
           </div>
           <div v-else class="att-thumb file-thumb">
             <svg v-if="att.type === 'audio'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+            <svg v-else-if="att.type === 'video'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
             <svg v-else-if="att.type === 'pdf'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
             <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
           </div>
@@ -68,6 +69,16 @@
                 <span>音频</span>
                 <span v-if="!capabilities.mmproj_loaded" class="unsupported-tag">未加载mmproj</span>
                 <span v-else-if="!capabilities.audio_input" class="unsupported-tag">不支持</span>
+              </button>
+              <button
+                class="attach-menu-item"
+                :class="{ disabled: !capabilities.video_input }"
+                @click="triggerFileUpload('video')"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                <span>视频</span>
+                <span v-if="!capabilities.mmproj_loaded" class="unsupported-tag">未加载mmproj</span>
+                <span v-else-if="!capabilities.video_input" class="unsupported-tag">不支持</span>
               </button>
               <button
                 class="attach-menu-item"
@@ -236,6 +247,7 @@ function typeLabel(type: string): string {
     case 'image': return '图片'
     case 'audio': return '音频'
     case 'text': return '文本'
+    case 'video': return '视频'
     case 'pdf': return 'PDF'
     default: return type
   }
@@ -245,6 +257,7 @@ const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.gif,.webp,.bmp,.svg'
 const AUDIO_ACCEPT = '.wav,.mp3,.ogg,.flac,.aac,.m4a,.wma'
 const TEXT_ACCEPT = '.txt,.md,.csv,.json,.xml,.html,.css,.js,.ts,.py,.go,.java,.c,.cpp,.h,.rs,.sh,.yaml,.yml,.toml,.ini,.cfg,.log,.sql'
 const PDF_ACCEPT = '.pdf'
+const VIDEO_ACCEPT = '.mp4,.webm,.avi,.mov,.mkv,.wmv,.flv'
 
 function getAcceptForType(type: string): string {
   switch (type) {
@@ -252,6 +265,7 @@ function getAcceptForType(type: string): string {
     case 'audio': return AUDIO_ACCEPT
     case 'text': return TEXT_ACCEPT
     case 'pdf': return PDF_ACCEPT
+    case 'video': return VIDEO_ACCEPT
     default: return ''
   }
 }
@@ -259,6 +273,7 @@ function getAcceptForType(type: string): string {
 function triggerFileUpload(type: string) {
   if (type === 'image' && !capabilities.value.image_input) return
   if (type === 'audio' && !capabilities.value.audio_input) return
+  if (type === 'video' && !capabilities.value.video_input) return
   if ((type === 'text' || type === 'pdf') && !capabilities.value.text_input) return
 
   pendingUploadType.value = type
@@ -286,6 +301,8 @@ function handleFileSelect(e: Event) {
       processAudioFile(file)
     } else if (type === 'pdf') {
       processPdfFile(file)
+    } else if (type === 'video') {
+      processVideoFile(file)
     } else {
       processTextFile(file)
     }
@@ -333,6 +350,20 @@ function processPdfFile(file: File) {
       type: 'pdf',
       name: file.name,
       mime_type: 'application/pdf',
+      data: base64,
+    })
+  }
+  reader.readAsDataURL(file)
+}
+
+function processVideoFile(file: File) {
+  const reader = new FileReader()
+  reader.onload = () => {
+    const base64 = (reader.result as string).split(',')[1]
+    attachments.value.push({
+      type: 'video',
+      name: file.name,
+      mime_type: file.type || 'video/mp4',
       data: base64,
     })
   }

@@ -1208,6 +1208,7 @@ func (a *App) GetAvailableModels() ([]llm.ModelOption, error) {
 			IsLoaded:     loadedModels[p.Name],
 			MmprojVision: p.MmprojVision,
 			MmprojAudio:  p.MmprojAudio,
+			MmprojVideo:  p.MmprojVideo,
 			Status:       modelStatuses[p.Name],
 		})
 	}

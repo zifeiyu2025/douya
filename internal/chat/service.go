@@ -151,6 +151,7 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 		mmprojLoaded = props.Modalities.Vision || props.Modalities.Audio
 		caps.ImageInput = props.Modalities.Vision
 		caps.AudioInput = props.Modalities.Audio
+		caps.VideoInput = props.Modalities.Video
 
 		if props.ChatTemplateCaps != nil {
 			if v, ok := props.ChatTemplateCaps["supports_preserve_reasoning"]; ok && v {
@@ -164,15 +165,15 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 
 	if thinkingMode == llm.ThinkingModeNone {
 		lowerName := strings.ToLower(info.Name)
-		templateKeywords := []string{"qwen3", "gemma-4", "gemma4"}
-		for _, kw := range templateKeywords {
-			if strings.Contains(lowerName, kw) {
-				thinkingMode = llm.ThinkingModeTemplate
-				supportsReasoning = true
-				break
-			}
+		templateKeywords := []string{"qwen3", "gemma-4", "gemma4", "llama-4", "llama4", "mistral-small-3", "mistral-small3"}
+	for _, kw := range templateKeywords {
+		if strings.Contains(lowerName, kw) {
+			thinkingMode = llm.ThinkingModeTemplate
+			supportsReasoning = true
+			break
 		}
-		reasoningKeywords := []string{"deepseek-r1", "deepseek-v2", "deepseek-v3", "deepseek-v4", "deepseek-r"}
+	}
+	reasoningKeywords := []string{"deepseek-r1", "deepseek-v2", "deepseek-v3", "deepseek-v4", "deepseek-r", "phi-4-reasoning", "phi4-reasoning"}
 		for _, kw := range reasoningKeywords {
 			if strings.Contains(lowerName, kw) {
 				thinkingMode = llm.ThinkingModeReasoning
@@ -186,12 +187,13 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 	s.modelCaps = llm.ModelCapabilities{
 		ImageInput:   caps.ImageInput,
 		AudioInput:   caps.AudioInput,
+		VideoInput:   caps.VideoInput,
 		TextInput:    caps.TextInput,
 		Reasoning:    supportsReasoning,
 		MmprojLoaded: mmprojLoaded,
 		HasMTP:       s.detectHasMTP(),
 		ThinkingMode: thinkingMode,
-		NParams:      info.Meta.NParams,
+		NParams:      s.resolveNParams(info.Meta.NParams),
 	}
 	s.modelCapsMu.Unlock()
 	// FIX: Only set detectedModelName when it's empty (called from DetectModelArchitecture without model name).
@@ -249,6 +251,21 @@ func (s *Service) detectHasMTP() bool {
 		log.Info().Str("path", modelPath).Msg("[model] MTP support detected from GGUF metadata")
 	}
 	return meta.HasMTP
+}
+
+func (s *Service) resolveNParams(serverNParams float64) float64 {
+	if serverNParams > 0 {
+		return serverNParams
+	}
+	modelPath := s.config.ModelPath
+	if modelPath == "" {
+		return 0
+	}
+	meta, err := system.ParseGGUFMetadata(modelPath)
+	if err != nil {
+		return 0
+	}
+	return system.ResolveNParams(0, meta)
 }
 
 func (s *Service) applyThinkingControl(req *llm.ChatCompletionRequest) {
@@ -1055,6 +1072,8 @@ func buildMessageFromAttachments(role, content string, attachments []Attachment)
 			imageUrls = append(imageUrls, att.Data)
 		case "audio":
 			audios = append(audios, llm.InputAudio{Data: att.Data, Format: att.Format})
+		case "video":
+			imageUrls = append(imageUrls, att.Data)
 		case "pdf":
 			// Phase2: Use existing extractPDFText (defined in pdf.go)
 			pdfText := extractPDFText([]byte(att.Data))

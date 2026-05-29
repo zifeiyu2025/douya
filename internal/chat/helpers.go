@@ -139,6 +139,9 @@ func estimateMessageTokens(m *store.Message) int {
 		} else {
 			total += 1500
 		}
+		if strings.Contains(strings.ToLower(m.Attachments), "video") {
+			total += 1500
+		}
 	}
 	if total == 0 {
 		total = 1

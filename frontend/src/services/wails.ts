@@ -27,6 +27,7 @@ export interface Message {
 export interface ModelCapabilities {
     image_input: boolean
     audio_input: boolean
+    video_input: boolean
     text_input: boolean
     reasoning: boolean
     mmproj_loaded: boolean
@@ -176,6 +177,7 @@ export interface ModelOption {
     is_loaded: boolean
     mmproj_vision: boolean
     mmproj_audio: boolean
+    mmproj_video: boolean
     status: string
 }
 

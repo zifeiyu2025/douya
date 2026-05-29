@@ -240,6 +240,8 @@ func DetectCapabilities(info ModelInfo) ModelCapabilities {
 			caps.ImageInput = true
 		case lc == "audio", lc == "speech":
 			caps.AudioInput = true
+		case lc == "video":
+			caps.VideoInput = true
 		case lc == "multimodal":
 			caps.ImageInput = true
 		}
@@ -252,6 +254,8 @@ func DetectCapabilities(info ModelInfo) ModelCapabilities {
 			caps.ImageInput = true
 		case lm == "audio":
 			caps.AudioInput = true
+		case lm == "video":
+			caps.VideoInput = true
 		}
 	}
 
@@ -441,6 +445,7 @@ type ServerProps struct {
 	Modalities struct {
 		Vision bool `json:"vision"`
 		Audio  bool `json:"audio"`
+		Video  bool `json:"video"`
 	} `json:"modalities"`
 	ChatTemplateCaps map[string]bool `json:"chat_template_caps"`
 }

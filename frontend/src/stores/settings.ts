@@ -66,6 +66,7 @@ export const useSettingsStore = defineStore('settings', () => {
     const modelCapabilities = ref<ModelCapabilities>({
         image_input: false,
         audio_input: false,
+        video_input: false,
         text_input: true,
         reasoning: false,
         mmproj_loaded: false,

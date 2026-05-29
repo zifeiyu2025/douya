@@ -38,6 +38,8 @@ type GGUFMetadata struct {
 	ExpertCount     int
 	ExpertUsed      int
 	HasMTP          bool
+	SizeLabel       string
+	NParams         int64
 }
 
 func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
@@ -49,6 +51,13 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 	meta := &GGUFMetadata{}
 	if v, ok := kvMap["general.architecture"].(string); ok {
 		meta.Architecture = v
+	}
+
+	if v, ok := kvMap["general.size_label"].(string); ok {
+		meta.SizeLabel = v
+	}
+	if n, ok := toInt64(kvMap["general.parameter_count"]); ok {
+		meta.NParams = n
 	}
 
 	if meta.Architecture != "" {
@@ -328,6 +337,33 @@ func toInt(v interface{}) (int, bool) {
 		return int(n), true
 	case int64:
 		return int(n), true
+	default:
+		return 0, false
+	}
+}
+
+func toInt64(v interface{}) (int64, bool) {
+	switch n := v.(type) {
+	case uint8:
+		return int64(n), true
+	case int8:
+		return int64(n), true
+	case uint16:
+		return int64(n), true
+	case int16:
+		return int64(n), true
+	case uint32:
+		return int64(n), true
+	case int32:
+		return int64(n), true
+	case uint64:
+		return int64(n), true
+	case int64:
+		return n, true
+	case float32:
+		return int64(n), true
+	case float64:
+		return int64(n), true
 	default:
 		return 0, false
 	}

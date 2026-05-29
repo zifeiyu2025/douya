@@ -196,7 +196,7 @@ watch(() => settingsStore.currentModel, (newModel) => {
   }
 })
 
-const modelOptions = ref<{ label: string; value: string; fullName: string; quantSuffix: string; isLoaded: boolean; mmprojVision: boolean; mmprojAudio: boolean; status: string }[]>([])
+const modelOptions = ref<{ label: string; value: string; fullName: string; quantSuffix: string; isLoaded: boolean; mmprojVision: boolean; mmprojAudio: boolean; mmprojVideo: boolean; status: string }[]>([])
 const availableModels = ref<ModelOption[]>([])
 const selectedModel = ref('')
 
@@ -224,7 +224,7 @@ const currentTitle = computed(() => {
   return fixUtf8(conv?.title || '豆芽 AI')
 })
 
-function renderModelLabel(option: { label: string; value: string; fullName?: string; quantSuffix?: string; isLoaded?: boolean; mmprojVision?: boolean; mmprojAudio?: boolean; status?: string }) {
+function renderModelLabel(option: { label: string; value: string; fullName?: string; quantSuffix?: string; isLoaded?: boolean; mmprojVision?: boolean; mmprojAudio?: boolean; mmprojVideo?: boolean; status?: string }) {
   const children = [h('span', option.label)]
   if (option.quantSuffix) {
     children.push(h('span', {
@@ -234,6 +234,7 @@ function renderModelLabel(option: { label: string; value: string; fullName?: str
   const tags: string[] = []
   if (option.mmprojVision) tags.push('📷')
   if (option.mmprojAudio) tags.push('🎤')
+  if (option.mmprojVideo) tags.push('🎬')
   if (tags.length > 0) {
     children.push(h('span', {
       style: 'margin-left: 6px; font-size: 11px;'
@@ -274,6 +275,7 @@ async function loadAvailableModels() {
         isLoaded: m.is_loaded,
         mmprojVision: m.mmproj_vision,
         mmprojAudio: m.mmproj_audio,
+        mmprojVideo: m.mmproj_video,
         status: m.status,
       }
     })
