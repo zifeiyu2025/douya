@@ -14,6 +14,7 @@ interface ConvStreamingState {
     thinkingStartTime: number
     thinkingDuration: number
     searchQuery: string
+    contextTrimmed: { reason: string; promptTokens?: number; contextSize?: number; messagesAfter?: number } | null
 }
 
 function createEmptyStreamingState(): ConvStreamingState {
@@ -27,6 +28,7 @@ function createEmptyStreamingState(): ConvStreamingState {
         thinkingStartTime: 0,
         thinkingDuration: 0,
         searchQuery: '',
+        contextTrimmed: null,
     }
 }
 
@@ -82,6 +84,7 @@ export const useChatStore = defineStore('chat', () => {
     const isThinking = computed(() => currentConvState.value.isThinking)
     const thinkingDuration = computed(() => currentConvState.value.thinkingDuration)
     const searchQuery = computed(() => currentConvState.value.searchQuery)
+    const contextTrimmed = computed(() => currentConvState.value.contextTrimmed)
 
     const lastAIMessageId = computed(() => {
         for (let i = messages.value.length - 1; i >= 0; i--) {
@@ -346,6 +349,17 @@ export const useChatStore = defineStore('chat', () => {
                 }
                 break
             }
+            case 'context_trimmed': {
+                const state = getConvState(convId)
+                const content = event.content as any
+                state.contextTrimmed = {
+                    reason: content?.reason || 'unknown',
+                    promptTokens: content?.prompt_tokens,
+                    contextSize: content?.context_size,
+                    messagesAfter: content?.messages_after,
+                }
+                break
+            }
             case 'conversation_created': {
                 if (event.content?.id) {
                     const newConvId = event.content.id
@@ -502,6 +516,7 @@ export const useChatStore = defineStore('chat', () => {
         generatingConvId.value = convId || ''
         const state = getConvState(convId || '')
         clearConvState(state)
+        state.contextTrimmed = null
         state.isGenerating = true
         startGeneratingTimeout()
         startFirstTokenTimeout()
@@ -670,6 +685,7 @@ export const useChatStore = defineStore('chat', () => {
         isThinking,
         thinkingDuration,
         searchQuery,
+        contextTrimmed,
         lastError,
         generatingConvId,
         waitingFirstToken,

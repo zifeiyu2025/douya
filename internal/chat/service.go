@@ -644,10 +644,12 @@ func TruncateSearchContext(searchContext string, ctxSize int) string { // Export
 func StoreMsgToChat(m *store.Message) *Message { return storeMsgToChat(m) } // Exported for testing
 func IsCodeRelated(query string) bool          { return isCodeRelated(query) } // Exported for testing
 func BuildLLMMessages(s *Service, dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment) ([]llm.ChatMessage, error) {
-	return s.buildLLMMessages(dbMsgs, currentUserContent, currentAttachments, false, "")
+	msgs, _, err := s.buildLLMMessages(dbMsgs, currentUserContent, currentAttachments, false, "")
+	return msgs, err
 }
 func BuildLLMMessagesWithSearch(s *Service, dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment, searchEnabled bool) ([]llm.ChatMessage, error) {
-	return s.buildLLMMessages(dbMsgs, currentUserContent, currentAttachments, searchEnabled, "")
+	msgs, _, err := s.buildLLMMessages(dbMsgs, currentUserContent, currentAttachments, searchEnabled, "")
+	return msgs, err
 }
 
 func InjectSearchContext(messages []llm.ChatMessage, searchContext string, instruction string) []llm.ChatMessage {
@@ -959,10 +961,16 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 		}
 	}
 
-	llmMessages, err := s.buildLLMMessages(dbMsgs, userContent, params.Attachments, params.SearchEnabled, searchContext)
+	llmMessages, trimmed, err := s.buildLLMMessages(dbMsgs, userContent, params.Attachments, params.SearchEnabled, searchContext)
 	if err != nil {
 		s.emitForConv(convID, "error", err.Error())
 		return err
+	}
+
+	if trimmed {
+		s.emitForConv(convID, "context_trimmed", map[string]interface{}{
+			"reason": "preventive_trim",
+		})
 	}
 
 	return s.streamWithSearch(cancelCtx, convID, llmMessages, params.SearchEnabled, params.Content, params.Content, searchResp)
@@ -1024,6 +1032,13 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 			req.Messages = trimmed
 
 			log.Info().Int("prompt_tokens", exceedInfo.PromptTokens).Int("context_size", actualCtx).Int("messages_after_trim", len(trimmed)).Msg("[chat] context exceeded, trimming and retrying")
+
+			s.emitForConv(convID, "context_trimmed", map[string]interface{}{
+				"reason":         "exceed_context_size",
+				"prompt_tokens":  exceedInfo.PromptTokens,
+				"context_size":   actualCtx,
+				"messages_after": len(trimmed),
+			})
 
 			retryCtx, retryCancel := context.WithTimeout(cancelCtx, 300*time.Second)
 			defer retryCancel()
@@ -1147,7 +1162,7 @@ func buildMessageFromAttachments(role, content string, attachments []Attachment)
 
 
 
-func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment, searchEnabled bool, searchContext string) ([]llm.ChatMessage, error) {
+func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment, searchEnabled bool, searchContext string) ([]llm.ChatMessage, bool, error) {
 	maxContext := s.config.ContextSize
 	if maxContext <= 0 {
 		maxContext = 4096
@@ -1159,10 +1174,10 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 
 	for _, att := range currentAttachments {
 		if att.Type == "image" && !caps.ImageInput {
-			return nil, fmt.Errorf("当前模型不支持图片输入，请加载支持视觉的模型（如 llava 系列）")
+			return nil, false, fmt.Errorf("当前模型不支持图片输入，请加载支持视觉的模型（如 llava 系列）")
 		}
 		if att.Type == "audio" && !caps.AudioInput {
-			return nil, fmt.Errorf("当前模型不支持音频输入，请加载支持音频的模型（如 whisper 系列）")
+			return nil, false, fmt.Errorf("当前模型不支持音频输入，请加载支持音频的模型（如 whisper 系列）")
 		}
 	}
 
@@ -1325,7 +1340,7 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 			}
 			messages = append(messages, msg)
 		}
-		return messages, nil
+		return messages, true, nil
 	}
 
 	var history []llm.ChatMessage
@@ -1488,5 +1503,5 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 	})
 	messages = append(messages, history...)
 
-	return messages, nil
+	return messages, false, nil
 }

@@ -47,6 +47,7 @@ function setupGeneratingState(store: ReturnType<typeof useChatStore>, convId: st
         thinkingStartTime: 0,
         thinkingDuration: 0,
         searchQuery: '',
+        contextTrimmed: null,
     })
 }
 

@@ -63,6 +63,7 @@
             <ThinkBlock v-if="thinkingContent" :content="thinkingContent" :default-expanded="true" :is-thinking="isThinking" :duration="thinkingDuration" />
             <SearchStatus v-if="isSearching" :searching="true" :results="''" :query="searchQuery" />
             <SearchStatus v-else-if="searchResults" :searching="false" :results="searchResults" :default-expanded="true" />
+            <ContextTrimmed :data="contextTrimmed" />
             <div v-if="streamingContent" class="markdown-body" v-html="renderedStreaming" />
             <n-spin v-else-if="!thinkingContent && !isSearching" size="small" />
           </div>
@@ -78,6 +79,7 @@ import { NSpin, useMessage } from 'naive-ui'
 import MessageItem from './MessageItem.vue'
 import ThinkBlock from './ThinkBlock.vue'
 import SearchStatus from './SearchStatus.vue'
+import ContextTrimmed from './ContextTrimmed.vue'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import { renderMarkdownStreaming } from '../utils/markdown'
@@ -118,6 +120,7 @@ const isSearching = computed(() => chatStore.isSearching)
 const isThinking = computed(() => chatStore.isThinking)
 const thinkingDuration = computed(() => chatStore.thinkingDuration)
 const searchQuery = computed(() => chatStore.searchQuery)
+const contextTrimmed = computed(() => chatStore.contextTrimmed)
 
 const isSwitching = computed(() => settingsStore.isModelSwitching)
 const switchingToModel = computed(() => {
