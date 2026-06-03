@@ -74,7 +74,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch, ref, nextTick, onMounted } from 'vue'
+import { computed, watch, ref, nextTick, onMounted, onUnmounted } from 'vue'
 import { NSpin, useMessage } from 'naive-ui'
 import MessageItem from './MessageItem.vue'
 import ThinkBlock from './ThinkBlock.vue'
@@ -169,7 +169,31 @@ function getSwitchProgressText(): string {
   }
 }
 
-const renderedStreaming = computed(() => renderMarkdownStreaming(streamingContent.value))
+// PERF-003: debounce 流式 Markdown 渲染，减少高频 token 更新时的渲染开销
+const renderedStreaming = ref('')
+let renderTimer: ReturnType<typeof setTimeout> | null = null
+
+watch(streamingContent, (newContent) => {
+  if (renderTimer) {
+    clearTimeout(renderTimer)
+    renderTimer = null
+  }
+  if (!newContent) {
+    renderedStreaming.value = ''
+    return
+  }
+  renderTimer = setTimeout(() => {
+    renderedStreaming.value = renderMarkdownStreaming(newContent)
+    renderTimer = null
+  }, 50)
+}, { immediate: true })
+
+onUnmounted(() => {
+  if (renderTimer) {
+    clearTimeout(renderTimer)
+    renderTimer = null
+  }
+})
 
 const messageListRef = ref<HTMLElement | null>(null)
 

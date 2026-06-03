@@ -4,6 +4,30 @@ import hljs from 'highlight.js'
 import mermaid from 'mermaid'
 import DOMPurify from 'dompurify'
 
+// PERF-009: 代码高亮 LRU 缓存，避免流式渲染时重复高亮同一代码块
+const highlightCache = new Map<string, string>()
+const HIGHLIGHT_CACHE_MAX = 128
+
+function getCachedHighlight(code: string, lang: string): string | null {
+    const key = `${lang}\x00${code}`
+    const cached = highlightCache.get(key)
+    if (cached !== undefined) {
+        highlightCache.delete(key)
+        highlightCache.set(key, cached)
+        return cached
+    }
+    return null
+}
+
+function setCachedHighlight(code: string, lang: string, result: string): void {
+    const key = `${lang}\x00${code}`
+    if (highlightCache.size >= HIGHLIGHT_CACHE_MAX) {
+        const firstKey = highlightCache.keys().next().value
+        if (firstKey !== undefined) highlightCache.delete(firstKey)
+    }
+    highlightCache.set(key, result)
+}
+
 const md = new MarkdownIt({
     html: false,
     linkify: true,
@@ -16,8 +40,14 @@ const md = new MarkdownIt({
         const langLabel = lang && hljs.getLanguage(lang) ? lang : (lang || '')
         const header = `<div class="code-header">${langLabel ? `<span class="code-lang">${langLabel}</span>` : '<span class="code-lang"></span>'}<button class="code-copy-btn" data-code="${escapedCode.replace(/"/g, '&quot;')}">复制</button></div>`
         if (lang && hljs.getLanguage(lang)) {
+            const cached = getCachedHighlight(str, lang)
+            if (cached) {
+                return `<pre class="hljs">${header}<code>${cached}</code></pre>`
+            }
             try {
-                return `<pre class="hljs">${header}<code>${hljs.highlight(str, { language: lang, ignoreIllegals: true }).value}</code></pre>`
+                const highlighted = hljs.highlight(str, { language: lang, ignoreIllegals: true }).value
+                setCachedHighlight(str, lang, highlighted)
+                return `<pre class="hljs">${header}<code>${highlighted}</code></pre>`
             } catch (_) { /* empty */ }
         }
         return `<pre class="hljs">${header}<code>${escapedCode}</code></pre>`

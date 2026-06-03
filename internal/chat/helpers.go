@@ -13,6 +13,14 @@ import (
 	"douya/internal/store"
 )
 
+// 预编译正则表达式，避免每次调用时重复编译
+var (
+	rePromptTokens  = regexp.MustCompile(`n_prompt_tokens["\s:=]+(\d+)`)
+	reNCtx          = regexp.MustCompile(`n_ctx["\s:=]+(\d+)`)
+	reRequestTokens = regexp.MustCompile(`request \((\d+) tokens\)`)
+	reAvailCtxSize  = regexp.MustCompile(`available context size \((\d+) tokens\)`)
+)
+
 // isCodeRelated returns true if the query looks like a code-related question.
 func isCodeRelated(query string) bool {
 queryLower := strings.ToLower(query)
@@ -143,12 +151,12 @@ func estimateMessageTokens(m *store.Message) int {
 		return 0
 	}
 	total := 0
+	// 对同一消息只检测一次语言，各字段复用
+	lang := detectLanguage(m.Content)
 	if m.Content != "" {
-		lang := detectLanguage(m.Content)
 		total += estimateTokensByLang(m.Content, lang)
 	}
 	if m.ToolCalls != "" {
-		lang := detectLanguage(m.ToolCalls)
 		total += estimateTokensByLang(m.ToolCalls, lang)
 	}
 	if m.Images != "" {
@@ -161,11 +169,9 @@ func estimateMessageTokens(m *store.Message) int {
 		total += imgCount * 3500
 	}
 	if m.SearchResults != "" {
-		lang := detectLanguage(m.SearchResults)
 		total += estimateTokensByLang(m.SearchResults, lang)
 	}
 	if m.ThinkingContent != "" {
-		lang := detectLanguage(m.ThinkingContent)
 		total += estimateTokensByLang(m.ThinkingContent, lang)
 	}
 	if m.Attachments != "" {
@@ -192,29 +198,25 @@ func ParseExceedContextError(err error) *ExceedContextInfo {
 		return nil
 	}
 	info := &ExceedContextInfo{Exceeded: true}
-	re := regexp.MustCompile(`n_prompt_tokens["\s:=]+(\d+)`)
-	if m := re.FindStringSubmatch(msg); len(m) > 1 {
+	if m := rePromptTokens.FindStringSubmatch(msg); len(m) > 1 {
 		if v, e := strconv.Atoi(m[1]); e == nil {
 			info.PromptTokens = v
 		}
 	}
-	re2 := regexp.MustCompile(`n_ctx["\s:=]+(\d+)`)
-	if m := re2.FindStringSubmatch(msg); len(m) > 1 {
+	if m := reNCtx.FindStringSubmatch(msg); len(m) > 1 {
 		if v, e := strconv.Atoi(m[1]); e == nil {
 			info.ContextSize = v
 		}
 	}
 	if info.PromptTokens == 0 {
-		re3 := regexp.MustCompile(`request \((\d+) tokens\)`)
-		if m := re3.FindStringSubmatch(msg); len(m) > 1 {
+		if m := reRequestTokens.FindStringSubmatch(msg); len(m) > 1 {
 			if v, e := strconv.Atoi(m[1]); e == nil {
 				info.PromptTokens = v
 			}
 		}
 	}
 	if info.ContextSize == 0 {
-		re4 := regexp.MustCompile(`available context size \((\d+) tokens\)`)
-		if m := re4.FindStringSubmatch(msg); len(m) > 1 {
+		if m := reAvailCtxSize.FindStringSubmatch(msg); len(m) > 1 {
 			if v, e := strconv.Atoi(m[1]); e == nil {
 				info.ContextSize = v
 			}

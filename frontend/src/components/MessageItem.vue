@@ -260,6 +260,8 @@ function regenerate() {
   max-width: var(--msg-max-width);
   align-items: flex-start;
   animation: messageSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  content-visibility: auto;
+  contain-intrinsic-size: 0 200px;
 }
 
 @keyframes messageSlideIn {

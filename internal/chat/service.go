@@ -455,8 +455,8 @@ func storeMsgToChat(m *store.Message) *Message {
 }
 
 type StreamAccumulator struct {
-	FullContent              string
-	FullThinking             string
+	FullContent              strings.Builder
+	FullThinking            strings.Builder
 	FinishReason             string
 	ToolCallMap              map[int]*llm.ToolCall
 	EmitFn                   func(string, interface{})
@@ -490,7 +490,7 @@ func (a *StreamAccumulator) callback() func(llm.SSEChunk) error {
 		choice := chunk.Choices[0]
 		deltaContent := choice.Delta.ContentString()
 		if deltaContent != "" {
-			if a.FullThinking != "" && !a.ThinkingDone && !a.ThinkingStartTime.IsZero() {
+			if a.FullThinking.Len() > 0 && !a.ThinkingDone && !a.ThinkingStartTime.IsZero() {
 				a.ThinkingDuration = time.Since(a.ThinkingStartTime).Seconds()
 				a.ThinkingDone = true
 			}
@@ -498,7 +498,7 @@ func (a *StreamAccumulator) callback() func(llm.SSEChunk) error {
 			valid, pending := llm.TruncateIncompleteUTF8(combined)
 			a.PendingBytes = pending
 			fixed := llm.FixUTF8(valid)
-			a.FullContent += fixed
+			a.FullContent.WriteString(fixed)
 			a.EmitForConvFn(a.ConvID, "token", fixed)
 		}
 
@@ -510,7 +510,7 @@ func (a *StreamAccumulator) callback() func(llm.SSEChunk) error {
 			valid, pending := llm.TruncateIncompleteUTF8(combined)
 			a.PendingThink = pending
 			fixed := llm.FixUTF8(valid)
-			a.FullThinking += fixed
+			a.FullThinking.WriteString(fixed)
 			a.EmitForConvFn(a.ConvID, "thinking", fixed)
 		}
 
@@ -541,7 +541,7 @@ func (a *StreamAccumulator) callback() func(llm.SSEChunk) error {
 		}
 
 		if choice.FinishReason != nil {
-			if a.FullThinking != "" && !a.ThinkingDone && !a.ThinkingStartTime.IsZero() {
+			if a.FullThinking.Len() > 0 && !a.ThinkingDone && !a.ThinkingStartTime.IsZero() {
 				a.ThinkingDuration = time.Since(a.ThinkingStartTime).Seconds()
 				a.ThinkingDone = true
 			}
@@ -564,11 +564,12 @@ func (a *StreamAccumulator) toolCalls() []llm.ToolCall {
 }
 
 func (a *StreamAccumulator) resetForNextCall() {
-	if a.FullThinking != "" {
-		a.FirstRoundThinking = a.FullThinking
+	if a.FullThinking.Len() > 0 {
+		a.FirstRoundThinking = a.FullThinking.String()
 		a.FirstRoundThinkingDuration = a.ThinkingDuration
 	}
-	a.FullContent = ""
+	a.FullContent.Reset()
+	a.FullThinking.Reset()
 	a.FinishReason = ""
 	a.ToolCallMap = make(map[int]*llm.ToolCall)
 	a.PendingBytes = ""
@@ -828,8 +829,8 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 	aiMsg := &store.Message{
 		ConversationID:   convID,
 		Role:             "assistant",
-		Content:          acc.FullContent,
-		ThinkingContent:  acc.FullThinking,
+		Content:          acc.FullContent.String(),
+		ThinkingContent:  acc.FullThinking.String(),
 		ThinkingDuration: clampDuration(acc.ThinkingDuration),
 	}
 	if aiMsg.Content == "" && aiMsg.ThinkingContent != "" {
@@ -1066,8 +1067,8 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 		aiMsg := &store.Message{
 			ConversationID:   convID,
 			Role:             "assistant",
-			Content:          acc.FullContent,
-			ThinkingContent:  acc.FullThinking,
+			Content:          acc.FullContent.String(),
+			ThinkingContent:  acc.FullThinking.String(),
 			ThinkingDuration: clampDuration(acc.ThinkingDuration),
 		}
 		if aiMsg.Content == "" && aiMsg.ThinkingContent != "" {

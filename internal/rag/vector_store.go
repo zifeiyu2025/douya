@@ -5,12 +5,12 @@ package rag
 
 import (
 	"bytes"
+	"container/heap"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
-	"sort"
 	"strings"
 	"sync"
 
@@ -123,43 +123,77 @@ func (idx *memIndex) insert(id string, vec []float64) {
 }
 
 // search finds the topK most similar vectors to the query using cosine similarity.
+// Uses a min-heap for O(N log K) performance instead of full sort O(N log N).
 // Returns positions and scores; callers map positions back to IDs.
 func (idx *memIndex) search(query []float64, topK int) ([]int, []float64) {
 	idx.vecMu.RLock()
 	defer idx.vecMu.RUnlock()
-
-	type scoredPos struct {
-		pos   int
-		score float64
-	}
-	hits := make([]scoredPos, 0, len(idx.vecs))
 
 	qNorm := cosineNorm(query)
 	if qNorm == 0 {
 		return nil, nil
 	}
 
+	if topK <= 0 {
+		topK = 10
+	}
+
+	// 使用最小堆维护 topK 结果，避免全排序
+	h := &minHeap{}
+	heap.Init(h)
+
 	for i, v := range idx.vecs {
-		score := cosineSimilarity(query, v, qNorm)
-		hits = append(hits, scoredPos{pos: i, score: score})
+		score := cosineSimilarityPreNorm(query, v, qNorm)
+		if h.Len() < topK {
+			heap.Push(h, scoredPos{pos: i, score: score})
+		} else if score > h.Peek().score {
+			heap.Pop(h)
+			heap.Push(h, scoredPos{pos: i, score: score})
+		}
 	}
 
-	// Partial sort to get topK.
-	sort.Slice(hits, func(i, j int) bool {
-		return hits[i].score > hits[j].score
-	})
-	if topK > len(hits) {
-		topK = len(hits)
+	// 从堆中提取结果，按分数降序排列
+	result := make([]scoredPos, h.Len())
+	for i := h.Len() - 1; i >= 0; i-- {
+		result[i] = heap.Pop(h).(scoredPos)
 	}
-	hits = hits[:topK]
 
-	positions := make([]int, topK)
-	scores := make([]float64, topK)
-	for i, h := range hits {
-		positions[i] = h.pos
-		scores[i] = h.score
+	positions := make([]int, len(result))
+	scores := make([]float64, len(result))
+	for i, r := range result {
+		positions[i] = r.pos
+		scores[i] = r.score
 	}
 	return positions, scores
+}
+
+// scoredPos 用于堆排序的位置-分数对
+type scoredPos struct {
+	pos   int
+	score float64
+}
+
+// minHeap 实现最小堆接口，用于维护 topK 结果
+type minHeap []scoredPos
+
+func (h minHeap) Len() int            { return len(h) }
+func (h minHeap) Less(i, j int) bool   { return h[i].score < h[j].score } // 最小堆
+func (h minHeap) Swap(i, j int)        { h[i], h[j] = h[j], h[i] }
+func (h *minHeap) Push(x interface{})  { *h = append(*h, x.(scoredPos)) }
+func (h *minHeap) Pop() interface{} {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	*h = old[:n-1]
+	return x
+}
+
+// Peek 返回堆顶元素但不移除
+func (h *minHeap) Peek() scoredPos {
+	if len(*h) == 0 {
+		return scoredPos{}
+	}
+	return (*h)[0]
 }
 
 // cosineNorm returns the L2 norm of a vector.
@@ -171,14 +205,15 @@ func cosineNorm(v []float64) float64 {
 	return math.Sqrt(sum)
 }
 
-// cosineSimilarity returns the cosine similarity between a and b (both normalised).
-// Assumes a is already normalised; bNorm is pre-computed.
-func cosineSimilarity(a, b []float64, bNorm float64) float64 {
+// cosineSimilarityPreNorm returns the cosine similarity between query and vec.
+// queryNorm is pre-computed to avoid redundant calculation.
+func cosineSimilarityPreNorm(query, vec []float64, queryNorm float64) float64 {
 	dot := 0.0
-	for i := range a {
-		dot += a[i] * b[i]
+	for i := range query {
+		dot += query[i] * vec[i]
 	}
-	return dot / (cosineNorm(a) * bNorm + 1e-12)
+	vecNorm := cosineNorm(vec)
+	return dot / (queryNorm * vecNorm + 1e-12)
 }
 
 // NewVectorStore opens (or creates) a Badger-backed vector store at dataDir.
@@ -246,11 +281,11 @@ func bytesToMeta(b []byte) (collectionMeta, error) {
 }
 
 func vectorToBytes(v []float64) []byte {
-	buf := bytes.NewBuffer(nil)
-	for _, f := range v {
-		binary.Write(buf, binary.LittleEndian, f)
+	buf := make([]byte, len(v)*8)
+	for i, f := range v {
+		binary.LittleEndian.PutUint64(buf[i*8:], math.Float64bits(f))
 	}
-	return buf.Bytes()
+	return buf
 }
 
 func bytesToVector(b []byte, dim int) ([]float64, error) {
@@ -479,41 +514,22 @@ func (vs *VectorStore) Search(collection string, query []float64, topK int) ([]S
 		out[i] = SearchResult{ID: idx.ids[pos], Score: scores[i], Metadata: make(map[string]string)}
 	}
 
-	for i := range out {
-		var buf bytes.Buffer
-		readErr := vs.db.View(func(txn *badger.Txn) error {
-			item, err := txn.Get(chunkKey(collection, out[i].ID))
-			if err != nil {
-				return nil
+	// 批量读取所有 chunk 内容和 metadata，避免 N+1 查询
+	err = vs.db.View(func(txn *badger.Txn) error {
+		for i := range out {
+			if item, err := txn.Get(chunkKey(collection, out[i].ID)); err == nil {
+				if val, err := item.ValueCopy(nil); err == nil {
+					out[i].ChunkContent = string(val)
+				}
 			}
-			return item.Value(func(val []byte) error {
-				buf.Reset()
-				buf.Write(val)
-				return nil
-			})
-		})
-		if readErr == nil {
-			out[i].ChunkContent = buf.String()
-		}
-
-		var metaBuf bytes.Buffer
-		metaReadErr := vs.db.View(func(txn *badger.Txn) error {
-			item, err := txn.Get(chunkMetaKey(collection, out[i].ID))
-			if err != nil {
-				return nil
-			}
-			return item.Value(func(val []byte) error {
-				metaBuf.Reset()
-				metaBuf.Write(val)
-				return nil
-			})
-		})
-		if metaReadErr == nil && metaBuf.Len() > 0 {
-			if err := json.Unmarshal(metaBuf.Bytes(), &out[i].Metadata); err != nil {
-				out[i].Metadata = make(map[string]string)
+			if item, err := txn.Get(chunkMetaKey(collection, out[i].ID)); err == nil {
+				if val, err := item.ValueCopy(nil); err == nil && len(val) > 0 {
+					_ = json.Unmarshal(val, &out[i].Metadata)
+				}
 			}
 		}
-	}
+		return nil
+	})
 
 	log.Debug().Str("collection", collection).Int("topK", topK).Int("found", len(out)).Msg("search complete")
 	return out, nil
