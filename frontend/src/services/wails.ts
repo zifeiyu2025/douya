@@ -246,7 +246,7 @@ import {
     IsRAGEnabled,
     GetSearchAPIKeys,
     SetSearchAPIKeys,
-    GetServerAPIKey,
+    HasServerAPIKey,
     SetServerAPIKey,
     SelectImageFile,
 } from '../../wailsjs/go/main/App'
@@ -313,7 +313,7 @@ export const wails = {
     isRAGEnabled: IsRAGEnabled as () => Promise<boolean>,
     getSearchAPIKeys: GetSearchAPIKeys as () => Promise<SearchAPIKeys>,
     setSearchAPIKeys: SetSearchAPIKeys as (keys: SearchAPIKeys) => Promise<void>,
-    getServerAPIKey: GetServerAPIKey as () => Promise<string>,
+    hasServerAPIKey: HasServerAPIKey as () => Promise<boolean>,
     setServerAPIKey: SetServerAPIKey as (key: string) => Promise<void>,
     selectImageFile: SelectImageFile as () => Promise<string>,
 }

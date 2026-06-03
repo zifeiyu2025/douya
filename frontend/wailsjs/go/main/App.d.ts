@@ -38,7 +38,7 @@ export function GetModelCapabilities():Promise<llm.ModelCapabilities>;
 
 export function GetSearchAPIKeys():Promise<main.SearchAPIKeys>;
 
-export function GetServerAPIKey():Promise<string>;
+export function HasServerAPIKey():Promise<boolean>;
 
 export function GetServerStatus():Promise<llm.ServerStatus>;
 

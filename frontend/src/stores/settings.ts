@@ -380,12 +380,12 @@ export const useSettingsStore = defineStore('settings', () => {
         }
     }
 
-    async function loadServerAPIKey(): Promise<string> {
+    async function hasServerAPIKey(): Promise<boolean> {
         try {
-            return await wails.getServerAPIKey()
+            return await wails.hasServerAPIKey()
         } catch (e) {
-            console.error('Failed to load server API key:', e)
-            return ''
+            console.error('Failed to check server API key:', e)
+            return false
         }
     }
 
@@ -476,7 +476,7 @@ export const useSettingsStore = defineStore('settings', () => {
         updateConfig,
         loadSearchAPIKeys,
         saveSearchAPIKeys,
-        loadServerAPIKey,
+        hasServerAPIKey,
         saveServerAPIKey,
         toggleSearch,
         toggleThinking,

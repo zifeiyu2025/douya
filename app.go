@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"douya/internal/llm"
 	"douya/internal/rag"
 	"douya/internal/search"
+	"douya/internal/secrets"
 	"douya/internal/store"
 	"douya/internal/system"
 
@@ -59,6 +61,7 @@ type App struct {
 	cleanupResultMu  sync.Mutex
 	presets          []llm.ModelPreset
 	presetRelPaths    map[string]string
+	presetsMu         sync.RWMutex
 	currentModelMu   sync.RWMutex
 	currentModelName string
 	switchingMu      sync.Mutex
@@ -67,6 +70,7 @@ type App struct {
 	switchingToMu    sync.RWMutex
 	ragVS            *rag.VectorStore
 	ragDS            *rag.DocumentStore
+	encKey           []byte
 	hidden           atomic.Bool
 	exiting          atomic.Bool
 }
@@ -234,8 +238,14 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 	}
 
 	if a.db != nil {
-		if key, err := store.GetSetting(a.db, "server_api_key"); err == nil && key != "" {
-			serverCfg.APIKey = key
+		if a.encKey != nil {
+			if key, err := store.GetEncryptedSetting(a.db, "server_api_key", a.encKey); err == nil && key != "" {
+				serverCfg.APIKey = key
+			}
+		} else {
+			if key, err := store.GetSetting(a.db, "server_api_key"); err == nil && key != "" {
+				serverCfg.APIKey = key
+			}
 		}
 	}
 
@@ -263,8 +273,13 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 
 	a.serverReady.Store(true)
 
+	a.presetsMu.RLock()
+	presetsSnapshot := make([]llm.ModelPreset, len(a.presets))
+	copy(presetsSnapshot, a.presets)
+	a.presetsMu.RUnlock()
+
 	foundDefault := false
-	for _, p := range a.presets {
+	for _, p := range presetsSnapshot {
 		if p.Alias == "default" {
 			a.currentModelMu.Lock()
 			a.currentModelName = p.Name
@@ -273,9 +288,9 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 			break
 		}
 	}
-	if !foundDefault && len(a.presets) > 0 {
+	if !foundDefault && len(presetsSnapshot) > 0 {
 		a.currentModelMu.Lock()
-		a.currentModelName = a.presets[0].Name
+		a.currentModelName = presetsSnapshot[0].Name
 		a.currentModelMu.Unlock()
 		a.currentModelMu.RLock()
 		log.Printf("[server] no default preset found, using first model: %s", a.currentModelName)
@@ -391,25 +406,47 @@ func (a *App) startup(ctx context.Context) {
 		return
 	}
 
+	// 加载加密密钥，用于 API Key 等敏感设置的加密存储
+	keyPath := filepath.Join(appDir(), "data", ".enc_key")
+	a.encKey, err = secrets.LoadOrCreateKey(keyPath)
+	if err != nil {
+		log.Printf("[startup] load encryption key: %v", err)
+		// 加密密钥加载失败不阻止启动，但敏感设置将以明文存储
+	}
+
 	if raw, rawErr := config.LoadRaw(cfgPath); rawErr == nil {
 		if se, ok := raw["search_engines"]; ok {
 			if seMap, ok := se.(map[string]interface{}); ok {
 				migrated := false
+				setFn := func(key, value string) error {
+					if a.encKey != nil {
+						return store.SetEncryptedSetting(a.db, key, value, a.encKey)
+					}
+					return store.SetSetting(a.db, key, value)
+				}
+				getFn := func(key string) string {
+					if a.encKey != nil {
+						v, _ := store.GetEncryptedSetting(a.db, key, a.encKey)
+						return v
+					}
+					v, _ := store.GetSetting(a.db, key)
+					return v
+				}
 				if v, ok := seMap["ollama_api_key"]; ok && v != "" {
-					if existing, _ := store.GetSetting(a.db, "search_ollama_api_key"); existing == "" {
-						store.SetSetting(a.db, "search_ollama_api_key", fmt.Sprintf("%v", v))
+					if existing := getFn("search_ollama_api_key"); existing == "" {
+						setFn("search_ollama_api_key", fmt.Sprintf("%v", v))
 						migrated = true
 					}
 				}
 				if v, ok := seMap["tavily_api_key"]; ok && v != "" {
-					if existing, _ := store.GetSetting(a.db, "search_tavily_api_key"); existing == "" {
-						store.SetSetting(a.db, "search_tavily_api_key", fmt.Sprintf("%v", v))
+					if existing := getFn("search_tavily_api_key"); existing == "" {
+						setFn("search_tavily_api_key", fmt.Sprintf("%v", v))
 						migrated = true
 					}
 				}
 				if v, ok := seMap["github_api_key"]; ok && v != "" {
-					if existing, _ := store.GetSetting(a.db, "search_github_api_key"); existing == "" {
-						store.SetSetting(a.db, "search_github_api_key", fmt.Sprintf("%v", v))
+					if existing := getFn("search_github_api_key"); existing == "" {
+						setFn("search_github_api_key", fmt.Sprintf("%v", v))
 						migrated = true
 					}
 				}
@@ -425,7 +462,7 @@ func (a *App) startup(ctx context.Context) {
 		log.Printf("[startup] generate preset file: %v", err)
 	}
 
-	a.client = llm.NewClient(a.config.APIBase)
+	a.client = llm.NewClient(a.config.APIBase, a.getServerAPIKey())
 
 	var searchProviders []search.CategorizedProvider
 	keys := a.loadSearchAPIKeys()
@@ -593,6 +630,30 @@ func (a *App) DeleteKnowledgeBase(name string) error {
 	return a.ragVS.DeleteCollection(name)
 }
 
+// 上传文档允许的文件扩展名
+var allowedDocExts = map[string]bool{
+	".txt": true, ".md": true, ".csv": true, ".json": true,
+	".xml": true, ".html": true, ".yaml": true, ".yml": true,
+	".toml": true, ".ini": true, ".cfg": true, ".log": true,
+	".sql": true,
+	".go": true, ".py": true, ".js": true, ".ts": true,
+	".java": true, ".c": true, ".cpp": true, ".h": true,
+	".rs": true, ".sh": true, ".rb": true, ".php": true,
+	".swift": true, ".kt": true,
+	".pdf": true, ".docx": true,
+}
+
+// 上传文档允许的 MIME 类型
+var allowedDocMIMETypes = map[string]bool{
+	"text/plain": true, "text/markdown": true, "text/csv": true,
+	"application/json": true, "application/xml": true, "text/xml": true,
+	"text/html": true, "text/yaml": true, "application/x-yaml": true,
+	"application/pdf": true,
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": true,
+}
+
+const maxUploadSize = 50 * 1024 * 1024 // 50MB
+
 func (a *App) UploadDocument(kbName string, fileName string, fileData string, mimeType string) error {
 	if a.ragVS == nil {
 		return fmt.Errorf("知识库未初始化")
@@ -600,6 +661,24 @@ func (a *App) UploadDocument(kbName string, fileName string, fileData string, mi
 	if !a.serverReady.Load() {
 		return fmt.Errorf("AI 服务未启动，无法生成嵌入向量")
 	}
+
+	// 验证文件扩展名
+	ext := strings.ToLower(filepath.Ext(fileName))
+	if !allowedDocExts[ext] {
+		return fmt.Errorf("不支持的文件类型: %s", ext)
+	}
+
+	// 验证 MIME 类型（如果前端提供了）
+	if mimeType != "" && !allowedDocMIMETypes[mimeType] {
+		return fmt.Errorf("不支持的 MIME 类型: %s", mimeType)
+	}
+
+	// 验证文件大小
+	decodedLen := base64.StdEncoding.DecodedLen(len(fileData))
+	if decodedLen > maxUploadSize {
+		return fmt.Errorf("文件大小超过限制（最大 %d MB）", maxUploadSize/(1024*1024))
+	}
+
 	embedder := &rag.ClientEmbedder{Client: a.client}
 	chunkCfg := rag.ChunkConfig{
 		ChunkSize:    a.config.RAGChunkSize,
@@ -795,27 +874,45 @@ func (a *App) GetSearchAPIKeys() SearchAPIKeys {
 }
 
 func (a *App) SetSearchAPIKeys(keys SearchAPIKeys) error {
-	if err := store.SetSetting(a.db, "search_ollama_api_key", keys.OllamaAPIKey); err != nil {
-		return fmt.Errorf("save ollama api key: %w", err)
-	}
-	if err := store.SetSetting(a.db, "search_tavily_api_key", keys.TavilyAPIKey); err != nil {
-		return fmt.Errorf("save tavily api key: %w", err)
-	}
-	if err := store.SetSetting(a.db, "search_github_api_key", keys.GitHubAPIKey); err != nil {
-		return fmt.Errorf("save github api key: %w", err)
+	if a.encKey != nil {
+		if err := store.SetEncryptedSetting(a.db, "search_ollama_api_key", keys.OllamaAPIKey, a.encKey); err != nil {
+			return fmt.Errorf("save ollama api key: %w", err)
+		}
+		if err := store.SetEncryptedSetting(a.db, "search_tavily_api_key", keys.TavilyAPIKey, a.encKey); err != nil {
+			return fmt.Errorf("save tavily api key: %w", err)
+		}
+		if err := store.SetEncryptedSetting(a.db, "search_github_api_key", keys.GitHubAPIKey, a.encKey); err != nil {
+			return fmt.Errorf("save github api key: %w", err)
+		}
+	} else {
+		if err := store.SetSetting(a.db, "search_ollama_api_key", keys.OllamaAPIKey); err != nil {
+			return fmt.Errorf("save ollama api key: %w", err)
+		}
+		if err := store.SetSetting(a.db, "search_tavily_api_key", keys.TavilyAPIKey); err != nil {
+			return fmt.Errorf("save tavily api key: %w", err)
+		}
+		if err := store.SetSetting(a.db, "search_github_api_key", keys.GitHubAPIKey); err != nil {
+			return fmt.Errorf("save github api key: %w", err)
+		}
 	}
 	return nil
 }
 
 func (a *App) loadSearchAPIKeys() SearchAPIKeys {
 	keys := SearchAPIKeys{}
-	if v, err := store.GetSetting(a.db, "search_ollama_api_key"); err == nil {
+	getFn := func(key string) (string, error) {
+		if a.encKey != nil {
+			return store.GetEncryptedSetting(a.db, key, a.encKey)
+		}
+		return store.GetSetting(a.db, key)
+	}
+	if v, err := getFn("search_ollama_api_key"); err == nil {
 		keys.OllamaAPIKey = v
 	}
-	if v, err := store.GetSetting(a.db, "search_tavily_api_key"); err == nil {
+	if v, err := getFn("search_tavily_api_key"); err == nil {
 		keys.TavilyAPIKey = v
 	}
-	if v, err := store.GetSetting(a.db, "search_github_api_key"); err == nil {
+	if v, err := getFn("search_github_api_key"); err == nil {
 		keys.GitHubAPIKey = v
 	}
 	if apiKey := os.Getenv("OLLAMA_API_KEY"); apiKey != "" {
@@ -830,14 +927,31 @@ func (a *App) loadSearchAPIKeys() SearchAPIKeys {
 	return keys
 }
 
-func (a *App) GetServerAPIKey() string {
-	if v, err := store.GetSetting(a.db, "server_api_key"); err == nil {
-		return v
+// HasServerAPIKey 返回是否已设置 API Key（不暴露实际密钥值给前端）
+func (a *App) HasServerAPIKey() bool {
+	return a.getServerAPIKey() != ""
+}
+
+// getServerAPIKey 内部方法，获取实际的 API Key 值
+func (a *App) getServerAPIKey() string {
+	var value string
+	if a.encKey != nil {
+		if v, err := store.GetEncryptedSetting(a.db, "server_api_key", a.encKey); err == nil {
+			value = v
+		}
 	}
-	return ""
+	if value == "" {
+		if v, err := store.GetSetting(a.db, "server_api_key"); err == nil {
+			value = v
+		}
+	}
+	return value
 }
 
 func (a *App) SetServerAPIKey(key string) error {
+	if a.encKey != nil {
+		return store.SetEncryptedSetting(a.db, "server_api_key", key, a.encKey)
+	}
 	return store.SetSetting(a.db, "server_api_key", key)
 }
 
@@ -863,7 +977,7 @@ func (a *App) UpdateConfig(cfg *config.Config) error {
 	}
 	a.config = cfg
 
-	a.client = llm.NewClient(a.config.APIBase)
+	a.client = llm.NewClient(a.config.APIBase, a.getServerAPIKey())
 
 	var searchProviders []search.CategorizedProvider
 	keys := a.loadSearchAPIKeys()
@@ -1138,9 +1252,9 @@ func (a *App) generatePresetFile() error {
 	defaultModelPath := a.config.ModelPath
 	llm.SetDefaultAlias(presets, defaultModelPath)
 
-	a.presetRelPaths = make(map[string]string, len(presets))
+	presetRelPaths := make(map[string]string, len(presets))
 	for i := range presets {
-		a.presetRelPaths[presets[i].Name] = presets[i].ModelPath
+		presetRelPaths[presets[i].Name] = presets[i].ModelPath
 	}
 
 	for i := range presets {
@@ -1152,7 +1266,10 @@ func (a *App) generatePresetFile() error {
 		}
 	}
 
+	a.presetsMu.Lock()
 	a.presets = presets
+	a.presetRelPaths = presetRelPaths
+	a.presetsMu.Unlock()
 
 	var globalDefaults map[string]string
 	if a.hwInfo != nil {
@@ -1184,7 +1301,12 @@ func (a *App) generatePresetFile() error {
 }
 
 func (a *App) GetAvailableModels() ([]llm.ModelOption, error) {
-	options := make([]llm.ModelOption, 0, len(a.presets))
+	a.presetsMu.RLock()
+	presetsCopy := make([]llm.ModelPreset, len(a.presets))
+	copy(presetsCopy, a.presets)
+	a.presetsMu.RUnlock()
+
+	options := make([]llm.ModelOption, 0, len(presetsCopy))
 
 	loadedModels := map[string]bool{}
 	modelStatuses := map[string]string{}
@@ -1197,7 +1319,7 @@ func (a *App) GetAvailableModels() ([]llm.ModelOption, error) {
 		}
 	}
 
-	for _, p := range a.presets {
+	for _, p := range presetsCopy {
 		isDefault := p.Alias == "default"
 		fileName := filepath.Base(p.ModelPath)
 		options = append(options, llm.ModelOption{
@@ -1399,7 +1521,10 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 	a.currentModelMu.Unlock()
 
 	// 8. Save config
-	if relPath, ok := a.presetRelPaths[modelName]; ok {
+	a.presetsMu.RLock()
+	relPath, hasRelPath := a.presetRelPaths[modelName]
+	a.presetsMu.RUnlock()
+	if hasRelPath {
 		a.config.ModelPath = relPath
 		if err := config.Save(filepath.Join(appDir(), "config.json"), a.config); err != nil {
 			log.Printf("[router] save config after model switch: %v", err)

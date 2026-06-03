@@ -30,7 +30,7 @@ func TestStreamChat_NormalSSE(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	var chunks []llm.SSEChunk
 	err := client.StreamChat(context.Background(), &llm.ChatCompletionRequest{
@@ -73,7 +73,7 @@ func TestStreamChat_DoneMarker(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	var chunks []llm.SSEChunk
 	err := client.StreamChat(context.Background(), &llm.ChatCompletionRequest{
@@ -109,7 +109,7 @@ func TestStreamChat_NonDataLinesIgnored(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	var chunks []llm.SSEChunk
 	err := client.StreamChat(context.Background(), &llm.ChatCompletionRequest{
@@ -143,7 +143,7 @@ func TestStreamChat_InvalidJSONSkipped(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	var chunks []llm.SSEChunk
 	err := client.StreamChat(context.Background(), &llm.ChatCompletionRequest{
@@ -178,7 +178,7 @@ func TestStreamChat_LargeBuffer(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	var chunks []llm.SSEChunk
 	err := client.StreamChat(context.Background(), &llm.ChatCompletionRequest{
@@ -214,7 +214,7 @@ func TestStreamChat_ToolCallStreaming(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	var chunks []llm.SSEChunk
 	err := client.StreamChat(context.Background(), &llm.ChatCompletionRequest{
@@ -270,7 +270,7 @@ func TestStreamChat_ReasoningContentOnly(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	var contentParts []string
 	var reasoningParts []string
@@ -312,7 +312,7 @@ func TestStreamChat_EmptyChoicesArray(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	var chunks []llm.SSEChunk
 	err := client.StreamChat(context.Background(), &llm.ChatCompletionRequest{
@@ -344,7 +344,7 @@ func TestStreamChat_Non200StatusCode(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	err := client.StreamChat(context.Background(), &llm.ChatCompletionRequest{
 		Model:    "test",
@@ -379,7 +379,7 @@ func TestStreamChat_ContextCancellation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	err := client.StreamChat(ctx, &llm.ChatCompletionRequest{
 		Model:    "test",
@@ -405,7 +405,7 @@ func TestStreamChat_CallbackError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	callbackErr := fmt.Errorf("callback error")
 	callCount := 0
@@ -441,7 +441,7 @@ func TestStreamChat_ChineseContent(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	var fullContent string
 	err := client.StreamChat(context.Background(), &llm.ChatCompletionRequest{
@@ -474,7 +474,7 @@ func TestStreamChat_FinishReasonLength(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	var chunks []llm.SSEChunk
 	err := client.StreamChat(context.Background(), &llm.ChatCompletionRequest{
@@ -509,7 +509,7 @@ func TestStreamChat_MultipleToolCalls(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	var allToolCalls []llm.ToolCall
 	err := client.StreamChat(context.Background(), &llm.ChatCompletionRequest{
@@ -545,7 +545,7 @@ func TestStreamChat_EmptyStream(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	var chunks []llm.SSEChunk
 	err := client.StreamChat(context.Background(), &llm.ChatCompletionRequest{
@@ -593,7 +593,7 @@ func TestChat_NonStreamingResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	resp, err := client.Chat(context.Background(), &llm.ChatCompletionRequest{
 		Model:    "test",
@@ -621,7 +621,7 @@ func TestChat_NonStreamingNon200Error(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	_, err := client.Chat(context.Background(), &llm.ChatCompletionRequest{
 		Model:    "test",
@@ -646,7 +646,7 @@ func TestHealthCheck_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	if err := client.HealthCheck(context.Background()); err != nil {
 		t.Fatalf("expected no error for health check, got: %v", err)
@@ -659,7 +659,7 @@ func TestHealthCheck_Failure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	err := client.HealthCheck(context.Background())
 	if err == nil {
@@ -668,7 +668,7 @@ func TestHealthCheck_Failure(t *testing.T) {
 }
 
 func TestNewClient_TrailingSlashStripped(t *testing.T) {
-	client := llm.NewClient("http://localhost:8080/")
+	client := llm.NewClient("http://localhost:8080/", "")
 	if client.BaseURL() != "http://localhost:8080" {
 		t.Fatalf("expected trailing slash stripped, got '%s'", client.BaseURL())
 	}
@@ -690,7 +690,7 @@ func TestStreamChat_RequestBodyContainsStream(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	err := client.StreamChat(context.Background(), &llm.ChatCompletionRequest{
 		Model:    "test",
@@ -719,7 +719,7 @@ func TestStreamChat_RequestSendsCorrectEndpoint(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	err := client.StreamChat(context.Background(), &llm.ChatCompletionRequest{
 		Model:    "test",
@@ -734,7 +734,7 @@ func TestStreamChat_RequestSendsCorrectEndpoint(t *testing.T) {
 }
 
 func TestStreamChat_ConnectionRefused(t *testing.T) {
-	client := llm.NewClient("http://127.0.0.1:1")
+	client := llm.NewClient("http://127.0.0.1:1", "")
 
 	err := client.StreamChat(context.Background(), &llm.ChatCompletionRequest{
 		Model:    "test",
@@ -763,7 +763,7 @@ func TestStreamChat_MixedContentAndReasoning(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	var fullContent string
 	var fullReasoning string
@@ -804,7 +804,7 @@ func TestStreamChat_ToolCallWithAccumulatedArguments(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	var toolCallParts []string
 	var toolCallID string
@@ -874,7 +874,7 @@ func TestChat_NonStreamingWithToolCalls(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 
 	resp, err := client.Chat(context.Background(), &llm.ChatCompletionRequest{
 		Model:    "test",
@@ -967,7 +967,7 @@ func TestLoadModel_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 	err := client.LoadModel(context.Background(), "test-model")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -981,7 +981,7 @@ func TestLoadModel_Non200Error(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 	err := client.LoadModel(context.Background(), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for 404 status, got nil")
@@ -1011,7 +1011,7 @@ func TestUnloadModel_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 	err := client.UnloadModel(context.Background(), "test-model")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1025,7 +1025,7 @@ func TestUnloadModel_Non200Error(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 	err := client.UnloadModel(context.Background(), "test-model")
 	if err == nil {
 		t.Fatal("expected error for 500 status, got nil")
@@ -1047,7 +1047,7 @@ func TestGetServerProps_ModalitiesAndReasoning(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 	props, err := client.GetServerProps(context.Background(), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1071,7 +1071,7 @@ func TestGetServerProps_EmptyModalities(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 	props, err := client.GetServerProps(context.Background(), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1090,7 +1090,7 @@ func TestGetServerProps_Non200Error(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 	_, err := client.GetServerProps(context.Background(), "")
 	if err == nil {
 		t.Fatal("expected error for 503 status, got nil")
@@ -1111,7 +1111,7 @@ func TestGetServerProps_WithModelNameQueryParam(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 	props, err := client.GetServerProps(context.Background(), "Qwen3-VL-7B")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1135,7 +1135,7 @@ func TestGetServerProps_WithoutModelName(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := llm.NewClient(server.URL)
+	client := llm.NewClient(server.URL, "")
 	props, err := client.GetServerProps(context.Background(), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

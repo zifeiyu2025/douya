@@ -27,19 +27,39 @@ type LocalFileLoader struct {
 	http.Handler
 }
 
+// allowedFileExts 定义 LocalFileLoader 允许提供的文件扩展名白名单
+var allowedFileExts = map[string]bool{
+	".jpg": true, ".jpeg": true, ".png": true, ".gif": true,
+	".webp": true, ".bmp": true, ".svg": true,
+}
+
 func (h *LocalFileLoader) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 	filePath := strings.TrimPrefix(req.URL.Path, "/local-file/")
 	if filePath == "" {
 		res.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	fileData, err := os.ReadFile(filePath)
-	if err != nil {
-		res.WriteHeader(http.StatusNotFound)
-		res.Write([]byte("file not found: " + filePath))
+
+	// 安全：清理路径并阻止路径遍历
+	cleaned := filepath.Clean(filePath)
+	if strings.Contains(cleaned, "..") {
+		res.WriteHeader(http.StatusForbidden)
 		return
 	}
-	ext := strings.ToLower(filepath.Ext(filePath))
+
+	// 安全：仅允许白名单中的文件扩展名
+	ext := strings.ToLower(filepath.Ext(cleaned))
+	if !allowedFileExts[ext] {
+		res.WriteHeader(http.StatusForbidden)
+		return
+	}
+
+	fileData, err := os.ReadFile(cleaned)
+	if err != nil {
+		res.WriteHeader(http.StatusNotFound)
+		return
+	}
+
 	switch ext {
 	case ".jpg", ".jpeg":
 		res.Header().Set("Content-Type", "image/jpeg")
@@ -53,8 +73,6 @@ func (h *LocalFileLoader) ServeHTTP(res http.ResponseWriter, req *http.Request) 
 		res.Header().Set("Content-Type", "image/bmp")
 	case ".svg":
 		res.Header().Set("Content-Type", "image/svg+xml")
-	default:
-		res.Header().Set("Content-Type", "application/octet-stream")
 	}
 	res.Write(fileData)
 }

@@ -701,7 +701,7 @@ func TestSendMessage_HistoryAttachmentsRestored(t *testing.T) {
 		fmt.Fprint(w, sseData)
 	}))
 	defer server2.Close()
-	svc.UpdateClient(llm.NewClient(server2.URL))
+	svc.UpdateClient(llm.NewClient(server2.URL, ""))
 
 	err = svc.SendMessage(context.Background(), chat.SendMessageParams{
 		Content:        "继续",

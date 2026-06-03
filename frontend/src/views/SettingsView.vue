@@ -112,13 +112,17 @@
           />
         </n-form-item>
         <n-form-item label="API Key" label-width="80">
-          <n-input
-            v-model:value="serverApiKey"
-            type="password"
-            show-password-on="click"
-            placeholder="设置后 API 请求需携带此密钥"
-            @blur="saveServerApiKey"
-          />
+          <div style="display: flex; align-items: center; gap: 8px; width: 100%;">
+            <n-input
+              v-model:value="serverApiKey"
+              type="password"
+              show-password-on="click"
+              :placeholder="hasServerApiKey ? '已设置，留空保持不变' : '设置后 API 请求需携带此密钥'"
+              @blur="saveServerApiKey"
+              style="flex: 1;"
+            />
+            <n-tag v-if="hasServerApiKey" type="success" size="small">已设置</n-tag>
+          </div>
         </n-form-item>
 
         <n-divider>系统提示词</n-divider>
@@ -435,9 +439,13 @@ function saveSearchKeys() {
 }
 
 const serverApiKey = ref('')
+const hasServerApiKey = ref(false)
 
 function saveServerApiKey() {
-    settingsStore.saveServerAPIKey(serverApiKey.value)
+    if (serverApiKey.value) {
+        settingsStore.saveServerAPIKey(serverApiKey.value)
+        hasServerApiKey.value = true
+    }
 }
 
 interface ModelRefConfig {
@@ -957,7 +965,7 @@ onMounted(async () => {
   genParamsDirty.value = false
   await settingsStore.loadSearchAPIKeys()
   searchKeys.value = { ...settingsStore.searchAPIKeys }
-  serverApiKey.value = await settingsStore.loadServerAPIKey()
+  hasServerApiKey.value = await settingsStore.hasServerAPIKey()
 })
 
 watch(() => settingsStore.currentModel, async () => {

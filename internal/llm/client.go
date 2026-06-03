@@ -26,6 +26,7 @@ func readBody(r io.Reader) ([]byte, error) {
 
 type Client struct {
 	baseURL        string
+	apiKey         string
 	httpClient     *http.Client
 	streamClient   *http.Client
 }
@@ -34,11 +35,19 @@ func (c *Client) BaseURL() string {
 	return c.baseURL
 }
 
-func NewClient(baseURL string) *Client {
+func NewClient(baseURL string, apiKey string) *Client {
 	return &Client{
 		baseURL:      strings.TrimRight(baseURL, "/"),
+		apiKey:       apiKey,
 		httpClient:   &http.Client{Timeout: 300 * time.Second},
 		streamClient: &http.Client{Timeout: 900 * time.Second},
+	}
+}
+
+// setAuthHeader 为请求设置认证 header（如果配置了 API Key）
+func (c *Client) setAuthHeader(req *http.Request) {
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 }
 
@@ -55,6 +64,7 @@ func (c *Client) StreamChat(ctx context.Context, req *ChatCompletionRequest, onT
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	c.setAuthHeader(httpReq)
 
 	resp, err := c.streamClient.Do(httpReq)
 	if err != nil {
@@ -147,6 +157,7 @@ func (c *Client) Chat(ctx context.Context, req *ChatCompletionRequest) (*ChatCom
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	c.setAuthHeader(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -184,6 +195,7 @@ func (c *Client) Embedding(ctx context.Context, req *EmbeddingRequest) (*Embeddi
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	c.setAuthHeader(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -213,6 +225,7 @@ func (c *Client) HealthCheck(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create health check request: %w", err)
 	}
+	c.setAuthHeader(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -289,6 +302,7 @@ func (c *Client) GetModelInfoByName(ctx context.Context, modelName string) (*Mod
 		if err != nil {
 			return nil, err
 		}
+		c.setAuthHeader(httpReq)
 		resp, err := c.httpClient.Do(httpReq)
 		if err == nil {
 			defer resp.Body.Close()
@@ -332,6 +346,7 @@ func (c *Client) GetModelInfoByName(ctx context.Context, modelName string) (*Mod
 	if err != nil {
 		return nil, err
 	}
+	c.setAuthHeader(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -466,6 +481,7 @@ func (c *Client) GetServerProps(ctx context.Context, modelName string) (*ServerP
 	if err != nil {
 		return nil, err
 	}
+	c.setAuthHeader(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -507,6 +523,7 @@ func (c *Client) LoadModel(ctx context.Context, modelName string) error {
 		return fmt.Errorf("failed to create load model request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	c.setAuthHeader(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -533,6 +550,7 @@ func (c *Client) UnloadModel(ctx context.Context, modelName string) error {
 		return fmt.Errorf("failed to create unload model request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	c.setAuthHeader(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -553,6 +571,7 @@ func (c *Client) GetModelsList(ctx context.Context) ([]ListedModel, error) {
 	if err != nil {
 		return nil, err
 	}
+	c.setAuthHeader(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -601,6 +620,7 @@ func (c *Client) ReloadModels(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	c.setAuthHeader(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -626,6 +646,7 @@ func (c *Client) GetModelStatus(ctx context.Context, modelName string) (*ModelSt
 	if err != nil {
 		return nil, err
 	}
+	c.setAuthHeader(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -683,6 +704,7 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 		if err != nil {
 			return err
 		}
+		c.setAuthHeader(httpReq)
 
 		resp, err := pollClient.Do(httpReq)
 		if err != nil {

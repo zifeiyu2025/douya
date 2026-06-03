@@ -66,8 +66,8 @@ export function GetSearchAPIKeys() {
   return window['go']['main']['App']['GetSearchAPIKeys']();
 }
 
-export function GetServerAPIKey() {
-  return window['go']['main']['App']['GetServerAPIKey']();
+export function HasServerAPIKey() {
+  return window['go']['main']['App']['HasServerAPIKey']();
 }
 
 export function GetServerStatus() {
