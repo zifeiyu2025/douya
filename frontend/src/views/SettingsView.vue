@@ -78,7 +78,7 @@
             v-model:value="searchKeys.ollama_api_key"
             type="password"
             show-password-on="click"
-            placeholder="输入 Ollama API Key"
+            placeholder="留空保持不变，输入新值则覆盖"
             @blur="saveSearchKeys"
           />
         </n-form-item>
@@ -88,7 +88,7 @@
             v-model:value="searchKeys.tavily_api_key"
             type="password"
             show-password-on="click"
-            placeholder="输入 Tavily API Key"
+            placeholder="留空保持不变，输入新值则覆盖"
             @blur="saveSearchKeys"
           />
         </n-form-item>
@@ -98,7 +98,7 @@
             v-model:value="searchKeys.github_api_key"
             type="password"
             show-password-on="click"
-            placeholder="输入 GitHub API Key"
+            placeholder="留空保持不变，输入新值则覆盖"
             @blur="saveSearchKeys"
           />
         </n-form-item>

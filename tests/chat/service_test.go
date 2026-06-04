@@ -22,7 +22,7 @@ func newTestService() *chat.Service {
 		SystemPrompt: "",
 		Temperature:  0.7,
 	}
-	return chat.NewService(nil, nil, nil, cfg)
+	return chat.NewService(nil, nil, nil, cfg, nil)
 }
 
 func TestBuildLLMMessages_SystemPromptContainsCurrentDate(t *testing.T) {
@@ -300,7 +300,7 @@ func newTestServiceWithDB(t *testing.T) *chat.Service {
 	t.Helper()
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
-	db, err := store.Init(dbPath)
+	db, err := store.Init(dbPath, nil)
 	if err != nil {
 		t.Fatalf("failed to init test db: %v", err)
 	}
@@ -312,7 +312,7 @@ func newTestServiceWithDB(t *testing.T) *chat.Service {
 		SystemPrompt: "",
 		Temperature:  0.7,
 	}
-	return chat.NewService(nil, nil, db, cfg)
+	return chat.NewService(nil, nil, db, cfg, nil)
 }
 
 func TestIsCodeRelated(t *testing.T) {
@@ -340,7 +340,7 @@ func TestGetConversations_TimeFormatting(t *testing.T) {
 	svc := newTestServiceWithDB(t)
 
 	conv := &store.Conversation{Title: "时间格式测试"}
-	if err := store.CreateConversation(chat.GetDB(svc), conv); err != nil {
+	if err := store.CreateConversation(chat.GetDB(svc), conv, nil); err != nil {
 		t.Fatalf("CreateConversation failed: %v", err)
 	}
 
@@ -365,7 +365,7 @@ func TestGetMessages_TimeFormatting(t *testing.T) {
 	svc := newTestServiceWithDB(t)
 
 	conv := &store.Conversation{Title: "消息时间测试"}
-	if err := store.CreateConversation(chat.GetDB(svc), conv); err != nil {
+	if err := store.CreateConversation(chat.GetDB(svc), conv, nil); err != nil {
 		t.Fatalf("CreateConversation failed: %v", err)
 	}
 
@@ -374,7 +374,7 @@ func TestGetMessages_TimeFormatting(t *testing.T) {
 		Role:           "user",
 		Content:        "测试消息",
 	}
-	if err := store.CreateMessage(chat.GetDB(svc), msg); err != nil {
+	if err := store.CreateMessage(chat.GetDB(svc), msg, nil); err != nil {
 		t.Fatalf("CreateMessage failed: %v", err)
 	}
 
@@ -411,7 +411,7 @@ func TestExportConversation_Markdown(t *testing.T) {
 	svc := newTestServiceWithDB(t)
 
 	conv := &store.Conversation{Title: "导出测试"}
-	if err := store.CreateConversation(chat.GetDB(svc), conv); err != nil {
+	if err := store.CreateConversation(chat.GetDB(svc), conv, nil); err != nil {
 		t.Fatalf("CreateConversation failed: %v", err)
 	}
 
@@ -419,12 +419,12 @@ func TestExportConversation_Markdown(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "你好",
-	})
+	}, nil)
 	store.CreateMessage(chat.GetDB(svc), &store.Message{
 		ConversationID: conv.ID,
 		Role:           "assistant",
 		Content:        "你好！有什么可以帮你的？",
-	})
+	}, nil)
 
 	result, err := svc.ExportConversation(conv.ID, "markdown")
 	if err != nil {
@@ -446,7 +446,7 @@ func TestExportConversation_JSON(t *testing.T) {
 	svc := newTestServiceWithDB(t)
 
 	conv := &store.Conversation{Title: "JSON导出测试"}
-	if err := store.CreateConversation(chat.GetDB(svc), conv); err != nil {
+	if err := store.CreateConversation(chat.GetDB(svc), conv, nil); err != nil {
 		t.Fatalf("CreateConversation failed: %v", err)
 	}
 
@@ -454,7 +454,7 @@ func TestExportConversation_JSON(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "测试JSON",
-	})
+	}, nil)
 
 	result, err := svc.ExportConversation(conv.ID, "json")
 	if err != nil {
@@ -470,7 +470,7 @@ func TestExportConversation_UnsupportedFormat(t *testing.T) {
 	svc := newTestServiceWithDB(t)
 
 	conv := &store.Conversation{Title: "不支持格式测试"}
-	if err := store.CreateConversation(chat.GetDB(svc), conv); err != nil {
+	if err := store.CreateConversation(chat.GetDB(svc), conv, nil); err != nil {
 		t.Fatalf("CreateConversation failed: %v", err)
 	}
 
@@ -516,7 +516,7 @@ func TestIsCodeRelated_AllKeywords(t *testing.T) {
 			if got != tt.want {
 				t.Errorf("IsCodeRelated(%q) = %v, want %v", tt.query, got, tt.want)
 			}
-		})
+		}, nil)
 	}
 }
 
@@ -677,7 +677,7 @@ func TestSearchMessages(t *testing.T) {
 	svc := newTestServiceWithDB(t)
 
 	conv := &store.Conversation{Title: "搜索测试"}
-	if err := store.CreateConversation(chat.GetDB(svc), conv); err != nil {
+	if err := store.CreateConversation(chat.GetDB(svc), conv, nil); err != nil {
 		t.Fatalf("CreateConversation failed: %v", err)
 	}
 
@@ -685,17 +685,17 @@ func TestSearchMessages(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Go concurrent programming",
-	})
+	}, nil)
 	store.CreateMessage(chat.GetDB(svc), &store.Message{
 		ConversationID: conv.ID,
 		Role:           "assistant",
 		Content:        "Go uses goroutines for concurrency",
-	})
+	}, nil)
 	store.CreateMessage(chat.GetDB(svc), &store.Message{
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Python data analysis",
-	})
+	}, nil)
 
 	msgs, err := svc.SearchMessages("Go concurrent")
 	if err != nil {
@@ -710,7 +710,7 @@ func TestExportConversation_MarkdownWithMultipleRounds(t *testing.T) {
 	svc := newTestServiceWithDB(t)
 
 	conv := &store.Conversation{Title: "多轮对话导出"}
-	if err := store.CreateConversation(chat.GetDB(svc), conv); err != nil {
+	if err := store.CreateConversation(chat.GetDB(svc), conv, nil); err != nil {
 		t.Fatalf("CreateConversation failed: %v", err)
 	}
 
@@ -718,22 +718,22 @@ func TestExportConversation_MarkdownWithMultipleRounds(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "什么是Go语言？",
-	})
+	}, nil)
 	store.CreateMessage(chat.GetDB(svc), &store.Message{
 		ConversationID: conv.ID,
 		Role:           "assistant",
 		Content:        "Go是一种静态类型的编译型语言。",
-	})
+	}, nil)
 	store.CreateMessage(chat.GetDB(svc), &store.Message{
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "它有什么优点？",
-	})
+	}, nil)
 	store.CreateMessage(chat.GetDB(svc), &store.Message{
 		ConversationID: conv.ID,
 		Role:           "assistant",
 		Content:        "Go语言有并发支持、编译速度快、语法简洁等优点。",
-	})
+	}, nil)
 
 	result, err := svc.ExportConversation(conv.ID, "markdown")
 	if err != nil {
@@ -761,7 +761,7 @@ func TestExportConversation_JSONContainsAllFields(t *testing.T) {
 	svc := newTestServiceWithDB(t)
 
 	conv := &store.Conversation{Title: "JSON完整字段测试"}
-	if err := store.CreateConversation(chat.GetDB(svc), conv); err != nil {
+	if err := store.CreateConversation(chat.GetDB(svc), conv, nil); err != nil {
 		t.Fatalf("CreateConversation failed: %v", err)
 	}
 
@@ -771,7 +771,7 @@ func TestExportConversation_JSONContainsAllFields(t *testing.T) {
 		Content:         "测试内容",
 		ThinkingContent: "思考过程",
 		SearchResults:   `[{"title":"test"}]`,
-	})
+	}, nil)
 
 	result, err := svc.ExportConversation(conv.ID, "json")
 	if err != nil {

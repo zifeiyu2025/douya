@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"douya/internal/secrets"
+
 	"github.com/google/uuid"
 )
 
@@ -28,13 +30,65 @@ type Message struct {
 	CreatedAt        time.Time `json:"created_at"`
 }
 
-func CreateMessage(db *sql.DB, msg *Message) error {
+// encryptField 使用 AES-GCM 加密字段，返回 "enc:" 前缀的密文
+// 如果 encKey 为 nil，则跳过加密直接返回明文
+func encryptField(plaintext string, encKey []byte) string {
+	if encKey == nil || plaintext == "" {
+		return plaintext
+	}
+	encrypted, err := secrets.Encrypt(plaintext, encKey)
+	if err != nil {
+		return plaintext
+	}
+	return "enc:" + encrypted
+}
+
+// decryptField 解密 "enc:" 前缀的密文，兼容旧版明文数据
+// 如果 encKey 为 nil，则跳过解密直接返回原值
+func decryptField(ciphertext string, encKey []byte) string {
+	if encKey == nil || ciphertext == "" {
+		return ciphertext
+	}
+	if len(ciphertext) < 4 || ciphertext[:4] != "enc:" {
+		return ciphertext
+	}
+	plaintext, err := secrets.Decrypt(ciphertext[4:], encKey)
+	if err != nil {
+		return ciphertext
+	}
+	return plaintext
+}
+
+// encryptMessage 加密消息中的敏感字段
+func encryptMessage(msg *Message, encKey []byte) {
+	msg.Content = encryptField(msg.Content, encKey)
+	msg.ThinkingContent = encryptField(msg.ThinkingContent, encKey)
+	msg.SearchResults = encryptField(msg.SearchResults, encKey)
+	msg.Images = encryptField(msg.Images, encKey)
+	msg.Attachments = encryptField(msg.Attachments, encKey)
+	msg.ToolCalls = encryptField(msg.ToolCalls, encKey)
+}
+
+// decryptMessage 解密消息中的敏感字段
+func decryptMessage(msg *Message, encKey []byte) {
+	msg.Content = decryptField(msg.Content, encKey)
+	msg.ThinkingContent = decryptField(msg.ThinkingContent, encKey)
+	msg.SearchResults = decryptField(msg.SearchResults, encKey)
+	msg.Images = decryptField(msg.Images, encKey)
+	msg.Attachments = decryptField(msg.Attachments, encKey)
+	msg.ToolCalls = decryptField(msg.ToolCalls, encKey)
+}
+
+func CreateMessage(db *sql.DB, msg *Message, encKey []byte) error {
 	if msg.ID == "" {
 		msg.ID = uuid.New().String()
 	}
 	if msg.CreatedAt.IsZero() {
 		msg.CreatedAt = time.Now()
 	}
+	// 加密敏感字段
+	encryptMessage(msg, encKey)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_, err := db.ExecContext(ctx,
@@ -47,7 +101,7 @@ func CreateMessage(db *sql.DB, msg *Message) error {
 	return nil
 }
 
-func GetMessagesByConversation(db *sql.DB, convID string) ([]*Message, error) {
+func GetMessagesByConversation(db *sql.DB, convID string, encKey []byte) ([]*Message, error) {
 	rows, err := db.Query(
 		"SELECT id, conversation_id, role, content, thinking_content, thinking_duration, search_results, images, attachments, tool_calls, tool_call_id, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC",
 		convID,
@@ -62,6 +116,8 @@ func GetMessagesByConversation(db *sql.DB, convID string) ([]*Message, error) {
 		if err := rows.Scan(&msg.ID, &msg.ConversationID, &msg.Role, &msg.Content, &msg.ThinkingContent, &msg.ThinkingDuration, &msg.SearchResults, &msg.Images, &msg.Attachments, &msg.ToolCalls, &msg.ToolCallID, &msg.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
 		}
+		// 解密敏感字段
+		decryptMessage(msg, encKey)
 		msgs = append(msgs, msg)
 	}
 	if err := rows.Err(); err != nil {
@@ -77,43 +133,31 @@ func escapeLikeWildcards(s string) string {
 	return s
 }
 
-func escapeFTS5Query(query string) string {
-	return `"` + strings.ReplaceAll(query, `"`, `""`) + `"`
-}
-
-func SearchMessages(db *sql.DB, query string) ([]*Message, error) {
-	var rows *sql.Rows
-	var err error
-
-	if FTS5Available() {
-		rows, err = db.Query(
-			`SELECT m.id, m.conversation_id, m.role, m.content, m.thinking_content, m.thinking_duration, m.search_results, m.images, m.attachments, m.tool_calls, m.tool_call_id, m.created_at
-			 FROM messages_fts f
-			 JOIN messages m ON m.rowid = f.rowid
-			 WHERE messages_fts MATCH ?
-			 ORDER BY rank`,
-			escapeFTS5Query(query),
-		)
-	} else {
-		rows, err = db.Query(
-			`SELECT id, conversation_id, role, content, thinking_content, thinking_duration, search_results, images, attachments, tool_calls, tool_call_id, created_at
-			 FROM messages
-			 WHERE content LIKE ?
-			 ORDER BY created_at DESC`,
-			"%"+escapeLikeWildcards(query)+"%",
-		)
-	}
+// SearchMessages 在内存中搜索消息（支持加密内容）
+// 加密后 FTS5 无法使用，改为加载所有消息解密后在内存中匹配
+func SearchMessages(db *sql.DB, query string, encKey []byte) ([]*Message, error) {
+	// 加载所有消息
+	rows, err := db.Query(
+		`SELECT id, conversation_id, role, content, thinking_content, thinking_duration, search_results, images, attachments, tool_calls, tool_call_id, created_at FROM messages ORDER BY created_at DESC`,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("search messages: %w", err)
 	}
 	defer rows.Close()
+
+	lowerQuery := strings.ToLower(query)
 	var msgs []*Message
 	for rows.Next() {
 		msg := &Message{}
 		if err := rows.Scan(&msg.ID, &msg.ConversationID, &msg.Role, &msg.Content, &msg.ThinkingContent, &msg.ThinkingDuration, &msg.SearchResults, &msg.Images, &msg.Attachments, &msg.ToolCalls, &msg.ToolCallID, &msg.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
 		}
-		msgs = append(msgs, msg)
+		// 解密敏感字段
+		decryptMessage(msg, encKey)
+		// 在内存中匹配
+		if strings.Contains(strings.ToLower(msg.Content), lowerQuery) {
+			msgs = append(msgs, msg)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate messages: %w", err)
@@ -121,7 +165,7 @@ func SearchMessages(db *sql.DB, query string) ([]*Message, error) {
 	return msgs, nil
 }
 
-func GetMessage(db *sql.DB, id string) (*Message, error) {
+func GetMessage(db *sql.DB, id string, encKey []byte) (*Message, error) {
 	var msg Message
 	err := db.QueryRow(
 		"SELECT id, conversation_id, role, content, thinking_content, thinking_duration, search_results, images, attachments, tool_calls, tool_call_id, created_at FROM messages WHERE id = ?",
@@ -130,6 +174,8 @@ func GetMessage(db *sql.DB, id string) (*Message, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get message: %w", err)
 	}
+	// 解密敏感字段
+	decryptMessage(&msg, encKey)
 	return &msg, nil
 }
 

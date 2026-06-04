@@ -56,6 +56,7 @@ type Service struct {
 	sysPromptCache    string
 	sysPromptDate     string
 	sysPromptConfig   string
+	encKey            []byte
 	// RAG
 	ragVectorStore  *rag.VectorStore
 	ragDocStore     *rag.DocumentStore
@@ -64,12 +65,13 @@ type Service struct {
 	ragEnabled     bool
 }
 
-func NewService(llmClient *llm.Client, searchChain *search.SearchChain, db *sql.DB, cfg *config.Config) *Service {
+func NewService(llmClient *llm.Client, searchChain *search.SearchChain, db *sql.DB, cfg *config.Config, encKey []byte) *Service {
 	return &Service{
 		llmClient:   llmClient,
 		searchChain:  searchChain,
 		db:           db,
 		config:       cfg,
+		encKey:       encKey,
 		modelCaps:    llm.ModelCapabilities{TextInput: true},
 	}
 }
@@ -759,7 +761,7 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 				ToolCalls:        string(assistantToolCallJSON),
 				ThinkingContent:  acc.FirstRoundThinking,
 				ThinkingDuration: clampDuration(acc.FirstRoundThinkingDuration),
-			}); err != nil {
+			}, s.encKey); err != nil {
 				log.Error().Err(err).Msg("save assistant tool call message")
 			}
 
@@ -778,7 +780,7 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 				Role:           "tool",
 				Content:        tr.toolContent,
 				ToolCallID:     tr.tc.ID,
-			}); err != nil {
+			}, s.encKey); err != nil {
 				log.Error().Err(err).Msg("save tool result message")
 			}
 
@@ -847,7 +849,7 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 	if acc.FinishReason == "tool_calls" && hitMaxRounds {
 		aiMsg.Content += "\n\n[工具调用已达最大轮次限制，部分搜索结果可能未完全处理]"
 	}
-	if err := store.CreateMessage(s.db, aiMsg); err != nil {
+	if err := store.CreateMessage(s.db, aiMsg, s.encKey); err != nil {
 		log.Error().Err(err).Msg("save ai message")
 	}
 	s.emitForConv(convID, "assistant_message", storeMsgToChat(aiMsg))
@@ -882,7 +884,7 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 	convID := params.ConversationID
 	if convID == "" {
 		conv := &store.Conversation{Title: "新对话"}
-		if err := store.CreateConversation(s.db, conv); err != nil {
+		if err := store.CreateConversation(s.db, conv, s.encKey); err != nil {
 			s.emitForConv("", "error", fmt.Sprintf("create conversation: %v", err))
 			return fmt.Errorf("create conversation: %w", err)
 		}
@@ -913,7 +915,7 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 		attJSON, _ := json.Marshal(params.Attachments)
 		userMsg.Attachments = string(attJSON)
 	}
-	if err := store.CreateMessage(s.db, userMsg); err != nil {
+	if err := store.CreateMessage(s.db, userMsg, s.encKey); err != nil {
 		s.emitForConv(convID, "error", fmt.Sprintf("save user message: %v", err))
 		return fmt.Errorf("save user message: %w", err)
 	}
@@ -937,7 +939,7 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 	}
 	s.emitForConv(convID, "user_message", emitMsg)
 
-	dbMsgs, err := store.GetMessagesByConversation(s.db, convID)
+	dbMsgs, err := store.GetMessagesByConversation(s.db, convID, s.encKey)
 	if err != nil {
 		s.emitForConv(convID, "error", fmt.Sprintf("load messages: %v", err))
 		return fmt.Errorf("load messages: %w", err)
@@ -1082,20 +1084,20 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 	if acc.LastSearchJSON != "" {
 		aiMsg.SearchResults = acc.LastSearchJSON
 	}
-	if err := store.CreateMessage(s.db, aiMsg); err != nil {
+	if err := store.CreateMessage(s.db, aiMsg, s.encKey); err != nil {
 		log.Error().Err(err).Msg("save ai message")
 	}
 	s.emitForConv(convID, "assistant_message", storeMsgToChat(aiMsg))
 }
 
-	conv, err := store.GetConversation(s.db, convID)
+	conv, err := store.GetConversation(s.db, convID, s.encKey)
 	if err != nil {
 		log.Error().Err(err).Str("convID", convID).Msg("[chat] 无法获取会话以更新标题")
 	} else if conv != nil {
 		if (conv.Title == "新对话" || conv.Title == "新的对话") && len(titleContent) > 0 {
 			title := generateConversationTitle(titleContent)
 			conv.Title = title
-			if err := store.UpdateConversation(s.db, conv); err != nil {
+			if err := store.UpdateConversation(s.db, conv, s.encKey); err != nil {
 				log.Error().Err(err).Str("convID", convID).Msg("[chat] 更新会话标题失败")
 			}
 		}

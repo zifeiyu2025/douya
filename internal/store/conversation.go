@@ -1,5 +1,5 @@
-﻿// Copyright zifeiyu. All rights reserved.
-// 璞嗚娊鏈湴AI
+// Copyright zifeiyu. All rights reserved.
+// 豆芽本地AI
 
 package store
 
@@ -7,10 +7,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/rs/zerolog/log"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 )
 
 type Conversation struct {
@@ -20,7 +20,7 @@ type Conversation struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-func CreateConversation(db *sql.DB, conv *Conversation) error {
+func CreateConversation(db *sql.DB, conv *Conversation, encKey []byte) error {
 	if conv.ID == "" {
 		conv.ID = uuid.New().String()
 	}
@@ -31,11 +31,14 @@ func CreateConversation(db *sql.DB, conv *Conversation) error {
 	if conv.UpdatedAt.IsZero() {
 		conv.UpdatedAt = now
 	}
+	// 加密标题
+	encryptedTitle := encryptField(conv.Title, encKey)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_, err := db.ExecContext(ctx,
 		"INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
-		conv.ID, conv.Title, conv.CreatedAt, conv.UpdatedAt,
+		conv.ID, encryptedTitle, conv.CreatedAt, conv.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("create conversation: %w", err)
@@ -43,7 +46,7 @@ func CreateConversation(db *sql.DB, conv *Conversation) error {
 	return nil
 }
 
-func GetConversation(db *sql.DB, id string) (*Conversation, error) {
+func GetConversation(db *sql.DB, id string, encKey []byte) (*Conversation, error) {
 	conv := &Conversation{}
 	err := db.QueryRow(
 		"SELECT id, title, created_at, updated_at FROM conversations WHERE id = ?",
@@ -52,10 +55,12 @@ func GetConversation(db *sql.DB, id string) (*Conversation, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get conversation: %w", err)
 	}
+	// 解密标题
+	conv.Title = decryptField(conv.Title, encKey)
 	return conv, nil
 }
 
-func ListConversations(db *sql.DB) ([]*Conversation, error) {
+func ListConversations(db *sql.DB, encKey []byte) ([]*Conversation, error) {
 	rows, err := db.Query(
 		"SELECT id, title, created_at, updated_at FROM conversations ORDER BY updated_at DESC",
 	)
@@ -69,6 +74,8 @@ func ListConversations(db *sql.DB) ([]*Conversation, error) {
 		if err := rows.Scan(&conv.ID, &conv.Title, &conv.CreatedAt, &conv.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan conversation: %w", err)
 		}
+		// 解密标题
+		conv.Title = decryptField(conv.Title, encKey)
 		convs = append(convs, conv)
 	}
 	if err := rows.Err(); err != nil {
@@ -77,13 +84,16 @@ func ListConversations(db *sql.DB) ([]*Conversation, error) {
 	return convs, nil
 }
 
-func UpdateConversation(db *sql.DB, conv *Conversation) error {
+func UpdateConversation(db *sql.DB, conv *Conversation, encKey []byte) error {
 	conv.UpdatedAt = time.Now()
+	// 加密标题
+	encryptedTitle := encryptField(conv.Title, encKey)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_, err := db.ExecContext(ctx,
 		"UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?",
-		conv.Title, conv.UpdatedAt, conv.ID,
+		encryptedTitle, conv.UpdatedAt, conv.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("update conversation: %w", err)
@@ -120,7 +130,7 @@ type AbnormalConversation struct {
 	Reason string `json:"reason"`
 }
 
-func FindAbnormalConversations(db *sql.DB) ([]*AbnormalConversation, error) {
+func FindAbnormalConversations(db *sql.DB, encKey []byte) ([]*AbnormalConversation, error) {
 	rows, err := db.Query(`
 		SELECT c.id, c.title
 		FROM conversations c
@@ -141,7 +151,7 @@ func FindAbnormalConversations(db *sql.DB) ([]*AbnormalConversation, error) {
 		}
 		abnormal = append(abnormal, &AbnormalConversation{
 			ID:     id,
-			Title:  title,
+			Title:  decryptField(title, encKey),
 			Reason: "no_user_messages",
 		})
 	}
@@ -151,8 +161,8 @@ func FindAbnormalConversations(db *sql.DB) ([]*AbnormalConversation, error) {
 	return abnormal, nil
 }
 
-func CleanupAbnormalConversations(db *sql.DB) ([]*AbnormalConversation, error) {
-	abnormal, err := FindAbnormalConversations(db)
+func CleanupAbnormalConversations(db *sql.DB, encKey []byte) ([]*AbnormalConversation, error) {
+	abnormal, err := FindAbnormalConversations(db, encKey)
 	if err != nil {
 		return nil, err
 	}
@@ -173,4 +183,3 @@ func CleanupAbnormalConversations(db *sql.DB) ([]*AbnormalConversation, error) {
 
 	return removed, nil
 }
-

@@ -265,7 +265,7 @@ func TestGetMessages_FiltersToolMessages(t *testing.T) {
 	svc := newTestServiceWithDB(t)
 
 	conv := &store.Conversation{Title: "搜索测试"}
-	if err := store.CreateConversation(chat.GetDB(svc), conv); err != nil {
+	if err := store.CreateConversation(chat.GetDB(svc), conv, nil); err != nil {
 		t.Fatalf("CreateConversation failed: %v", err)
 	}
 
@@ -273,25 +273,25 @@ func TestGetMessages_FiltersToolMessages(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "搜索测试",
-	})
+	}, nil)
 	store.CreateMessage(chat.GetDB(svc), &store.Message{
 		ConversationID: conv.ID,
 		Role:           "assistant",
 		Content:        "",
 		ToolCalls:      `[{"id":"tc1","type":"function","function":{"name":"search","arguments":"{\"query\":\"test\"}"}}]`,
-	})
+	}, nil)
 	store.CreateMessage(chat.GetDB(svc), &store.Message{
 		ConversationID: conv.ID,
 		Role:           "tool",
 		Content:        "search results content",
 		ToolCallID:     "tc1",
-	})
+	}, nil)
 	store.CreateMessage(chat.GetDB(svc), &store.Message{
 		ConversationID: conv.ID,
 		Role:           "assistant",
 		Content:        "基于补充信息的回答",
 		SearchResults:  `[{"title":"Test","url":"http://example.com","snippet":"Test"}]`,
-	})
+	}, nil)
 
 	msgs, err := svc.GetMessages(conv.ID)
 	if err != nil {
@@ -325,7 +325,7 @@ func TestGetMessages_SearchResultsPreserved(t *testing.T) {
 	svc := newTestServiceWithDB(t)
 
 	conv := &store.Conversation{Title: "补充信息保持测试"}
-	if err := store.CreateConversation(chat.GetDB(svc), conv); err != nil {
+	if err := store.CreateConversation(chat.GetDB(svc), conv, nil); err != nil {
 		t.Fatalf("CreateConversation failed: %v", err)
 	}
 
@@ -335,7 +335,7 @@ func TestGetMessages_SearchResultsPreserved(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "什么是Go语言？",
-	})
+	}, nil)
 	store.CreateMessage(chat.GetDB(svc), &store.Message{
 		ConversationID:  conv.ID,
 		Role:            "assistant",
@@ -343,7 +343,7 @@ func TestGetMessages_SearchResultsPreserved(t *testing.T) {
 		ThinkingContent: "用户问Go语言",
 		ThinkingDuration: 2.5,
 		SearchResults:   searchJSON,
-	})
+	}, nil)
 
 	msgs, err := svc.GetMessages(conv.ID)
 	if err != nil {

@@ -15,7 +15,7 @@ func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
-	db, err := store.Init(dbPath)
+	db, err := store.Init(dbPath, nil)
 	if err != nil {
 		t.Fatalf("failed to init test db: %v", err)
 	}
@@ -29,7 +29,7 @@ func TestCreateConversation(t *testing.T) {
 	db := openTestDB(t)
 
 	conv := &store.Conversation{Title: "测试会话"}
-	err := store.CreateConversation(db, conv)
+	err := store.CreateConversation(db, conv, nil)
 	if err != nil {
 		t.Fatalf("CreateConversation failed: %v", err)
 	}
@@ -49,9 +49,9 @@ func TestGetConversation(t *testing.T) {
 	db := openTestDB(t)
 
 	conv := &store.Conversation{Title: "获取测试"}
-	store.CreateConversation(db, conv)
+	store.CreateConversation(db, conv, nil)
 
-	got, err := store.GetConversation(db, conv.ID)
+	got, err := store.GetConversation(db, conv.ID, nil)
 	if err != nil {
 		t.Fatalf("GetConversation failed: %v", err)
 	}
@@ -67,11 +67,11 @@ func TestGetConversation(t *testing.T) {
 func TestListConversations(t *testing.T) {
 	db := openTestDB(t)
 
-	store.CreateConversation(db, &store.Conversation{Title: "会话1"})
-	store.CreateConversation(db, &store.Conversation{Title: "会话2"})
-	store.CreateConversation(db, &store.Conversation{Title: "会话3"})
+	store.CreateConversation(db, &store.Conversation{Title: "会话1"}, nil)
+	store.CreateConversation(db, &store.Conversation{Title: "会话2"}, nil)
+	store.CreateConversation(db, &store.Conversation{Title: "会话3"}, nil)
 
-	convs, err := store.ListConversations(db)
+	convs, err := store.ListConversations(db, nil)
 	if err != nil {
 		t.Fatalf("ListConversations failed: %v", err)
 	}
@@ -85,14 +85,14 @@ func TestListConversations_OrderedByUpdatedAt(t *testing.T) {
 	db := openTestDB(t)
 
 	conv1 := &store.Conversation{Title: "第一"}
-	store.CreateConversation(db, conv1)
+	store.CreateConversation(db, conv1, nil)
 
 	time.Sleep(time.Millisecond * 10)
 
 	conv2 := &store.Conversation{Title: "第二"}
-	store.CreateConversation(db, conv2)
+	store.CreateConversation(db, conv2, nil)
 
-	convs, err := store.ListConversations(db)
+	convs, err := store.ListConversations(db, nil)
 	if err != nil {
 		t.Fatalf("ListConversations failed: %v", err)
 	}
@@ -109,15 +109,15 @@ func TestUpdateConversation(t *testing.T) {
 	db := openTestDB(t)
 
 	conv := &store.Conversation{Title: "原始标题"}
-	store.CreateConversation(db, conv)
+	store.CreateConversation(db, conv, nil)
 
 	conv.Title = "更新标题"
-	err := store.UpdateConversation(db, conv)
+	err := store.UpdateConversation(db, conv, nil)
 	if err != nil {
 		t.Fatalf("UpdateConversation failed: %v", err)
 	}
 
-	got, _ := store.GetConversation(db, conv.ID)
+	got, _ := store.GetConversation(db, conv.ID, nil)
 	if got.Title != "更新标题" {
 		t.Errorf("expected title '更新标题', got '%s'", got.Title)
 	}
@@ -127,14 +127,14 @@ func TestDeleteConversation(t *testing.T) {
 	db := openTestDB(t)
 
 	conv := &store.Conversation{Title: "待删除"}
-	store.CreateConversation(db, conv)
+	store.CreateConversation(db, conv, nil)
 
 	err := store.DeleteConversation(db, conv.ID)
 	if err != nil {
 		t.Fatalf("DeleteConversation failed: %v", err)
 	}
 
-	_, err = store.GetConversation(db, conv.ID)
+	_, err = store.GetConversation(db, conv.ID, nil)
 	if err == nil {
 		t.Error("expected error after deletion, got nil")
 	}
@@ -144,18 +144,18 @@ func TestDeleteConversation_CascadesMessages(t *testing.T) {
 	db := openTestDB(t)
 
 	conv := &store.Conversation{Title: "级联删除测试"}
-	store.CreateConversation(db, conv)
+	store.CreateConversation(db, conv, nil)
 
 	msg := &store.Message{
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "测试消息",
 	}
-	store.CreateMessage(db, msg)
+	store.CreateMessage(db, msg, nil)
 
 	store.DeleteConversation(db, conv.ID)
 
-	msgs, _ := store.GetMessagesByConversation(db, conv.ID)
+	msgs, _ := store.GetMessagesByConversation(db, conv.ID, nil)
 	if len(msgs) != 0 {
 		t.Errorf("expected 0 messages after cascade delete, got %d", len(msgs))
 	}
@@ -165,7 +165,7 @@ func TestCreateMessage(t *testing.T) {
 	db := openTestDB(t)
 
 	conv := &store.Conversation{Title: "消息测试"}
-	store.CreateConversation(db, conv)
+	store.CreateConversation(db, conv, nil)
 
 	msg := &store.Message{
 		ConversationID:  conv.ID,
@@ -174,7 +174,7 @@ func TestCreateMessage(t *testing.T) {
 		ThinkingContent: "思考中",
 		SearchResults:   `[{"title":"test"}]`,
 	}
-	err := store.CreateMessage(db, msg)
+	err := store.CreateMessage(db, msg, nil)
 	if err != nil {
 		t.Fatalf("CreateMessage failed: %v", err)
 	}
@@ -191,13 +191,13 @@ func TestGetMessagesByConversation(t *testing.T) {
 	db := openTestDB(t)
 
 	conv := &store.Conversation{Title: "消息列表测试"}
-	store.CreateConversation(db, conv)
+	store.CreateConversation(db, conv, nil)
 
-	store.CreateMessage(db, &store.Message{ConversationID: conv.ID, Role: "user", Content: "第一条"})
-	store.CreateMessage(db, &store.Message{ConversationID: conv.ID, Role: "assistant", Content: "第二条"})
-	store.CreateMessage(db, &store.Message{ConversationID: conv.ID, Role: "user", Content: "第三条"})
+	store.CreateMessage(db, &store.Message{ConversationID: conv.ID, Role: "user", Content: "第一条"}, nil)
+	store.CreateMessage(db, &store.Message{ConversationID: conv.ID, Role: "assistant", Content: "第二条"}, nil)
+	store.CreateMessage(db, &store.Message{ConversationID: conv.ID, Role: "user", Content: "第三条"}, nil)
 
-	msgs, err := store.GetMessagesByConversation(db, conv.ID)
+	msgs, err := store.GetMessagesByConversation(db, conv.ID, nil)
 	if err != nil {
 		t.Fatalf("GetMessagesByConversation failed: %v", err)
 	}
@@ -218,17 +218,17 @@ func TestGetMessagesByConversation_Order(t *testing.T) {
 	db := openTestDB(t)
 
 	conv := &store.Conversation{Title: "排序测试"}
-	store.CreateConversation(db, conv)
+	store.CreateConversation(db, conv, nil)
 
 	msg1 := &store.Message{ConversationID: conv.ID, Role: "user", Content: "早"}
-	store.CreateMessage(db, msg1)
+	store.CreateMessage(db, msg1, nil)
 
 	time.Sleep(time.Millisecond * 10)
 
 	msg2 := &store.Message{ConversationID: conv.ID, Role: "assistant", Content: "晚"}
-	store.CreateMessage(db, msg2)
+	store.CreateMessage(db, msg2, nil)
 
-	msgs, _ := store.GetMessagesByConversation(db, conv.ID)
+	msgs, _ := store.GetMessagesByConversation(db, conv.ID, nil)
 
 	if len(msgs) < 2 {
 		t.Fatal("expected at least 2 messages")
@@ -245,7 +245,7 @@ func TestChineseContent(t *testing.T) {
 	db := openTestDB(t)
 
 	conv := &store.Conversation{Title: "中文内容测试 🎉"}
-	store.CreateConversation(db, conv)
+	store.CreateConversation(db, conv, nil)
 
 	chineseContent := "这是一段中文内容，包含特殊字符：<>&\"' 以及 emoji 🚀"
 	msg := &store.Message{
@@ -254,9 +254,9 @@ func TestChineseContent(t *testing.T) {
 		Content:         chineseContent,
 		ThinkingContent: "思考中文内容",
 	}
-	store.CreateMessage(db, msg)
+	store.CreateMessage(db, msg, nil)
 
-	msgs, _ := store.GetMessagesByConversation(db, conv.ID)
+	msgs, _ := store.GetMessagesByConversation(db, conv.ID, nil)
 	if len(msgs) == 0 {
 		t.Fatal("expected at least 1 message")
 	}
@@ -274,9 +274,9 @@ func TestConversationTitleWithChinese(t *testing.T) {
 
 	title := "中文标题测试 🎊"
 	conv := &store.Conversation{Title: title}
-	store.CreateConversation(db, conv)
+	store.CreateConversation(db, conv, nil)
 
-	got, _ := store.GetConversation(db, conv.ID)
+	got, _ := store.GetConversation(db, conv.ID, nil)
 	if got.Title != title {
 		t.Errorf("expected title '%s', got '%s'", title, got.Title)
 	}
@@ -286,12 +286,12 @@ func TestSearchMessages_BasicSearch(t *testing.T) {
 	db := openTestDB(t)
 
 	conv := &store.Conversation{Title: "搜索测试"}
-	store.CreateConversation(db, conv)
+	store.CreateConversation(db, conv, nil)
 
-	store.CreateMessage(db, &store.Message{ConversationID: conv.ID, Role: "user", Content: "Go programming language"})
-	store.CreateMessage(db, &store.Message{ConversationID: conv.ID, Role: "user", Content: "Python data analysis"})
+	store.CreateMessage(db, &store.Message{ConversationID: conv.ID, Role: "user", Content: "Go programming language"}, nil)
+	store.CreateMessage(db, &store.Message{ConversationID: conv.ID, Role: "user", Content: "Python data analysis"}, nil)
 
-	msgs, err := store.SearchMessages(db, "Go programming")
+	msgs, err := store.SearchMessages(db, "Go programming", nil)
 	if err != nil {
 		t.Fatalf("SearchMessages failed: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestCreateConversation_WithPresetID(t *testing.T) {
 	db := openTestDB(t)
 
 	conv := &store.Conversation{ID: "custom-id-123", Title: "自定义ID"}
-	err := store.CreateConversation(db, conv)
+	err := store.CreateConversation(db, conv, nil)
 	if err != nil {
 		t.Fatalf("CreateConversation failed: %v", err)
 	}
@@ -319,12 +319,12 @@ func TestCreateConversation_WithPresetTimestamps(t *testing.T) {
 
 	presetTime := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	conv := &store.Conversation{Title: "预设时间", CreatedAt: presetTime, UpdatedAt: presetTime}
-	err := store.CreateConversation(db, conv)
+	err := store.CreateConversation(db, conv, nil)
 	if err != nil {
 		t.Fatalf("CreateConversation failed: %v", err)
 	}
 
-	got, _ := store.GetConversation(db, conv.ID)
+	got, _ := store.GetConversation(db, conv.ID, nil)
 	if !got.CreatedAt.Equal(presetTime) {
 		t.Errorf("expected CreatedAt %v, got %v", presetTime, got.CreatedAt)
 	}
@@ -333,7 +333,7 @@ func TestCreateConversation_WithPresetTimestamps(t *testing.T) {
 func TestGetConversation_NotFound(t *testing.T) {
 	db := openTestDB(t)
 
-	_, err := store.GetConversation(db, "nonexistent-id")
+	_, err := store.GetConversation(db, "nonexistent-id", nil)
 	if err == nil {
 		t.Error("expected error for nonexistent conversation, got nil")
 	}
@@ -343,15 +343,15 @@ func TestUpdateConversation_UpdatesTimestamp(t *testing.T) {
 	db := openTestDB(t)
 
 	conv := &store.Conversation{Title: "时间更新测试"}
-	store.CreateConversation(db, conv)
+	store.CreateConversation(db, conv, nil)
 	originalUpdatedAt := conv.UpdatedAt
 
 	time.Sleep(time.Millisecond * 10)
 
 	conv.Title = "更新后"
-	store.UpdateConversation(db, conv)
+	store.UpdateConversation(db, conv, nil)
 
-	got, _ := store.GetConversation(db, conv.ID)
+	got, _ := store.GetConversation(db, conv.ID, nil)
 	if !got.UpdatedAt.After(originalUpdatedAt) {
 		t.Errorf("expected UpdatedAt to be after original, got original=%v, new=%v", originalUpdatedAt, got.UpdatedAt)
 	}
@@ -370,7 +370,7 @@ func TestCreateMessage_WithPresetID(t *testing.T) {
 	db := openTestDB(t)
 
 	conv := &store.Conversation{Title: "消息ID测试"}
-	store.CreateConversation(db, conv)
+	store.CreateConversation(db, conv, nil)
 
 	msg := &store.Message{
 		ID:             "custom-msg-id",
@@ -378,7 +378,7 @@ func TestCreateMessage_WithPresetID(t *testing.T) {
 		Role:           "user",
 		Content:        "test",
 	}
-	err := store.CreateMessage(db, msg)
+	err := store.CreateMessage(db, msg, nil)
 	if err != nil {
 		t.Fatalf("CreateMessage failed: %v", err)
 	}
@@ -391,7 +391,7 @@ func TestCreateMessage_WithAllFields(t *testing.T) {
 	db := openTestDB(t)
 
 	conv := &store.Conversation{Title: "完整字段测试"}
-	store.CreateConversation(db, conv)
+	store.CreateConversation(db, conv, nil)
 
 	msg := &store.Message{
 		ConversationID:  conv.ID,
@@ -400,12 +400,12 @@ func TestCreateMessage_WithAllFields(t *testing.T) {
 		ThinkingContent: "这是思考过程",
 		SearchResults:   `[{"title":"补充信息","url":"http://example.com","snippet":"摘要"}]`,
 	}
-	err := store.CreateMessage(db, msg)
+	err := store.CreateMessage(db, msg, nil)
 	if err != nil {
 		t.Fatalf("CreateMessage failed: %v", err)
 	}
 
-	msgs, _ := store.GetMessagesByConversation(db, conv.ID)
+	msgs, _ := store.GetMessagesByConversation(db, conv.ID, nil)
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(msgs))
 	}
@@ -429,9 +429,9 @@ func TestGetMessagesByConversation_EmptyConversation(t *testing.T) {
 	db := openTestDB(t)
 
 	conv := &store.Conversation{Title: "空会话"}
-	store.CreateConversation(db, conv)
+	store.CreateConversation(db, conv, nil)
 
-	msgs, err := store.GetMessagesByConversation(db, conv.ID)
+	msgs, err := store.GetMessagesByConversation(db, conv.ID, nil)
 	if err != nil {
 		t.Fatalf("GetMessagesByConversation failed: %v", err)
 	}
@@ -443,7 +443,7 @@ func TestGetMessagesByConversation_EmptyConversation(t *testing.T) {
 func TestGetMessagesByConversation_NonexistentConversation(t *testing.T) {
 	db := openTestDB(t)
 
-	msgs, err := store.GetMessagesByConversation(db, "nonexistent-id")
+	msgs, err := store.GetMessagesByConversation(db, "nonexistent-id", nil)
 	if err != nil {
 		t.Fatalf("GetMessagesByConversation failed: %v", err)
 	}
@@ -456,11 +456,11 @@ func TestSearchMessages_NoResults(t *testing.T) {
 	db := openTestDB(t)
 
 	conv := &store.Conversation{Title: "搜索无结果测试"}
-	store.CreateConversation(db, conv)
+	store.CreateConversation(db, conv, nil)
 
-	store.CreateMessage(db, &store.Message{ConversationID: conv.ID, Role: "user", Content: "Go语言编程"})
+	store.CreateMessage(db, &store.Message{ConversationID: conv.ID, Role: "user", Content: "Go语言编程"}, nil)
 
-	msgs, err := store.SearchMessages(db, "Rust语言")
+	msgs, err := store.SearchMessages(db, "Rust语言", nil)
 	if err != nil {
 		t.Fatalf("SearchMessages failed: %v", err)
 	}
@@ -473,11 +473,11 @@ func TestSearchMessages_SpecialCharacters(t *testing.T) {
 	db := openTestDB(t)
 
 	conv := &store.Conversation{Title: "特殊字符搜索"}
-	store.CreateConversation(db, conv)
+	store.CreateConversation(db, conv, nil)
 
-	store.CreateMessage(db, &store.Message{ConversationID: conv.ID, Role: "user", Content: "test <script>alert('xss')</script>"})
+	store.CreateMessage(db, &store.Message{ConversationID: conv.ID, Role: "user", Content: "test <script>alert('xss')</script>"}, nil)
 
-	msgs, err := store.SearchMessages(db, "script")
+	msgs, err := store.SearchMessages(db, "script", nil)
 	if err != nil {
 		t.Fatalf("SearchMessages failed: %v", err)
 	}
@@ -490,15 +490,15 @@ func TestMultipleConversationsIsolation(t *testing.T) {
 	db := openTestDB(t)
 
 	conv1 := &store.Conversation{Title: "会话1"}
-	store.CreateConversation(db, conv1)
+	store.CreateConversation(db, conv1, nil)
 	conv2 := &store.Conversation{Title: "会话2"}
-	store.CreateConversation(db, conv2)
+	store.CreateConversation(db, conv2, nil)
 
-	store.CreateMessage(db, &store.Message{ConversationID: conv1.ID, Role: "user", Content: "会话1消息"})
-	store.CreateMessage(db, &store.Message{ConversationID: conv2.ID, Role: "user", Content: "会话2消息"})
+	store.CreateMessage(db, &store.Message{ConversationID: conv1.ID, Role: "user", Content: "会话1消息"}, nil)
+	store.CreateMessage(db, &store.Message{ConversationID: conv2.ID, Role: "user", Content: "会话2消息"}, nil)
 
-	msgs1, _ := store.GetMessagesByConversation(db, conv1.ID)
-	msgs2, _ := store.GetMessagesByConversation(db, conv2.ID)
+	msgs1, _ := store.GetMessagesByConversation(db, conv1.ID, nil)
+	msgs2, _ := store.GetMessagesByConversation(db, conv2.ID, nil)
 
 	if len(msgs1) != 1 {
 		t.Errorf("expected 1 message in conv1, got %d", len(msgs1))
@@ -518,16 +518,16 @@ func TestDeleteConversation_OnlyDeletesOwnMessages(t *testing.T) {
 	db := openTestDB(t)
 
 	conv1 := &store.Conversation{Title: "保留会话"}
-	store.CreateConversation(db, conv1)
+	store.CreateConversation(db, conv1, nil)
 	conv2 := &store.Conversation{Title: "删除会话"}
-	store.CreateConversation(db, conv2)
+	store.CreateConversation(db, conv2, nil)
 
-	store.CreateMessage(db, &store.Message{ConversationID: conv1.ID, Role: "user", Content: "保留消息"})
-	store.CreateMessage(db, &store.Message{ConversationID: conv2.ID, Role: "user", Content: "删除消息"})
+	store.CreateMessage(db, &store.Message{ConversationID: conv1.ID, Role: "user", Content: "保留消息"}, nil)
+	store.CreateMessage(db, &store.Message{ConversationID: conv2.ID, Role: "user", Content: "删除消息"}, nil)
 
 	store.DeleteConversation(db, conv2.ID)
 
-	msgs1, _ := store.GetMessagesByConversation(db, conv1.ID)
+	msgs1, _ := store.GetMessagesByConversation(db, conv1.ID, nil)
 	if len(msgs1) != 1 {
 		t.Errorf("expected conv1 messages to remain, got %d", len(msgs1))
 	}
@@ -537,19 +537,19 @@ func TestListConversations_MultipleUpdates(t *testing.T) {
 	db := openTestDB(t)
 
 	conv1 := &store.Conversation{Title: "第一"}
-	store.CreateConversation(db, conv1)
+	store.CreateConversation(db, conv1, nil)
 
 	time.Sleep(time.Millisecond * 10)
 
 	conv2 := &store.Conversation{Title: "第二"}
-	store.CreateConversation(db, conv2)
+	store.CreateConversation(db, conv2, nil)
 
 	time.Sleep(time.Millisecond * 10)
 
 	conv1.Title = "更新第一"
-	store.UpdateConversation(db, conv1)
+	store.UpdateConversation(db, conv1, nil)
 
-	convs, _ := store.ListConversations(db)
+	convs, _ := store.ListConversations(db, nil)
 	if len(convs) < 2 {
 		t.Fatal("expected at least 2 conversations")
 	}
@@ -562,7 +562,7 @@ func TestInit_CreatesDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "subdir", "test.db")
 
-	db, err := store.Init(dbPath)
+	db, err := store.Init(dbPath, nil)
 	if err != nil {
 		t.Fatalf("Init failed to create directory: %v", err)
 	}
@@ -611,7 +611,7 @@ func TestMigrate_AddsMissingColumns(t *testing.T) {
 		t.Fatalf("insert message: %v", err)
 	}
 
-	if err := store.Migrate(db); err != nil {
+	if err := store.Migrate(db, nil); err != nil {
 		t.Fatalf("migrate with missing columns: %v", err)
 	}
 
@@ -656,13 +656,13 @@ func TestMigrate_Idempotent(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
 
-	db, err := store.Init(dbPath)
+	db, err := store.Init(dbPath, nil)
 	if err != nil {
 		t.Fatalf("first Init: %v", err)
 	}
 	db.Close()
 
-	db, err = store.Init(dbPath)
+	db, err = store.Init(dbPath, nil)
 	if err != nil {
 		t.Fatalf("second Init (idempotent): %v", err)
 	}

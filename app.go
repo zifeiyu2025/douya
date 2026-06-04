@@ -396,7 +396,16 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	dbPath := filepath.Join(appDir(), "data", "douya.db")
-	a.db, err = store.Init(dbPath)
+
+	// 加载加密密钥，用于对话内容和 API Key 等敏感数据的加密存储
+	keyPath := filepath.Join(appDir(), "data", ".enc_key")
+	a.encKey, err = secrets.LoadOrCreateKey(keyPath)
+	if err != nil {
+		log.Printf("[startup] load encryption key: %v", err)
+		// 加密密钥加载失败不阻止启动，但敏感数据将以明文存储
+	}
+
+	a.db, err = store.Init(dbPath, a.encKey)
 	if err != nil {
 		log.Printf("init database: %v", err)
 		runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
@@ -405,14 +414,6 @@ func (a *App) startup(ctx context.Context) {
 			Message: fmt.Sprintf("初始化数据库失败: %v", err),
 		})
 		return
-	}
-
-	// 加载加密密钥，用于 API Key 等敏感设置的加密存储
-	keyPath := filepath.Join(appDir(), "data", ".enc_key")
-	a.encKey, err = secrets.LoadOrCreateKey(keyPath)
-	if err != nil {
-		log.Printf("[startup] load encryption key: %v", err)
-		// 加密密钥加载失败不阻止启动，但敏感设置将以明文存储
 	}
 
 	if raw, rawErr := config.LoadRaw(cfgPath); rawErr == nil {
@@ -480,7 +481,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 	searchChain := search.NewCategorizedSearchChain(searchProviders)
 
-	a.service = chat.NewService(a.client, searchChain, a.db, a.config)
+	a.service = chat.NewService(a.client, searchChain, a.db, a.config, a.encKey)
 	a.service.SetContext(ctx)
 
 	// Initialize RAG (Badger-backed vector store + LLM embedder)
@@ -871,30 +872,51 @@ func (a *App) SelectImageFile() (string, error) {
 }
 
 func (a *App) GetSearchAPIKeys() SearchAPIKeys {
-	return a.loadSearchAPIKeys()
+	keys := a.loadSearchAPIKeys()
+	// 返回掩码值给前端，不暴露实际密钥
+	return SearchAPIKeys{
+		OllamaAPIKey: maskAPIKey(keys.OllamaAPIKey),
+		TavilyAPIKey: maskAPIKey(keys.TavilyAPIKey),
+		GitHubAPIKey: maskAPIKey(keys.GitHubAPIKey),
+	}
+}
+
+// maskAPIKey 将 API Key 掩码化，只显示末4位
+// 空值返回空字符串，长度<=4 返回 "****"
+func maskAPIKey(key string) string {
+	if key == "" {
+		return ""
+	}
+	if len(key) <= 4 {
+		return "****"
+	}
+	return "****" + key[len(key)-4:]
+}
+
+// isMaskedValue 检查是否是掩码值（以 "****" 开头）
+func isMaskedValue(v string) bool {
+	return len(v) >= 4 && v[:4] == "****"
 }
 
 func (a *App) SetSearchAPIKeys(keys SearchAPIKeys) error {
-	if a.encKey != nil {
-		if err := store.SetEncryptedSetting(a.db, "search_ollama_api_key", keys.OllamaAPIKey, a.encKey); err != nil {
-			return fmt.Errorf("save ollama api key: %w", err)
+	setFn := func(dbKey, value string) error {
+		// 掩码值表示用户未修改，跳过更新
+		if isMaskedValue(value) {
+			return nil
 		}
-		if err := store.SetEncryptedSetting(a.db, "search_tavily_api_key", keys.TavilyAPIKey, a.encKey); err != nil {
-			return fmt.Errorf("save tavily api key: %w", err)
+		if a.encKey != nil {
+			return store.SetEncryptedSetting(a.db, dbKey, value, a.encKey)
 		}
-		if err := store.SetEncryptedSetting(a.db, "search_github_api_key", keys.GitHubAPIKey, a.encKey); err != nil {
-			return fmt.Errorf("save github api key: %w", err)
-		}
-	} else {
-		if err := store.SetSetting(a.db, "search_ollama_api_key", keys.OllamaAPIKey); err != nil {
-			return fmt.Errorf("save ollama api key: %w", err)
-		}
-		if err := store.SetSetting(a.db, "search_tavily_api_key", keys.TavilyAPIKey); err != nil {
-			return fmt.Errorf("save tavily api key: %w", err)
-		}
-		if err := store.SetSetting(a.db, "search_github_api_key", keys.GitHubAPIKey); err != nil {
-			return fmt.Errorf("save github api key: %w", err)
-		}
+		return store.SetSetting(a.db, dbKey, value)
+	}
+	if err := setFn("search_ollama_api_key", keys.OllamaAPIKey); err != nil {
+		return fmt.Errorf("save ollama api key: %w", err)
+	}
+	if err := setFn("search_tavily_api_key", keys.TavilyAPIKey); err != nil {
+		return fmt.Errorf("save tavily api key: %w", err)
+	}
+	if err := setFn("search_github_api_key", keys.GitHubAPIKey); err != nil {
+		return fmt.Errorf("save github api key: %w", err)
 	}
 	return nil
 }
@@ -916,6 +938,8 @@ func (a *App) loadSearchAPIKeys() SearchAPIKeys {
 	if v, err := getFn("search_github_api_key"); err == nil {
 		keys.GitHubAPIKey = v
 	}
+	// 环境变量优先，但环境变量值不掩码（后端内部使用）
+	// 注意：这里返回掩码值给前端，环境变量覆盖后也需要掩码
 	if apiKey := os.Getenv("OLLAMA_API_KEY"); apiKey != "" {
 		keys.OllamaAPIKey = apiKey
 	}
@@ -926,6 +950,11 @@ func (a *App) loadSearchAPIKeys() SearchAPIKeys {
 		keys.GitHubAPIKey = apiKey
 	}
 	return keys
+}
+
+// loadSearchAPIKeysInternal 内部方法，加载实际密钥值（不掩码）
+func (a *App) loadSearchAPIKeysInternal() SearchAPIKeys {
+	return a.loadSearchAPIKeys()
 }
 
 // HasServerAPIKey 返回是否已设置 API Key（不暴露实际密钥值给前端）

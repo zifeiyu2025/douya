@@ -599,12 +599,12 @@ func TestSendMessage_AttachmentsPersistedToDB(t *testing.T) {
 		t.Fatalf("SendMessage with text attachment failed: %v", err)
 	}
 
-	convs, _ := store.ListConversations(chat.GetDB(svc))
+	convs, _ := store.ListConversations(chat.GetDB(svc, nil))
 	if len(convs) == 0 {
 		t.Fatal("expected at least 1 conversation")
 	}
 
-	msgs, _ := store.GetMessagesByConversation(chat.GetDB(svc), convs[0].ID)
+	msgs, _ := store.GetMessagesByConversation(chat.GetDB(svc), convs[0].ID, nil)
 	var userMsg *store.Message
 	for _, m := range msgs {
 		if m.Role == "user" {
@@ -683,7 +683,7 @@ func TestSendMessage_HistoryAttachmentsRestored(t *testing.T) {
 		t.Fatalf("first SendMessage failed: %v", err)
 	}
 
-	convs, _ := store.ListConversations(chat.GetDB(svc))
+	convs, _ := store.ListConversations(chat.GetDB(svc, nil))
 	convID := convs[0].ID
 
 	server2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

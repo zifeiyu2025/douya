@@ -279,7 +279,7 @@ func TestExportConversation_FiltersToolMessages(t *testing.T) {
 	svc := newTestServiceWithDB(t)
 
 	conv := &store.Conversation{Title: "Test"}
-	if err := store.CreateConversation(chat.GetDB(svc), conv); err != nil {
+	if err := store.CreateConversation(chat.GetDB(svc), conv, nil); err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
 
@@ -287,24 +287,24 @@ func TestExportConversation_FiltersToolMessages(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "hello",
-	})
+	}, nil)
 	store.CreateMessage(chat.GetDB(svc), &store.Message{
 		ConversationID: conv.ID,
 		Role:           "assistant",
 		Content:        "",
 		ToolCalls:      `[{"id":"tc1","function":{"name":"search","arguments":"{}"}}]`,
-	})
+	}, nil)
 	store.CreateMessage(chat.GetDB(svc), &store.Message{
 		ConversationID: conv.ID,
 		Role:           "tool",
 		Content:        "search results",
 		ToolCallID:     "tc1",
-	})
+	}, nil)
 	store.CreateMessage(chat.GetDB(svc), &store.Message{
 		ConversationID: conv.ID,
 		Role:           "assistant",
 		Content:        "answer",
-	})
+	}, nil)
 
 	result, err := svc.ExportConversation(conv.ID, "markdown")
 	if err != nil {
@@ -326,7 +326,7 @@ func TestExportConversation_FiltersAssistantToolCallMessages(t *testing.T) {
 	svc := newTestServiceWithDB(t)
 
 	conv := &store.Conversation{Title: "Test"}
-	if err := store.CreateConversation(chat.GetDB(svc), conv); err != nil {
+	if err := store.CreateConversation(chat.GetDB(svc), conv, nil); err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
 
@@ -334,24 +334,24 @@ func TestExportConversation_FiltersAssistantToolCallMessages(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "search for Go",
-	})
+	}, nil)
 	store.CreateMessage(chat.GetDB(svc), &store.Message{
 		ConversationID: conv.ID,
 		Role:           "assistant",
 		Content:        "",
 		ToolCalls:      `[{"id":"tc1","function":{"name":"search","arguments":"{\"query\":\"Go\"}"}}]`,
-	})
+	}, nil)
 	store.CreateMessage(chat.GetDB(svc), &store.Message{
 		ConversationID: conv.ID,
 		Role:           "tool",
 		Content:        "Go results",
 		ToolCallID:     "tc1",
-	})
+	}, nil)
 	store.CreateMessage(chat.GetDB(svc), &store.Message{
 		ConversationID: conv.ID,
 		Role:           "assistant",
 		Content:        "Go is a programming language",
-	})
+	}, nil)
 
 	result, err := svc.ExportConversation(conv.ID, "json")
 	if err != nil {
@@ -382,7 +382,7 @@ func TestGetMessages_PreservesThinkingContent(t *testing.T) {
 	svc := newTestServiceWithDB(t)
 
 	conv := &store.Conversation{Title: "Test"}
-	if err := store.CreateConversation(chat.GetDB(svc), conv); err != nil {
+	if err := store.CreateConversation(chat.GetDB(svc), conv, nil); err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
 
@@ -390,14 +390,14 @@ func TestGetMessages_PreservesThinkingContent(t *testing.T) {
 		ConversationID:  conv.ID,
 		Role:            "user",
 		Content:         "hello",
-	})
+	}, nil)
 	rawThinking := "thinking<tool_call\nmore thinking</tool_call\nfinal"
 	store.CreateMessage(chat.GetDB(svc), &store.Message{
 		ConversationID:   conv.ID,
 		Role:             "assistant",
 		Content:          "answer",
 		ThinkingContent:  rawThinking,
-	})
+	}, nil)
 
 	msgs, err := svc.GetMessages(conv.ID)
 	if err != nil {
@@ -415,7 +415,7 @@ func TestSearchMessages_PreservesThinkingContent(t *testing.T) {
 	svc := newTestServiceWithDB(t)
 
 	conv := &store.Conversation{Title: "Test Search"}
-	if err := store.CreateConversation(chat.GetDB(svc), conv); err != nil {
+	if err := store.CreateConversation(chat.GetDB(svc), conv, nil); err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
 
@@ -425,7 +425,7 @@ func TestSearchMessages_PreservesThinkingContent(t *testing.T) {
 		Role:             "assistant",
 		Content:          "golang programming answer",
 		ThinkingContent:  rawThinking,
-	})
+	}, nil)
 
 	msgs, err := svc.SearchMessages("golang")
 	if err != nil {

@@ -40,8 +40,8 @@ func TestFactualConsistency_RejectsMathematicalFalsehood(t *testing.T) {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
 
-	convs, _ := store.ListConversations(chat.GetDB(svc))
-	msgs, _ := store.GetMessagesByConversation(chat.GetDB(svc), convs[0].ID)
+	convs, _ := store.ListConversations(chat.GetDB(svc, nil))
+	msgs, _ := store.GetMessagesByConversation(chat.GetDB(svc), convs[0].ID, nil)
 
 	var assistantMsg *store.Message
 	for _, m := range msgs {
@@ -80,8 +80,8 @@ func TestFactualConsistency_RejectsConspiracyPremise(t *testing.T) {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
 
-	convs, _ := store.ListConversations(chat.GetDB(svc))
-	msgs, _ := store.GetMessagesByConversation(chat.GetDB(svc), convs[0].ID)
+	convs, _ := store.ListConversations(chat.GetDB(svc, nil))
+	msgs, _ := store.GetMessagesByConversation(chat.GetDB(svc), convs[0].ID, nil)
 
 	for _, m := range msgs {
 		if m.Role == "assistant" {
@@ -116,8 +116,8 @@ func TestFactualConsistency_RejectsPersistentFalseInstructions(t *testing.T) {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
 
-	convs, _ := store.ListConversations(chat.GetDB(svc))
-	msgs, _ := store.GetMessagesByConversation(chat.GetDB(svc), convs[0].ID)
+	convs, _ := store.ListConversations(chat.GetDB(svc, nil))
+	msgs, _ := store.GetMessagesByConversation(chat.GetDB(svc), convs[0].ID, nil)
 
 	var assistantMsg *store.Message
 	for _, m := range msgs {
@@ -159,8 +159,8 @@ func TestFactualConsistency_ExplainsCorrectFact(t *testing.T) {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
 
-	convs, _ := store.ListConversations(chat.GetDB(svc))
-	msgs, _ := store.GetMessagesByConversation(chat.GetDB(svc), convs[0].ID)
+	convs, _ := store.ListConversations(chat.GetDB(svc, nil))
+	msgs, _ := store.GetMessagesByConversation(chat.GetDB(svc), convs[0].ID, nil)
 
 	var assistantMsg *store.Message
 	for _, m := range msgs {
@@ -222,8 +222,8 @@ func TestFactualConsistency_RejectsSelfContradictoryInstruction(t *testing.T) {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
 
-	convs, _ := store.ListConversations(chat.GetDB(svc))
-	msgs, _ := store.GetMessagesByConversation(chat.GetDB(svc), convs[0].ID)
+	convs, _ := store.ListConversations(chat.GetDB(svc, nil))
+	msgs, _ := store.GetMessagesByConversation(chat.GetDB(svc), convs[0].ID, nil)
 
 	var assistantMsg *store.Message
 	for _, m := range msgs {
@@ -262,8 +262,8 @@ func TestFactualConsistency_RefusesToDisregardLaws(t *testing.T) {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
 
-	convs, _ := store.ListConversations(chat.GetDB(svc))
-	msgs, _ := store.GetMessagesByConversation(chat.GetDB(svc), convs[0].ID)
+	convs, _ := store.ListConversations(chat.GetDB(svc, nil))
+	msgs, _ := store.GetMessagesByConversation(chat.GetDB(svc), convs[0].ID, nil)
 
 	var assistantMsg *store.Message
 	for _, m := range msgs {

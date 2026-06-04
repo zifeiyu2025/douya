@@ -478,7 +478,7 @@ func TestFunctional_MultiTurnContext(t *testing.T) {
 		t.Fatalf("First SendMessage failed: %v", err)
 	}
 
-	convs, _ := store.ListConversations(chat.GetDB(svc))
+	convs, _ := store.ListConversations(chat.GetDB(svc, nil))
 	if len(convs) == 0 {
 		t.Fatal("expected at least 1 conversation after first message")
 	}

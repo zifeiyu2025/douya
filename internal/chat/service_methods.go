@@ -24,7 +24,7 @@ func (s *Service) StopGeneration() {
 
 // GetConversations returns all conversations.
 func (s *Service) GetConversations() ([]*Conversation, error) {
-	convs, err := store.ListConversations(s.db)
+	convs, err := store.ListConversations(s.db, s.encKey)
 	if err != nil {
 		log.Error().Err(err).Msg("[chat] GetConversations failed")
 		return nil, err
@@ -44,7 +44,7 @@ func (s *Service) GetConversations() ([]*Conversation, error) {
 // CreateConversation creates a new conversation.
 func (s *Service) CreateConversation() (*Conversation, error) {
 	conv := &store.Conversation{Title: "新对话"}
-	err := store.CreateConversation(s.db, conv)
+	err := store.CreateConversation(s.db, conv, s.encKey)
 	if err != nil {
 		log.Error().Err(err).Msg("[chat] CreateConversation failed")
 		return nil, err
@@ -62,12 +62,12 @@ func (s *Service) RenameConversation(id string, title string) error {
 	if strings.TrimSpace(title) == "" {
 		return fmt.Errorf("title cannot be empty")
 	}
-	conv, err := store.GetConversation(s.db, id)
+	conv, err := store.GetConversation(s.db, id, s.encKey)
 	if err != nil {
 		return err
 	}
 	conv.Title = title
-	return store.UpdateConversation(s.db, conv)
+	return store.UpdateConversation(s.db, conv, s.encKey)
 }
 
 // DeleteConversation deletes a conversation and all its messages.
@@ -77,7 +77,7 @@ func (s *Service) DeleteConversation(id string) error {
 
 // GetMessages returns all messages for a conversation (excluding tool and intermediate messages).
 func (s *Service) GetMessages(conversationID string) ([]*Message, error) {
-	msgs, err := store.GetMessagesByConversation(s.db, conversationID)
+	msgs, err := store.GetMessagesByConversation(s.db, conversationID, s.encKey)
 	if err != nil {
 		log.Error().Err(err).Str("convID", conversationID).Msg("[chat] GetMessages failed")
 		return nil, err
@@ -103,7 +103,7 @@ func (s *Service) GetMessages(conversationID string) ([]*Message, error) {
 // DeleteMessage deletes a message and, if it's a user message, also deletes
 // the subsequent assistant reply in the same conversation.
 func (s *Service) DeleteMessage(id string) error {
-	msg, err := store.GetMessage(s.db, id)
+	msg, err := store.GetMessage(s.db, id, s.encKey)
 	if err != nil {
 		return fmt.Errorf("get message: %w", err)
 	}
@@ -113,7 +113,7 @@ func (s *Service) DeleteMessage(id string) error {
 	deletedIDs := []string{id}
 
 	if msg.Role == "user" {
-		msgs, err := store.GetMessagesByConversation(s.db, convID)
+		msgs, err := store.GetMessagesByConversation(s.db, convID, s.encKey)
 		if err != nil {
 			return fmt.Errorf("load conversation messages: %w", err)
 		}
@@ -167,14 +167,14 @@ func (s *Service) RegenerateMessage(msgID string, searchEnabled bool) error {
 		s.mutex.Unlock()
 	}()
 
-	targetMsg, err := store.GetMessage(s.db, msgID)
+	targetMsg, err := store.GetMessage(s.db, msgID, s.encKey)
 	if err != nil {
 		return fmt.Errorf("message %s not found: %w", msgID, err)
 	}
 
 	convID := targetMsg.ConversationID
 
-	msgs, err := store.GetMessagesByConversation(s.db, convID)
+	msgs, err := store.GetMessagesByConversation(s.db, convID, s.encKey)
 	if err != nil {
 		return fmt.Errorf("load messages: %w", err)
 	}
@@ -222,7 +222,7 @@ func (s *Service) RegenerateMessage(msgID string, searchEnabled bool) error {
 		}
 	}
 
-	dbMsgs, err := store.GetMessagesByConversation(s.db, convID)
+	dbMsgs, err := store.GetMessagesByConversation(s.db, convID, s.encKey)
 	if err != nil {
 		return fmt.Errorf("reload messages: %w", err)
 	}
@@ -240,7 +240,7 @@ func (s *Service) SearchMessages(query string) ([]*Message, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("query cannot be empty")
 	}
-	msgs, err := store.SearchMessages(s.db, query)
+	msgs, err := store.SearchMessages(s.db, query, s.encKey)
 	if err != nil {
 		log.Error().Err(err).Str("query", query).Msg("[chat] SearchMessages failed")
 		return nil, err
@@ -254,11 +254,11 @@ func (s *Service) SearchMessages(query string) ([]*Message, error) {
 
 // ExportConversation exports a conversation.
 func (s *Service) ExportConversation(id string, format string) (string, error) {
-	conv, err := store.GetConversation(s.db, id)
+	conv, err := store.GetConversation(s.db, id, s.encKey)
 	if err != nil {
 		return "", err
 	}
-	msgs, err := store.GetMessagesByConversation(s.db, id)
+	msgs, err := store.GetMessagesByConversation(s.db, id, s.encKey)
 	if err != nil {
 		return "", err
 	}
@@ -381,7 +381,7 @@ func csvEscape(s string) string {
 
 // CleanupAbnormalConversations removes abnormal conversations.
 func (s *Service) CleanupAbnormalConversations() []*AbnormalConversation {
-	removed, err := store.CleanupAbnormalConversations(s.db)
+	removed, err := store.CleanupAbnormalConversations(s.db, s.encKey)
 	if err != nil {
 		log.Error().Err(err).Msg("[chat] CleanupAbnormalConversations failed")
 		return nil
