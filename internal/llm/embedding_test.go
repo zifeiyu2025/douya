@@ -37,7 +37,7 @@ func TestEmbedding_SingleString(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	client := NewClient(ts.URL)
+	client := NewClient(ts.URL, "")
 	ctx := context.Background()
 
 	req := &EmbeddingRequest{Input: "Hello, world!"}
@@ -75,7 +75,7 @@ func TestEmbedding_MultipleStrings(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	client := NewClient(ts.URL)
+	client := NewClient(ts.URL, "")
 	ctx := context.Background()
 
 	req := &EmbeddingRequest{Input: []string{"Hello", "World"}}
@@ -95,7 +95,7 @@ func TestEmbedding_HTTPError(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	client := NewClient(ts.URL)
+	client := NewClient(ts.URL, "")
 	ctx := context.Background()
 
 	req := &EmbeddingRequest{Input: "test"}

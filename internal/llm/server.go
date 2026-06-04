@@ -64,6 +64,7 @@ type ServerConfig struct {
 	SpecDraftNMax    int
 	CacheTypeKDraft  string
 	CacheTypeVDraft  string
+	SSEPingInterval  int
 }
 
 type Server struct {
@@ -218,6 +219,9 @@ func (s *Server) Start() error {
 	}
 	if s.config.CacheTypeVDraft != "" {
 		args = append(args, "--cache-type-v-draft", s.config.CacheTypeVDraft)
+	}
+	if s.config.SSEPingInterval > 0 {
+		args = append(args, "--sse-ping-interval", fmt.Sprintf("%d", s.config.SSEPingInterval))
 	}
 
 	s.cmd = exec.Command(s.config.ServerPath, args...)

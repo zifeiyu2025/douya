@@ -1,4 +1,4 @@
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+﻿[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::InputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 # 兼容 PowerShell 5.1：不依赖 >$null 2>&1 重定向语法
@@ -22,7 +22,10 @@ if ($LASTEXITCODE -ne 0) { throw "前端构建失败" }
 
 Write-Host "[2/5] 执行 Wails 构建..." -ForegroundColor Yellow
 Set-Location $ProjectRoot
-wails build
+$wailsExe = "D:\Program Files\GoTools\bin\wails.exe"
+if (-not (Test-Path $wailsExe)) { $wailsExe = Join-Path (go env GOPATH) "bin\wails.exe" }
+if (-not (Test-Path $wailsExe)) { $wailsExe = "wails" }
+& $wailsExe build
 if ($LASTEXITCODE -ne 0) { throw "Wails 构建失败" }
 
 Write-Host "[3/5] 同步发布目录（增量模式）..." -ForegroundColor Yellow

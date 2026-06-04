@@ -211,7 +211,8 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		SpecType:         a.config.SpecType,
 		SpecDraftNMax:    a.config.SpecDraftNMax,
 		CacheTypeKDraft:  a.config.CacheTypeKDraft,
-		CacheTypeVDraft:  a.config.CacheTypeVDraft,
+		CacheTypeVDraft: a.config.CacheTypeVDraft,
+		SSEPingInterval: 0,
 	}
 
 	if a.config.CacheTypeK != "" {
