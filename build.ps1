@@ -54,7 +54,7 @@ if ($needCopyExe) {
     Write-Host "  已复制: Douya.exe" -ForegroundColor Green
 }
 
-$syncDirs = @("engines", "models", "runtime")
+$syncDirs = @("models", "runtime")
 foreach ($dir in $syncDirs) {
     $src = Join-Path $ProjectRoot $dir
     $dst = Join-Path $OutputDir $dir
@@ -131,10 +131,6 @@ $criticalItems = @(
 )
 
 $optionalItems = @(
-    @{ Name = "engines\llama-server.exe"; Dst = "$OutputDir\engines\llama-server.exe";
-       Src = @("$ProjectRoot\engines\llama-server.exe", "$ProjectRoot\runtime\llama-server.exe") },
-    @{ Name = "engines\"; Dst = "$OutputDir\engines"; IsDir = $true;
-       SrcDir = "$ProjectRoot\engines" },
     @{ Name = "models\";  Dst = "$OutputDir\models";  IsDir = $true;
        SrcDir = "$ProjectRoot\models" },
     @{ Name = "runtime\"; Dst = "$OutputDir\runtime"; IsDir = $true;
@@ -217,7 +213,6 @@ if ($criticalMissing.Count -eq 0 -and $optionalMissing.Count -eq 0) {
     Write-Host "目录结构:" -ForegroundColor Cyan
     Write-Host "  $OutputDir\"
     Write-Host "    bin\Douya.exe"
-    Write-Host "    engines\"
     Write-Host "    models\"
     Write-Host "    runtime\"
     Write-Host "    data\"

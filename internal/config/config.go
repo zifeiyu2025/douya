@@ -73,7 +73,7 @@ func DefaultConfig() *Config {
 		ModelPath:         "",
 		MmprojAuto:        true,
 		MmprojOffload:     true,
-		LlamaServerPath:  "engines/llama-server.exe",
+		LlamaServerPath:  "runtime/llama-server.exe",
 		APIBase:           "http://127.0.0.1:8080",
 		Port:              8080,
 		ContextSize:       8192,

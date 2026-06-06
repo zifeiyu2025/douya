@@ -9,9 +9,37 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 )
 
 const ggufMagic = 0x46475547
+
+// GGUF 元数据缓存，避免同一模型文件重复解析
+var ggufCache sync.Map // key: resolved path (string), value: *cacheEntry
+
+type cacheEntry struct {
+	meta *GGUFMetadata
+	err  error
+}
+
+// ParseGGUFMetadataCached 返回缓存的 GGUF 元数据，若未缓存则解析并存储
+func ParseGGUFMetadataCached(path string) (*GGUFMetadata, error) {
+	if path == "" {
+		return nil, fmt.Errorf("empty path")
+	}
+	if v, ok := ggufCache.Load(path); ok {
+		e := v.(*cacheEntry)
+		return e.meta, e.err
+	}
+	meta, err := ParseGGUFMetadata(path)
+	ggufCache.Store(path, &cacheEntry{meta: meta, err: err})
+	return meta, err
+}
+
+// InvalidateGGUFCache 清除所有 GGUF 元数据缓存（模型重载时调用）
+func InvalidateGGUFCache() {
+	ggufCache = sync.Map{}
+}
 
 const (
 	ggufTypeUINT8   uint32 = 0

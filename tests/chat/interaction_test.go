@@ -74,7 +74,7 @@ func newInteractionTestService(t *testing.T, llmServer *httptest.Server, searchP
 		chain = search.NewSearchChain()
 	}
 
-	return chat.NewService(llmClient, chain, db, cfg, nil)
+	return chat.NewService(llmClient, chain, db, cfg, nil, "")
 }
 
 func makeSSEData(chunks []string) string {
@@ -686,7 +686,7 @@ func TestSendMessage_CodeRelatedSearch_UsesCodeCategory(t *testing.T) {
 
 	cfg := &config.Config{ContextSize: 4096, Temperature: 0.7}
 	llmClient := llm.NewClient(server.URL, "")
-	svc := chat.NewService(llmClient, chain, db, cfg, nil)
+	svc := chat.NewService(llmClient, chain, db, cfg, nil, "")
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
 		Content:       "如何用python写一个web服务器？",
@@ -731,7 +731,7 @@ func TestSendMessage_GeneralQuestion_UsesGeneralCategory(t *testing.T) {
 
 	cfg := &config.Config{ContextSize: 4096, Temperature: 0.7}
 	llmClient := llm.NewClient(server.URL, "")
-	svc := chat.NewService(llmClient, chain, db, cfg, nil)
+	svc := chat.NewService(llmClient, chain, db, cfg, nil, "")
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
 		Content:       "今天北京天气怎么样？",

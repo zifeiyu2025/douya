@@ -156,7 +156,7 @@ func TestDefaultConfig_AllFields(t *testing.T) {
 	if cfg.ModelPath != "models/Gemma-4-E4B-U-Q4_K_M/Gemma-4-E4B-U-Q4_K_M.gguf" {
 		t.Errorf("expected default ModelPath, got '%s'", cfg.ModelPath)
 	}
-	if cfg.LlamaServerPath != "engines/llama-server.exe" {
+	if cfg.LlamaServerPath != "runtime/llama-server.exe" {
 		t.Errorf("expected default LlamaServerPath, got '%s'", cfg.LlamaServerPath)
 	}
 	if cfg.APIBase != "http://127.0.0.1:8080" {
@@ -353,7 +353,7 @@ func TestSaveAndLoad_GenerationParams(t *testing.T) {
 
 	original := &config.Config{
 		ModelPath:       "models/Qwen3.5U-9B-Q4_K_M.gguf",
-		LlamaServerPath: "engines/llama-server.exe",
+		LlamaServerPath: "runtime/llama-server.exe",
 		APIBase:         "http://127.0.0.1:8080",
 		Port:            8080,
 		ContextSize:     8192,

@@ -120,7 +120,7 @@ func appDir() string {
 
 	// 优先查找 config.json。
 	// 当 config.json 存在时，额外检查它是否值得信任：
-	// - 如果 model_path 为空，且上层目录存在资源（engines/ 或 models/），
+	// - 如果 model_path 为空，且上层目录存在资源（runtime/ 或 models/），
 	//   说明该 config.json 是上版本自动生成的默认配置，应该跳过。
 	isValidConfig := func(d string) bool {
 		cfgPath := filepath.Join(d, "config.json")
@@ -149,7 +149,7 @@ func appDir() string {
 		if mp, ok := raw["model_path"].(string); ok && mp == "" {
 			// 检查上层目录（filepath.Dir(d)）是否有资源
 			parent := filepath.Dir(d)
-			for _, p := range []string{"engines", "models"} {
+			for _, p := range []string{"runtime", "models"} {
 				if info, err := os.Stat(filepath.Join(parent, p)); err == nil && info.IsDir() {
 					return false // 是默认配置 + 上层有资源 = 跳过
 				}
@@ -213,18 +213,15 @@ func resolvePath(p string) string {
 	if _, err := os.Stat(candidate); err == nil {
 		return candidate
 	}
-	abs, err := filepath.Abs(p)
-	if err != nil {
-		return filepath.Join(baseDir, p)
-	}
-	return abs
+	// 文件不存在时仍基于 appDir() 返回，让调用方得到清晰的“文件不存在”错误
+	return filepath.Join(baseDir, p)
 }
 
 func (a *App) buildServerConfig() *llm.ServerConfig {
 	absServerPath := resolvePath(a.config.LlamaServerPath)
 	modelsDir := filepath.Join(appDir(), "models")
 
-	sp := system.CalculateSmartParams(a.hwInfo, a.config.ModelPath)
+	sp := system.CalculateSmartParams(a.hwInfo, resolvePath(a.config.ModelPath))
 	zlog.Info().Str("models_dir", modelsDir).Int("gpu_layers", sp.GPULayers).Int("threads", sp.Threads).Bool("flash", sp.FlashAttn).Str("cache_k", sp.CacheTypeK).Str("cache_v", sp.CacheTypeV).Bool("mlock", sp.Mlock).Bool("mmproj_offload", sp.MmprojOffload).Msg("[smart-params] params")
 
 	// reasoning_format 不再硬编码设置：
@@ -577,7 +574,7 @@ func (a *App) startup(ctx context.Context) {
 
 	searchChain := a.buildSearchChain()
 
-	a.service = chat.NewService(a.client, searchChain, a.db, a.config, a.encKey)
+	a.service = chat.NewService(a.client, searchChain, a.db, a.config, a.encKey, appDir())
 	a.service.SetContext(ctx)
 
 	// Initialize RAG (Badger-backed vector store + LLM embedder)
@@ -1771,6 +1768,7 @@ func (a *App) ReloadModels() error {
 	if err := a.client.ReloadModels(a.ctx); err != nil {
 		return fmt.Errorf("热重载模型列表失败: %w", err)
 	}
+	system.InvalidateGGUFCache()
 	if err := a.generatePresetFile(); err != nil {
 		zlog.Error().Err(err).Msg("[reload] regenerate preset file failed")
 	}

@@ -15,11 +15,10 @@ data/
 config.json
 router-preset.ini
 
-# Engine binaries (keep structure txt files)
-engines/*.exe
-engines/*.dll
-engines_backup/
+# Runtime binaries (keep structure txt files)
+runtime/*.exe
 runtime/*.dll
+engines_backup/
 
 # Model files (keep structure txt files)
 models/*.gguf

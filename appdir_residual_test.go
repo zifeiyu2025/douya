@@ -11,7 +11,7 @@ func TestIsValidConfigClosure(t *testing.T) {
 	// 在临时目录构造一个类似 release/bin/ 与 release/ 的结构
 	// tmp/
 	//   release/
-	//     engines/         <- 资源目录
+	//     runtime/         <- 资源目录
 	//     models/          <- 资源目录
 	//     config.json      <- 用户的真实配置（model_path 非空）
 	//     bin/
@@ -19,13 +19,13 @@ func TestIsValidConfigClosure(t *testing.T) {
 	tmp := t.TempDir()
 	releaseDir := filepath.Join(tmp, "release")
 	binDir := filepath.Join(releaseDir, "bin")
-	enginesDir := filepath.Join(releaseDir, "engines")
+	runtimeDir := filepath.Join(releaseDir, "runtime")
 	modelsDir := filepath.Join(releaseDir, "models")
 
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(enginesDir, 0o755); err != nil {
+	if err := os.MkdirAll(runtimeDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(modelsDir, 0o755); err != nil {
@@ -81,9 +81,9 @@ func TestIsValidConfigClosure(t *testing.T) {
 		}
 		_ = end
 		if empty {
-			// model_path 是空字符串：检查上层目录（filepath.Dir(d)）是否有 engines/ 或 models/ 资源
+			// model_path 是空字符串：检查上层目录（filepath.Dir(d)）是否有 runtime/ 或 models/ 资源
 			parent := filepath.Dir(d)
-			for _, p := range []string{"engines", "models"} {
+			for _, p := range []string{"runtime", "models"} {
 				if info, err := os.Stat(filepath.Join(parent, p)); err == nil && info.IsDir() {
 					return false
 				}
@@ -99,7 +99,7 @@ func TestIsValidConfigClosure(t *testing.T) {
 		t.Errorf("binDir 下的默认配置 + 上层有资源，应被识别为不可信，实际为可信任")
 	}
 
-	// 反例：binDir 下没有 engines/ 或 models/ 资源时，配置应被认为是可信任的
+	// 反例：binDir 下没有 runtime/ 或 models/ 资源时，配置应被认为是可信任的
 	noResBin := filepath.Join(tmp, "noRes")
 	noResBinBin := filepath.Join(noResBin, "bin")
 	if err := os.MkdirAll(noResBinBin, 0o755); err != nil {

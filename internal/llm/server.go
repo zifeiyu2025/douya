@@ -68,14 +68,16 @@ type ServerConfig struct {
 }
 
 type Server struct {
-	cmd        *exec.Cmd
-	config     *ServerConfig
-	status     ServerStatus
-	ctx        context.Context
-	cancel     context.CancelFunc
-	mu         sync.RWMutex
-	job        *JobObject
-	stderrBuf  *RingBuffer
+	cmd                  *exec.Cmd
+	config               *ServerConfig
+	status               ServerStatus
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	mu                   sync.RWMutex
+	job                  *JobObject
+	stderrBuf            *RingBuffer
+	mtpFallbackDisabled  bool
+	lastStartTime        time.Time
 }
 
 func NewServer(cfg *ServerConfig) *Server {
@@ -208,16 +210,16 @@ func (s *Server) Start() error {
 	if s.config.APIKey != "" {
 		args = append(args, "--api-key", s.config.APIKey)
 	}
-	if s.config.SpecType != "" {
+	if s.config.SpecType != "" && !s.mtpFallbackDisabled {
 		args = append(args, "--spec-type", s.config.SpecType)
 	}
-	if s.config.SpecDraftNMax > 0 {
+	if s.config.SpecDraftNMax > 0 && !s.mtpFallbackDisabled {
 		args = append(args, "--spec-draft-n-max", fmt.Sprintf("%d", s.config.SpecDraftNMax))
 	}
-	if s.config.CacheTypeKDraft != "" {
+	if s.config.CacheTypeKDraft != "" && !s.mtpFallbackDisabled {
 		args = append(args, "--cache-type-k-draft", s.config.CacheTypeKDraft)
 	}
-	if s.config.CacheTypeVDraft != "" {
+	if s.config.CacheTypeVDraft != "" && !s.mtpFallbackDisabled {
 		args = append(args, "--cache-type-v-draft", s.config.CacheTypeVDraft)
 	}
 	if s.config.SSEPingInterval > 0 {
@@ -225,12 +227,8 @@ func (s *Server) Start() error {
 	}
 
 	s.cmd = exec.Command(s.config.ServerPath, args...)
-	var runtimeDir string
-	if s.config.AppDir != "" {
-		runtimeDir = filepath.Join(s.config.AppDir, "runtime")
-	} else {
-		runtimeDir = filepath.Join(filepath.Dir(filepath.Dir(s.config.ServerPath)), "runtime")
-	}
+	// llama-server.exe 与 DLL 同目录（runtime/），直接用 exe 所在目录作为工作目录
+	runtimeDir := filepath.Dir(s.config.ServerPath)
 	s.cmd.Dir = runtimeDir
 
 	s.stderrBuf = NewRingBuffer(20)
@@ -256,6 +254,8 @@ func (s *Server) Start() error {
 		HideWindow:    true,
 		CreationFlags: 0x08000000,
 	}
+
+	s.lastStartTime = time.Now()
 
 	if err := s.cmd.Start(); err != nil {
 		s.status = ServerStatus{Running: false, Error: fmt.Sprintf("failed to start server: %v", err)}
@@ -478,6 +478,20 @@ func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(Serv
 			currentBackoff = currentBackoff * 2
 			if currentBackoff > maxBackoff {
 				currentBackoff = maxBackoff
+			}
+
+			// MTP 崩溃回退：若 MTP 已启用且服务器崩溃，自动禁用 MTP
+			// 窗口设为 120 秒以覆盖大模型加载时间（加载期间崩溃也视为 MTP 问题）
+			if !s.mtpFallbackDisabled && s.config.SpecType != "" {
+				runDuration := time.Since(s.lastStartTime)
+				if runDuration < 120*time.Second {
+					s.mtpFallbackDisabled = true
+					log.Warn().
+						Dur("run_duration", runDuration).
+						Str("spec_type", s.config.SpecType).
+						Msg("[server] MTP crash detected (server died within 15s), restarting without speculative decoding")
+					backoff = 1 * time.Second // 快速重启
+				}
 			}
 
 			s.SetStatus(false, fmt.Sprintf("server crashed, restarting in %v (attempt %d/%d)", backoff, restartCount, maxRestartAttempts))

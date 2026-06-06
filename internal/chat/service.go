@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/rs/zerolog/log"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -47,6 +48,7 @@ type Service struct {
 	db                *sql.DB
 	config            *config.Config
 	wailsCtx          context.Context
+	appDir            string
 	currentCancel     context.CancelFunc
 	currentConvID     string
 	mutex             sync.Mutex
@@ -69,13 +71,14 @@ type Service struct {
 	ragEnabled     bool
 }
 
-func NewService(llmClient *llm.Client, searchChain *search.SearchChain, db *sql.DB, cfg *config.Config, encKey []byte) *Service {
+func NewService(llmClient *llm.Client, searchChain *search.SearchChain, db *sql.DB, cfg *config.Config, encKey []byte, appDir string) *Service {
 	return &Service{
 		llmClient:   llmClient,
 		searchChain:  searchChain,
 		db:           db,
 		config:       cfg,
 		encKey:       encKey,
+		appDir:       appDir,
 		modelCaps:    llm.ModelCapabilities{TextInput: true},
 	}
 }
@@ -227,9 +230,9 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 	if thinkingMode == llm.ThinkingModeNone {
 		// 优先使用 GGUF 元数据中的 architecture 字段推断
 		var ggufMeta *system.GGUFMetadata
-		modelPath := s.config.ModelPath
+		modelPath := s.resolveModelPath(s.config.ModelPath)
 		if modelPath != "" {
-			if meta, err := system.ParseGGUFMetadata(modelPath); err == nil {
+			if meta, err := system.ParseGGUFMetadataCached(modelPath); err == nil {
 				ggufMeta = meta
 			}
 		}
@@ -390,12 +393,26 @@ func (s *Service) SetModelCapabilities(caps llm.ModelCapabilities) {
 	s.modelCaps = caps
 }
 
+func (s *Service) resolveModelPath(p string) string {
+	if p == "" {
+		return ""
+	}
+	p = filepath.Clean(p)
+	if filepath.IsAbs(p) {
+		return p
+	}
+	if s.appDir != "" {
+		return filepath.Join(s.appDir, p)
+	}
+	return p
+}
+
 func (s *Service) detectHasMTP() bool {
-	modelPath := s.config.ModelPath
+	modelPath := s.resolveModelPath(s.config.ModelPath)
 	if modelPath == "" {
 		return false
 	}
-	meta, err := system.ParseGGUFMetadata(modelPath)
+	meta, err := system.ParseGGUFMetadataCached(modelPath)
 	if err != nil {
 		log.Warn().Err(err).Str("path", modelPath).Msg("[model] GGUF parse failed for MTP detection")
 		return false
@@ -410,11 +427,11 @@ func (s *Service) resolveNParams(serverNParams float64) float64 {
 	if serverNParams > 0 {
 		return serverNParams
 	}
-	modelPath := s.config.ModelPath
+	modelPath := s.resolveModelPath(s.config.ModelPath)
 	if modelPath == "" {
 		return 0
 	}
-	meta, err := system.ParseGGUFMetadata(modelPath)
+	meta, err := system.ParseGGUFMetadataCached(modelPath)
 	if err != nil {
 		return 0
 	}

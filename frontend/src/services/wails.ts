@@ -116,7 +116,7 @@ export const DEFAULT_CONFIG: Config = {
     model_path: '',
     mmproj_auto: true,
     mmproj_offload: true,
-    llama_server_path: 'engines/llama-server.exe',
+    llama_server_path: 'runtime/llama-server.exe',
     api_base: 'http://127.0.0.1:8080',
     port: 8080,
     context_size: 8192,

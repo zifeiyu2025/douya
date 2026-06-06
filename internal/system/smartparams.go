@@ -36,7 +36,7 @@ type SmartParams struct {
 }
 
 func DetectModelTier(resolvedModelPath string) (ModelTier, *GGUFMetadata) {
-	meta, err := ParseGGUFMetadata(resolvedModelPath)
+	meta, err := ParseGGUFMetadataCached(resolvedModelPath)
 	if err != nil {
 		log.Error().Err(err).Msg("[smart-params] GGUF parse failed, using unknown tier")
 		return ModelTierUnknown, nil
@@ -97,6 +97,28 @@ func CalculateSmartParams(hw *HardwareInfo, resolvedModelPath string) *SmartPara
 	p.UBatchSize = p.BatchSize / 2
 
 	if meta != nil && meta.HasMTP {
+		// 检查 VRAM 是否有足够余量支持 MTP（draft heads 额外消耗显存）
+		if hw.HasGPU && hw.GPUVRAMMB > 0 && meta.FileSize > 0 {
+			vramBytes := float64(hw.GPUVRAMMB) * 1024 * 1024
+			modelBytes := float64(meta.FileSize)
+			ratio := modelBytes / vramBytes
+			if meta.ExpertCount > 0 && meta.ExpertUsed > 0 {
+				ratio = ratio * float64(meta.ExpertUsed) / float64(meta.ExpertCount)
+			}
+			if ratio > 0.8 {
+				log.Warn().Float64("ratio", ratio).Msg("[smart-params] VRAM headroom insufficient for MTP, skipping auto-enable")
+				return p
+			}
+			// 根据 VRAM 比率动态缩减上下文大小，为 MTP draft KV cache 预留显存
+			if ratio > 0.5 {
+				p.ContextSize = int(float64(p.ContextSize) * 0.8) // 缩减 20%
+				log.Info().Float64("ratio", ratio).Int("ctx_reduced", p.ContextSize).Msg("[smart-params] MTP: context size reduced 20% for VRAM headroom")
+			} else {
+				p.ContextSize = int(float64(p.ContextSize) * 0.9) // 缩减 10%
+				log.Info().Float64("ratio", ratio).Int("ctx_reduced", p.ContextSize).Msg("[smart-params] MTP: context size reduced 10% for VRAM headroom")
+			}
+		}
+
 		p.SpecType = "draft-mtp"
 		p.CacheTypeKDraft = "q8_0"
 		p.CacheTypeVDraft = "q8_0"

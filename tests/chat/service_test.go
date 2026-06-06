@@ -22,7 +22,7 @@ func newTestService() *chat.Service {
 		SystemPrompt: "",
 		Temperature:  0.7,
 	}
-	return chat.NewService(nil, nil, nil, cfg, nil)
+	return chat.NewService(nil, nil, nil, cfg, nil, "")
 }
 
 func TestBuildLLMMessages_SystemPromptContainsCurrentDate(t *testing.T) {
@@ -312,7 +312,7 @@ func newTestServiceWithDB(t *testing.T) *chat.Service {
 		SystemPrompt: "",
 		Temperature:  0.7,
 	}
-	return chat.NewService(nil, nil, db, cfg, nil)
+	return chat.NewService(nil, nil, db, cfg, nil, "")
 }
 
 func TestIsCodeRelated(t *testing.T) {
