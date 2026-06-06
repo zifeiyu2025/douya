@@ -7,10 +7,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rs/zerolog/log"
 	"douya/internal/llm"
 	"douya/internal/search"
 	"douya/internal/store"
+
+	"github.com/rs/zerolog/log"
 )
 
 // 预编译正则表达式，避免每次调用时重复编译
@@ -23,7 +24,7 @@ var (
 
 // isCodeRelated returns true if the query looks like a code-related question.
 func isCodeRelated(query string) bool {
-queryLower := strings.ToLower(query)
+	queryLower := strings.ToLower(query)
 
 	// 1. 代码语法关键词（直接出现代码特征）
 	codeSyntax := []string{
@@ -63,7 +64,7 @@ queryLower := strings.ToLower(query)
 		"类", "对象", "接口", "代码审查", "重构",
 		"数据库", "编译", "构建", "运行", "测试", "报错", "bug",
 		"微服务", "架构", "设计模式", "优化", "性能", "排障",
-		"写代码", "写个", "写一个",
+		"写代码", "项目仓库",
 	}
 	for _, kw := range zhKeywords {
 		if strings.Contains(query, kw) {
