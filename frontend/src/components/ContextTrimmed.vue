@@ -50,7 +50,7 @@ const headerText = computed(() => {
 <style scoped>
 .context-trimmed-notice {
   margin-bottom: 10px;
-  border-radius: 8px;
+  border-radius: var(--border-radius-sm);
   border: 1px solid color-mix(in srgb, var(--warning-color, #f0a020) 30%, transparent);
   overflow: hidden;
   background: color-mix(in srgb, var(--warning-color, #f0a020) 8%, var(--bg-secondary, #f5f5f5));

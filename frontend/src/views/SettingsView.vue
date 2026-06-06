@@ -111,7 +111,10 @@
             @blur="autoSave"
           />
         </n-form-item>
-        <n-form-item label="API Key" label-width="80">
+        <n-form-item label="启用 API Key 验证" label-width="140" label-placement="left">
+          <n-switch v-model:value="formConfig.server_api_key_enabled" @update:value="onServerAPIKeyToggle" />
+        </n-form-item>
+        <n-form-item v-if="formConfig.server_api_key_enabled" label="API Key" label-width="80">
           <div style="display: flex; align-items: center; gap: 8px; width: 100%;">
             <n-input
               v-model:value="serverApiKey"
@@ -396,6 +399,7 @@ const formConfig = ref<Config>({
   ai_avatar: '',
   search_enabled: false,
   thinking_enabled: true,
+  thinking_soft_switch: 'auto',
   sleep_idle_seconds: 120,
   models_max: 1,
   rag_enabled: false,
@@ -419,6 +423,7 @@ const formConfig = ref<Config>({
   spec_draft_n_max: 0,
   cache_type_k_draft: '',
   cache_type_v_draft: '',
+  server_api_key_enabled: true,
 })
 
 const backgroundImageUrl = computed(() => {
@@ -445,6 +450,14 @@ function saveServerApiKey() {
     if (serverApiKey.value) {
         settingsStore.saveServerAPIKey(serverApiKey.value)
         hasServerApiKey.value = true
+    }
+}
+
+async function onServerAPIKeyToggle() {
+    await autoSave()
+    // 切换开关后需要重新创建 client 以更新 API Key 设置
+    if (formConfig.value.server_api_key_enabled) {
+        hasServerApiKey.value = await settingsStore.hasServerAPIKey()
     }
 }
 
@@ -1076,7 +1089,7 @@ async function autoSave() {
   gap: 8px;
   padding: 32px;
   border: 2px dashed var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--border-radius-md);
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -1096,7 +1109,7 @@ async function autoSave() {
 
 .upload-preview {
   position: relative;
-  border-radius: 12px;
+  border-radius: var(--border-radius-md);
   overflow: hidden;
   cursor: pointer;
 }
@@ -1105,7 +1118,7 @@ async function autoSave() {
   width: 100%;
   height: 160px;
   object-fit: cover;
-  border-radius: 12px;
+  border-radius: var(--border-radius-md);
 }
 
 .upload-actions {
@@ -1130,7 +1143,7 @@ async function autoSave() {
   opacity: 0;
   transition: opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1);
   pointer-events: none;
-  border-radius: 12px;
+  border-radius: var(--border-radius-md);
   z-index: 1;
 }
 
@@ -1206,19 +1219,19 @@ async function autoSave() {
 }
 
 .rounded-textarea :deep(.n-input__textarea-wrapper) {
-  border-radius: 16px;
+  border-radius: var(--border-radius-lg);
 }
 
 .rounded-textarea :deep(.n-input__textarea) {
-  border-radius: 16px;
+  border-radius: var(--border-radius-lg);
 }
 
 .rounded-textarea :deep(.n-input__border) {
-  border-radius: 16px;
+  border-radius: var(--border-radius-lg);
 }
 
 .rounded-textarea :deep(.n-input__state-border) {
-  border-radius: 16px;
+  border-radius: var(--border-radius-lg);
 }
 
 .reset-btn {
@@ -1230,7 +1243,7 @@ async function autoSave() {
 
 .model-ref-card {
   margin-bottom: 16px;
-  border-radius: 10px;
+  border-radius: var(--border-radius-md);
   border: 1px solid var(--border-color);
   background: var(--bg-secondary);
   overflow: hidden;
@@ -1296,7 +1309,7 @@ async function autoSave() {
 .model-ref-apply {
   width: 100%;
   border-top: 1px solid var(--border-color);
-  border-radius: 0 0 10px 10px;
+  border-radius: 0 0 var(--border-radius-md) var(--border-radius-md);
 }
 
 .model-ref-tabs {

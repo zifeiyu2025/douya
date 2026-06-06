@@ -115,7 +115,7 @@ const contextMenuOptions = [
   createMenuItem('export-md', DocumentTextOutline, '导出 Markdown'),
   createMenuItem('export-json', CodeSlashOutline, '导出 JSON'),
   createMenuItem('export-txt', FileTrayFullOutline, '导出纯文本'),
-  createMenuItem('export-csv', GridOutline, '导出 CSV (微调)'),
+  createMenuItem('export-csv', GridOutline, '导出 CSV'),
   { type: 'divider', key: 'divider' },
   createMenuItem('delete', TrashOutline, '删除', true),
 ]
@@ -285,17 +285,17 @@ async function handleExport(id: string, format: string) {
 }
 
 .create-btn {
-  border-radius: 12px !important;
+  border-radius: var(--border-radius-md) !important;
   height: 44px !important;
   font-weight: 600;
 }
 
 .search-input {
-  border-radius: 12px !important;
+  border-radius: var(--border-radius-md) !important;
 }
 
 .footer-btn {
-  border-radius: 12px !important;
+  border-radius: var(--border-radius-md) !important;
   display: flex !important;
   gap: 8px;
   padding: 10px 12px !important;

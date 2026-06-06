@@ -445,7 +445,7 @@ onMounted(loadData)
   margin-left: auto;
   padding: 2px 8px;
   background: var(--bg-tertiary);
-  border-radius: 10px;
+  border-radius: var(--border-radius-sm);
 }
 
 .kb-selector-row {
@@ -475,7 +475,7 @@ onMounted(loadData)
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
-  border-radius: var(--border-radius);
+  border-radius: var(--border-radius-md);
   transition: background var(--transition-fast);
 }
 
@@ -486,7 +486,7 @@ onMounted(loadData)
 .doc-icon-box {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  border-radius: var(--border-radius-md);
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
   display: flex;
@@ -558,7 +558,7 @@ onMounted(loadData)
   justify-content: center;
   padding: 36px 20px;
   border: 2px dashed var(--border-color);
-  border-radius: var(--border-radius);
+  border-radius: var(--border-radius-lg);
   margin-bottom: 14px;
 }
 
@@ -608,7 +608,7 @@ onMounted(loadData)
   color: var(--accent-primary);
   background: var(--accent-tertiary);
   padding: 2px 8px;
-  border-radius: 8px;
+  border-radius: var(--border-radius-sm);
 }
 
 .rag-input {
