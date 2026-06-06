@@ -39,8 +39,9 @@
       </div>
       <div class="chat-input-container">
         <div class="left-buttons">
-                <button class="think-btn" :class="{ active: thinkingEnabled, unsupported: !supportsThinking }" :disabled="!supportsThinking" @click="settingsStore.toggleThinking()" :title="thinkingTitle">
-                  <n-icon size="22"><BulbOutline /></n-icon>
+                <button class="think-btn" :class="thinkBtnClass" :disabled="!supportsThinking" @click="settingsStore.cycleThinkingMode()" :title="thinkingTitle">
+                  <n-icon size="22" class="think-icon"><BulbOutline /></n-icon>
+                  <span v-if="thinkingMode === 'no_think'" class="think-slash"></span>
                 </button>
                 <button class="search-btn" :class="{ active: searchEnabled }" @click="settingsStore.toggleSearch()" :title="searchEnabled ? '联网搜索已开启' : '开启联网搜索'">
                   <n-icon size="22"><GlobeOutline /></n-icon>
@@ -206,14 +207,24 @@ const speechSupported = computed(() => {
 })
 
 const searchEnabled = computed(() => settingsStore.searchEnabled)
-const thinkingEnabled = computed(() => settingsStore.thinkingEnabled)
+const thinkingMode = computed(() => settingsStore.thinkingSoftSwitch)
 const capabilities = computed(() => settingsStore.modelCapabilities)
 const isSwitching = computed(() => settingsStore.isModelSwitching)
 const supportsThinking = computed(() => settingsStore.modelCapabilities.thinking_mode !== 'none')
 const thinkingTitle = computed(() => {
     if (!supportsThinking.value) return '当前模型不支持思考'
-    return thinkingEnabled.value ? '深度思考已开启' : '开启深度思考'
+    switch (thinkingMode.value) {
+        case 'think': return '强制深度思考'
+        case 'no_think': return '快速回答（不思考）'
+        default: return '自动思考'
+    }
 })
+const thinkBtnClass = computed(() => ({
+    active: thinkingMode.value === 'think',
+    'auto-mode': thinkingMode.value === 'auto',
+    'no-think-mode': thinkingMode.value === 'no_think',
+    unsupported: !supportsThinking.value,
+}))
 const canSend = computed(() => !isSwitching.value && (inputText.value.trim() || attachments.value.length > 0))
 
 function adjustHeight() {
@@ -571,7 +582,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  border-radius: 12px;
+  border-radius: var(--border-radius-md);
   border: 1px solid var(--border-color);
   background: var(--bg-secondary);
   max-width: 220px;
@@ -598,7 +609,7 @@ onUnmounted(() => {
 .att-thumb.image-thumb {
   width: 52px;
   height: 52px;
-  border-radius: 10px;
+  border-radius: var(--border-radius-sm);
   overflow: hidden;
 }
 
@@ -611,7 +622,7 @@ onUnmounted(() => {
 .att-thumb.file-thumb {
   width: 40px;
   height: 40px;
-  border-radius: 10px;
+  border-radius: var(--border-radius-sm);
   background: var(--bg-hover);
   color: var(--text-secondary);
 }
@@ -674,7 +685,7 @@ onUnmounted(() => {
   margin: 0 0 4px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--border-radius-md);
   animation: fadeIn 0.2s ease;
 }
 
@@ -740,7 +751,7 @@ onUnmounted(() => {
   gap: 12px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 16px;
+  border-radius: var(--border-radius-lg);
   padding: 12px 14px;
   width: 100%;
   box-sizing: border-box;
@@ -764,7 +775,7 @@ onUnmounted(() => {
   justify-content: center;
   width: 42px;
   height: 42px;
-  border-radius: 12px;
+  border-radius: var(--border-radius-md);
   border: none;
   background: transparent;
   cursor: pointer;
@@ -789,7 +800,13 @@ onUnmounted(() => {
 
 .think-btn.active {
     color: #f59e0b;
-    background: rgba(245, 158, 11, 0.1);
+    background: rgba(245, 158, 11, 0.12);
+    animation: think-pulse 3s ease-in-out infinite;
+}
+
+@keyframes think-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+    50% { box-shadow: 0 0 6px 1px rgba(245, 158, 11, 0.18); }
 }
 
 .think-btn.unsupported {
@@ -800,6 +817,44 @@ onUnmounted(() => {
 .think-btn:disabled {
     opacity: 0.3;
     cursor: not-allowed;
+}
+
+.think-btn {
+    position: relative;
+}
+
+.think-btn .think-icon {
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+    will-change: transform;
+}
+
+.think-btn.auto-mode {
+    color: var(--text-secondary);
+}
+
+.think-btn.auto-mode:hover .think-icon {
+    transform: scale(1.08);
+}
+
+.think-btn.no-think-mode {
+    color: var(--text-muted);
+}
+
+.think-btn .think-slash {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-45deg);
+    width: 24px;
+    height: 3px;
+    background: var(--accent-danger);
+    border-radius: 2px;
+    pointer-events: none;
+    opacity: 0.9;
+}
+
+.think-btn.active .think-icon {
+    transform: scale(1.05);
 }
 
 .voice-btn.active {
@@ -822,7 +877,7 @@ onUnmounted(() => {
   left: 0;
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--border-radius-md);
   box-shadow: var(--shadow-lg);
   padding: 6px 0;
   min-width: 160px;
@@ -858,7 +913,7 @@ onUnmounted(() => {
   color: var(--text-muted);
   background: var(--bg-hover);
   padding: 2px 8px;
-  border-radius: 6px;
+  border-radius: var(--border-radius-xs);
 }
 
 .hidden-file-input {
@@ -900,7 +955,7 @@ onUnmounted(() => {
   justify-content: center;
   width: 42px;
   height: 42px;
-  border-radius: 12px;
+  border-radius: var(--border-radius-md);
   border: none;
   background: var(--accent-primary);
   color: white;
@@ -925,7 +980,7 @@ onUnmounted(() => {
   justify-content: center;
   width: 42px;
   height: 42px;
-  border-radius: 12px;
+  border-radius: var(--border-radius-md);
   border: none;
   background: var(--accent-danger);
   color: white;

@@ -313,7 +313,10 @@ export const useChatStore = defineStore('chat', () => {
                         if (targetConvId === currentConversationId.value || targetConvId === generatingConvId.value) {
                             messages.value = msgs || []
                         }
-                        handleTerminalEvent(convId)
+                        // 等待 Vue 渲染数据库消息后再清空流式状态，避免滚动条上移
+                        nextTick(() => {
+                            handleTerminalEvent(convId)
+                        })
                     }).catch(() => {
                         handleTerminalEvent(convId)
                     })
@@ -330,7 +333,10 @@ export const useChatStore = defineStore('chat', () => {
                         if (targetConvId === currentConversationId.value || targetConvId === generatingConvId.value) {
                             messages.value = msgs || []
                         }
-                        handleTerminalEvent(convId)
+                        // 等待 Vue 渲染数据库消息后再清空流式状态，避免滚动条上移
+                        nextTick(() => {
+                            handleTerminalEvent(convId)
+                        })
                     }).catch(() => {
                         handleTerminalEvent(convId)
                     })

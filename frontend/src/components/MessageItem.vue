@@ -26,9 +26,14 @@
           <div v-if="message.content" class="user-text">{{ message.content }}</div>
         </template>
         <template v-else>
-          <ThinkBlock v-if="message.thinking_content" :content="message.thinking_content" :duration="message.thinking_duration" />
+          <template v-if="!message.content && message.thinking_content">
+            <div class="markdown-body" v-html="renderedThinkingAsContent" />
+          </template>
+          <template v-else>
+            <ThinkBlock v-if="message.thinking_content" :content="message.thinking_content" :duration="message.thinking_duration" />
+            <div class="markdown-body" v-html="renderedContent" />
+          </template>
           <SearchStatus v-if="hasSearchResults" :searching="false" :results="message.search_results" :default-expanded="false" />
-          <div class="markdown-body" v-html="renderedContent" />
         </template>
       </div>
 
@@ -139,6 +144,16 @@ const nonImageAttachments = computed<AttachmentSummary[]>(() => {
 })
 const renderedContent = computed(() => {
   let html = renderMarkdown(props.message.content)
+  if (hasSearchResults.value) {
+    html = linkCitations(html, props.message.search_results)
+  }
+  return html
+})
+
+// 当 content 为空但 thinking_content 不为空时，将 thinking_content 作为正文渲染
+const renderedThinkingAsContent = computed(() => {
+  if (!props.message.thinking_content) return ''
+  let html = renderMarkdown(props.message.thinking_content)
   if (hasSearchResults.value) {
     html = linkCitations(html, props.message.search_results)
   }
@@ -348,7 +363,7 @@ function regenerate() {
   min-width: 0;
   background: var(--bg-user-msg);
   color: var(--text-user-msg);
-  border-radius: 18px 18px 6px 18px;
+  border-radius: var(--border-radius-xl) var(--border-radius-xl) var(--border-radius-sm) var(--border-radius-xl);
 }
 
 .ai-bubble {
@@ -357,7 +372,7 @@ function regenerate() {
   min-width: 0;
   background: var(--bg-ai-msg);
   color: var(--text-ai-msg);
-  border-radius: 18px 18px 18px 6px;
+  border-radius: var(--border-radius-xl) var(--border-radius-xl) var(--border-radius-xl) var(--border-radius-sm);
   border: 1px solid var(--border-color);
 }
 
@@ -407,7 +422,7 @@ function regenerate() {
   gap: 6px;
   padding: 6px 12px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--border-radius-sm);
   background: transparent;
   color: var(--text-muted);
   font-size: 12.5px;
@@ -480,7 +495,7 @@ function regenerate() {
   align-items: center;
   gap: 8px;
   padding: 10px 16px;
-  border-radius: 12px;
+  border-radius: var(--border-radius-md);
   background: rgba(0, 0, 0, 0.05);
   font-size: 13px;
   font-weight: 500;
@@ -546,7 +561,7 @@ function regenerate() {
 .message-image {
   max-width: 260px;
   max-height: 260px;
-  border-radius: 16px;
+  border-radius: var(--border-radius-lg);
   cursor: zoom-in;
   object-fit: cover;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
@@ -568,7 +583,7 @@ function regenerate() {
   padding-top: 12px;
   padding-bottom: 12px;
   padding-right: 16px;
-  border-radius: 0 14px 14px 0;
+  border-radius: 0 var(--border-radius-md) var(--border-radius-md) 0;
 }
 
 :global(.dark) .message-bubble :deep(.markdown-body) blockquote {
@@ -582,7 +597,7 @@ function regenerate() {
   width: 100%;
   margin: 16px 0;
   font-size: 14.5px;
-  border-radius: 12px;
+  border-radius: var(--border-radius-md);
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
@@ -612,7 +627,7 @@ function regenerate() {
 
 .message-bubble :deep(.markdown-body) img {
   max-width: 100%;
-  border-radius: 14px;
+  border-radius: var(--border-radius-md);
   margin: 14px 0;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
 }

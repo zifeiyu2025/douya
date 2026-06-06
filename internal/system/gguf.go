@@ -38,8 +38,10 @@ type GGUFMetadata struct {
 	ExpertCount     int
 	ExpertUsed      int
 	HasMTP          bool
+	HasReasoning    bool
 	SizeLabel       string
 	NParams         int64
+	ChatTemplate    string
 }
 
 func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
@@ -58,6 +60,10 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 	}
 	if n, ok := toInt64(kvMap["general.parameter_count"]); ok {
 		meta.NParams = n
+	}
+
+	if v, ok := kvMap["tokenizer.chat_template"].(string); ok {
+		meta.ChatTemplate = v
 	}
 
 	if meta.Architecture != "" {
@@ -102,6 +108,46 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 
 	if fi, err := os.Stat(path); err == nil {
 		meta.FileSize = fi.Size()
+	}
+
+	// 优先使用 GGUF 元数据中的 architecture 字段推断思考能力
+	if !meta.HasReasoning && meta.Architecture != "" {
+		lowerArch := strings.ToLower(meta.Architecture)
+		// Template 模式：通过 chat template 的 enable_thinking 控制
+		archTemplateKeywords := []string{"gemma2", "gemma4", "qwen3", "llama4", "phi4"}
+		for _, kw := range archTemplateKeywords {
+			if strings.Contains(lowerArch, kw) {
+				meta.HasReasoning = true
+				break
+			}
+		}
+		// Reasoning 模式：通过 reasoning 参数控制
+		if !meta.HasReasoning {
+			archReasoningKeywords := []string{"deepseek3", "deepseek2"}
+			for _, kw := range archReasoningKeywords {
+				if strings.Contains(lowerArch, kw) {
+					meta.HasReasoning = true
+					break
+				}
+			}
+		}
+	}
+
+	// 兜底：通过文件名推断模型是否支持思考能力
+	if !meta.HasReasoning {
+		lowerName := strings.ToLower(path)
+		reasoningKeywords := []string{
+			"qwen3", "gemma-4", "gemma4", "gemma-2", "llama-4", "llama4",
+			"mistral-small-3", "mistral-small3",
+			"deepseek-r1", "deepseek-v2", "deepseek-v3", "deepseek-v4", "deepseek-r",
+			"phi-4-reasoning", "phi4-reasoning",
+		}
+		for _, kw := range reasoningKeywords {
+			if strings.Contains(lowerName, kw) {
+				meta.HasReasoning = true
+				break
+			}
+		}
 	}
 
 	return meta, nil

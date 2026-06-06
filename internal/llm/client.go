@@ -78,7 +78,9 @@ func (c *Client) StreamChat(ctx context.Context, req *ChatCompletionRequest, onT
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
+	// SSE 单行最大 10MB，超过此限制的行会被截断并记录警告
+	const maxSSELineSize = 10 * 1024 * 1024
+	scanner.Buffer(make([]byte, 0, 1024*1024), maxSSELineSize)
 	for scanner.Scan() {
 		line := scanner.Text()
 
@@ -364,7 +366,7 @@ func (c *Client) GetModelInfoByName(ctx context.Context, modelName string) (*Mod
 		return nil, err
 	}
 
-	log.Info().Str("raw_response", string(body)).Msg("[client] /v1/models raw response")
+	log.Debug().Str("raw_response", string(body)).Msg("[client] /v1/models raw response")
 
 	var raw struct {
 		Data []struct {
@@ -502,7 +504,7 @@ func (c *Client) GetServerProps(ctx context.Context, modelName string) (*ServerP
 	if len(rawLog) > 500 {
 		rawLog = rawLog[:500] + "..."
 	}
-	log.Info().Str("raw_response", rawLog).Msg("[client] /props raw response")
+	log.Debug().Str("raw_response", rawLog).Msg("[client] /props raw response")
 
 	var props ServerProps
 	if err := json.Unmarshal(body, &props); err != nil {
@@ -692,6 +694,7 @@ func (c *Client) GetModelStatus(ctx context.Context, modelName string) (*ModelSt
 func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	pollClient := &http.Client{Timeout: 3 * time.Second}
+	pollCount := 0
 
 	for time.Now().Before(deadline) {
 		select {
@@ -708,7 +711,7 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 
 		resp, err := pollClient.Do(httpReq)
 		if err != nil {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(300 * time.Millisecond)
 			continue
 		}
 
@@ -716,7 +719,7 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 		resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK || readErr != nil {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(300 * time.Millisecond)
 			continue
 		}
 
@@ -731,10 +734,11 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 		}
 
 		if json.Unmarshal(body, &raw) != nil {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(300 * time.Millisecond)
 			continue
 		}
 
+		pollCount++
 		for _, d := range raw.Data {
 			if d.ID == modelName {
 				switch d.Status.Value {
@@ -747,7 +751,12 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 			}
 		}
 
-		time.Sleep(500 * time.Millisecond)
+		// Dynamic interval: first 3 polls at 300ms, then 500ms
+		if pollCount <= 3 {
+			time.Sleep(300 * time.Millisecond)
+		} else {
+			time.Sleep(500 * time.Millisecond)
+		}
 	}
 
 	return fmt.Errorf("model %s did not become loaded within %v", modelName, timeout)

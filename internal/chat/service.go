@@ -53,9 +53,13 @@ type Service struct {
 	modelCaps         llm.ModelCapabilities
 	modelCapsMu       sync.RWMutex
 	detectedModelName string
+	detectedModelMu   sync.RWMutex
+	cachedProps       *llm.ServerProps
+	cachedPropsMu     sync.RWMutex
 	sysPromptCache    string
 	sysPromptDate     string
 	sysPromptConfig   string
+	promptMu          sync.RWMutex
 	encKey            []byte
 	// RAG
 	ragVectorStore  *rag.VectorStore
@@ -135,24 +139,69 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	var info *llm.ModelInfo
-	var err error
-	if modelName != "" {
-		info, err = s.llmClient.GetModelInfoByName(ctx, modelName)
-	} else {
-		info, err = s.llmClient.GetModelInfo(ctx)
+	// Parallel fetch: model info and server props
+	type infoResult struct {
+		info *llm.ModelInfo
+		err  error
 	}
-	if err != nil {
-		return fmt.Errorf("failed to get model info: %w", err)
+	type propsResult struct {
+		props *llm.ServerProps
+		err   error
 	}
+
+	infoCh := make(chan infoResult, 1)
+	propsCh := make(chan propsResult, 1)
+
+	// Check if we have cached props from a previous call (e.g., SwitchModel's mmproj wait)
+	s.cachedPropsMu.RLock()
+	cached := s.cachedProps
+	s.cachedPropsMu.RUnlock()
+	// Clear cache after reading (one-time use)
+	if cached != nil {
+		s.cachedPropsMu.Lock()
+		s.cachedProps = nil
+		s.cachedPropsMu.Unlock()
+	}
+
+	go func() {
+		var info *llm.ModelInfo
+		var err error
+		if modelName != "" {
+			info, err = s.llmClient.GetModelInfoByName(ctx, modelName)
+		} else {
+			info, err = s.llmClient.GetModelInfo(ctx)
+		}
+		infoCh <- infoResult{info, err}
+	}()
+
+	go func() {
+		if cached != nil {
+			propsCh <- propsResult{cached, nil}
+			return
+		}
+		props, err := s.llmClient.GetServerProps(ctx, modelName)
+		propsCh <- propsResult{props, err}
+	}()
+
+	// Wait for model info (required)
+	ir := <-infoCh
+	if ir.err != nil {
+		// Drain props channel
+		<-propsCh
+		return fmt.Errorf("failed to get model info: %w", ir.err)
+	}
+	info := ir.info
+
+	// Wait for props (optional, best-effort)
+	pr := <-propsCh
+	props, propsErr := pr.props, pr.err
 
 	caps := llm.DetectCapabilities(*info)
-
 	var supportsReasoning bool
+	var softSwitchSupport bool
 	var mmprojLoaded bool
 	thinkingMode := llm.ThinkingModeNone
 
-	props, propsErr := s.llmClient.GetServerProps(ctx, modelName)
 	if propsErr == nil {
 		log.Info().
 			Bool("vision", props.Modalities.Vision).
@@ -176,44 +225,103 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 	}
 
 	if thinkingMode == llm.ThinkingModeNone {
-		lowerName := strings.ToLower(info.Name)
-		templateKeywords := []string{"qwen3", "gemma-4", "gemma4", "llama-4", "llama4", "mistral-small-3", "mistral-small3"}
-	for _, kw := range templateKeywords {
-		if strings.Contains(lowerName, kw) {
-			thinkingMode = llm.ThinkingModeTemplate
-			supportsReasoning = true
-			break
+		// 优先使用 GGUF 元数据中的 architecture 字段推断
+		var ggufMeta *system.GGUFMetadata
+		modelPath := s.config.ModelPath
+		if modelPath != "" {
+			if meta, err := system.ParseGGUFMetadata(modelPath); err == nil {
+				ggufMeta = meta
+			}
 		}
-	}
-	reasoningKeywords := []string{"deepseek-r1", "deepseek-v2", "deepseek-v3", "deepseek-v4", "deepseek-r", "phi-4-reasoning", "phi4-reasoning"}
-		for _, kw := range reasoningKeywords {
-			if strings.Contains(lowerName, kw) {
-				thinkingMode = llm.ThinkingModeReasoning
+		if ggufMeta != nil && ggufMeta.Architecture != "" {
+			lowerArch := strings.ToLower(ggufMeta.Architecture)
+			// Qwen3 架构支持软开关
+			if strings.Contains(lowerArch, "qwen3") {
+				thinkingMode = llm.ThinkingModeTemplate
 				supportsReasoning = true
-				break
+				softSwitchSupport = true
+			}
+			// Template 模式模型
+			templateArchs := []string{"gemma2", "gemma4", "llama4", "phi4"}
+			if thinkingMode == llm.ThinkingModeNone {
+				for _, kw := range templateArchs {
+					if strings.Contains(lowerArch, kw) {
+						thinkingMode = llm.ThinkingModeTemplate
+						supportsReasoning = true
+						break
+					}
+				}
+			}
+			// Reasoning 模式模型
+			if thinkingMode == llm.ThinkingModeNone {
+				reasoningArchs := []string{"deepseek3", "deepseek2"}
+				for _, kw := range reasoningArchs {
+					if strings.Contains(lowerArch, kw) {
+						thinkingMode = llm.ThinkingModeReasoning
+						supportsReasoning = true
+						break
+					}
+				}
+			}
+		}
+
+		// 兜底：文件名关键词匹配
+		if thinkingMode == llm.ThinkingModeNone {
+			lowerName := strings.ToLower(info.Name)
+			// Qwen3/QwQ 支持 /think /no_think 软开关
+			qwen3Keywords := []string{"qwen3", "qwq"}
+			for _, kw := range qwen3Keywords {
+				if strings.Contains(lowerName, kw) {
+					thinkingMode = llm.ThinkingModeTemplate
+					supportsReasoning = true
+					softSwitchSupport = true
+					break
+				}
+			}
+			// 其他 ThinkingModeTemplate 模型（不支持软开关）
+			if thinkingMode == llm.ThinkingModeNone {
+				templateKeywords := []string{"gemma-4", "gemma4", "gemma-2", "llama-4", "llama4", "mistral-small-3", "mistral-small3", "mistral-small3.1", "phi-4-reasoning-plus"}
+				for _, kw := range templateKeywords {
+					if strings.Contains(lowerName, kw) {
+						thinkingMode = llm.ThinkingModeTemplate
+						supportsReasoning = true
+						break
+					}
+				}
+			}
+			reasoningKeywords := []string{"deepseek-r1", "deepseek-v2", "deepseek-v3", "deepseek-v4", "deepseek-r", "phi-4-reasoning", "phi4-reasoning"}
+			for _, kw := range reasoningKeywords {
+				if strings.Contains(lowerName, kw) {
+					thinkingMode = llm.ThinkingModeReasoning
+					supportsReasoning = true
+					break
+				}
 			}
 		}
 	}
 
 	s.modelCapsMu.Lock()
 	s.modelCaps = llm.ModelCapabilities{
-		ImageInput:   caps.ImageInput,
-		AudioInput:   caps.AudioInput,
-		VideoInput:   caps.VideoInput,
-		TextInput:    caps.TextInput,
-		Reasoning:    supportsReasoning,
-		MmprojLoaded: mmprojLoaded,
-		HasMTP:       s.detectHasMTP(),
-		ThinkingMode: thinkingMode,
-		NParams:      s.resolveNParams(info.Meta.NParams),
+		ImageInput:       caps.ImageInput,
+		AudioInput:       caps.AudioInput,
+		VideoInput:       caps.VideoInput,
+		TextInput:        caps.TextInput,
+		Reasoning:        supportsReasoning,
+		MmprojLoaded:     mmprojLoaded,
+		HasMTP:           s.detectHasMTP(),
+		ThinkingMode:     thinkingMode,
+		SoftSwitchSupport: softSwitchSupport,
+		NParams:          s.resolveNParams(info.Meta.NParams),
 	}
 	s.modelCapsMu.Unlock()
 	// FIX: Only set detectedModelName when it's empty (called from DetectModelArchitecture without model name).
 	// When called from SwitchModel, SetDetectedModelName() has already set the correct name.
 	// Do NOT overwrite with info.Name, which may differ from the user-selected model name.
+	s.detectedModelMu.Lock()
 	if s.detectedModelName == "" {
 		s.detectedModelName = info.Name
 	}
+	s.detectedModelMu.Unlock()
 	log.Info().
 		Str("name", info.Name).
 		Str("model", modelName).
@@ -223,21 +331,36 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 		Bool("text", caps.TextInput).
 		Bool("reasoning", supportsReasoning).
 		Str("thinking_mode", thinkingMode).
+		Bool("soft_switch", softSwitchSupport).
 		Msg("[model] detected capabilities")
 
 	return nil
 }
 
 func (s *Service) GetDetectedModelName() string {
+	s.detectedModelMu.RLock()
+	defer s.detectedModelMu.RUnlock()
 	return s.detectedModelName
 }
 
 func (s *Service) SetDetectedModelName(name string) {
+	s.detectedModelMu.Lock()
 	s.detectedModelName = name
+	s.detectedModelMu.Unlock()
 	s.InvalidatePromptCache()
 }
 
+// SetCachedProps caches a ServerProps result for use by DetectModelArchitectureForModel,
+// avoiding a redundant HTTP call when the caller has already fetched props.
+func (s *Service) SetCachedProps(props *llm.ServerProps) {
+	s.cachedPropsMu.Lock()
+	s.cachedProps = props
+	s.cachedPropsMu.Unlock()
+}
+
 func (s *Service) InvalidatePromptCache() {
+	s.promptMu.Lock()
+	defer s.promptMu.Unlock()
 	s.sysPromptCache = ""
 	s.sysPromptDate = ""
 	s.sysPromptConfig = ""
@@ -247,6 +370,18 @@ func (s *Service) GetModelCapabilities() llm.ModelCapabilities {
 	s.modelCapsMu.RLock()
 	defer s.modelCapsMu.RUnlock()
 	return s.modelCaps
+}
+
+// GetThinkingSoftSwitch 获取当前思考软开关状态
+// 当 ThinkingEnabled=false 时，等效于 "no_think"
+func (s *Service) GetThinkingSoftSwitch() string {
+	if !s.config.ThinkingEnabled {
+		return "no_think"
+	}
+	if s.config.ThinkingSoftSwitch == "" {
+		return "auto"
+	}
+	return s.config.ThinkingSoftSwitch
 }
 
 func (s *Service) SetModelCapabilities(caps llm.ModelCapabilities) {
@@ -289,37 +424,72 @@ func (s *Service) resolveNParams(serverNParams float64) float64 {
 func (s *Service) applyThinkingControl(req *llm.ChatCompletionRequest) {
 	s.modelCapsMu.RLock()
 	mode := s.modelCaps.ThinkingMode
+	softSwitchOK := s.modelCaps.SoftSwitchSupport
 	s.modelCapsMu.RUnlock()
 
 	if mode == llm.ThinkingModeNone {
 		return
 	}
 
-	if !s.config.ThinkingEnabled {
-		switch mode {
-		case llm.ThinkingModeTemplate:
-			req.ChatTemplateKwargs = map[string]interface{}{"enable_thinking": false}
-		case llm.ThinkingModeReasoning:
-			req.Reasoning = "off"
-			req.ReasoningBudget = 0
-		}
-		return
-	}
+	softSwitch := s.GetThinkingSoftSwitch()
 
 	switch mode {
 	case llm.ThinkingModeTemplate:
-		req.ChatTemplateKwargs = map[string]interface{}{"enable_thinking": true}
-		if s.config.ReasoningBudget > 0 {
-			req.ReasoningBudget = s.config.ReasoningBudget
+		switch softSwitch {
+		case "no_think":
+			// 快速回答：禁用思考
+			req.ChatTemplateKwargs = map[string]interface{}{"enable_thinking": false}
+			if softSwitchOK {
+				s.appendSoftSwitchTag(req, "/no_think")
+			}
+		case "think":
+			// 强制深度思考
+			req.ChatTemplateKwargs = map[string]interface{}{"enable_thinking": true}
+			if s.config.ReasoningBudget > 0 {
+				req.ReasoningBudget = s.config.ReasoningBudget
+			}
+			if softSwitchOK {
+				s.appendSoftSwitchTag(req, "/think")
+			}
+		default:
+			// 自动思考：启用思考，让模型自行决定
+			req.ChatTemplateKwargs = map[string]interface{}{"enable_thinking": true}
+			if s.config.ReasoningBudget > 0 {
+				req.ReasoningBudget = s.config.ReasoningBudget
+			}
 		}
 	case llm.ThinkingModeReasoning:
-		if s.config.ReasoningBudget > 0 {
-			req.ReasoningBudget = s.config.ReasoningBudget
+		switch softSwitch {
+		case "no_think":
+			req.Reasoning = "off"
+			req.ReasoningBudget = 0
+		case "think":
+			if s.config.ReasoningBudget > 0 {
+				req.ReasoningBudget = s.config.ReasoningBudget
+			}
+		default:
+			if s.config.ReasoningBudget > 0 {
+				req.ReasoningBudget = s.config.ReasoningBudget
+			}
 		}
 	}
 }
 
+// appendSoftSwitchTag 在用户消息末尾追加软开关标签（如 /think 或 /no_think）
+func (s *Service) appendSoftSwitchTag(req *llm.ChatCompletionRequest, tag string) {
+	if len(req.Messages) == 0 {
+		return
+	}
+	lastMsg := req.Messages[len(req.Messages)-1]
+	if lastMsg.Role == "user" {
+		content := lastMsg.ContentString()
+		req.Messages[len(req.Messages)-1] = llm.NewTextMessage("user", content+" "+tag)
+	}
+}
+
 func (s *Service) modelNameForRequest() string {
+	s.detectedModelMu.RLock()
+	defer s.detectedModelMu.RUnlock()
 	if s.detectedModelName != "" {
 		return s.detectedModelName
 	}
@@ -344,27 +514,6 @@ func (s *Service) emitForConv(convID string, eventType string, content interface
 			ConversationID: convID,
 		})
 	}
-}
-
-func cleanThinkingContent(s string) string {
-	if s == "" {
-		return ""
-	}
-	var cleaned strings.Builder
-	for _, line := range strings.Split(s, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "<tool_call/>" {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "</tool_call") {
-			continue
-		}
-		if cleaned.Len() > 0 {
-			cleaned.WriteByte('\n')
-		}
-		cleaned.WriteString(line)
-	}
-	return strings.TrimSpace(cleaned.String())
 }
 
 func generateConversationTitle(content string) string {
@@ -474,6 +623,9 @@ type StreamAccumulator struct {
 	FirstRoundThinkingDuration float64
 }
 
+// 流式响应缓冲区最大大小（10MB）
+const maxStreamBufferSize = 10 * 1024 * 1024
+
 func NewStreamAccumulator(convID string, emitFn func(string, interface{}), emitForConvFn func(string, string, interface{})) *StreamAccumulator {
 	return &StreamAccumulator{
 		ToolCallMap:   make(map[int]*llm.ToolCall),
@@ -487,6 +639,12 @@ func (a *StreamAccumulator) callback() func(llm.SSEChunk) error {
 	return func(chunk llm.SSEChunk) error {
 		if len(chunk.Choices) == 0 {
 			return nil
+		}
+
+		// 检查缓冲区大小，防止内存无限增长
+		if a.FullContent.Len()+a.FullThinking.Len() > maxStreamBufferSize {
+			log.Warn().Msgf("[stream] buffer size exceeded %dMB, truncating", maxStreamBufferSize/1024/1024)
+			return fmt.Errorf("response exceeds maximum buffer size (%dMB)", maxStreamBufferSize/1024/1024)
 		}
 
 		choice := chunk.Choices[0]
@@ -547,7 +705,13 @@ func (a *StreamAccumulator) callback() func(llm.SSEChunk) error {
 				a.ThinkingDuration = time.Since(a.ThinkingStartTime).Seconds()
 				a.ThinkingDone = true
 			}
+
 			a.FinishReason = *choice.FinishReason
+
+			// 思考完成但正文为空：记录日志，方便排查是模型行为还是截断问题
+			if a.FullThinking.Len() > 0 && a.FullContent.Len() == 0 {
+				log.Warn().Msgf("[stream] thinking completed but content is empty (finish_reason=%s, thinking_len=%d)", a.FinishReason, a.FullThinking.Len())
+			}
 		}
 
 		return nil
@@ -694,7 +858,6 @@ func GetFirstRoundThinking(a *StreamAccumulator) string  { return a.FirstRoundTh
 func GetDB(s *Service) *sql.DB              { return s.db } // Exported for testing
 func SetCurrentCancel(s *Service, fn context.CancelFunc) { s.currentCancel = fn } // Exported for testing
 func EstimateMessageTokens(m *store.Message) int { return estimateMessageTokens(m) } // Exported for testing
-func CleanThinkingContent(s string) string       { return cleanThinkingContent(s) } // Exported for testing
 
 func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, llmMessages []llm.ChatMessage, acc *StreamAccumulator, maxRounds int) error {
 	hitMaxRounds := false
@@ -834,11 +997,6 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 		Content:          acc.FullContent.String(),
 		ThinkingContent:  acc.FullThinking.String(),
 		ThinkingDuration: clampDuration(acc.ThinkingDuration),
-	}
-	if aiMsg.Content == "" && aiMsg.ThinkingContent != "" {
-		aiMsg.Content = cleanThinkingContent(aiMsg.ThinkingContent)
-		aiMsg.ThinkingContent = ""
-		aiMsg.ThinkingDuration = 0
 	}
 	if aiMsg.ThinkingContent != "" && aiMsg.ThinkingDuration == 0 && acc.FirstRoundThinkingDuration > 0 {
 		aiMsg.ThinkingDuration = clampDuration(acc.FirstRoundThinkingDuration)
@@ -1073,12 +1231,7 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 			ThinkingContent:  acc.FullThinking.String(),
 			ThinkingDuration: clampDuration(acc.ThinkingDuration),
 		}
-		if aiMsg.Content == "" && aiMsg.ThinkingContent != "" {
-		aiMsg.Content = cleanThinkingContent(aiMsg.ThinkingContent)
-		aiMsg.ThinkingContent = ""
-		aiMsg.ThinkingDuration = 0
-	}
-	if aiMsg.ThinkingContent != "" && aiMsg.ThinkingDuration == 0 && acc.FirstRoundThinkingDuration > 0 {
+		if aiMsg.ThinkingContent != "" && aiMsg.ThinkingDuration == 0 && acc.FirstRoundThinkingDuration > 0 {
 		aiMsg.ThinkingDuration = clampDuration(acc.FirstRoundThinkingDuration)
 	}
 	if acc.LastSearchJSON != "" {
@@ -1189,15 +1342,23 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 	configPrompt := s.config.SystemPrompt
 
 	// Rebuild cache if date changed or config changed
-	if s.sysPromptCache == "" || s.sysPromptDate != today || s.sysPromptConfig != configPrompt {
+	s.promptMu.RLock()
+	cacheHit := s.sysPromptCache != "" && s.sysPromptDate == today && s.sysPromptConfig == configPrompt
+	cachedPrompt := s.sysPromptCache
+	s.promptMu.RUnlock()
+
+	if !cacheHit {
+		s.detectedModelMu.RLock()
 		modelName := s.detectedModelName
+		s.detectedModelMu.RUnlock()
 		if modelName == "" {
 			modelName = "本地模型"
 		}
-		defaultPrompt := fmt.Sprintf(`你叫豆芽（DouYa），是一个运行在用户本地电脑上的开源AI助手，注重隐私保护和离线可用性。当前底层模型是 %s。
+		defaultPrompt := fmt.Sprintf(`你叫豆芽（DouYa），是一个运行在用户本地电脑上的本地模型框架，注重隐私保护和离线可用性。当前底层模型是 %s。
 
 - 自称时直接用"我"，不要写成"我（豆芽）"来强调
 - 用户问"你是谁"时回答"我叫豆芽"即可
+- 开发者：zifeiyu2025（GitHub）
 
 ## 核心原则
 - 准确优先：不确定时明确说明，不编造
@@ -1235,9 +1396,12 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 		} else {
 			systemContent = fmt.Sprintf("%s\n\n---\n\n## 用户自定义提示词\n\n%s", defaultPrompt, configPrompt)
 		}
+		s.promptMu.Lock()
 		s.sysPromptCache = systemContent
 		s.sysPromptDate = today
 		s.sysPromptConfig = configPrompt
+		s.promptMu.Unlock()
+		cachedPrompt = systemContent
 	}
 
 	// Append dynamic date/time each request
@@ -1258,8 +1422,11 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 	case time.Saturday:
 		weekday = "星期六"
 	}
-	systemContent := s.sysPromptCache + fmt.Sprintf("\n\n当前时间: %s %s", now.Format("2006-01-02 15:04:05"), weekday)
-	if searchEnabled && !llm.IsWeakModel(caps, s.detectedModelName) {
+	systemContent := cachedPrompt + fmt.Sprintf("\n\n当前时间: %s %s", now.Format("2006-01-02 15:04:05"), weekday)
+	s.detectedModelMu.RLock()
+	detModelName := s.detectedModelName
+	s.detectedModelMu.RUnlock()
+	if searchEnabled && !llm.IsWeakModel(caps, detModelName) {
 		systemContent += "\n\n用户已开启联网搜索，你可调用 search 工具获取实时信息。"
 	}
 

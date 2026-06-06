@@ -102,7 +102,7 @@ const formattedDuration = computed(() => {
   margin-top: 8px;
   padding: 12px 16px;
   background: var(--bg-tertiary);
-  border-radius: 10px;
+  border-radius: var(--border-radius-md);
   border: 1px solid var(--border-color);
   font-size: 13px;
   color: var(--text-secondary);

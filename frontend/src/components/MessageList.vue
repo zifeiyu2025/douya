@@ -60,12 +60,17 @@
         </div>
         <div class="message-bubble-wrapper">
           <div class="message-bubble ai-bubble">
-            <ThinkBlock v-if="thinkingContent" :content="thinkingContent" :default-expanded="true" :is-thinking="isThinking" :duration="thinkingDuration" />
+            <template v-if="thinkingAsContent">
+              <div class="markdown-body" v-html="renderedThinkingAsContent" />
+            </template>
+            <template v-else>
+              <ThinkBlock v-if="thinkingContent" :content="thinkingContent" :default-expanded="true" :is-thinking="isThinking" :duration="thinkingDuration" />
+              <div v-if="streamingContent" class="markdown-body" v-html="renderedStreaming" />
+              <n-spin v-else-if="!thinkingContent && !isSearching" size="small" />
+            </template>
             <SearchStatus v-if="isSearching" :searching="true" :results="''" :query="searchQuery" />
             <SearchStatus v-else-if="searchResults" :searching="false" :results="searchResults" :default-expanded="true" />
             <ContextTrimmed :data="contextTrimmed" />
-            <div v-if="streamingContent" class="markdown-body" v-html="renderedStreaming" />
-            <n-spin v-else-if="!thinkingContent && !isSearching" size="small" />
           </div>
         </div>
       </div>
@@ -122,6 +127,16 @@ const thinkingDuration = computed(() => chatStore.thinkingDuration)
 const searchQuery = computed(() => chatStore.searchQuery)
 const contextTrimmed = computed(() => chatStore.contextTrimmed)
 
+// 当思考完成且正文为空时，将思考内容作为正文展示（纯前端展示优化，不干预引擎输出）
+const thinkingAsContent = computed(() => {
+  return !isThinking.value && thinkingContent.value && !streamingContent.value
+})
+
+const renderedThinkingAsContent = computed(() => {
+  if (!thinkingAsContent.value || !thinkingContent.value) return ''
+  return renderMarkdownStreaming(thinkingContent.value)
+})
+
 const isSwitching = computed(() => settingsStore.isModelSwitching)
 const switchingToModel = computed(() => {
   if (settingsStore.serverStatus.switching_to) {
@@ -169,23 +184,53 @@ function getSwitchProgressText(): string {
   }
 }
 
-// PERF-003: debounce 流式 Markdown 渲染，减少高频 token 更新时的渲染开销
+// PERF-003: throttle 流式 Markdown 渲染，减少高频 token 更新时的渲染开销
+// 使用节流而非防抖：防抖在内容变长后会导致渲染无限延迟（token 积压 → 一次性全显示）
 const renderedStreaming = ref('')
 let renderTimer: ReturnType<typeof setTimeout> | null = null
+let lastRenderTime = 0
+let pendingContent = ''
+let isRendering = false
+
+function doRender(content: string) {
+  isRendering = true
+  renderedStreaming.value = renderMarkdownStreaming(content)
+  lastRenderTime = Date.now()
+  isRendering = false
+}
+
+function scheduleRender(content: string) {
+  pendingContent = content
+  if (isRendering) return // 渲染中，等完成后再触发
+
+  // 根据内容长度动态调整节流间隔：
+  // 短内容（<2KB）快速渲染，长内容（>10KB）降低频率
+  const len = content.length
+  const interval = len > 10000 ? 200 : len > 2000 ? 100 : 50
+  const elapsed = Date.now() - lastRenderTime
+  const remaining = interval - elapsed
+
+  if (remaining <= 0) {
+    // 已超过节流间隔，立即渲染
+    if (renderTimer) { clearTimeout(renderTimer); renderTimer = null }
+    doRender(content)
+  } else if (!renderTimer) {
+    // 未超过节流间隔，延迟渲染
+    renderTimer = setTimeout(() => {
+      renderTimer = null
+      doRender(pendingContent)
+    }, remaining)
+  }
+  // 如果已有定时器在等待，不做任何事（内容已更新到 pendingContent）
+}
 
 watch(streamingContent, (newContent) => {
-  if (renderTimer) {
-    clearTimeout(renderTimer)
-    renderTimer = null
-  }
   if (!newContent) {
+    if (renderTimer) { clearTimeout(renderTimer); renderTimer = null }
     renderedStreaming.value = ''
     return
   }
-  renderTimer = setTimeout(() => {
-    renderedStreaming.value = renderMarkdownStreaming(newContent)
-    renderTimer = null
-  }, 50)
+  scheduleRender(newContent)
 }, { immediate: true })
 
 onUnmounted(() => {
@@ -225,6 +270,13 @@ watch(() => chatStore.messages?.length, (newLen, oldLen) => {
     nextTick(scrollToBottom)
   }
 })
+
+// 监听消息内容变化（done 事件更新数据库消息后需要重新滚动）
+watch(() => chatStore.messages, () => {
+  if (isNearBottom()) {
+    nextTick(scrollToBottom)
+  }
+}, { deep: false })
 
 watch(() => chatStore.streamingContent, () => {
   if (isNearBottom()) {
@@ -291,7 +343,7 @@ watch(() => chatStore.lastError, (err) => {
 
 .message-bubble {
   padding: 16px 20px;
-  border-radius: 18px 18px 18px 6px;
+  border-radius: var(--border-radius-xl) var(--border-radius-xl) var(--border-radius-xl) var(--border-radius-sm);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
   box-sizing: border-box;
   line-height: 1.65;
@@ -354,7 +406,7 @@ watch(() => chatStore.lastError, (err) => {
   gap: 14px;
   padding: 18px 20px;
   background: var(--bg-primary);
-  border-radius: 16px;
+  border-radius: var(--border-radius-lg);
   border: 1px solid var(--border-color);
   cursor: pointer;
   transition: all 0.25s ease;
@@ -418,7 +470,7 @@ watch(() => chatStore.lastError, (err) => {
   color: var(--text-secondary);
   padding: 12px 16px;
   background: var(--bg-secondary);
-  border-radius: 12px;
+  border-radius: var(--border-radius-md);
   text-align: center;
   border: 1px solid var(--border-color);
   transition: all 0.2s ease;

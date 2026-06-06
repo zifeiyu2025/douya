@@ -33,6 +33,7 @@ export interface ModelCapabilities {
     mmproj_loaded: boolean
     has_mtp: boolean
     thinking_mode: string
+    soft_switch_support: boolean
     n_params: number
 }
 
@@ -84,6 +85,7 @@ export interface Config {
     ai_avatar: string
     search_enabled: boolean
     thinking_enabled: boolean
+    thinking_soft_switch: 'auto' | 'think' | 'no_think'
     sleep_idle_seconds: number
     models_max: number
     rag_enabled: boolean
@@ -107,6 +109,7 @@ export interface Config {
     spec_draft_n_max: number
     cache_type_k_draft: string
     cache_type_v_draft: string
+    server_api_key_enabled: boolean
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -135,6 +138,7 @@ export const DEFAULT_CONFIG: Config = {
     ai_avatar: '',
     search_enabled: false,
     thinking_enabled: true,
+    thinking_soft_switch: 'auto',
     sleep_idle_seconds: 120,
     models_max: 1,
     rag_enabled: false,
@@ -158,6 +162,7 @@ export const DEFAULT_CONFIG: Config = {
     spec_draft_n_max: 0,
     cache_type_k_draft: '',
     cache_type_v_draft: '',
+    server_api_key_enabled: true,
 }
 
 export interface ServerStatus {

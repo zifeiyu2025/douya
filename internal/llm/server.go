@@ -442,10 +442,6 @@ func (s *Server) Status() ServerStatus {
 	return s.status
 }
 
-func (s *Server) Watch(ctx context.Context, onStatusChange func(ServerStatus)) {
-	s.WatchWithCallback(ctx, onStatusChange, nil)
-}
-
 func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(ServerStatus), onRestartSuccess func()) {
 	restartCount := 0
 	currentBackoff := 2 * time.Second
@@ -504,6 +500,10 @@ func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(Serv
 			}
 
 			if err := s.WaitForReady(60 * time.Second); err != nil {
+				// context 已取消则不再继续重启
+				if ctx.Err() != nil {
+					return
+				}
 				s.SetStatus(false, fmt.Sprintf("server not ready after restart: %v", err))
 				if onStatusChange != nil {
 					onStatusChange(s.Status())

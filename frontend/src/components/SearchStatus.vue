@@ -4,7 +4,7 @@
     <span>{{ query ? `正在搜索: ${query}` : '正在搜索...' }}</span>
   </div>
   <div v-else-if="resultItems.length > 0" class="search-results-block">
-    <div class="search-results-header" @click="expanded = !expanded; clearAutoCollapseTimer(); if (expanded) scheduleAutoCollapse()">
+    <div class="search-results-header" @click="toggleExpand">
       <n-icon size="18" :class="{ rotated: expanded }">
         <ChevronForwardOutline />
       </n-icon>
@@ -48,6 +48,7 @@ const props = defineProps<{
 }>()
 
 const expanded = ref(props.defaultExpanded ?? false)
+const userExpanded = ref(false)
 let autoCollapseTimer: ReturnType<typeof setTimeout> | null = null
 
 const resultItems = computed<SearchResultItem[]>(() => {
@@ -67,9 +68,20 @@ const resultItems = computed<SearchResultItem[]>(() => {
   return []
 })
 
+function toggleExpand() {
+  expanded.value = !expanded.value
+  clearAutoCollapseTimer()
+  if (expanded.value) {
+    // 用户手动展开，不自动收缩
+    userExpanded.value = true
+  } else {
+    userExpanded.value = false
+  }
+}
+
 function scheduleAutoCollapse() {
   clearAutoCollapseTimer()
-  if (expanded.value && !props.searching) {
+  if (expanded.value && !props.searching && !userExpanded.value) {
     autoCollapseTimer = setTimeout(() => {
       expanded.value = false
     }, 5000)
@@ -84,7 +96,7 @@ function clearAutoCollapseTimer() {
 }
 
 watch(() => props.searching, (searching) => {
-  if (!searching && expanded.value) {
+  if (!searching && expanded.value && !userExpanded.value) {
     scheduleAutoCollapse()
   }
 })
@@ -106,7 +118,7 @@ onUnmounted(() => {
 <style scoped>
 .search-results-block {
   margin-bottom: 12px;
-  border-radius: 10px;
+  border-radius: var(--border-radius-md);
   border: 1px solid var(--border-color);
   overflow: hidden;
   background: var(--bg-secondary);
@@ -155,7 +167,7 @@ onUnmounted(() => {
 .search-result-item {
   display: block;
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: var(--border-radius-sm);
   text-decoration: none;
   transition: all var(--transition-fast);
 }

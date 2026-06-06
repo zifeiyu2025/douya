@@ -35,7 +35,7 @@ type SmartParams struct {
 	CacheTypeVDraft  string
 }
 
-func detectModelTier(resolvedModelPath string) (ModelTier, *GGUFMetadata) {
+func DetectModelTier(resolvedModelPath string) (ModelTier, *GGUFMetadata) {
 	meta, err := ParseGGUFMetadata(resolvedModelPath)
 	if err != nil {
 		log.Error().Err(err).Msg("[smart-params] GGUF parse failed, using unknown tier")
@@ -87,7 +87,7 @@ func CalculateSmartParams(hw *HardwareInfo, resolvedModelPath string) *SmartPara
 	}
 
 	p.FlashAttn = hw.HasGPU
-	_, meta := detectModelTier(resolvedModelPath)
+	_, meta := DetectModelTier(resolvedModelPath)
 	p.CacheTypeK, p.CacheTypeV = calculateCacheTypes(hw, meta)
 	p.Mlock = true
 	p.MmprojOffload = hw.HasGPU
@@ -98,16 +98,22 @@ func CalculateSmartParams(hw *HardwareInfo, resolvedModelPath string) *SmartPara
 
 	if meta != nil && meta.HasMTP {
 		p.SpecType = "draft-mtp"
-		p.SpecDraftNMax = 3
 		p.CacheTypeKDraft = "q8_0"
 		p.CacheTypeVDraft = "q8_0"
+		// MTP + 思考模型：降低 draft token 数量，减少跨越思考/正文边界的 token 回退风险
+		if meta.HasReasoning {
+			p.SpecDraftNMax = 2
+			log.Info().Msg("[smart-params] MTP + reasoning model detected, reducing SpecDraftNMax to 2")
+		} else {
+			p.SpecDraftNMax = 3
+		}
 	}
 
 	return p
 }
 
 func calculateContextSize(hw *HardwareInfo, resolvedModelPath string) int {
-	tier, meta := detectModelTier(resolvedModelPath)
+	tier, meta := DetectModelTier(resolvedModelPath)
 
 	if !hw.HasGPU || hw.GPUVRAMMB <= 0 {
 		return 4096

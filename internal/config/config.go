@@ -39,7 +39,8 @@ type Config struct {
 	UserAvatar        string `json:"user_avatar"`
 	AiAvatar          string `json:"ai_avatar"`
 	SearchEnabled     bool   `json:"search_enabled"`
-	ThinkingEnabled   bool   `json:"thinking_enabled"`
+	ThinkingEnabled     bool   `json:"thinking_enabled"`
+	ThinkingSoftSwitch  string `json:"thinking_soft_switch"`
 	SleepIdleSeconds  int    `json:"sleep_idle_seconds"`
 	ModelsMax         int    `json:"models_max"`
 	RAGEnabled        bool   `json:"rag_enabled"`
@@ -64,6 +65,7 @@ type Config struct {
 	SpecDraftNMax     int     `json:"spec_draft_n_max"`
 	CacheTypeKDraft   string  `json:"cache_type_k_draft"`
 	CacheTypeVDraft   string  `json:"cache_type_v_draft"`
+	ServerAPIKeyEnabled bool  `json:"server_api_key_enabled"`
 }
 
 func DefaultConfig() *Config {
@@ -96,7 +98,8 @@ func DefaultConfig() *Config {
 		UserAvatar:        "",
 		AiAvatar:          "",
 		SearchEnabled:     false,
-		ThinkingEnabled:   true,
+		ThinkingEnabled:     true,
+		ThinkingSoftSwitch:  "auto",
 		SleepIdleSeconds: 120,
 		ModelsMax:         1,
 		RAGEnabled:        false,
@@ -121,6 +124,7 @@ func DefaultConfig() *Config {
 		SpecDraftNMax:    0,
 		CacheTypeKDraft:  "",
 		CacheTypeVDraft:  "",
+		ServerAPIKeyEnabled: true,
 	}
 }
 

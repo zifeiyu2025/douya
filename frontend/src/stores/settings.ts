@@ -57,6 +57,7 @@ export const useSettingsStore = defineStore('settings', () => {
     const config = ref<Config>({ ...DEFAULT_CONFIG })
     const searchEnabled = ref(false)
     const thinkingEnabled = ref(true)
+    const thinkingSoftSwitch = ref<'auto' | 'think' | 'no_think'>('auto')
     const searchAPIKeys = ref<SearchAPIKeys>({
         ollama_api_key: '',
         tavily_api_key: '',
@@ -72,6 +73,7 @@ export const useSettingsStore = defineStore('settings', () => {
         mmproj_loaded: false,
         has_mtp: false,
         thinking_mode: 'none',
+        soft_switch_support: false,
         n_params: 0,
     })
     const currentModel = ref('')
@@ -102,6 +104,11 @@ export const useSettingsStore = defineStore('settings', () => {
             config.value = await wails.getConfig()
             searchEnabled.value = config.value.search_enabled ?? false
             thinkingEnabled.value = config.value.thinking_enabled ?? true
+            thinkingSoftSwitch.value = config.value.thinking_soft_switch || 'auto'
+            // 向后兼容：旧版 thinking_enabled=false 等效于 no_think
+            if (!config.value.thinking_enabled && thinkingSoftSwitch.value === 'auto') {
+                thinkingSoftSwitch.value = 'no_think'
+            }
         } catch (e) {
             console.error('加载配置失败:', e)
         }
@@ -398,6 +405,7 @@ export const useSettingsStore = defineStore('settings', () => {
     }
 
     async function toggleSearch() {
+        const oldValue = searchEnabled.value
         searchEnabled.value = !searchEnabled.value
         try {
             const fullConfig = await wails.getConfig()
@@ -405,18 +413,33 @@ export const useSettingsStore = defineStore('settings', () => {
             await wails.updateConfig(fullConfig)
             config.value = fullConfig
         } catch (e) {
+            // 回滚状态
+            searchEnabled.value = oldValue
             console.error('保存搜索设置失败:', e)
         }
     }
 
-    async function toggleThinking() {
-        thinkingEnabled.value = !thinkingEnabled.value
+    async function cycleThinkingMode() {
+        // 统一三态循环：auto → think → no_think → auto
+        const next: Record<string, 'auto' | 'think' | 'no_think'> = {
+            'auto': 'think',
+            'think': 'no_think',
+            'no_think': 'auto',
+        }
+        const oldValue = thinkingSoftSwitch.value
+        const nextMode = next[oldValue] || 'auto'
+        thinkingSoftSwitch.value = nextMode
+        // 同步 thinkingEnabled：auto/think 为 true，no_think 为 false
+        thinkingEnabled.value = nextMode !== 'no_think'
         try {
             const fullConfig = await wails.getConfig()
             fullConfig.thinking_enabled = thinkingEnabled.value
+            fullConfig.thinking_soft_switch = nextMode
             await wails.updateConfig(fullConfig)
             config.value = fullConfig
         } catch (e) {
+            thinkingSoftSwitch.value = oldValue
+            thinkingEnabled.value = oldValue !== 'no_think'
             console.error('保存思考设置失败:', e)
         }
     }
@@ -459,6 +482,7 @@ export const useSettingsStore = defineStore('settings', () => {
         config,
         searchEnabled,
         thinkingEnabled,
+        thinkingSoftSwitch,
         searchAPIKeys,
         serverStatus,
         modelCapabilities,
@@ -479,7 +503,8 @@ export const useSettingsStore = defineStore('settings', () => {
         hasServerAPIKey,
         saveServerAPIKey,
         toggleSearch,
-        toggleThinking,
+        cycleThinkingMode,
+        toggleThinking: cycleThinkingMode, // 兼容旧调用
         switchModel,
         checkServerStatus,
         initStatusListener,

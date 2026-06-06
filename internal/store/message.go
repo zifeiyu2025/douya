@@ -80,20 +80,26 @@ func decryptMessage(msg *Message, encKey []byte) {
 }
 
 func CreateMessage(db *sql.DB, msg *Message, encKey []byte) error {
-	if msg.ID == "" {
-		msg.ID = uuid.New().String()
+	// 复制结构体，避免加密修改调用方的原始数据
+	saved := *msg
+
+	if saved.ID == "" {
+		saved.ID = uuid.New().String()
+		// 同步回写 ID，调用方可能依赖自动生成的 ID
+		msg.ID = saved.ID
 	}
-	if msg.CreatedAt.IsZero() {
-		msg.CreatedAt = time.Now()
+	if saved.CreatedAt.IsZero() {
+		saved.CreatedAt = time.Now()
+		msg.CreatedAt = saved.CreatedAt
 	}
-	// 加密敏感字段
-	encryptMessage(msg, encKey)
+	// 加密复制的结构体，不修改原始 msg
+	encryptMessage(&saved, encKey)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_, err := db.ExecContext(ctx,
 		"INSERT INTO messages (id, conversation_id, role, content, thinking_content, thinking_duration, search_results, images, attachments, tool_calls, tool_call_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		msg.ID, msg.ConversationID, msg.Role, msg.Content, msg.ThinkingContent, msg.ThinkingDuration, msg.SearchResults, msg.Images, msg.Attachments, msg.ToolCalls, msg.ToolCallID, msg.CreatedAt,
+		saved.ID, saved.ConversationID, saved.Role, saved.Content, saved.ThinkingContent, saved.ThinkingDuration, saved.SearchResults, saved.Images, saved.Attachments, saved.ToolCalls, saved.ToolCallID, saved.CreatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("create message: %w", err)

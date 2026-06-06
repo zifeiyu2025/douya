@@ -184,15 +184,16 @@ const (
 )
 
 type ModelCapabilities struct {
-	ImageInput   bool    `json:"image_input"`
-	AudioInput   bool    `json:"audio_input"`
-	VideoInput   bool    `json:"video_input"`
-	TextInput    bool    `json:"text_input"`
-	Reasoning    bool    `json:"reasoning"`
-	MmprojLoaded bool    `json:"mmproj_loaded"`
-	HasMTP       bool    `json:"has_mtp"`
-	ThinkingMode string  `json:"thinking_mode"`
-	NParams      float64 `json:"n_params"`
+	ImageInput        bool    `json:"image_input"`
+	AudioInput        bool    `json:"audio_input"`
+	VideoInput        bool    `json:"video_input"`
+	TextInput         bool    `json:"text_input"`
+	Reasoning         bool    `json:"reasoning"`
+	MmprojLoaded      bool    `json:"mmproj_loaded"`
+	HasMTP            bool    `json:"has_mtp"`
+	ThinkingMode      string  `json:"thinking_mode"`
+	SoftSwitchSupport bool    `json:"soft_switch_support"` // 是否支持 /think /no_think 软开关（目前仅 Qwen3）
+	NParams           float64 `json:"n_params"`
 }
 
 // EmbeddingRequest represents a request to /v1/embeddings
