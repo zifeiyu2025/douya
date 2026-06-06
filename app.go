@@ -70,6 +70,7 @@ type App struct {
 	switchingToMu    sync.RWMutex
 	ragVS            *rag.VectorStore
 	ragDS            *rag.DocumentStore
+	ragEmbedder      *rag.ClientEmbedder
 	encKey           []byte
 	hidden           atomic.Bool
 	exiting          atomic.Bool
@@ -127,11 +128,19 @@ func appDir() string {
 }
 
 func resolvePath(p string) string {
+	// 清理路径，防止路径遍历
+	p = filepath.Clean(p)
 	if filepath.IsAbs(p) {
 		return p
 	}
 	baseDir := appDir()
 	candidate := filepath.Join(baseDir, p)
+	// 验证结果路径仍在基准目录内
+	absCandidate, err := filepath.Abs(candidate)
+	if err == nil && !strings.HasPrefix(absCandidate, baseDir) {
+		log.Printf("[resolvePath] path traversal detected: %s resolves outside %s", p, baseDir)
+		return filepath.Join(baseDir, filepath.Base(p))
+	}
 	if _, err := os.Stat(candidate); err == nil {
 		return candidate
 	}
@@ -149,6 +158,12 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 	sp := system.CalculateSmartParams(a.hwInfo, a.config.ModelPath)
 	log.Printf("[smart-params] models_dir=%s gpu_layers=%d threads=%d flash=%v cache=%s/%s mlock=%v mmproj_offload=%v",
 		modelsDir, sp.GPULayers, sp.Threads, sp.FlashAttn, sp.CacheTypeK, sp.CacheTypeV, sp.Mlock, sp.MmprojOffload)
+
+	// reasoning_format 不再硬编码设置：
+	// llama-server 默认值 COMMON_REASONING_FORMAT_DEEPSEEK 已能正确处理所有模型的思考内容分离
+	// （包括 DeepSeek-R1 的 </think>` 标签、Gemma 4 的 <|channel>thought 标签、Qwen3 的思考标签等）
+	// 仅在用户手动配置时才传值
+	reasoningFormat := a.config.ReasoningFormat
 
 	presetPath := filepath.Join(appDir(), "router-preset.ini")
 	if _, err := os.Stat(presetPath); err != nil {
@@ -192,7 +207,7 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		FitCtx:           a.config.FitCtx,
 		Reasoning:        a.config.Reasoning,
 		ReasoningBudget:  a.config.ReasoningBudget,
-		ReasoningFormat:  a.config.ReasoningFormat,
+		ReasoningFormat:  reasoningFormat,
 		ReasoningBudgetMessage: a.config.ReasoningBudgetMessage,
 		APIBase:          a.config.APIBase,
 		AppDir:           appDir(),
@@ -304,6 +319,23 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 	if err := a.service.DetectModelArchitectureForModel(modelForDetect); err != nil {
 		log.Printf("detect model architecture: %v", err)
 	}
+
+	// 启动后自动加载默认模型
+	if modelForDetect != "" && a.client != nil {
+		log.Printf("[server] auto-loading default model: %s", modelForDetect)
+		if err := a.client.LoadModel(ctx, modelForDetect); err != nil {
+			log.Printf("[server] auto-load default model failed: %v", err)
+			// 通知前端模型加载失败，但服务器 HTTP 端点已就绪，用户仍可手动切换
+			runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+				Running:      true,
+				CurrentModel: modelForDetect,
+				Error:        fmt.Sprintf("默认模型加载失败: %v（可手动切换模型）", err),
+			})
+		} else {
+			log.Printf("[server] default model loaded successfully: %s", modelForDetect)
+		}
+	}
+
 	a.isSwitching.Store(false)
 	runtime.EventsEmit(ctx, "server:status", a.runningStatus())
 
@@ -335,6 +367,15 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 			log.Printf("detect model architecture after restart: %v", err)
 		}
 		a.serverReady.Store(true)
+		// 重启后重新加载当前模型
+		if modelForDetect2 != "" && a.client != nil {
+			log.Printf("[server] reloading model after restart: %s", modelForDetect2)
+			if err := a.client.LoadModel(ctx, modelForDetect2); err != nil {
+				log.Printf("[server] reload model after restart failed: %v", err)
+			} else {
+				log.Printf("[server] model reloaded after restart: %s", modelForDetect2)
+			}
+		}
 	})
 }
 
@@ -466,20 +507,7 @@ func (a *App) startup(ctx context.Context) {
 
 	a.client = llm.NewClient(a.config.APIBase, a.getServerAPIKey())
 
-	var searchProviders []search.CategorizedProvider
-	keys := a.loadSearchAPIKeys()
-	if keys.TavilyAPIKey != "" {
-		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewTavilyProvider(keys.TavilyAPIKey), Categories: []string{"general", "code"}})
-	}
-	if keys.OllamaAPIKey != "" {
-		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewOllamaProvider(keys.OllamaAPIKey), Categories: []string{"general", "code"}})
-	}
-	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewDuckDuckGoProvider(), Categories: []string{"general"}})
-	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewBingProvider(), Categories: []string{"general"}})
-	if keys.GitHubAPIKey != "" {
-		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewGitHubProvider(keys.GitHubAPIKey), Categories: []string{"code"}})
-	}
-	searchChain := search.NewCategorizedSearchChain(searchProviders)
+	searchChain := a.buildSearchChain()
 
 	a.service = chat.NewService(a.client, searchChain, a.db, a.config, a.encKey)
 	a.service.SetContext(ctx)
@@ -492,7 +520,12 @@ func (a *App) startup(ctx context.Context) {
 	} else {
 		a.ragVS = ragVS
 		a.ragDS = rag.NewDocumentStore(ragVS.DB())
+		a.currentModelMu.RLock()
+		modelName := a.currentModelName
+		a.currentModelMu.RUnlock()
 		embedder := &rag.ClientEmbedder{Client: a.client}
+		embedder.SetModel(modelName)
+		a.ragEmbedder = embedder
 		collection := a.config.RAGActiveKB
 		if collection == "" {
 			collection = "default"
@@ -681,7 +714,10 @@ func (a *App) UploadDocument(kbName string, fileName string, fileData string, mi
 		return fmt.Errorf("文件大小超过限制（最大 %d MB）", maxUploadSize/(1024*1024))
 	}
 
-	embedder := &rag.ClientEmbedder{Client: a.client}
+	embedder := a.ragEmbedder
+	if embedder == nil {
+		return fmt.Errorf("知识库未初始化")
+	}
 	chunkCfg := rag.ChunkConfig{
 		ChunkSize:    a.config.RAGChunkSize,
 		ChunkOverlap: a.config.RAGChunkOverlap,
@@ -952,9 +988,22 @@ func (a *App) loadSearchAPIKeys() SearchAPIKeys {
 	return keys
 }
 
-// loadSearchAPIKeysInternal 内部方法，加载实际密钥值（不掩码）
-func (a *App) loadSearchAPIKeysInternal() SearchAPIKeys {
-	return a.loadSearchAPIKeys()
+// buildSearchChain 根据当前 API Key 配置构建搜索链
+func (a *App) buildSearchChain() *search.SearchChain {
+	var searchProviders []search.CategorizedProvider
+	keys := a.loadSearchAPIKeys()
+	if keys.TavilyAPIKey != "" {
+		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewTavilyProvider(keys.TavilyAPIKey), Categories: []string{"general", "code"}})
+	}
+	if keys.OllamaAPIKey != "" {
+		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewOllamaProvider(keys.OllamaAPIKey), Categories: []string{"general", "code"}})
+	}
+	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewDuckDuckGoProvider(), Categories: []string{"general"}})
+	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewBingProvider(), Categories: []string{"general"}})
+	if keys.GitHubAPIKey != "" {
+		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewGitHubProvider(keys.GitHubAPIKey), Categories: []string{"code"}})
+	}
+	return search.NewCategorizedSearchChain(searchProviders)
 }
 
 // HasServerAPIKey 返回是否已设置 API Key（不暴露实际密钥值给前端）
@@ -963,7 +1012,11 @@ func (a *App) HasServerAPIKey() bool {
 }
 
 // getServerAPIKey 内部方法，获取实际的 API Key 值
+// 当 ServerAPIKeyEnabled 为 false 时返回空字符串，不发送 API Key
 func (a *App) getServerAPIKey() string {
+	if !a.config.ServerAPIKeyEnabled {
+		return ""
+	}
 	var value string
 	if a.encKey != nil {
 		if v, err := store.GetEncryptedSetting(a.db, "server_api_key", a.encKey); err == nil {
@@ -1009,20 +1062,7 @@ func (a *App) UpdateConfig(cfg *config.Config) error {
 
 	a.client = llm.NewClient(a.config.APIBase, a.getServerAPIKey())
 
-	var searchProviders []search.CategorizedProvider
-	keys := a.loadSearchAPIKeys()
-	if keys.TavilyAPIKey != "" {
-		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewTavilyProvider(keys.TavilyAPIKey), Categories: []string{"general", "code"}})
-	}
-	if keys.OllamaAPIKey != "" {
-		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewOllamaProvider(keys.OllamaAPIKey), Categories: []string{"general", "code"}})
-	}
-	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewDuckDuckGoProvider(), Categories: []string{"general"}})
-	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewBingProvider(), Categories: []string{"general"}})
-	if keys.GitHubAPIKey != "" {
-		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewGitHubProvider(keys.GitHubAPIKey), Categories: []string{"code"}})
-	}
-	searchChain := search.NewCategorizedSearchChain(searchProviders)
+	searchChain := a.buildSearchChain()
 
 	if a.service != nil {
 		a.service.UpdateClient(a.client)
@@ -1039,8 +1079,10 @@ func (a *App) GetServerStatus() llm.ServerStatus {
 	if srv != nil {
 		status := srv.Status()
 		if status.Running {
-			caps := a.service.GetModelCapabilities()
-			status.Capabilities = &caps
+			if a.service != nil {
+				caps := a.service.GetModelCapabilities()
+				status.Capabilities = &caps
+			}
 			a.currentModelMu.RLock()
 			status.CurrentModel = a.currentModelName
 			a.currentModelMu.RUnlock()
@@ -1065,12 +1107,11 @@ func (a *App) PrepareShutdown() {
 		srv := a.server
 		a.serverMu.Unlock()
 		if srv != nil {
-			go func() {
-				if err := srv.Stop(); err != nil {
-					log.Printf("prepare shutdown: stop failed: %v", err)
-				}
-				srv.CloseJob()
-			}()
+			// 同步停止服务器，确保进程在应用退出前完全终止
+			if err := srv.Stop(); err != nil {
+				log.Printf("prepare shutdown: stop failed: %v", err)
+			}
+			srv.CloseJob()
 		}
 	})
 }
@@ -1432,14 +1473,8 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 
 	a.serverReady.Store(false)
 
-	// 4. Emit switching status and initial progress
+	// 4. Emit switching status and loading progress (no artificial delay — router handles LRU unloading)
 	a.emitSwitchingStatus(modelName)
-	a.emitSwitchProgress("unloading", modelName)
-
-	// 5. Simulate unloading stage for better UX
-	time.Sleep(300 * time.Millisecond)
-
-	// 6. Emit loading progress
 	a.emitSwitchProgress("loading", modelName)
 
 	// 7. Load new model (router handles LRU unloading automatically)
@@ -1452,40 +1487,13 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 			a.currentModelMu.Lock()
 			a.currentModelName = modelName
 			a.currentModelMu.Unlock()
+			// 即使模型已运行，也需要检测架构以更新 capabilities
+			a.service.SetDetectedModelName(modelName)
+			if err := a.service.DetectModelArchitectureForModel(modelName); err != nil {
+				log.Printf("[router] detect model architecture for already-running model: %v", err)
+			}
 		} else {
-			log.Printf("[router] model switch failed: %v", loadErr)
-			a.emitSwitchProgress("failed", modelName)
-			a.isSwitching.Store(false)
-			a.switchingToMu.Lock()
-			a.switchingTo = ""
-			a.switchingToMu.Unlock()
-			if previousModel != "" && previousModel != modelName {
-				log.Printf("[router] attempting to restore model %s", previousModel)
-				if restoreErr := a.client.LoadModel(a.ctx, previousModel); restoreErr == nil {
-					_ = a.client.WaitForModelLoaded(a.ctx, previousModel, 60*time.Second)
-					a.currentModelMu.Lock()
-					a.currentModelName = previousModel
-					a.currentModelMu.Unlock()
-					a.emitSwitchSuccess(previousModel)
-					a.serverReady.Store(true)
-				} else {
-					log.Printf("[router] failed to restore model %s: %v", previousModel, restoreErr)
-					runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
-						Running: false,
-						Error:   fmt.Sprintf("模型加载失败，恢复旧模型也失败: %v", loadErr),
-					})
-				}
-			} else {
-				runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
-					Running: false,
-					Error:   fmt.Sprintf("模型加载失败: %v", loadErr),
-				})
-			}
-			return SwitchResult{
-				Error:         fmt.Sprintf("模型加载失败: %v", loadErr),
-				PreviousModel: previousModel,
-				RolledBack:    previousModel != "" && previousModel != modelName,
-			}
+			return a.handleSwitchFailure(modelName, previousModel, fmt.Sprintf("模型加载失败: %v", loadErr))
 		}
 	}
 
@@ -1496,52 +1504,39 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 
 		if err := a.client.WaitForModelLoaded(waitCtx, modelName, 120*time.Second); err != nil {
 			log.Printf("[router] WaitForModelLoaded failed for %s: %v", modelName, err)
-			a.emitSwitchProgress("failed", modelName)
-			a.isSwitching.Store(false)
-			a.switchingToMu.Lock()
-			a.switchingTo = ""
-			a.switchingToMu.Unlock()
-			if previousModel != "" && previousModel != modelName {
-				log.Printf("[router] attempting to restore model %s after timeout", previousModel)
-				if restoreErr := a.client.LoadModel(a.ctx, previousModel); restoreErr == nil {
-					_ = a.client.WaitForModelLoaded(a.ctx, previousModel, 60*time.Second)
-					a.currentModelMu.Lock()
-					a.currentModelName = previousModel
-					a.currentModelMu.Unlock()
-					a.emitSwitchSuccess(previousModel)
-					a.serverReady.Store(true)
-				} else {
-					log.Printf("[router] failed to restore model %s: %v", previousModel, restoreErr)
-					runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
-						Running: false,
-						Error:   fmt.Sprintf("模型加载超时，恢复旧模型也失败: %v", err),
-					})
-				}
-			} else {
-				runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
-					Running: false,
-					Error:   fmt.Sprintf("模型加载超时: %v", err),
-				})
-			}
-			return SwitchResult{
-				Error:         fmt.Sprintf("模型加载超时: %v", err),
-				PreviousModel: previousModel,
-				RolledBack:    previousModel != "" && previousModel != modelName,
-			}
+			return a.handleSwitchFailure(modelName, previousModel, fmt.Sprintf("模型加载超时: %v", err))
 		}
 
 		// Wait briefly for mmproj and other post-load initialization
+		// Use exponential backoff: 200ms → 300ms → 500ms → 800ms
 		propsCtx, propsCancel := context.WithTimeout(a.ctx, 15*time.Second)
 		defer propsCancel()
-		for i := 0; i < 10; i++ {
-			if _, propsErr := a.client.GetServerProps(propsCtx, modelName); propsErr == nil {
-				break
+		backoffs := []time.Duration{200 * time.Millisecond, 300 * time.Millisecond, 500 * time.Millisecond, 800 * time.Millisecond}
+		var lastProps *llm.ServerProps
+		for i := 0; i < 6; i++ {
+			props, propsErr := a.client.GetServerProps(propsCtx, modelName)
+			if propsErr == nil {
+				lastProps = props
+				// No mmproj needed — exit immediately
+				if !props.Modalities.Vision && !props.Modalities.Audio {
+					break
+				}
+				// mmproj loaded — exit
+				if i > 0 {
+					break
+				}
+				// First success but has mmproj — may still be loading, one more check
+				continue
 			}
 			select {
 			case <-propsCtx.Done():
 				break
-			case <-time.After(500 * time.Millisecond):
+			case <-time.After(backoffs[min(i, len(backoffs)-1)]):
 			}
+		}
+		// Cache the props result so DetectModelArchitectureForModel can reuse it
+		if lastProps != nil {
+			a.service.SetCachedProps(lastProps)
 		}
 	}
 
@@ -1549,6 +1544,11 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 	a.currentModelMu.Lock()
 	a.currentModelName = modelName
 	a.currentModelMu.Unlock()
+
+	// 7.1 Update embedding model name
+	if a.ragEmbedder != nil {
+		a.ragEmbedder.SetModel(modelName)
+	}
 
 	// 8. Save config
 	a.presetsMu.RLock()
@@ -1606,6 +1606,45 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 		CurrentModel:  resultModel,
 		Capabilities:  &caps,
 		PreviousModel: previousModel,
+	}
+}
+
+// handleSwitchFailure 处理模型切换失败：尝试恢复旧模型，清理状态，返回错误结果
+func (a *App) handleSwitchFailure(modelName, previousModel, errMsg string) SwitchResult {
+	log.Printf("[router] model switch failed: %s", errMsg)
+	a.emitSwitchProgress("failed", modelName)
+	a.isSwitching.Store(false)
+	a.switchingToMu.Lock()
+	a.switchingTo = ""
+	a.switchingToMu.Unlock()
+
+	if previousModel != "" && previousModel != modelName {
+		log.Printf("[router] attempting to restore model %s", previousModel)
+		if restoreErr := a.client.LoadModel(a.ctx, previousModel); restoreErr == nil {
+			_ = a.client.WaitForModelLoaded(a.ctx, previousModel, 60*time.Second)
+			a.currentModelMu.Lock()
+			a.currentModelName = previousModel
+			a.currentModelMu.Unlock()
+			a.emitSwitchSuccess(previousModel)
+			a.serverReady.Store(true)
+		} else {
+			log.Printf("[router] failed to restore model %s: %v", previousModel, restoreErr)
+			runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
+				Running: false,
+				Error:   fmt.Sprintf("%s，恢复旧模型也失败", errMsg),
+			})
+		}
+	} else {
+		runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
+			Running: false,
+			Error:   errMsg,
+		})
+	}
+
+	return SwitchResult{
+		Error:         errMsg,
+		PreviousModel: previousModel,
+		RolledBack:    previousModel != "" && previousModel != modelName,
 	}
 }
 

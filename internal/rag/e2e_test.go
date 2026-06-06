@@ -2,9 +2,14 @@ package rag
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"douya/internal/llm"
 )
 
 // mockEmbedder is defined in document_pipeline_test.go — reuse it here.
@@ -145,9 +150,10 @@ func TestClientEmbedder_VerifyInterface(t *testing.T) {
 // TestEndToEndRAG_EmbedderAdapter tests that the adapter compiles and the interface is correct.
 func TestEndToEndRAG_EmbedderAdapter(t *testing.T) {
 	// We can't call the real LLM API in unit tests, so just verify the type system works.
-	embedder := &ClientEmbedder{Client: nil, Model: "test-model"}
-	if embedder.Model != "test-model" {
-		t.Errorf("expected model 'test-model', got %q", embedder.Model)
+	embedder := &ClientEmbedder{Client: nil}
+	embedder.SetModel("test-model")
+	if embedder.GetModel() != "test-model" {
+		t.Errorf("expected model 'test-model', got %q", embedder.GetModel())
 	}
 	// Embed should return error when client is nil
 	_, err := embedder.Embed(context.Background(), []string{"test"})
@@ -174,5 +180,106 @@ func TestEndToEndRAG_DataDir(t *testing.T) {
 
 	if _, err := os.Stat(tmpDir); os.IsNotExist(err) {
 		t.Errorf("data directory %q was not created", tmpDir)
+	}
+}
+
+// TestClientEmbedder_ModelField tests that the Model field is correctly passed to the embedding request.
+func TestClientEmbedder_ModelField(t *testing.T) {
+	var receivedModel string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Model string `json:"model"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		receivedModel = req.Model
+
+		resp := llm.EmbeddingResponse{
+			Object: "list",
+			Data:   []llm.Embedding{{Object: "embedding", Embedding: []float64{0.1, 0.2}, Index: 0}},
+			Model:  "test",
+			Usage:  llm.Usage{PromptTokens: 1, TotalTokens: 1},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer ts.Close()
+
+	client := llm.NewClient(ts.URL, "")
+	embedder := &ClientEmbedder{Client: client}
+	embedder.SetModel("my-model")
+
+	_, err := embedder.Embed(context.Background(), []string{"hello"})
+	if err != nil {
+		t.Fatalf("Embed failed: %v", err)
+	}
+
+	if receivedModel != "my-model" {
+		t.Errorf("expected model 'my-model' in request, got %q", receivedModel)
+	}
+
+	// 测试 Model 为空时不发送 model 字段
+	embedderNoModel := &ClientEmbedder{Client: client}
+	_, err = embedderNoModel.Embed(context.Background(), []string{"hello"})
+	if err != nil {
+		t.Fatalf("Embed (no model) failed: %v", err)
+	}
+	if receivedModel != "" {
+		t.Errorf("expected empty model in request, got %q", receivedModel)
+	}
+}
+
+// TestClientEmbedder_ConcurrentSetModel 测试 SetModel 和 Embed 可以安全并发调用。
+func TestClientEmbedder_ConcurrentSetModel(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := llm.EmbeddingResponse{
+			Object: "list",
+			Data:   []llm.Embedding{{Object: "embedding", Embedding: []float64{0.1, 0.2}, Index: 0}},
+			Model:  "test",
+			Usage:  llm.Usage{PromptTokens: 1, TotalTokens: 1},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer ts.Close()
+
+	client := llm.NewClient(ts.URL, "")
+	embedder := &ClientEmbedder{Client: client}
+	embedder.SetModel("initial-model")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// 并发写入 goroutine：不断切换模型名
+	go func() {
+		models := []string{"model-a", "model-b", "model-c"}
+		i := 0
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				embedder.SetModel(models[i%len(models)])
+				i++
+			}
+		}
+	}()
+
+	// 并发读取 goroutine：不断调用 Embed
+	var embedErr error
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 50; i++ {
+			_, err := embedder.Embed(context.Background(), []string{"test"})
+			if err != nil {
+				embedErr = err
+				return
+			}
+		}
+	}()
+
+	<-done
+	if embedErr != nil {
+		t.Fatalf("concurrent Embed failed: %v", embedErr)
 	}
 }

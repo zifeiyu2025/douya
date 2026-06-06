@@ -440,3 +440,153 @@ func unitVector(dim, seed int, noiseScale float64) []float64 {
 	}
 	return v
 }
+
+// normalize returns a unit vector in the same direction as v.
+func normalize(v []float64) []float64 {
+	norm := 0.0
+	for _, x := range v {
+		norm += x * x
+	}
+	norm = math.Sqrt(norm)
+	for i := range v {
+		v[i] /= norm
+	}
+	return v
+}
+
+// ---------------------------------------------------------------------------
+// Collection name validation
+// ---------------------------------------------------------------------------
+
+func TestCreateCollection_InvalidNameWithColon(t *testing.T) {
+	vs, cleanup := newTestStore(t)
+	defer cleanup()
+
+	// 包含冒号的名称应被拒绝（冒号用于 Badger KV 键前缀分隔符）
+	err := vs.CreateCollection("my:collection", 4)
+	if err == nil {
+		t.Error("expected error for collection name with colon, got nil")
+	}
+}
+
+func TestCreateCollection_InvalidNameWithSlash(t *testing.T) {
+	vs, cleanup := newTestStore(t)
+	defer cleanup()
+
+	err := vs.CreateCollection("my/collection", 4)
+	if err == nil {
+		t.Error("expected error for collection name with slash, got nil")
+	}
+}
+
+func TestCreateCollection_ValidNameWithHyphen(t *testing.T) {
+	vs, cleanup := newTestStore(t)
+	defer cleanup()
+
+	// 连字符和下划线应被允许
+	err := vs.CreateCollection("my-collection_v2", 4)
+	if err != nil {
+		t.Errorf("expected no error for valid name with hyphen/underscore, got %v", err)
+	}
+}
+
+func TestCreateCollection_ValidChineseName(t *testing.T) {
+	vs, cleanup := newTestStore(t)
+	defer cleanup()
+
+	// 中文名称应被允许
+	err := vs.CreateCollection("我的知识库", 4)
+	if err != nil {
+		t.Errorf("expected no error for Chinese name, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SearchWithThreshold tests
+// ---------------------------------------------------------------------------
+
+func TestSearchWithThreshold_FiltersLowScore(t *testing.T) {
+	vs, cleanup := newTestStore(t)
+	defer cleanup()
+
+	err := vs.CreateCollection("thresh-test", 3)
+	if err != nil {
+		t.Fatalf("CreateCollection failed: %v", err)
+	}
+
+	// 添加两个正交向量
+	vecs := [][]float64{
+		normalize([]float64{1.0, 0.0, 0.0}),
+		normalize([]float64{0.0, 1.0, 0.0}),
+	}
+	err = vs.AddVectors("thresh-test", []string{"v1", "v2"}, vecs)
+	if err != nil {
+		t.Fatalf("AddVectors failed: %v", err)
+	}
+
+	// 先用普通 Search 获取实际分数
+	query := normalize([]float64{0.9, 0.1, 0.0})
+	allResults, err := vs.Search("thresh-test", query, 5)
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+	if len(allResults) == 0 {
+		t.Fatal("expected at least 1 search result")
+	}
+
+	// 用最高分数 + 0.01 作为阈值，应该过滤掉所有结果
+	highestScore := allResults[0].Score
+	results, err := vs.SearchWithThreshold("thresh-test", query, 5, highestScore+0.01)
+	if err != nil {
+		t.Fatalf("SearchWithThreshold failed: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected 0 results with threshold above highest score, got %d", len(results))
+	}
+}
+
+func TestSearchWithThreshold_AcceptsHighScore(t *testing.T) {
+	vs, cleanup := newTestStore(t)
+	defer cleanup()
+
+	err := vs.CreateCollection("thresh-accept", 3)
+	if err != nil {
+		t.Fatalf("CreateCollection failed: %v", err)
+	}
+
+	vecs := [][]float64{
+		normalize([]float64{1.0, 0.0, 0.0}),
+	}
+	err = vs.AddVectors("thresh-accept", []string{"v1"}, vecs)
+	if err != nil {
+		t.Fatalf("AddVectors failed: %v", err)
+	}
+
+	// 查询与 v1 完全相同的向量
+	query := normalize([]float64{1.0, 0.0, 0.0})
+	results, err := vs.SearchWithThreshold("thresh-accept", query, 5, 0.5)
+	if err != nil {
+		t.Fatalf("SearchWithThreshold failed: %v", err)
+	}
+	// 至少应该有 1 个结果（完全匹配的 v1）
+	found := false
+	for _, r := range results {
+		if r.ID == "v1" && r.Score >= 0.5 {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected to find v1 with score >= 0.5, got %d results", len(results))
+	}
+}
+
+func TestSearchWithThreshold_CollectionNotFound(t *testing.T) {
+	vs, cleanup := newTestStore(t)
+	defer cleanup()
+
+	query := normalize([]float64{1.0, 0.0, 0.0})
+	_, err := vs.SearchWithThreshold("nonexistent", query, 5, 0.5)
+	if err == nil {
+		t.Error("expected error for nonexistent collection, got nil")
+	}
+}

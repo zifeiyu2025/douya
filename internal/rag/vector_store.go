@@ -36,6 +36,9 @@ var ErrZeroDimension = errors.New("dimension must be positive")
 // ErrEmptyCollectionName is returned when collection name is empty.
 var ErrEmptyCollectionName = errors.New("collection name cannot be empty")
 
+// ErrInvalidCollectionName is returned when collection name contains invalid characters.
+var ErrInvalidCollectionName = errors.New("collection name contains invalid characters")
+
 // SearchResult represents a single search result.
 type SearchResult struct {
 	ID           string            // the stored vector ID
@@ -391,6 +394,10 @@ func (vs *VectorStore) CreateCollection(name string, dim int) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return ErrEmptyCollectionName
+	}
+	// 拒绝包含键前缀分隔符的字符（冒号用于 Badger KV 键前缀，斜杠可能导致歧义）
+	if strings.ContainsAny(name, ":/\\") {
+		return ErrInvalidCollectionName
 	}
 
 	err := vs.db.Update(func(txn *badger.Txn) error {

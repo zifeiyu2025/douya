@@ -212,6 +212,104 @@ func BenchmarkChunkDocument_ShortText(b *testing.B) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// IngestDocumentWithMeta tests
+// ---------------------------------------------------------------------------
+
+func TestIngestDocumentWithMeta_SavesDocumentMeta(t *testing.T) {
+	vs, cleanup := newTestVectorStore(t)
+	defer cleanup()
+	ds := NewDocumentStore(vs.DB())
+
+	embedder := &mockEmbedder{dim: 4}
+	ctx := context.Background()
+
+	result, err := IngestDocumentWithMeta(ctx, vs, ds, embedder,
+		"meta-test", "doc-123", "Hello world. This is a test document.",
+		"test.txt", 100, "text/plain", DefaultChunkConfig())
+	if err != nil {
+		t.Fatalf("IngestDocumentWithMeta failed: %v", err)
+	}
+	if result.DocumentID != "doc-123" {
+		t.Errorf("expected DocumentID 'doc-123', got %q", result.DocumentID)
+	}
+
+	// 验证 DocumentStore 中保存了元数据
+	meta, err := ds.Get("meta-test", "doc-123")
+	if err != nil {
+		t.Fatalf("Get document meta failed: %v", err)
+	}
+	if meta.FileName != "test.txt" {
+		t.Errorf("expected FileName 'test.txt', got %q", meta.FileName)
+	}
+	if meta.FileSize != 100 {
+		t.Errorf("expected FileSize 100, got %d", meta.FileSize)
+	}
+	if meta.MimeType != "text/plain" {
+		t.Errorf("expected MimeType 'text/plain', got %q", meta.MimeType)
+	}
+	if meta.ChunkCount < 1 {
+		t.Errorf("expected ChunkCount >= 1, got %d", meta.ChunkCount)
+	}
+	if meta.IngestedAt == "" {
+		t.Error("expected IngestedAt to be set")
+	}
+}
+
+func TestIngestDocumentWithMeta_NilDocStore(t *testing.T) {
+	vs, cleanup := newTestVectorStore(t)
+	defer cleanup()
+
+	embedder := &mockEmbedder{dim: 4}
+	ctx := context.Background()
+
+	// ds 为 nil 时不应 panic
+	result, err := IngestDocumentWithMeta(ctx, vs, nil, embedder,
+		"nil-ds-test", "", "Some text content here.",
+		"doc.txt", 50, "text/plain", DefaultChunkConfig())
+	if err != nil {
+		t.Fatalf("IngestDocumentWithMeta with nil ds failed: %v", err)
+	}
+	if result.DocumentID == "" {
+		t.Error("expected auto-generated DocumentID")
+	}
+}
+
+func TestIngestDocumentWithMeta_EmptyText(t *testing.T) {
+	vs, cleanup := newTestVectorStore(t)
+	defer cleanup()
+
+	embedder := &mockEmbedder{dim: 4}
+	ctx := context.Background()
+
+	_, err := IngestDocumentWithMeta(ctx, vs, nil, embedder,
+		"empty-text", "", "", "", 0, "", DefaultChunkConfig())
+	if err == nil {
+		t.Error("expected error for empty text, got nil")
+	}
+}
+
+func TestIngestDocumentWithMeta_EmbeddingError(t *testing.T) {
+	vs, cleanup := newTestVectorStore(t)
+	defer cleanup()
+
+	embedder := &errorEmbedder{}
+	ctx := context.Background()
+
+	_, err := IngestDocumentWithMeta(ctx, vs, nil, embedder,
+		"embed-err", "", "Some text to chunk.", "", 0, "", DefaultChunkConfig())
+	if err == nil {
+		t.Error("expected error from failing embedder, got nil")
+	}
+}
+
+// errorEmbedder always returns an error.
+type errorEmbedder struct{}
+
+func (e *errorEmbedder) Embed(ctx context.Context, texts []string) ([][]float64, error) {
+	return nil, fmt.Errorf("embedding service unavailable")
+}
+
 func BenchmarkChunkDocument_LongText(b *testing.B) {
 	cfg := DefaultChunkConfig()
 	cfg.ChunkSize = 512
