@@ -7,8 +7,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +26,7 @@ import (
 	"douya/internal/store"
 	"douya/internal/system"
 
+	zlog "github.com/rs/zerolog/log"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -89,39 +90,107 @@ func appDir() string {
 
 	exePath, err := os.Executable()
 	if err != nil {
-		log.Printf("[appDir] failed to get executable path: %v", err)
+		zlog.Error().Err(err).Msg("[appDir] 获取可执行文件路径失败")
 		cachedAppDir = "."
 		return cachedAppDir
 	}
-
 	exeDir := filepath.Dir(exePath)
-	log.Printf("[appDir] exe path: %s, exe dir: %s", exePath, exeDir)
 
-	if _, err := os.Stat(filepath.Join(exeDir, "config.json")); err == nil {
-		log.Printf("[appDir] found config.json in exe directory: %s", exeDir)
-		cachedAppDir = exeDir
-		return cachedAppDir
-	}
+	// 查找应用根目录的优先级：
+	// 1. 可执行文件同目录（便携模式 / 开发模式）
+	// 2. 可执行文件的上层目录（发布构建：exe 在 bin/ 下，资源在上层）
+	// 3. 用户数据目录（标准安装模式，如 %APPDATA%/douya）
+	searchDirs := []string{exeDir}
 
+	// 向上查找最多 3 层（覆盖 release/bin/ → release/ 这类结构）
 	dir := exeDir
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 3; i++ {
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			break
 		}
+		searchDirs = append(searchDirs, parent)
 		dir = parent
-		if _, err := os.Stat(filepath.Join(dir, "config.json")); err == nil {
-			log.Printf("[appDir] found config.json in parent directory (level %d): %s", i+1, dir)
-			cachedAppDir = dir
+	}
+
+	// 用户数据目录
+	if userDir, err := os.UserConfigDir(); err == nil {
+		searchDirs = append(searchDirs, filepath.Join(userDir, "douya"))
+	}
+
+	// 优先查找 config.json。
+	// 当 config.json 存在时，额外检查它是否值得信任：
+	// - 如果 model_path 为空，且上层目录存在资源（engines/ 或 models/），
+	//   说明该 config.json 是上版本自动生成的默认配置，应该跳过。
+	isValidConfig := func(d string) bool {
+		cfgPath := filepath.Join(d, "config.json")
+		data, err := os.ReadFile(cfgPath)
+		if err != nil {
+			return false
+		}
+		// 解析为通用 map 检测 model_path 字段
+		var raw map[string]interface{}
+		if err := json.Unmarshal(data, &raw); err != nil {
+			// 尝试双重序列化容错
+			if len(data) > 0 && data[0] == '"' {
+				var inner string
+				if err := json.Unmarshal(data, &inner); err == nil {
+					if err := json.Unmarshal([]byte(inner), &raw); err != nil {
+						return true // 无法解析内容时保守信任
+					}
+				} else {
+					return true
+				}
+			} else {
+				return true // 解析失败时保守信任
+			}
+		}
+		// model_path 为空字符串说明是默认配置
+		if mp, ok := raw["model_path"].(string); ok && mp == "" {
+			// 检查上层目录（filepath.Dir(d)）是否有资源
+			parent := filepath.Dir(d)
+			for _, p := range []string{"engines", "models"} {
+				if info, err := os.Stat(filepath.Join(parent, p)); err == nil && info.IsDir() {
+					return false // 是默认配置 + 上层有资源 = 跳过
+				}
+			}
+		}
+		return true
+	}
+
+	for _, d := range searchDirs {
+		cfgPath := filepath.Join(d, "config.json")
+		if _, err := os.Stat(cfgPath); err == nil {
+			if !isValidConfig(d) {
+				zlog.Info().Str("dir", d).Msg("[appDir] 跳过自动生成的默认配置")
+				continue
+			}
+			zlog.Info().Str("dir", d).Msg("[appDir] 找到配置文件目录")
+			cachedAppDir = d
 			return cachedAppDir
 		}
 	}
 
-	log.Printf("[appDir] config.json not found, creating default in exe directory: %s", exeDir)
+	// 没有找到 config.json，尝试通过资源目录定位应用根目录
+	for _, d := range searchDirs {
+		if info, err := os.Stat(filepath.Join(d, "models")); err == nil && info.IsDir() {
+			zlog.Info().Str("dir", d).Msg("[appDir] 通过资源目录定位到应用根目录")
+			cachedAppDir = d
+			// 在找到的根目录创建默认配置文件
+			cfgPath := filepath.Join(d, "config.json")
+			if err := config.Save(cfgPath, config.DefaultConfig()); err != nil {
+				zlog.Error().Err(err).Msg("[appDir] 创建默认配置失败")
+			}
+			return cachedAppDir
+		}
+	}
+
+	// 均未找到，在可执行文件目录创建默认配置
+	zlog.Info().Str("dir", exeDir).Msg("[appDir] 未找到配置文件或资源目录，在可执行文件目录创建默认配置")
 	defaultCfg := config.DefaultConfig()
 	cfgPath := filepath.Join(exeDir, "config.json")
 	if err := config.Save(cfgPath, defaultCfg); err != nil {
-		log.Printf("[appDir] failed to create default config: %v", err)
+		zlog.Error().Err(err).Msg("[appDir] 创建默认配置失败")
 	}
 	cachedAppDir = exeDir
 	return cachedAppDir
@@ -138,7 +207,7 @@ func resolvePath(p string) string {
 	// 验证结果路径仍在基准目录内
 	absCandidate, err := filepath.Abs(candidate)
 	if err == nil && !strings.HasPrefix(absCandidate, baseDir) {
-		log.Printf("[resolvePath] path traversal detected: %s resolves outside %s", p, baseDir)
+		zlog.Warn().Str("path", p).Str("baseDir", baseDir).Msg("[resolvePath] path traversal detected")
 		return filepath.Join(baseDir, filepath.Base(p))
 	}
 	if _, err := os.Stat(candidate); err == nil {
@@ -156,8 +225,7 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 	modelsDir := filepath.Join(appDir(), "models")
 
 	sp := system.CalculateSmartParams(a.hwInfo, a.config.ModelPath)
-	log.Printf("[smart-params] models_dir=%s gpu_layers=%d threads=%d flash=%v cache=%s/%s mlock=%v mmproj_offload=%v",
-		modelsDir, sp.GPULayers, sp.Threads, sp.FlashAttn, sp.CacheTypeK, sp.CacheTypeV, sp.Mlock, sp.MmprojOffload)
+	zlog.Info().Str("models_dir", modelsDir).Int("gpu_layers", sp.GPULayers).Int("threads", sp.Threads).Bool("flash", sp.FlashAttn).Str("cache_k", sp.CacheTypeK).Str("cache_v", sp.CacheTypeV).Bool("mlock", sp.Mlock).Bool("mmproj_offload", sp.MmprojOffload).Msg("[smart-params] params")
 
 	// reasoning_format 不再硬编码设置：
 	// llama-server 默认值 COMMON_REASONING_FORMAT_DEEPSEEK 已能正确处理所有模型的思考内容分离
@@ -270,7 +338,7 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 
 func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 	if err := srv.Start(); err != nil {
-		log.Printf("start llama-server: %v", err)
+		zlog.Error().Err(err).Msg("start llama-server failed")
 		runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
 			Running: false,
 			Error:   fmt.Sprintf("启动 llama-server 失败: %v", err),
@@ -279,7 +347,7 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 	}
 
 	if err := srv.WaitForReady(60e9); err != nil {
-		log.Printf("wait for server ready: %v", err)
+		zlog.Error().Err(err).Msg("wait for server ready failed")
 		runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
 			Running: false,
 			Error:   fmt.Sprintf("llama-server 未就绪: %v", err),
@@ -309,7 +377,7 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 		a.currentModelName = presetsSnapshot[0].Name
 		a.currentModelMu.Unlock()
 		a.currentModelMu.RLock()
-		log.Printf("[server] no default preset found, using first model: %s", a.currentModelName)
+		zlog.Info().Str("model", a.currentModelName).Msg("[server] no default preset found, using first model")
 		a.currentModelMu.RUnlock()
 	}
 
@@ -317,14 +385,14 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 	modelForDetect := a.currentModelName
 	a.currentModelMu.RUnlock()
 	if err := a.service.DetectModelArchitectureForModel(modelForDetect); err != nil {
-		log.Printf("detect model architecture: %v", err)
+		zlog.Error().Err(err).Msg("detect model architecture failed")
 	}
 
 	// 启动后自动加载默认模型
 	if modelForDetect != "" && a.client != nil {
-		log.Printf("[server] auto-loading default model: %s", modelForDetect)
+		zlog.Info().Str("model", modelForDetect).Msg("[server] auto-loading default model")
 		if err := a.client.LoadModel(ctx, modelForDetect); err != nil {
-			log.Printf("[server] auto-load default model failed: %v", err)
+			zlog.Error().Err(err).Str("model", modelForDetect).Msg("[server] auto-load default model failed")
 			// 通知前端模型加载失败，但服务器 HTTP 端点已就绪，用户仍可手动切换
 			runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
 				Running:      true,
@@ -332,7 +400,7 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 				Error:        fmt.Sprintf("默认模型加载失败: %v（可手动切换模型）", err),
 			})
 		} else {
-			log.Printf("[server] default model loaded successfully: %s", modelForDetect)
+			zlog.Info().Str("model", modelForDetect).Msg("[server] default model loaded successfully")
 		}
 	}
 
@@ -364,16 +432,16 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 		modelForDetect2 := a.currentModelName
 		a.currentModelMu.RUnlock()
 		if err := a.service.DetectModelArchitectureForModel(modelForDetect2); err != nil {
-			log.Printf("detect model architecture after restart: %v", err)
+			zlog.Error().Err(err).Msg("detect model architecture after restart failed")
 		}
 		a.serverReady.Store(true)
 		// 重启后重新加载当前模型
 		if modelForDetect2 != "" && a.client != nil {
-			log.Printf("[server] reloading model after restart: %s", modelForDetect2)
+			zlog.Info().Str("model", modelForDetect2).Msg("[server] reloading model after restart")
 			if err := a.client.LoadModel(ctx, modelForDetect2); err != nil {
-				log.Printf("[server] reload model after restart failed: %v", err)
+					zlog.Error().Err(err).Str("model", modelForDetect2).Msg("[server] reload model after restart failed")
 			} else {
-				log.Printf("[server] model reloaded after restart: %s", modelForDetect2)
+					zlog.Info().Str("model", modelForDetect2).Msg("[server] model reloaded after restart")
 			}
 		}
 	})
@@ -413,7 +481,7 @@ func (a *App) startup(ctx context.Context) {
 	cfgPath := filepath.Join(appDir(), "config.json")
 	a.config, err = config.Load(cfgPath)
 	if err != nil {
-		log.Printf("load config: %v", err)
+		zlog.Error().Err(err).Msg("load config failed")
 		runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 			Type:    runtime.ErrorDialog,
 			Title:   "配置加载失败",
@@ -428,7 +496,7 @@ func (a *App) startup(ctx context.Context) {
 			msg += "❌ " + p + "\n"
 		}
 		msg += fmt.Sprintf("\n应用根目录: %s\n请确保所有文件位于正确位置。", appDir())
-		log.Printf("[startup] missing paths: %v", missingPaths)
+		zlog.Error().Interface("paths", missingPaths).Msg("[startup] missing paths")
 		runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 			Type:    runtime.ErrorDialog,
 			Title:   "关键文件缺失",
@@ -442,13 +510,13 @@ func (a *App) startup(ctx context.Context) {
 	keyPath := filepath.Join(appDir(), "data", ".enc_key")
 	a.encKey, err = secrets.LoadOrCreateKey(keyPath)
 	if err != nil {
-		log.Printf("[startup] load encryption key: %v", err)
+		zlog.Error().Err(err).Msg("[startup] load encryption key failed")
 		// 加密密钥加载失败不阻止启动，但敏感数据将以明文存储
 	}
 
 	a.db, err = store.Init(dbPath, a.encKey)
 	if err != nil {
-		log.Printf("init database: %v", err)
+		zlog.Error().Err(err).Msg("init database failed")
 		runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 			Type:    runtime.ErrorDialog,
 			Title:   "数据库初始化失败",
@@ -494,7 +562,7 @@ func (a *App) startup(ctx context.Context) {
 					}
 				}
 				if migrated {
-					log.Printf("[startup] migrated search API keys from config.json to database")
+					zlog.Info().Msg("[startup] migrated search API keys from config.json to database")
 					config.Save(cfgPath, a.config)
 				}
 			}
@@ -502,7 +570,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	if err := a.generatePresetFile(); err != nil {
-		log.Printf("[startup] generate preset file: %v", err)
+		zlog.Error().Err(err).Msg("[startup] generate preset file failed")
 	}
 
 	a.client = llm.NewClient(a.config.APIBase, a.getServerAPIKey())
@@ -516,7 +584,7 @@ func (a *App) startup(ctx context.Context) {
 	ragDir := filepath.Join(appDir(), "data", "rag")
 	ragVS, err := rag.NewVectorStore(ragDir, rag.DefaultHNSWConfig())
 	if err != nil {
-		log.Printf("[startup] RAG vector store init failed (RAG disabled): %v", err)
+		zlog.Error().Err(err).Msg("[startup] RAG vector store init failed (RAG disabled)")
 	} else {
 		a.ragVS = ragVS
 		a.ragDS = rag.NewDocumentStore(ragVS.DB())
@@ -531,7 +599,7 @@ func (a *App) startup(ctx context.Context) {
 			collection = "default"
 		}
 		a.service.SetRAG(ragVS, a.ragDS, embedder, collection, a.config.RAGEnabled)
-		log.Printf("[startup] RAG initialized: dir=%s collection=%s enabled=%v", ragDir, collection, a.config.RAGEnabled)
+		zlog.Info().Str("dir", ragDir).Str("collection", collection).Bool("enabled", a.config.RAGEnabled).Msg("[startup] RAG initialized")
 	}
 
 	a.serverMu.Lock()
@@ -547,7 +615,7 @@ func (a *App) startup(ctx context.Context) {
 			for _, ac := range removed {
 				titles = append(titles, ac.Title)
 			}
-			log.Printf("[startup] removed %d abnormal conversations: %v", len(removed), titles)
+			zlog.Info().Int("count", len(removed)).Interface("titles", titles).Msg("[startup] removed abnormal conversations")
 
 			a.cleanupResultMu.Lock()
 			a.cleanupResult = removed
@@ -579,20 +647,20 @@ func (a *App) shutdown(ctx context.Context) {
 
 		if srv != nil {
 			if err := srv.Stop(); err != nil {
-				log.Printf("shutting down: stop server failed: %v", err)
+					zlog.Error().Err(err).Msg("shutting down: stop server failed")
 			}
 			srv.CloseJob()
 		}
 
 		if a.ragVS != nil {
 			if err := a.ragVS.Close(); err != nil {
-				log.Printf("shutting down: close RAG vector store: %v", err)
+					zlog.Error().Err(err).Msg("shutting down: close RAG vector store failed")
 			}
 		}
 
 		if a.db != nil {
 			if err := a.db.Close(); err != nil {
-				log.Printf("shutting down: close database: %v", err)
+					zlog.Error().Err(err).Msg("shutting down: close database failed")
 			}
 		}
 	})
@@ -610,7 +678,7 @@ func (a *App) SendMessage(params chat.SendMessageParams) error {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("SendMessage panic: %v", r)
+				zlog.Error().Interface("panic", r).Msg("SendMessage panic")
 				convID := a.service.CurrentConvID()
 				if convID == "" {
 					convID = params.ConversationID
@@ -623,7 +691,7 @@ func (a *App) SendMessage(params chat.SendMessageParams) error {
 			}
 		}()
 		if err := a.service.SendMessage(a.ctx, params); err != nil {
-			log.Printf("SendMessage error: %v", err)
+			zlog.Error().Err(err).Msg("SendMessage error")
 			convID := a.service.CurrentConvID()
 			if convID == "" {
 				convID = params.ConversationID
@@ -748,7 +816,7 @@ func (a *App) DeleteDocument(kbName string, docID string) error {
 	}
 	if a.ragDS != nil {
 		if err := a.ragDS.Delete(kbName, docID); err != nil {
-			log.Printf("[rag] delete document meta: %v", err)
+			zlog.Error().Err(err).Msg("[rag] delete document meta failed")
 		}
 	}
 	return a.ragVS.DeleteDocument(kbName, docID)
@@ -771,7 +839,7 @@ func (a *App) SetRAGEnabled(enabled bool) {
 	a.config.RAGEnabled = enabled
 	a.service.SetRAGEnabled(enabled)
 	if err := config.Save(filepath.Join(appDir(), "config.json"), a.config); err != nil {
-		log.Printf("[rag] save config: %v", err)
+		zlog.Error().Err(err).Msg("[rag] save config failed")
 	}
 }
 
@@ -958,6 +1026,13 @@ func (a *App) SetSearchAPIKeys(keys SearchAPIKeys) error {
 }
 
 func (a *App) loadSearchAPIKeys() SearchAPIKeys {
+	keys := a.loadSearchAPIKeysFromDB()
+	a.applyEnvOverrides(&keys)
+	return keys
+}
+
+// loadSearchAPIKeysFromDB 仅从数据库/加密存储加载 API Key
+func (a *App) loadSearchAPIKeysFromDB() SearchAPIKeys {
 	keys := SearchAPIKeys{}
 	getFn := func(key string) (string, error) {
 		if a.encKey != nil {
@@ -974,8 +1049,11 @@ func (a *App) loadSearchAPIKeys() SearchAPIKeys {
 	if v, err := getFn("search_github_api_key"); err == nil {
 		keys.GitHubAPIKey = v
 	}
-	// 环境变量优先，但环境变量值不掩码（后端内部使用）
-	// 注意：这里返回掩码值给前端，环境变量覆盖后也需要掩码
+	return keys
+}
+
+// applyEnvOverrides 用环境变量覆盖数据库值（优先级：环境变量 > 数据库）
+func (a *App) applyEnvOverrides(keys *SearchAPIKeys) {
 	if apiKey := os.Getenv("OLLAMA_API_KEY"); apiKey != "" {
 		keys.OllamaAPIKey = apiKey
 	}
@@ -985,7 +1063,6 @@ func (a *App) loadSearchAPIKeys() SearchAPIKeys {
 	if apiKey := os.Getenv("GITHUB_API_KEY"); apiKey != "" {
 		keys.GitHubAPIKey = apiKey
 	}
-	return keys
 }
 
 // buildSearchChain 根据当前 API Key 配置构建搜索链
@@ -1109,7 +1186,7 @@ func (a *App) PrepareShutdown() {
 		if srv != nil {
 			// 同步停止服务器，确保进程在应用退出前完全终止
 			if err := srv.Stop(); err != nil {
-				log.Printf("prepare shutdown: stop failed: %v", err)
+				zlog.Error().Err(err).Msg("prepare shutdown: stop failed")
 			}
 			srv.CloseJob()
 		}
@@ -1175,7 +1252,7 @@ func (a *App) GracefulExit() {
 					"message": "正在关闭服务...",
 				})
 				if err := srv.Stop(); err != nil {
-					log.Printf("graceful exit: stop server failed: %v", err)
+					zlog.Error().Err(err).Msg("graceful exit: stop server failed")
 				}
 				srv.CloseJob()
 			}
@@ -1186,7 +1263,7 @@ func (a *App) GracefulExit() {
 					"message": "正在关闭知识库...",
 				})
 				if err := a.ragVS.Close(); err != nil {
-					log.Printf("graceful exit: close RAG vector store: %v", err)
+						zlog.Error().Err(err).Msg("graceful exit: close RAG vector store failed")
 				}
 			}
 
@@ -1196,7 +1273,7 @@ func (a *App) GracefulExit() {
 					"message": "正在关闭数据库...",
 				})
 				if err := a.db.Close(); err != nil {
-					log.Printf("graceful exit: close database: %v", err)
+						zlog.Error().Err(err).Msg("graceful exit: close database failed")
 				}
 			}
 
@@ -1260,7 +1337,7 @@ func (a *App) RegenerateMessage(userMessageID string, searchEnabled bool) error 
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("RegenerateMessage panic: %v", r)
+				zlog.Error().Interface("panic", r).Msg("RegenerateMessage panic")
 				convID := a.service.CurrentConvID()
 				runtime.EventsEmit(a.ctx, "chat:stream", chat.StreamEvent{
 					Type:           "error",
@@ -1270,7 +1347,7 @@ func (a *App) RegenerateMessage(userMessageID string, searchEnabled bool) error 
 			}
 		}()
 		if err := a.service.RegenerateMessage(userMessageID, searchEnabled); err != nil {
-			log.Printf("RegenerateMessage error: %v", err)
+			zlog.Error().Err(err).Msg("RegenerateMessage error")
 			convID := a.service.CurrentConvID()
 			runtime.EventsEmit(a.ctx, "chat:stream", chat.StreamEvent{
 				Type:           "error",
@@ -1358,7 +1435,7 @@ func (a *App) generatePresetFile() error {
 		globalDefaults = map[string]string{
 			"ctx-size": fmt.Sprintf("%d", sp.ContextSize),
 		}
-		log.Printf("[preset] global defaults: ctx-size=%d", sp.ContextSize)
+		zlog.Info().Int("ctx-size", sp.ContextSize).Msg("[preset] global defaults")
 	}
 
 	content := llm.GeneratePreset(presets, globalDefaults)
@@ -1367,7 +1444,7 @@ func (a *App) generatePresetFile() error {
 		return fmt.Errorf("write preset file: %w", err)
 	}
 
-	log.Printf("[preset] generated %s with %d models", presetPath, len(presets))
+	zlog.Info().Str("path", presetPath).Int("count", len(presets)).Msg("[preset] generated preset file")
 	return nil
 }
 
@@ -1447,21 +1524,50 @@ func (a *App) emitSwitchProgress(stage, targetModel string) {
 	})
 }
 
+// SwitchModel 切换模型（主流程编排）
 func (a *App) SwitchModel(modelName string) SwitchResult {
-	// 1. Pre-checks
-	if a.server == nil || a.client == nil {
-		return SwitchResult{Error: "服务器未启动"}
-	}
-	if a.isSwitching.Load() {
-		return SwitchResult{Error: "正在切换模型中，请稍候。"}
+	// 预检查
+	if errMsg := a.switchPreCheck(); errMsg != "" {
+		return SwitchResult{Error: errMsg}
 	}
 
-	// 2. Stop in-progress generation
+	// 停止当前生成，记录旧模型，设置切换状态
+	previousModel := a.switchPrepare(modelName)
+
+	// 加载新模型
+	alreadyRunning, loadErr := a.switchLoadModel(modelName, previousModel)
+	if loadErr != "" {
+		return a.handleSwitchFailure(modelName, previousModel, loadErr)
+	}
+
+	// 等待模型就绪（已运行的模型跳过）
+	if !alreadyRunning {
+		if waitErr := a.switchWaitReady(modelName, previousModel); waitErr != "" {
+			return a.handleSwitchFailure(modelName, previousModel, waitErr)
+		}
+	}
+
+	// 完成切换：更新状态、保存配置、检测架构
+	return a.switchFinalize(modelName, previousModel)
+}
+
+// switchPreCheck 预检查：服务器是否启动、是否正在切换
+func (a *App) switchPreCheck() string {
+	if a.server == nil || a.client == nil {
+		return "服务器未启动"
+	}
+	if a.isSwitching.Load() {
+		return "正在切换模型中，请稍候。"
+	}
+	return ""
+}
+
+// switchPrepare 停止当前生成、记录旧模型、设置切换状态
+func (a *App) switchPrepare(modelName string) string {
 	if a.service != nil {
 		a.service.StopGeneration()
 	}
 
-	// 3. Record previous model, set switching state
 	a.currentModelMu.RLock()
 	previousModel := a.currentModelName
 	a.currentModelMu.RUnlock()
@@ -1473,91 +1579,102 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 
 	a.serverReady.Store(false)
 
-	// 4. Emit switching status and loading progress (no artificial delay — router handles LRU unloading)
 	a.emitSwitchingStatus(modelName)
 	a.emitSwitchProgress("loading", modelName)
 
-	// 7. Load new model (router handles LRU unloading automatically)
+	return previousModel
+}
+
+// switchLoadModel 加载模型，返回 (是否已运行, 错误消息)
+func (a *App) switchLoadModel(modelName, previousModel string) (bool, string) {
 	loadErr := a.client.LoadModel(a.ctx, modelName)
-	if loadErr != nil {
-		if isAlreadyRunningError(loadErr) {
-			// Model already running — treat as success
-			log.Printf("[router] model %s is already running, treating as switch success", modelName)
-			a.emitSwitchProgress("done", modelName)
-			a.currentModelMu.Lock()
-			a.currentModelName = modelName
-			a.currentModelMu.Unlock()
-			// 即使模型已运行，也需要检测架构以更新 capabilities
-			a.service.SetDetectedModelName(modelName)
-			if err := a.service.DetectModelArchitectureForModel(modelName); err != nil {
-				log.Printf("[router] detect model architecture for already-running model: %v", err)
-			}
-		} else {
-			return a.handleSwitchFailure(modelName, previousModel, fmt.Sprintf("模型加载失败: %v", loadErr))
-		}
+	if loadErr == nil {
+		return false, ""
 	}
 
-	// 6. Wait for model loaded (skip if already running)
-	if !isAlreadyRunningError(loadErr) {
-		waitCtx, waitCancel := context.WithTimeout(a.ctx, 120*time.Second)
-		defer waitCancel()
-
-		if err := a.client.WaitForModelLoaded(waitCtx, modelName, 120*time.Second); err != nil {
-			log.Printf("[router] WaitForModelLoaded failed for %s: %v", modelName, err)
-			return a.handleSwitchFailure(modelName, previousModel, fmt.Sprintf("模型加载超时: %v", err))
+	if isAlreadyRunningError(loadErr) {
+		// 模型已在运行，视为切换成功
+		zlog.Info().Str("model", modelName).Msg("[router] model is already running, treating as switch success")
+		a.emitSwitchProgress("done", modelName)
+		a.currentModelMu.Lock()
+		a.currentModelName = modelName
+		a.currentModelMu.Unlock()
+		// 即使模型已运行，也需要检测架构以更新 capabilities
+		a.service.SetDetectedModelName(modelName)
+		if err := a.service.DetectModelArchitectureForModel(modelName); err != nil {
+				zlog.Error().Err(err).Str("model", modelName).Msg("[router] detect model architecture for already-running model failed")
 		}
+		return true, ""
+	}
 
-		// Wait briefly for mmproj and other post-load initialization
-		// Use exponential backoff: 200ms → 300ms → 500ms → 800ms
-		propsCtx, propsCancel := context.WithTimeout(a.ctx, 15*time.Second)
-		defer propsCancel()
-		backoffs := []time.Duration{200 * time.Millisecond, 300 * time.Millisecond, 500 * time.Millisecond, 800 * time.Millisecond}
-		var lastProps *llm.ServerProps
-		for i := 0; i < 6; i++ {
-			props, propsErr := a.client.GetServerProps(propsCtx, modelName)
-			if propsErr == nil {
-				lastProps = props
-				// No mmproj needed — exit immediately
-				if !props.Modalities.Vision && !props.Modalities.Audio {
-					break
-				}
-				// mmproj loaded — exit
-				if i > 0 {
-					break
-				}
-				// First success but has mmproj — may still be loading, one more check
-				continue
-			}
-			select {
-			case <-propsCtx.Done():
+	return false, fmt.Sprintf("模型加载失败: %v", loadErr)
+}
+
+// switchWaitReady 等待模型就绪（含 mmproj 回退检测）
+func (a *App) switchWaitReady(modelName, previousModel string) string {
+	waitCtx, waitCancel := context.WithTimeout(a.ctx, 120*time.Second)
+	defer waitCancel()
+
+	if err := a.client.WaitForModelLoaded(waitCtx, modelName, 120*time.Second); err != nil {
+		zlog.Error().Err(err).Str("model", modelName).Msg("[router] WaitForModelLoaded failed")
+		return fmt.Sprintf("模型加载超时: %v", err)
+	}
+
+	// 等待 mmproj 等后加载初始化完成
+	// 使用指数退避：200ms → 300ms → 500ms → 800ms
+	propsCtx, propsCancel := context.WithTimeout(a.ctx, 15*time.Second)
+	defer propsCancel()
+	backoffs := []time.Duration{200 * time.Millisecond, 300 * time.Millisecond, 500 * time.Millisecond, 800 * time.Millisecond}
+	var lastProps *llm.ServerProps
+	for i := 0; i < 6; i++ {
+		props, propsErr := a.client.GetServerProps(propsCtx, modelName)
+		if propsErr == nil {
+			lastProps = props
+			// 不需要 mmproj — 立即退出
+			if !props.Modalities.Vision && !props.Modalities.Audio {
 				break
-			case <-time.After(backoffs[min(i, len(backoffs)-1)]):
 			}
+			// mmproj 已加载 — 退出
+			if i > 0 {
+				break
+			}
+			// 首次成功但有 mmproj — 可能仍在加载，再检查一次
+			continue
 		}
-		// Cache the props result so DetectModelArchitectureForModel can reuse it
-		if lastProps != nil {
-			a.service.SetCachedProps(lastProps)
+		select {
+		case <-propsCtx.Done():
+			break
+		case <-time.After(backoffs[min(i, len(backoffs)-1)]):
 		}
 	}
+	// 缓存 props 结果，供 DetectModelArchitectureForModel 复用
+	if lastProps != nil {
+		a.service.SetCachedProps(lastProps)
+	}
 
-	// 7. Update current model name (with lock)
+	return ""
+}
+
+// switchFinalize 完成切换：更新模型名、保存配置、检测架构、发射事件
+func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
+	// 更新当前模型名
 	a.currentModelMu.Lock()
 	a.currentModelName = modelName
 	a.currentModelMu.Unlock()
 
-	// 7.1 Update embedding model name
+	// 更新嵌入模型名
 	if a.ragEmbedder != nil {
 		a.ragEmbedder.SetModel(modelName)
 	}
 
-	// 8. Save config
+	// 保存配置
 	a.presetsMu.RLock()
 	relPath, hasRelPath := a.presetRelPaths[modelName]
 	a.presetsMu.RUnlock()
 	if hasRelPath {
 		a.config.ModelPath = relPath
 		if err := config.Save(filepath.Join(appDir(), "config.json"), a.config); err != nil {
-			log.Printf("[router] save config after model switch: %v", err)
+			zlog.Error().Err(err).Msg("[router] save config after model switch failed")
 			runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
 				Running:      true,
 				CurrentModel: modelName,
@@ -1566,13 +1683,13 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 		}
 	}
 
-	// 9. Emit waiting stage
+	// 发射等待阶段事件
 	a.emitSwitchProgress("waiting", modelName)
 
-	// 10. Detect model architecture
+	// 检测模型架构
 	a.service.SetDetectedModelName(modelName)
 	if err := a.service.DetectModelArchitectureForModel(modelName); err != nil {
-		log.Printf("[router] detect model architecture after switch: %v", err)
+		zlog.Error().Err(err).Msg("[router] detect model architecture after switch failed")
 		runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
 			Running:      true,
 			CurrentModel: modelName,
@@ -1580,22 +1697,21 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 		})
 	}
 
-	// 11. Emit done stage
+	// 发射完成事件
 	a.emitSwitchProgress("done", modelName)
 
-	// 12. Emit success status BEFORE clearing switching state
-	// This ensures the frontend receives the success event before
-	// WatchWithCallback can emit a stale status
+	// 在清除切换状态之前发射成功事件
+	// 确保前端在 WatchWithCallback 发出过时状态之前收到成功事件
 	a.emitSwitchSuccess(modelName)
 	a.serverReady.Store(true)
 
-	// 11. Clear switching state
+	// 清除切换状态
 	a.isSwitching.Store(false)
 	a.switchingToMu.Lock()
 	a.switchingTo = ""
 	a.switchingToMu.Unlock()
 
-	log.Printf("[router] model switched to %s (from %s)", modelName, previousModel)
+	zlog.Info().Str("model", modelName).Str("previous", previousModel).Msg("[router] model switched")
 
 	a.currentModelMu.RLock()
 	resultModel := a.currentModelName
@@ -1611,7 +1727,7 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 
 // handleSwitchFailure 处理模型切换失败：尝试恢复旧模型，清理状态，返回错误结果
 func (a *App) handleSwitchFailure(modelName, previousModel, errMsg string) SwitchResult {
-	log.Printf("[router] model switch failed: %s", errMsg)
+	zlog.Error().Str("error", errMsg).Msg("[router] model switch failed")
 	a.emitSwitchProgress("failed", modelName)
 	a.isSwitching.Store(false)
 	a.switchingToMu.Lock()
@@ -1619,7 +1735,7 @@ func (a *App) handleSwitchFailure(modelName, previousModel, errMsg string) Switc
 	a.switchingToMu.Unlock()
 
 	if previousModel != "" && previousModel != modelName {
-		log.Printf("[router] attempting to restore model %s", previousModel)
+		zlog.Info().Str("model", previousModel).Msg("[router] attempting to restore model")
 		if restoreErr := a.client.LoadModel(a.ctx, previousModel); restoreErr == nil {
 			_ = a.client.WaitForModelLoaded(a.ctx, previousModel, 60*time.Second)
 			a.currentModelMu.Lock()
@@ -1628,7 +1744,7 @@ func (a *App) handleSwitchFailure(modelName, previousModel, errMsg string) Switc
 			a.emitSwitchSuccess(previousModel)
 			a.serverReady.Store(true)
 		} else {
-			log.Printf("[router] failed to restore model %s: %v", previousModel, restoreErr)
+			zlog.Error().Err(restoreErr).Str("model", previousModel).Msg("[router] failed to restore model")
 			runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
 				Running: false,
 				Error:   fmt.Sprintf("%s，恢复旧模型也失败", errMsg),
@@ -1656,7 +1772,7 @@ func (a *App) ReloadModels() error {
 		return fmt.Errorf("热重载模型列表失败: %w", err)
 	}
 	if err := a.generatePresetFile(); err != nil {
-		log.Printf("[reload] regenerate preset file: %v", err)
+		zlog.Error().Err(err).Msg("[reload] regenerate preset file failed")
 	}
 	return nil
 }

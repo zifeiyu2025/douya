@@ -2,7 +2,6 @@ package main
 
 import (
 	"embed"
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -11,10 +10,13 @@ import (
 	"unsafe"
 
 	"fyne.io/systray"
+	"github.com/rs/zerolog/log"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
+
+	"douya/internal/logger"
 )
 
 //go:embed all:frontend/dist
@@ -126,12 +128,17 @@ func main() {
 		return
 	}
 
+	// 初始化日志系统
+	logger.Init()
+	log.Info().Msg("豆芽启动中...")
+
 	mutexHandle, isFirst := tryAcquireMutex()
 	if !isFirst {
 		activateExistingWindow()
-		fmt.Println("豆芽已在运行，激活已有窗口")
+		log.Info().Msg("检测到已有实例运行，激活已有窗口")
 		return
 	}
+	log.Info().Msg("单实例互斥体获取成功")
 	if mutexHandle != 0 {
 		defer syscall.CloseHandle(syscall.Handle(mutexHandle))
 	}
@@ -168,6 +175,6 @@ func main() {
 	systray.Quit()
 
 	if err != nil {
-		println("Error:", err.Error())
+		log.Error().Err(err).Msg("Wails 运行失败")
 	}
 }
