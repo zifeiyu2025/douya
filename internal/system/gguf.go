@@ -10,9 +10,11 @@ import (
 	"os"
 	"strings"
 	"sync"
+
+	"github.com/rs/zerolog/log"
 )
 
-const ggufMagic = 0x46475547
+const ggufMagic = 0x46554747
 
 // GGUF 元数据缓存，避免同一模型文件重复解析
 var ggufCache sync.Map // key: resolved path (string), value: *cacheEntry
@@ -130,6 +132,10 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 				if n, ok := toInt(v); ok && n > 0 {
 					meta.HasMTP = true
 				}
+			case "nextn_predict_layers":
+				if n, ok := toInt(v); ok && n > 0 {
+					meta.HasMTP = true
+				}
 			}
 		}
 	}
@@ -177,6 +183,8 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 			}
 		}
 	}
+
+	log.Debug().Str("architecture", meta.Architecture).Bool("has_mtp", meta.HasMTP).Msg("[gguf] MTP detection result")
 
 	return meta, nil
 }
