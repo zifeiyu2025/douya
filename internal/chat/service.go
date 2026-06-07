@@ -8,11 +8,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/rs/zerolog/log"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -64,8 +65,8 @@ type Service struct {
 	promptMu          sync.RWMutex
 	encKey            []byte
 	// RAG
-	ragVectorStore  *rag.VectorStore
-	ragDocStore     *rag.DocumentStore
+	ragVectorStore *rag.VectorStore
+	ragDocStore    *rag.DocumentStore
 	ragEmbedder    rag.Embedder
 	ragCollection  string
 	ragEnabled     bool
@@ -74,12 +75,12 @@ type Service struct {
 func NewService(llmClient *llm.Client, searchChain *search.SearchChain, db *sql.DB, cfg *config.Config, encKey []byte, appDir string) *Service {
 	return &Service{
 		llmClient:   llmClient,
-		searchChain:  searchChain,
-		db:           db,
-		config:       cfg,
-		encKey:       encKey,
-		appDir:       appDir,
-		modelCaps:    llm.ModelCapabilities{TextInput: true},
+		searchChain: searchChain,
+		db:          db,
+		config:      cfg,
+		encKey:      encKey,
+		appDir:      appDir,
+		modelCaps:   llm.ModelCapabilities{TextInput: true},
 	}
 }
 
@@ -127,7 +128,6 @@ func (s *Service) SetRAGEnabled(enabled bool) {
 	s.ragEnabled = enabled
 }
 
-
 func (s *Service) DetectModelArchitecture() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -136,6 +136,27 @@ func (s *Service) DetectModelArchitecture() error {
 		return s.DetectModelArchitectureForModel("")
 	}
 	return s.DetectModelArchitectureForModel(info.Name)
+}
+
+// modelKeywordConfig 定义模型关键词匹配配置
+type modelKeywordConfig struct {
+	keywords     []string
+	thinkingMode string
+	softSwitch   bool
+}
+
+// matchModelKeywords 根据配置列表按优先级匹配模型关键词，
+// 返回 (thinkingMode, supportsReasoning, softSwitchSupport)。
+// 未匹配时 thinkingMode 为 llm.ThinkingModeNone。
+func matchModelKeywords(target string, configs []modelKeywordConfig) (string, bool, bool) {
+	for _, cfg := range configs {
+		for _, kw := range cfg.keywords {
+			if strings.Contains(target, kw) {
+				return cfg.thinkingMode, true, cfg.softSwitch
+			}
+		}
+	}
+	return llm.ThinkingModeNone, false, false
 }
 
 func (s *Service) DetectModelArchitectureForModel(modelName string) error {
@@ -238,83 +259,46 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 		}
 		if ggufMeta != nil && ggufMeta.Architecture != "" {
 			lowerArch := strings.ToLower(ggufMeta.Architecture)
-			// Qwen3 架构支持软开关
-			if strings.Contains(lowerArch, "qwen3") {
-				thinkingMode = llm.ThinkingModeTemplate
-				supportsReasoning = true
-				softSwitchSupport = true
+			archConfigs := []modelKeywordConfig{
+				{keywords: []string{"qwen3"}, thinkingMode: llm.ThinkingModeTemplate, softSwitch: true},
+				{keywords: []string{"gemma2", "gemma4", "llama4", "phi4"}, thinkingMode: llm.ThinkingModeTemplate},
+				{keywords: []string{"deepseek3", "deepseek2"}, thinkingMode: llm.ThinkingModeReasoning},
 			}
-			// Template 模式模型
-			templateArchs := []string{"gemma2", "gemma4", "llama4", "phi4"}
-			if thinkingMode == llm.ThinkingModeNone {
-				for _, kw := range templateArchs {
-					if strings.Contains(lowerArch, kw) {
-						thinkingMode = llm.ThinkingModeTemplate
-						supportsReasoning = true
-						break
-					}
-				}
-			}
-			// Reasoning 模式模型
-			if thinkingMode == llm.ThinkingModeNone {
-				reasoningArchs := []string{"deepseek3", "deepseek2"}
-				for _, kw := range reasoningArchs {
-					if strings.Contains(lowerArch, kw) {
-						thinkingMode = llm.ThinkingModeReasoning
-						supportsReasoning = true
-						break
-					}
-				}
+			if mode, reasoning, soft := matchModelKeywords(lowerArch, archConfigs); mode != llm.ThinkingModeNone {
+				thinkingMode = mode
+				supportsReasoning = reasoning
+				softSwitchSupport = soft
 			}
 		}
 
 		// 兜底：文件名关键词匹配
 		if thinkingMode == llm.ThinkingModeNone {
 			lowerName := strings.ToLower(info.Name)
-			// Qwen3/QwQ 支持 /think /no_think 软开关
-			qwen3Keywords := []string{"qwen3", "qwq"}
-			for _, kw := range qwen3Keywords {
-				if strings.Contains(lowerName, kw) {
-					thinkingMode = llm.ThinkingModeTemplate
-					supportsReasoning = true
-					softSwitchSupport = true
-					break
-				}
+			nameConfigs := []modelKeywordConfig{
+				{keywords: []string{"qwen3", "qwq"}, thinkingMode: llm.ThinkingModeTemplate, softSwitch: true},
+				{keywords: []string{"gemma-4", "gemma4", "gemma-2", "llama-4", "llama4", "mistral-small-3", "mistral-small3", "mistral-small3.1", "phi-4-reasoning-plus"}, thinkingMode: llm.ThinkingModeTemplate},
+				{keywords: []string{"deepseek-r1", "deepseek-v2", "deepseek-v3", "deepseek-v4", "deepseek-r", "phi-4-reasoning", "phi4-reasoning"}, thinkingMode: llm.ThinkingModeReasoning},
 			}
-			// 其他 ThinkingModeTemplate 模型（不支持软开关）
-			if thinkingMode == llm.ThinkingModeNone {
-				templateKeywords := []string{"gemma-4", "gemma4", "gemma-2", "llama-4", "llama4", "mistral-small-3", "mistral-small3", "mistral-small3.1", "phi-4-reasoning-plus"}
-				for _, kw := range templateKeywords {
-					if strings.Contains(lowerName, kw) {
-						thinkingMode = llm.ThinkingModeTemplate
-						supportsReasoning = true
-						break
-					}
-				}
-			}
-			reasoningKeywords := []string{"deepseek-r1", "deepseek-v2", "deepseek-v3", "deepseek-v4", "deepseek-r", "phi-4-reasoning", "phi4-reasoning"}
-			for _, kw := range reasoningKeywords {
-				if strings.Contains(lowerName, kw) {
-					thinkingMode = llm.ThinkingModeReasoning
-					supportsReasoning = true
-					break
-				}
+			if mode, reasoning, soft := matchModelKeywords(lowerName, nameConfigs); mode != llm.ThinkingModeNone {
+				thinkingMode = mode
+				supportsReasoning = reasoning
+				softSwitchSupport = soft
 			}
 		}
 	}
 
 	s.modelCapsMu.Lock()
 	s.modelCaps = llm.ModelCapabilities{
-		ImageInput:       caps.ImageInput,
-		AudioInput:       caps.AudioInput,
-		VideoInput:       caps.VideoInput,
-		TextInput:        caps.TextInput,
-		Reasoning:        supportsReasoning,
-		MmprojLoaded:     mmprojLoaded,
-		HasMTP:           s.detectHasMTP(),
-		ThinkingMode:     thinkingMode,
+		ImageInput:        caps.ImageInput,
+		AudioInput:        caps.AudioInput,
+		VideoInput:        caps.VideoInput,
+		TextInput:         caps.TextInput,
+		Reasoning:         supportsReasoning,
+		MmprojLoaded:      mmprojLoaded,
+		HasMTP:            s.detectHasMTP(),
+		ThinkingMode:      thinkingMode,
 		SoftSwitchSupport: softSwitchSupport,
-		NParams:          s.resolveNParams(info.Meta.NParams),
+		NParams:           s.resolveNParams(info.Meta.NParams),
 	}
 	s.modelCapsMu.Unlock()
 	// FIX: Only set detectedModelName when it's empty (called from DetectModelArchitecture without model name).
@@ -513,7 +497,6 @@ func (s *Service) modelNameForRequest() string {
 	return "default"
 }
 
-
 func (s *Service) emit(eventType string, content interface{}) {
 	if s.wailsCtx != nil {
 		runtime.EventsEmit(s.wailsCtx, "chat:stream", StreamEvent{
@@ -536,61 +519,61 @@ func (s *Service) emitForConv(convID string, eventType string, content interface
 func generateConversationTitle(content string) string {
 	// 去除首尾空白
 	content = strings.TrimSpace(content)
-	
+
 	// 如果内容为空，返回默认标题
 	if content == "" {
 		return "新对话"
 	}
-	
+
 	// 过滤掉无意义的纯标点/表情符号
 	hasMeaningfulChar := false
 	for _, r := range content {
 		// 检查是否是有意义的字符（字母、数字、汉字等）
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || 
-		   (r >= '0' && r <= '9') || 
-		   (r >= 0x4e00 && r <= 0x9fff) { // 汉字范围
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') ||
+			(r >= 0x4e00 && r <= 0x9fff) { // 汉字范围
 			hasMeaningfulChar = true
 			break
 		}
 	}
-	
+
 	if !hasMeaningfulChar {
 		return "新对话"
 	}
-	
+
 	// 将最大长度从30增加到50
 	maxLen := 50
 	runes := []rune(content)
-	
+
 	if len(runes) <= maxLen {
 		return content
 	}
-	
+
 	// 尝试在合适的位置截断（空格、标点符号处）
 	truncateAt := maxLen
-	
+
 	// 从后向前搜索合适的截断点（在前40-50字符范围内）
 	for i := maxLen; i >= 40 && i < len(runes); i-- {
 		r := runes[i]
 		// 检查是否是适合截断的字符
-		if r == ' ' || r == '，' || r == ',' || r == '。' || r == '.' || 
-		   r == '！' || r == '!' || r == '？' || r == '?' ||
-		   r == '；' || r == ';' || r == '：' || r == ':' ||
-		   r == '\n' || r == '\t' {
+		if r == ' ' || r == '，' || r == ',' || r == '。' || r == '.' ||
+			r == '！' || r == '!' || r == '？' || r == '?' ||
+			r == '；' || r == ';' || r == '：' || r == ':' ||
+			r == '\n' || r == '\t' {
 			truncateAt = i
 			break
 		}
 	}
-	
+
 	// 提取截断前的内容并添加省略号
 	title := string(runes[:truncateAt])
 	title = strings.TrimSpace(title)
-	
+
 	// 确保我们不会返回空字符串
 	if title == "" {
 		title = string(runes[:maxLen])
 	}
-	
+
 	return title + "…"
 }
 
@@ -623,20 +606,20 @@ func storeMsgToChat(m *store.Message) *Message {
 }
 
 type StreamAccumulator struct {
-	FullContent              strings.Builder
-	FullThinking            strings.Builder
-	FinishReason             string
-	ToolCallMap              map[int]*llm.ToolCall
-	EmitFn                   func(string, interface{})
-	ConvID                   string
-	EmitForConvFn            func(string, string, interface{})
-	PendingBytes             string
-	PendingThink             string
-	LastSearchJSON           string
-	ThinkingStartTime        time.Time
-	ThinkingDuration         float64
-	ThinkingDone             bool
-	FirstRoundThinking       string
+	FullContent                strings.Builder
+	FullThinking               strings.Builder
+	FinishReason               string
+	ToolCallMap                map[int]*llm.ToolCall
+	EmitFn                     func(string, interface{})
+	ConvID                     string
+	EmitForConvFn              func(string, string, interface{})
+	PendingBytes               string
+	PendingThink               string
+	LastSearchJSON             string
+	ThinkingStartTime          time.Time
+	ThinkingDuration           float64
+	ThinkingDone               bool
+	FirstRoundThinking         string
 	FirstRoundThinkingDuration float64
 }
 
@@ -817,7 +800,7 @@ func truncateSearchContext(searchContext string, ctxSize int) string {
 	return searchContext
 }
 
-func ClampDuration(d float64) float64 { return clampDuration(d) } // Exported for testing
+func ClampDuration(d float64) float64 { return clampDuration(d) }  // Exported for testing
 func CalcMaxTokens(s *Service) int    { return s.calcMaxTokens() } // Exported for testing
 func FormatSearchResults(results []search.SearchResult) string { // Exported for testing
 	return formatSearchResults(results)
@@ -825,7 +808,7 @@ func FormatSearchResults(results []search.SearchResult) string { // Exported for
 func TruncateSearchContext(searchContext string, ctxSize int) string { // Exported for testing
 	return truncateSearchContext(searchContext, ctxSize)
 }
-func StoreMsgToChat(m *store.Message) *Message { return storeMsgToChat(m) } // Exported for testing
+func StoreMsgToChat(m *store.Message) *Message { return storeMsgToChat(m) }    // Exported for testing
 func IsCodeRelated(query string) bool          { return isCodeRelated(query) } // Exported for testing
 func BuildLLMMessages(s *Service, dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment) ([]llm.ChatMessage, error) {
 	msgs, _, err := s.buildLLMMessages(dbMsgs, currentUserContent, currentAttachments, false, "")
@@ -870,11 +853,11 @@ func InjectSearchContext(messages []llm.ChatMessage, searchContext string, instr
 func DoSearch(s *Service, ctx context.Context, query string) *search.SearchResponse { // Exported for testing
 	return s.doSearch(ctx, query)
 }
-func ResetForNextCall(a *StreamAccumulator) { a.resetForNextCall() } // Exported for testing
+func ResetForNextCall(a *StreamAccumulator)              { a.resetForNextCall() } // Exported for testing
 func GetFirstRoundThinking(a *StreamAccumulator) string  { return a.FirstRoundThinking }
-func GetDB(s *Service) *sql.DB              { return s.db } // Exported for testing
-func SetCurrentCancel(s *Service, fn context.CancelFunc) { s.currentCancel = fn } // Exported for testing
-func EstimateMessageTokens(m *store.Message) int { return estimateMessageTokens(m) } // Exported for testing
+func GetDB(s *Service) *sql.DB                           { return s.db }                     // Exported for testing
+func SetCurrentCancel(s *Service, fn context.CancelFunc) { s.currentCancel = fn }            // Exported for testing
+func EstimateMessageTokens(m *store.Message) int         { return estimateMessageTokens(m) } // Exported for testing
 
 func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, llmMessages []llm.ChatMessage, acc *StreamAccumulator, maxRounds int) error {
 	hitMaxRounds := false
@@ -1154,7 +1137,7 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 	return s.streamWithSearch(cancelCtx, convID, llmMessages, params.SearchEnabled, params.Content, params.Content, searchResp)
 }
 
-func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llmMessages []llm.ChatMessage, searchEnabled bool, searchQuery string, titleContent string, searchResp *search.SearchResponse) error {
+func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llmMessages []llm.ChatMessage, searchEnabled bool, _ string, titleContent string, searchResp *search.SearchResponse) error {
 	acc := NewStreamAccumulator(convID, s.emit, s.emitForConv)
 
 	caps := s.GetModelCapabilities()
@@ -1249,16 +1232,16 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 			ThinkingDuration: clampDuration(acc.ThinkingDuration),
 		}
 		if aiMsg.ThinkingContent != "" && aiMsg.ThinkingDuration == 0 && acc.FirstRoundThinkingDuration > 0 {
-		aiMsg.ThinkingDuration = clampDuration(acc.FirstRoundThinkingDuration)
+			aiMsg.ThinkingDuration = clampDuration(acc.FirstRoundThinkingDuration)
+		}
+		if acc.LastSearchJSON != "" {
+			aiMsg.SearchResults = acc.LastSearchJSON
+		}
+		if err := store.CreateMessage(s.db, aiMsg, s.encKey); err != nil {
+			log.Error().Err(err).Msg("save ai message")
+		}
+		s.emitForConv(convID, "assistant_message", storeMsgToChat(aiMsg))
 	}
-	if acc.LastSearchJSON != "" {
-		aiMsg.SearchResults = acc.LastSearchJSON
-	}
-	if err := store.CreateMessage(s.db, aiMsg, s.encKey); err != nil {
-		log.Error().Err(err).Msg("save ai message")
-	}
-	s.emitForConv(convID, "assistant_message", storeMsgToChat(aiMsg))
-}
 
 	conv, err := store.GetConversation(s.db, convID, s.encKey)
 	if err != nil {
@@ -1332,8 +1315,6 @@ func buildMessageFromAttachments(role, content string, attachments []Attachment)
 	}
 	return llm.NewTextMessage(role, fullContent)
 }
-
-
 
 func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment, searchEnabled bool, searchContext string) ([]llm.ChatMessage, bool, error) {
 	maxContext := s.config.ContextSize
@@ -1620,7 +1601,7 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 				msg = llm.NewTextMessage(m.Role, content)
 			}
 		} else if m.Role == "user" && m.Images != "" {
-		if caps.ImageInput {
+			if caps.ImageInput {
 				var imageUrls []string
 				if err := json.Unmarshal([]byte(m.Images), &imageUrls); err == nil && len(imageUrls) > 0 {
 					msg = llm.NewVisionMessage(m.Role, content, imageUrls)

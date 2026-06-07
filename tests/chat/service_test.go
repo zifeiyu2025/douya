@@ -516,7 +516,7 @@ func TestIsCodeRelated_AllKeywords(t *testing.T) {
 			if got != tt.want {
 				t.Errorf("IsCodeRelated(%q) = %v, want %v", tt.query, got, tt.want)
 			}
-		}, nil)
+		})
 	}
 }
 

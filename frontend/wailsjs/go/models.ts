@@ -358,11 +358,12 @@ export namespace main {
 	    capabilities?: llm.ModelCapabilities;
 	    previous_model?: string;
 	    rolled_back?: boolean;
-	
+	    rollback_success?: boolean;
+
 	    static createFrom(source: any = {}) {
 	        return new SwitchResult(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.success = source["success"];
@@ -371,6 +372,7 @@ export namespace main {
 	        this.capabilities = this.convertValues(source["capabilities"], llm.ModelCapabilities);
 	        this.previous_model = source["previous_model"];
 	        this.rolled_back = source["rolled_back"];
+	        this.rollback_success = source["rollback_success"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -193,6 +193,7 @@ export interface SwitchResult {
     capabilities?: ModelCapabilities
     previous_model?: string
     rolled_back?: boolean
+    rollback_success?: boolean
 }
 
 export interface StreamEvent {

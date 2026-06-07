@@ -7,7 +7,7 @@ import { formatModelName } from '../utils/model'
 /**
  * Switch progress stages for UI display
  */
-export type SwitchProgressStage = 'idle' | 'unloading' | 'loading' | 'waiting' | 'detecting' | 'done' | 'failed' | 'rolling_back'
+export type SwitchProgressStage = 'idle' | 'preparing' | 'loading' | 'waiting' | 'detecting' | 'done' | 'failed' | 'rolling_back'
 
 /**
  * Switch progress state for detailed UI feedback
@@ -199,7 +199,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
         // Initialize switch progress state
         switchProgress.value = {
-            stage: 'unloading',
+            stage: 'preparing',
             targetModel: formatModelName(modelName).display,
             errorMessage: '',
             startTime: Date.now(),
@@ -207,7 +207,7 @@ export const useSettingsStore = defineStore('settings', () => {
             rolledBack: false,
         }
         
-        // Safety timeout - if nothing happens in 60 seconds, clear the switch overlay
+        // Safety timeout - if nothing happens in 120 seconds, clear the switch overlay
         switchTimeoutTimer = setTimeout(() => {
             if (isModelSwitching.value) {
                 console.warn('Model switch timed out, force clearing switch overlay')
@@ -219,7 +219,7 @@ export const useSettingsStore = defineStore('settings', () => {
                 resetSwitchProgress()
                 switchTimeoutTimer = null
             }
-        }, 60000)
+        }, 120000)
     }
 
     /**
@@ -249,7 +249,8 @@ export const useSettingsStore = defineStore('settings', () => {
                 result.error || '模型加载失败',
                 result.previous_model || previousModelBeforeSwitch.value,
                 result.rolled_back || false,
-                switchProgress.value.targetModel
+                switchProgress.value.targetModel,
+                result.rollback_success
             )
         }
     }
@@ -257,7 +258,7 @@ export const useSettingsStore = defineStore('settings', () => {
     /**
      * Enhanced handle switch failure with progress state
      */
-    function handleSwitchFailure(error: string, previousModel: string, rolledBack: boolean, failedModelName?: string) {
+    function handleSwitchFailure(error: string, previousModel: string, rolledBack: boolean, failedModelName?: string, rollbackSuccess?: boolean) {
         if (switchDoneTimer !== null) {
             clearTimeout(switchDoneTimer)
             switchDoneTimer = null
@@ -272,11 +273,14 @@ export const useSettingsStore = defineStore('settings', () => {
         switchStartedAt.value = 0
 
         if (rolledBack) {
+            // 根据 rollbackSuccess 显示不同提示
+            const rollbackMsg = rollbackSuccess ? '已恢复旧模型' : '恢复旧模型也失败'
+
             // Mark as rolling back state
             switchProgress.value = {
                 stage: 'rolling_back',
                 targetModel: failedModelName || switchProgress.value.targetModel,
-                errorMessage: error,
+                errorMessage: `${error}（${rollbackMsg}）`,
                 startTime: switchProgress.value.startTime,
                 endTime: Date.now(),
                 rolledBack: true,
@@ -287,7 +291,7 @@ export const useSettingsStore = defineStore('settings', () => {
                 switchProgress.value = {
                     stage: 'failed',
                     targetModel: failedModelName || '',
-                    errorMessage: error,
+                    errorMessage: `${error}（${rollbackMsg}）`,
                     startTime: switchProgress.value.startTime,
                     endTime: Date.now(),
                     rolledBack: true,

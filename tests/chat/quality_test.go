@@ -44,7 +44,7 @@ type QualityResult struct {
 	Message   string
 }
 
-func runQualityScenario(t *testing.T, svc *chat.Service, scenario QualityScenario) QualityReport {
+func runQualityScenario(_ *testing.T, svc *chat.Service, scenario QualityScenario) QualityReport {
 	start := time.Now()
 	report := QualityReport{
 		Scenario: scenario.Name,

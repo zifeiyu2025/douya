@@ -16,7 +16,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"fyne.io/systray"
 	"douya/internal/chat"
 	"douya/internal/config"
 	"douya/internal/llm"
@@ -26,17 +25,20 @@ import (
 	"douya/internal/store"
 	"douya/internal/system"
 
+	"fyne.io/systray"
+
 	zlog "github.com/rs/zerolog/log"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type SwitchResult struct {
-	Success       bool                    `json:"success"`
-	Error         string                  `json:"error,omitempty"`
-	CurrentModel  string                  `json:"current_model,omitempty"`
-	Capabilities  *llm.ModelCapabilities  `json:"capabilities,omitempty"`
-	PreviousModel string                  `json:"previous_model,omitempty"`
-	RolledBack    bool                    `json:"rolled_back,omitempty"`
+	Success         bool                   `json:"success"`
+	Error           string                 `json:"error,omitempty"`
+	CurrentModel    string                 `json:"current_model,omitempty"`
+	Capabilities    *llm.ModelCapabilities `json:"capabilities,omitempty"`
+	PreviousModel   string                 `json:"previous_model,omitempty"`
+	RolledBack      bool                   `json:"rolled_back,omitempty"`
+	RollbackSuccess bool                   `json:"rollback_success,omitempty"`
 }
 
 type SearchAPIKeys struct {
@@ -61,8 +63,8 @@ type App struct {
 	cleanupResult    []*chat.AbnormalConversation
 	cleanupResultMu  sync.Mutex
 	presets          []llm.ModelPreset
-	presetRelPaths    map[string]string
-	presetsMu         sync.RWMutex
+	presetRelPaths   map[string]string
+	presetsMu        sync.RWMutex
 	currentModelMu   sync.RWMutex
 	currentModelName string
 	switchingMu      sync.Mutex
@@ -250,49 +252,49 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 	}
 
 	serverCfg := &llm.ServerConfig{
-		ModelsDir:        modelsDir,
-		ServerPath:       absServerPath,
-		Port:             a.config.Port,
-		GPULayers:        gpuLayers,
-		Threads:          sp.Threads,
-		FlashAttn:        sp.FlashAttn,
-		CacheTypeK:       sp.CacheTypeK,
-		CacheTypeV:       sp.CacheTypeV,
-		Mlock:            sp.Mlock,
-		MmprojAuto:       a.config.MmprojAuto,
-		MmprojOffload:    sp.MmprojOffload,
-		Repack:           true,
-		OpOffload:        true,
-		KVUnified:        a.config.KVUnified,
-		CacheIdleSlots:   a.config.CacheIdleSlots,
-		CacheRAM:         a.config.CacheRAM,
-		ImageMinTokens:   a.config.ImageMinTokens,
-		ImageMaxTokens:   a.config.ImageMaxTokens,
-		FitTarget:        a.config.FitTarget,
-		FitCtx:           a.config.FitCtx,
-		Reasoning:        a.config.Reasoning,
-		ReasoningBudget:  a.config.ReasoningBudget,
-		ReasoningFormat:  reasoningFormat,
+		ModelsDir:              modelsDir,
+		ServerPath:             absServerPath,
+		Port:                   a.config.Port,
+		GPULayers:              gpuLayers,
+		Threads:                sp.Threads,
+		FlashAttn:              sp.FlashAttn,
+		CacheTypeK:             sp.CacheTypeK,
+		CacheTypeV:             sp.CacheTypeV,
+		Mlock:                  sp.Mlock,
+		MmprojAuto:             a.config.MmprojAuto,
+		MmprojOffload:          sp.MmprojOffload,
+		Repack:                 true,
+		OpOffload:              true,
+		KVUnified:              a.config.KVUnified,
+		CacheIdleSlots:         a.config.CacheIdleSlots,
+		CacheRAM:               a.config.CacheRAM,
+		ImageMinTokens:         a.config.ImageMinTokens,
+		ImageMaxTokens:         a.config.ImageMaxTokens,
+		FitTarget:              a.config.FitTarget,
+		FitCtx:                 a.config.FitCtx,
+		Reasoning:              a.config.Reasoning,
+		ReasoningBudget:        a.config.ReasoningBudget,
+		ReasoningFormat:        reasoningFormat,
 		ReasoningBudgetMessage: a.config.ReasoningBudgetMessage,
-		APIBase:          a.config.APIBase,
-		AppDir:           appDir(),
-		ModelsPreset:     presetPath,
-		ModelsMax:        modelsMax,
-		SleepIdleSeconds: sleepIdle,
-		Mmap:             a.config.Mmap,
-		KVOffload:        a.config.KVOffload,
-		ContextShift:     a.config.ContextShift,
-		MinP:             a.config.MinP,
-		DryMultiplier:    a.config.DryMultiplier,
-		DryBase:          a.config.DryBase,
-		DryAllowedLength: a.config.DryAllowedLength,
-		Device:           a.config.Device,
-		Parallel:         a.config.Parallel,
-		SpecType:         a.config.SpecType,
-		SpecDraftNMax:    a.config.SpecDraftNMax,
-		CacheTypeKDraft:  a.config.CacheTypeKDraft,
-		CacheTypeVDraft: a.config.CacheTypeVDraft,
-		SSEPingInterval: 0,
+		APIBase:                a.config.APIBase,
+		AppDir:                 appDir(),
+		ModelsPreset:           presetPath,
+		ModelsMax:              modelsMax,
+		SleepIdleSeconds:       sleepIdle,
+		Mmap:                   a.config.Mmap,
+		KVOffload:              a.config.KVOffload,
+		ContextShift:           a.config.ContextShift,
+		MinP:                   a.config.MinP,
+		DryMultiplier:          a.config.DryMultiplier,
+		DryBase:                a.config.DryBase,
+		DryAllowedLength:       a.config.DryAllowedLength,
+		Device:                 a.config.Device,
+		Parallel:               a.config.Parallel,
+		SpecType:               a.config.SpecType,
+		SpecDraftNMax:          a.config.SpecDraftNMax,
+		CacheTypeKDraft:        a.config.CacheTypeKDraft,
+		CacheTypeVDraft:        a.config.CacheTypeVDraft,
+		SSEPingInterval:        0,
 	}
 
 	if a.config.CacheTypeK != "" {
@@ -436,9 +438,9 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 		if modelForDetect2 != "" && a.client != nil {
 			zlog.Info().Str("model", modelForDetect2).Msg("[server] reloading model after restart")
 			if err := a.client.LoadModel(ctx, modelForDetect2); err != nil {
-					zlog.Error().Err(err).Str("model", modelForDetect2).Msg("[server] reload model after restart failed")
+				zlog.Error().Err(err).Str("model", modelForDetect2).Msg("[server] reload model after restart failed")
 			} else {
-					zlog.Info().Str("model", modelForDetect2).Msg("[server] model reloaded after restart")
+				zlog.Info().Str("model", modelForDetect2).Msg("[server] model reloaded after restart")
 			}
 		}
 	})
@@ -644,20 +646,20 @@ func (a *App) shutdown(ctx context.Context) {
 
 		if srv != nil {
 			if err := srv.Stop(); err != nil {
-					zlog.Error().Err(err).Msg("shutting down: stop server failed")
+				zlog.Error().Err(err).Msg("shutting down: stop server failed")
 			}
 			srv.CloseJob()
 		}
 
 		if a.ragVS != nil {
 			if err := a.ragVS.Close(); err != nil {
-					zlog.Error().Err(err).Msg("shutting down: close RAG vector store failed")
+				zlog.Error().Err(err).Msg("shutting down: close RAG vector store failed")
 			}
 		}
 
 		if a.db != nil {
 			if err := a.db.Close(); err != nil {
-					zlog.Error().Err(err).Msg("shutting down: close database failed")
+				zlog.Error().Err(err).Msg("shutting down: close database failed")
 			}
 		}
 	})
@@ -736,7 +738,7 @@ var allowedDocExts = map[string]bool{
 	".xml": true, ".html": true, ".yaml": true, ".yml": true,
 	".toml": true, ".ini": true, ".cfg": true, ".log": true,
 	".sql": true,
-	".go": true, ".py": true, ".js": true, ".ts": true,
+	".go":  true, ".py": true, ".js": true, ".ts": true,
 	".java": true, ".c": true, ".cpp": true, ".h": true,
 	".rs": true, ".sh": true, ".rb": true, ".php": true,
 	".swift": true, ".kt": true,
@@ -1260,7 +1262,7 @@ func (a *App) GracefulExit() {
 					"message": "正在关闭知识库...",
 				})
 				if err := a.ragVS.Close(); err != nil {
-						zlog.Error().Err(err).Msg("graceful exit: close RAG vector store failed")
+					zlog.Error().Err(err).Msg("graceful exit: close RAG vector store failed")
 				}
 			}
 
@@ -1270,7 +1272,7 @@ func (a *App) GracefulExit() {
 					"message": "正在关闭数据库...",
 				})
 				if err := a.db.Close(); err != nil {
-						zlog.Error().Err(err).Msg("graceful exit: close database failed")
+					zlog.Error().Err(err).Msg("graceful exit: close database failed")
 				}
 			}
 
@@ -1489,9 +1491,7 @@ func isAlreadyRunningError(err error) bool {
 	}
 	errMsg := strings.ToLower(err.Error())
 	return strings.Contains(errMsg, "already running") ||
-		strings.Contains(errMsg, "409") ||
-		strings.Contains(errMsg, "conflict") ||
-		strings.Contains(errMsg, "model is already loaded")
+		strings.Contains(errMsg, "already loaded")
 }
 
 // emitSwitchingStatus emits a server status event indicating a model switch is in progress.
@@ -1553,9 +1553,13 @@ func (a *App) switchPreCheck() string {
 	if a.server == nil || a.client == nil {
 		return "服务器未启动"
 	}
+	a.switchingMu.Lock()
 	if a.isSwitching.Load() {
+		a.switchingMu.Unlock()
 		return "正在切换模型中，请稍候。"
 	}
+	a.isSwitching.Store(true)
+	a.switchingMu.Unlock()
 	return ""
 }
 
@@ -1569,7 +1573,6 @@ func (a *App) switchPrepare(modelName string) string {
 	previousModel := a.currentModelName
 	a.currentModelMu.RUnlock()
 
-	a.isSwitching.Store(true)
 	a.switchingToMu.Lock()
 	a.switchingTo = modelName
 	a.switchingToMu.Unlock()
@@ -1583,7 +1586,7 @@ func (a *App) switchPrepare(modelName string) string {
 }
 
 // switchLoadModel 加载模型，返回 (是否已运行, 错误消息)
-func (a *App) switchLoadModel(modelName, previousModel string) (bool, string) {
+func (a *App) switchLoadModel(modelName, _ string) (bool, string) {
 	loadErr := a.client.LoadModel(a.ctx, modelName)
 	if loadErr == nil {
 		return false, ""
@@ -1596,11 +1599,6 @@ func (a *App) switchLoadModel(modelName, previousModel string) (bool, string) {
 		a.currentModelMu.Lock()
 		a.currentModelName = modelName
 		a.currentModelMu.Unlock()
-		// 即使模型已运行，也需要检测架构以更新 capabilities
-		a.service.SetDetectedModelName(modelName)
-		if err := a.service.DetectModelArchitectureForModel(modelName); err != nil {
-				zlog.Error().Err(err).Str("model", modelName).Msg("[router] detect model architecture for already-running model failed")
-		}
 		return true, ""
 	}
 
@@ -1608,7 +1606,7 @@ func (a *App) switchLoadModel(modelName, previousModel string) (bool, string) {
 }
 
 // switchWaitReady 等待模型就绪（含 mmproj 回退检测）
-func (a *App) switchWaitReady(modelName, previousModel string) string {
+func (a *App) switchWaitReady(modelName, _ string) string {
 	waitCtx, waitCancel := context.WithTimeout(a.ctx, 120*time.Second)
 	defer waitCancel()
 
@@ -1621,9 +1619,9 @@ func (a *App) switchWaitReady(modelName, previousModel string) string {
 	// 使用指数退避：200ms → 300ms → 500ms → 800ms
 	propsCtx, propsCancel := context.WithTimeout(a.ctx, 15*time.Second)
 	defer propsCancel()
-	backoffs := []time.Duration{200 * time.Millisecond, 300 * time.Millisecond, 500 * time.Millisecond, 800 * time.Millisecond}
+	backoffs := []time.Duration{200 * time.Millisecond, 400 * time.Millisecond, 600 * time.Millisecond, 800 * time.Millisecond, time.Second}
 	var lastProps *llm.ServerProps
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 10; i++ {
 		props, propsErr := a.client.GetServerProps(propsCtx, modelName)
 		if propsErr == nil {
 			lastProps = props
@@ -1640,7 +1638,7 @@ func (a *App) switchWaitReady(modelName, previousModel string) string {
 		}
 		select {
 		case <-propsCtx.Done():
-			break
+			return ""
 		case <-time.After(backoffs[min(i, len(backoffs)-1)]):
 		}
 	}
@@ -1703,7 +1701,9 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 	a.serverReady.Store(true)
 
 	// 清除切换状态
+	a.switchingMu.Lock()
 	a.isSwitching.Store(false)
+	a.switchingMu.Unlock()
 	a.switchingToMu.Lock()
 	a.switchingTo = ""
 	a.switchingToMu.Unlock()
@@ -1726,20 +1726,24 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 func (a *App) handleSwitchFailure(modelName, previousModel, errMsg string) SwitchResult {
 	zlog.Error().Str("error", errMsg).Msg("[router] model switch failed")
 	a.emitSwitchProgress("failed", modelName)
-	a.isSwitching.Store(false)
+
+	// 注意：isSwitching 在回滚完成后再清除，防止回滚期间用户发起新切换
 	a.switchingToMu.Lock()
 	a.switchingTo = ""
 	a.switchingToMu.Unlock()
 
+	rollbackSuccess := false
 	if previousModel != "" && previousModel != modelName {
 		zlog.Info().Str("model", previousModel).Msg("[router] attempting to restore model")
-		if restoreErr := a.client.LoadModel(a.ctx, previousModel); restoreErr == nil {
-			_ = a.client.WaitForModelLoaded(a.ctx, previousModel, 60*time.Second)
+		restoreCtx, restoreCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if restoreErr := a.client.LoadModel(restoreCtx, previousModel); restoreErr == nil {
+			_ = a.client.WaitForModelLoaded(restoreCtx, previousModel, 30*time.Second)
 			a.currentModelMu.Lock()
 			a.currentModelName = previousModel
 			a.currentModelMu.Unlock()
 			a.emitSwitchSuccess(previousModel)
 			a.serverReady.Store(true)
+			rollbackSuccess = true
 		} else {
 			zlog.Error().Err(restoreErr).Str("model", previousModel).Msg("[router] failed to restore model")
 			runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
@@ -1747,6 +1751,7 @@ func (a *App) handleSwitchFailure(modelName, previousModel, errMsg string) Switc
 				Error:   fmt.Sprintf("%s，恢复旧模型也失败", errMsg),
 			})
 		}
+		restoreCancel()
 	} else {
 		runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
 			Running: false,
@@ -1754,10 +1759,16 @@ func (a *App) handleSwitchFailure(modelName, previousModel, errMsg string) Switc
 		})
 	}
 
+	// 回滚完成后再清除 isSwitching
+	a.switchingMu.Lock()
+	a.isSwitching.Store(false)
+	a.switchingMu.Unlock()
+
 	return SwitchResult{
-		Error:         errMsg,
-		PreviousModel: previousModel,
-		RolledBack:    previousModel != "" && previousModel != modelName,
+		Error:           errMsg,
+		PreviousModel:   previousModel,
+		RolledBack:      previousModel != "" && previousModel != modelName,
+		RollbackSuccess: rollbackSuccess,
 	}
 }
 

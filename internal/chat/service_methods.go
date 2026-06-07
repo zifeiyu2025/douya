@@ -3,13 +3,14 @@ package chat
 import (
 	"context"
 	"douya/internal/config"
-	"time"
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
+
+	"douya/internal/store"
 
 	"github.com/rs/zerolog/log"
-	"douya/internal/store"
 )
 
 // StopGeneration stops the current generation (if any).
@@ -283,7 +284,6 @@ func (s *Service) ExportConversation(id string, format string) (string, error) {
 	}
 }
 
-
 // exportMarkdown exports as Markdown.
 func (s *Service) exportMarkdown(conv *store.Conversation, msgs []*store.Message) string {
 	var sb strings.Builder
@@ -305,7 +305,7 @@ func (s *Service) exportMarkdown(conv *store.Conversation, msgs []*store.Message
 }
 
 // exportJSON exports as JSON (array of messages).
-func (s *Service) exportJSON(conv *store.Conversation, msgs []*store.Message) (string, error) {
+func (s *Service) exportJSON(_ *store.Conversation, msgs []*store.Message) (string, error) {
 	type jsonMsg struct {
 		Role            string `json:"role"`
 		Content         string `json:"content"`
@@ -348,7 +348,7 @@ func (s *Service) exportPlainText(conv *store.Conversation, msgs []*store.Messag
 	return sb.String()
 }
 
-func (s *Service) exportCSV(conv *store.Conversation, msgs []*store.Message) (string, error) {
+func (s *Service) exportCSV(_ *store.Conversation, msgs []*store.Message) (string, error) {
 	var sb strings.Builder
 	sb.WriteString("instruction,input,output\n")
 	for i := 0; i < len(msgs); i++ {

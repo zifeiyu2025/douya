@@ -40,7 +40,7 @@ func TestFactualConsistency_RejectsMathematicalFalsehood(t *testing.T) {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
 
-	convs, _ := store.ListConversations(chat.GetDB(svc, nil))
+	convs, _ := store.ListConversations(chat.GetDB(svc), nil)
 	msgs, _ := store.GetMessagesByConversation(chat.GetDB(svc), convs[0].ID, nil)
 
 	var assistantMsg *store.Message
@@ -80,7 +80,7 @@ func TestFactualConsistency_RejectsConspiracyPremise(t *testing.T) {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
 
-	convs, _ := store.ListConversations(chat.GetDB(svc, nil))
+	convs, _ := store.ListConversations(chat.GetDB(svc), nil)
 	msgs, _ := store.GetMessagesByConversation(chat.GetDB(svc), convs[0].ID, nil)
 
 	for _, m := range msgs {
@@ -116,7 +116,7 @@ func TestFactualConsistency_RejectsPersistentFalseInstructions(t *testing.T) {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
 
-	convs, _ := store.ListConversations(chat.GetDB(svc, nil))
+	convs, _ := store.ListConversations(chat.GetDB(svc), nil)
 	msgs, _ := store.GetMessagesByConversation(chat.GetDB(svc), convs[0].ID, nil)
 
 	var assistantMsg *store.Message
@@ -159,7 +159,7 @@ func TestFactualConsistency_ExplainsCorrectFact(t *testing.T) {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
 
-	convs, _ := store.ListConversations(chat.GetDB(svc, nil))
+	convs, _ := store.ListConversations(chat.GetDB(svc), nil)
 	msgs, _ := store.GetMessagesByConversation(chat.GetDB(svc), convs[0].ID, nil)
 
 	var assistantMsg *store.Message
@@ -222,7 +222,7 @@ func TestFactualConsistency_RejectsSelfContradictoryInstruction(t *testing.T) {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
 
-	convs, _ := store.ListConversations(chat.GetDB(svc, nil))
+	convs, _ := store.ListConversations(chat.GetDB(svc), nil)
 	msgs, _ := store.GetMessagesByConversation(chat.GetDB(svc), convs[0].ID, nil)
 
 	var assistantMsg *store.Message
@@ -262,7 +262,7 @@ func TestFactualConsistency_RefusesToDisregardLaws(t *testing.T) {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
 
-	convs, _ := store.ListConversations(chat.GetDB(svc, nil))
+	convs, _ := store.ListConversations(chat.GetDB(svc), nil)
 	msgs, _ := store.GetMessagesByConversation(chat.GetDB(svc), convs[0].ID, nil)
 
 	var assistantMsg *store.Message

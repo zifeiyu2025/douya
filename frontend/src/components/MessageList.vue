@@ -145,17 +145,17 @@ const switchingToModel = computed(() => {
   return ''
 })
 
-const switchStages = ['准备切换', '卸载旧模型', '加载新模型', '初始化完成']
+const switchStages = ['准备切换', '加载新模型', '初始化完成']
 
 function getCurrentStageIndex(): number {
   const stage = settingsStore.switchProgress.stage
   switch (stage) {
-    case 'unloading':
-      return 1
+    case 'preparing':
+      return 0
     case 'loading':
-      return 2
+      return 1
     case 'done':
-      return 3
+      return 2
     default:
       return 0
   }
@@ -163,14 +163,11 @@ function getCurrentStageIndex(): number {
 
 function getSwitchProgressText(): string {
   const stage = settingsStore.switchProgress.stage
-  const prevModel = settingsStore.previousModelBeforeSwitch
-    ? formatModelName(settingsStore.previousModelBeforeSwitch).display
-    : ''
   const newModel = switchingToModel.value
 
   switch (stage) {
-    case 'unloading':
-      return prevModel ? `正在卸载模型 ${prevModel}...` : '正在卸载旧模型...'
+    case 'preparing':
+      return '准备切换模型...'
     case 'loading':
       return `正在加载模型 ${newModel}...`
     case 'waiting':
@@ -322,9 +319,6 @@ watch(() => chatStore.lastError, (err) => {
   object-fit: cover;
   border-radius: 50%;
   display: block;
-}
-
-.ai-avatar {
 }
 
 .message-item {

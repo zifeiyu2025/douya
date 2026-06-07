@@ -16,9 +16,9 @@ import (
 
 func TestEstimateMessageTokens_IncludesImages(t *testing.T) {
 	msg := &store.Message{
-		Role:   "user",
+		Role:    "user",
 		Content: "hello",
-		Images: `["data:image/png;base64,iVBOR...verylongbase64data..."]`,
+		Images:  `["data:image/png;base64,iVBOR...verylongbase64data..."]`,
 	}
 	tokens := chat.EstimateMessageTokens(msg)
 	contentTokens := len([]rune(msg.Content)) * 2
@@ -94,73 +94,21 @@ func TestEstimateMessageTokens_ZeroReturnsOne(t *testing.T) {
 	}
 }
 
-func TestCleanThinkingContent_RemovesToolCallTags(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "opening tool_call tag on own line",
-			input:    "thinking\n<tool_call\nsome content",
-			expected: "thinking\n<tool_call\nsome content",
-		},
-		{
-			name:     "closing tool_call tag on own line",
-			input:    "thinking\n</tool_call\nmore thinking",
-			expected: "thinking\nmore thinking",
-		},
-		{
-			name:     "both tags on own lines",
-			input:    "before\n<tool_call\nmiddle\n</tool_call\nafter",
-			expected: "before\n<tool_call\nmiddle\nafter",
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			expected: "",
-		},
-		{
-			name:     "no tags",
-			input:    "normal thinking content",
-			expected: "normal thinking content",
-		},
-		{
-			name:     "self-closing tag on own line",
-			input:    "before\n<tool_call/>\nafter",
-			expected: "before\nafter",
-		},
-		{
-			name:     "inline tags preserved",
-			input:    "content before<tool_call\nmore",
-			expected: "content before<tool_call\nmore",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := chat.CleanThinkingContent(tt.input)
-			if result != tt.expected {
-				t.Errorf("CleanThinkingContent(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestStreamAccumulator_ResetForNextCall_PreservesAccumulatedState(t *testing.T) {
 	acc := chat.NewStreamAccumulator("conv1", func(string, interface{}) {}, func(string, string, interface{}) {})
-	acc.FullContent = "first response"
-	acc.FullThinking = "first thinking"
+	acc.FullContent.WriteString("first response")
+	acc.FullThinking.WriteString("first thinking")
 	acc.LastSearchJSON = `{"results":[1]}`
 	acc.FinishReason = "tool_calls"
 	acc.ToolCallMap[0] = &llm.ToolCall{Index: 0, ID: "tc1"}
 
 	chat.ResetForNextCall(acc)
 
-	if acc.FullContent != "" {
-		t.Errorf("FullContent should be reset, got %q", acc.FullContent)
+	if acc.FullContent.String() != "" {
+		t.Errorf("FullContent should be reset, got %q", acc.FullContent.String())
 	}
-	if acc.FullThinking != "first thinking" {
-		t.Errorf("FullThinking should be preserved across calls, got %q", acc.FullThinking)
+	if acc.FullThinking.String() != "first thinking" {
+		t.Errorf("FullThinking should be preserved across calls, got %q", acc.FullThinking.String())
 	}
 	if acc.LastSearchJSON != `{"results":[1]}` {
 		t.Errorf("LastSearchJSON should be preserved across calls, got %q", acc.LastSearchJSON)
@@ -211,25 +159,6 @@ func TestUpdateConfig_SavePathConsistency(t *testing.T) {
 
 	if svc.GetConfig().Temperature != 0.5 {
 		t.Errorf("config should be updated in memory, got Temperature=%f", svc.GetConfig().Temperature)
-	}
-}
-
-func TestCleanThinkingContent_SelfClosingTag(t *testing.T) {
-	input := "thinking\n<tool_call/>\nmore thinking"
-	result := chat.CleanThinkingContent(input)
-	if strings.Contains(result, "<tool_call/>") {
-		t.Errorf("should remove self-closing tool_call tag on own line, got: %s", result)
-	}
-	if !strings.Contains(result, "thinking") || !strings.Contains(result, "more thinking") {
-		t.Errorf("should preserve content around tag, got: %s", result)
-	}
-}
-
-func TestCleanThinkingContent_OnlySelfClosingTag(t *testing.T) {
-	input := "<tool_call/>"
-	result := chat.CleanThinkingContent(input)
-	if result != "" {
-		t.Errorf("only self-closing tag should produce empty result, got: %q", result)
 	}
 }
 
@@ -359,9 +288,9 @@ func TestExportConversation_FiltersAssistantToolCallMessages(t *testing.T) {
 	}
 
 	var messages []struct {
-		Role      string `json:"role"`
-		Content   string `json:"content"`
-		ToolCalls string `json:"tool_calls"`
+		Role       string `json:"role"`
+		Content    string `json:"content"`
+		ToolCalls  string `json:"tool_calls"`
 		ToolCallID string `json:"tool_call_id"`
 	}
 	if err := json.Unmarshal([]byte(result), &messages); err != nil {
@@ -387,16 +316,16 @@ func TestGetMessages_PreservesThinkingContent(t *testing.T) {
 	}
 
 	store.CreateMessage(chat.GetDB(svc), &store.Message{
-		ConversationID:  conv.ID,
-		Role:            "user",
-		Content:         "hello",
+		ConversationID: conv.ID,
+		Role:           "user",
+		Content:        "hello",
 	}, nil)
 	rawThinking := "thinking<tool_call\nmore thinking</tool_call\nfinal"
 	store.CreateMessage(chat.GetDB(svc), &store.Message{
-		ConversationID:   conv.ID,
-		Role:             "assistant",
-		Content:          "answer",
-		ThinkingContent:  rawThinking,
+		ConversationID:  conv.ID,
+		Role:            "assistant",
+		Content:         "answer",
+		ThinkingContent: rawThinking,
 	}, nil)
 
 	msgs, err := svc.GetMessages(conv.ID)
@@ -421,10 +350,10 @@ func TestSearchMessages_PreservesThinkingContent(t *testing.T) {
 
 	rawThinking := "analysis<tool_call\ndeep analysis</tool_call\nconclusion"
 	store.CreateMessage(chat.GetDB(svc), &store.Message{
-		ConversationID:   conv.ID,
-		Role:             "assistant",
-		Content:          "golang programming answer",
-		ThinkingContent:  rawThinking,
+		ConversationID:  conv.ID,
+		Role:            "assistant",
+		Content:         "golang programming answer",
+		ThinkingContent: rawThinking,
 	}, nil)
 
 	msgs, err := svc.SearchMessages("golang")

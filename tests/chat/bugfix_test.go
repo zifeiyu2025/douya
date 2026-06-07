@@ -57,8 +57,8 @@ func TestClampDuration_JustOver3600(t *testing.T) {
 
 func TestResetForNextCall_ClearsAllFields(t *testing.T) {
 	acc := chat.NewStreamAccumulator("", func(string, interface{}) {}, func(string, string, interface{}) {})
-	acc.FullContent = "hello"
-	acc.FullThinking = "think"
+	acc.FullContent.WriteString("hello")
+	acc.FullThinking.WriteString("think")
 	acc.FinishReason = "stop"
 	acc.ToolCallMap[0] = &llm.ToolCall{Index: 0, ID: "tc1"}
 	acc.PendingBytes = "pen"
@@ -70,11 +70,11 @@ func TestResetForNextCall_ClearsAllFields(t *testing.T) {
 
 	chat.ResetForNextCall(acc)
 
-	if acc.FullContent != "" {
-		t.Errorf("fullContent not reset, got %q", acc.FullContent)
+	if acc.FullContent.String() != "" {
+		t.Errorf("fullContent not reset, got %q", acc.FullContent.String())
 	}
-	if acc.FullThinking != "think" {
-		t.Errorf("fullThinking should NOT be reset (it accumulates across calls), got %q", acc.FullThinking)
+	if acc.FullThinking.String() != "think" {
+		t.Errorf("fullThinking should NOT be reset (it accumulates across calls), got %q", acc.FullThinking.String())
 	}
 	if acc.FinishReason != "" {
 		t.Errorf("finishReason not reset, got %q", acc.FinishReason)
@@ -104,7 +104,7 @@ func TestResetForNextCall_ClearsAllFields(t *testing.T) {
 
 func TestResetForNextCall_PreservesFirstRoundThinking(t *testing.T) {
 	acc := chat.NewStreamAccumulator("", func(string, interface{}) {}, func(string, string, interface{}) {})
-	acc.FullThinking = "first round deep thought"
+	acc.FullThinking.WriteString("first round deep thought")
 	acc.ThinkingDuration = 7.5
 
 	chat.ResetForNextCall(acc)
@@ -276,29 +276,6 @@ func TestTruncateSearchContext_ZeroCtxSize(t *testing.T) {
 	result := chat.TruncateSearchContext(short, 0)
 	if result != short {
 		t.Errorf("short context with zero ctxSize should not be truncated, got: %q", result)
-	}
-}
-
-func TestCleanThinkingContent(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{"empty", "", ""},
-		{"no tags", "thinking content", "thinking content"},
-		{"empty tool_call tag", "line1\n<tool_call/>\nline2", "line1\nline2"},
-		{"closing tag", "line1\n</tool_call\nline2", "line1\nline2"},
-		{"tag with content preserved", "line1\n<tool_call some content\nline2", "line1\n<tool_call some content\nline2"},
-		{"mixed", "think\n<tool_call/>\n</tool_call\nreason", "think\nreason"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := chat.CleanThinkingContent(tt.input)
-			if got != tt.want {
-				t.Errorf("CleanThinkingContent(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
 	}
 }
 
@@ -599,7 +576,7 @@ func TestSendMessage_AttachmentsPersistedToDB(t *testing.T) {
 		t.Fatalf("SendMessage with text attachment failed: %v", err)
 	}
 
-	convs, _ := store.ListConversations(chat.GetDB(svc, nil))
+	convs, _ := store.ListConversations(chat.GetDB(svc), nil)
 	if len(convs) == 0 {
 		t.Fatal("expected at least 1 conversation")
 	}
@@ -683,7 +660,7 @@ func TestSendMessage_HistoryAttachmentsRestored(t *testing.T) {
 		t.Fatalf("first SendMessage failed: %v", err)
 	}
 
-	convs, _ := store.ListConversations(chat.GetDB(svc, nil))
+	convs, _ := store.ListConversations(chat.GetDB(svc), nil)
 	convID := convs[0].ID
 
 	server2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -949,8 +926,8 @@ func TestEstimateMessageTokens_MultipleImages(t *testing.T) {
 
 func TestEstimateMessageTokens_AttachmentsImageFixedEstimate(t *testing.T) {
 	msg := &store.Message{
-		Role:    "user",
-		Content: "hello",
+		Role:        "user",
+		Content:     "hello",
 		Attachments: `[{"type":"image","name":"test.png","mime_type":"image/png","data":"data:image/png;base64,verylongbase64"}]`,
 	}
 	tokens := chat.EstimateMessageTokens(msg)
@@ -962,8 +939,8 @@ func TestEstimateMessageTokens_AttachmentsImageFixedEstimate(t *testing.T) {
 
 func TestEstimateMessageTokens_AttachmentsAudioFixedEstimate(t *testing.T) {
 	msg := &store.Message{
-		Role:    "user",
-		Content: "hello",
+		Role:        "user",
+		Content:     "hello",
 		Attachments: `[{"type":"audio","name":"test.wav","mime_type":"audio/wav","data":"base64audio","format":"wav"}]`,
 	}
 	tokens := chat.EstimateMessageTokens(msg)
@@ -976,8 +953,8 @@ func TestEstimateMessageTokens_AttachmentsAudioFixedEstimate(t *testing.T) {
 
 func TestEstimateMessageTokens_VideoAttachmentHigherThanImage(t *testing.T) {
 	msg := &store.Message{
-		Role:    "user",
-		Content: "hello",
+		Role:        "user",
+		Content:     "hello",
 		Attachments: `[{"type":"video","name":"test.mp4","mime_type":"video/mp4","data":"base64video"}]`,
 	}
 	tokens := chat.EstimateMessageTokens(msg)
@@ -989,8 +966,8 @@ func TestEstimateMessageTokens_VideoAttachmentHigherThanImage(t *testing.T) {
 
 func TestEstimateMessageTokens_ImageAttachmentAccurateEstimate(t *testing.T) {
 	msg := &store.Message{
-		Role:    "user",
-		Content: "hello",
+		Role:        "user",
+		Content:     "hello",
 		Attachments: `[{"type":"image","name":"test.png","mime_type":"image/png","data":"base64data"}]`,
 	}
 	tokens := chat.EstimateMessageTokens(msg)
@@ -1002,8 +979,8 @@ func TestEstimateMessageTokens_ImageAttachmentAccurateEstimate(t *testing.T) {
 
 func TestEstimateMessageTokens_MultipleImageAttachments(t *testing.T) {
 	msg := &store.Message{
-		Role:    "user",
-		Content: "compare these",
+		Role:        "user",
+		Content:     "compare these",
 		Attachments: `[{"type":"image","name":"a.png","mime_type":"image/png","data":"d1"},{"type":"image","name":"b.png","mime_type":"image/png","data":"d2"}]`,
 	}
 	tokens := chat.EstimateMessageTokens(msg)
