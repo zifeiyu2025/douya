@@ -691,6 +691,22 @@ func (c *Client) GetModelStatus(ctx context.Context, modelName string) (*ModelSt
 	return nil, fmt.Errorf("model %s not found in models list", modelName)
 }
 
+// FuzzyMatchModelID 模糊匹配模型 ID
+// 处理 llama-server 返回的模型 ID 与派生名不一致的情况
+// 例如: ID="default", name="Qwen3.6-35B-A3B-UD" 无法模糊匹配（"default" 太通用）
+// 例如: ID="Qwen3.6-35B-A3B-UD-Q4_K_XL", name="Qwen3.6-35B-A3B-UD" 可以匹配
+func FuzzyMatchModelID(id, name string) bool {
+	idLower := strings.ToLower(id)
+	nameLower := strings.ToLower(name)
+	// 互相包含（但排除 "default" 这种太通用的 ID）
+	if idLower != "default" && nameLower != "default" {
+		if strings.Contains(idLower, nameLower) || strings.Contains(nameLower, idLower) {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	pollClient := &http.Client{Timeout: 3 * time.Second}
@@ -740,7 +756,7 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 
 		pollCount++
 		for _, d := range raw.Data {
-			if d.ID == modelName {
+			if d.ID == modelName || FuzzyMatchModelID(d.ID, modelName) {
 				switch d.Status.Value {
 				case "loaded":
 					return nil

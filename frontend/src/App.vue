@@ -23,26 +23,26 @@
                   size="small"
                   placeholder="选择模型"
                   class="model-selector"
-                  :disabled="isModelSwitching"
+                  :disabled="isModelSwitching || !serverStatus.running"
                   :render-label="renderModelLabel"
                   @update:value="handleModelChange"
                 />
                 <div class="server-status" :title="modelFullName">
-                  <div v-if="isModelSwitching" class="switching-animation">
+                  <div v-if="isModelSwitching && switchProgressStage !== 'idle'" class="switching-animation">
                     <div class="loading-spinner"></div>
-                    <span class="status-text">{{ switchingModelName }} · 加载中{{ switchDuration }}</span>
+                    <span class="status-text">{{ switchingModelName }} · {{ switchStageText }}{{ switchDuration }}</span>
                   </div>
                   <div v-else-if="modelLoadFailed" class="error-animation">
                     <span class="status-dot stopped" />
                     <span class="status-text error-text">{{ errorModelName }} · 加载失败</span>
                   </div>
-                  <div v-else-if="isServerLoading" class="loading-animation">
+                  <div v-else-if="isServerLoading && switchProgressStage === 'idle'" class="loading-animation">
                     <div class="loading-spinner"></div>
                     <span class="status-text">{{ modelName || '启动中...' }}</span>
                   </div>
                   <template v-else>
                     <span class="status-dot" :class="serverStatus.running ? 'running' : 'stopped'" />
-                    <span class="status-text">{{ modelName }} · {{ serverStatus.running ? '已就绪' : '未运行' }}</span>
+                    <span class="status-text" :class="{ 'error-text': !serverStatus.running && serverStatus.error }">{{ modelName }} · {{ serverStatus.running ? '已就绪' : (serverStatus.error || '未运行') }}</span>
                   </template>
                 </div>
               </div>
@@ -76,6 +76,15 @@
             <router-view />
           </div>
         </div>
+    <Transition name="switch-overlay">
+      <div v-if="showSwitchOverlay" class="switch-overlay">
+        <div class="switch-overlay-content">
+          <div class="switch-spinner"></div>
+          <div class="switch-model-name">{{ overlayModelName }}</div>
+          <div class="switch-progress-msg">{{ switchStageText }}</div>
+        </div>
+      </div>
+    </Transition>
     <Transition name="switch-overlay">
       <div v-if="isExiting" class="switch-overlay">
         <div class="switch-overlay-content">
@@ -158,16 +167,39 @@ const errorModelName = computed(() => {
 const switchDuration = ref('')
 let switchDurationTimer: ReturnType<typeof setInterval> | null = null
 
+const showSwitchOverlay = computed(() => settingsStore.switchProgress.stage !== 'idle' && !isModelSwitching.value)
+
+const switchProgressStage = computed(() => settingsStore.switchProgress.stage)
+
+const switchStageText = computed(() => {
+  const stage = settingsStore.switchProgress.stage
+  const texts: Record<string, string> = {
+    'preparing': '准备切换模型...',
+    'loading': '加载模型中...',
+    'waiting': '初始化模型...',
+    'detecting': '检测模型能力...',
+    'done': '加载完成',
+  }
+  return texts[stage] || '加载中...'
+})
+
+const overlayModelName = computed(() => {
+  if (settingsStore.switchProgress.targetModel) return settingsStore.switchProgress.targetModel
+  if (switchingModelDisplay.value) return switchingModelDisplay.value
+  return ''
+})
+
 const isMaximized = ref(false)
 const isExiting = ref(false)
 const exitMessage = ref('')
 
-watch(() => settingsStore.isModelSwitching, (isSwitching) => {
-  if (isSwitching) {
+watch(switchProgressStage, (stage) => {
+  if (stage !== 'idle') {
     stopSwitchDurationTimer()
     switchDurationTimer = setInterval(() => {
-      if (settingsStore.switchStartedAt > 0) {
-        const elapsed = Math.floor((Date.now() - settingsStore.switchStartedAt) / 1000)
+      const startTime = settingsStore.switchStartedAt || settingsStore.switchProgress.startTime
+      if (startTime > 0) {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000)
         if (elapsed > 0) {
           switchDuration.value = ` · 已等待 ${elapsed}s`
         }

@@ -83,7 +83,7 @@ export const useSettingsStore = defineStore('settings', () => {
     const switchStartedAt = ref(0)
     const previousModelBeforeSwitch = ref('')
     const modelLoadFailed = ref(false)
-    const waitingForStatusReady = ref(false)
+
 
     // Enhanced switch progress state
     const switchProgress = ref<SwitchProgress>({
@@ -98,6 +98,7 @@ export const useSettingsStore = defineStore('settings', () => {
     let statusPollingTimer: ReturnType<typeof setInterval> | null = null
     let switchDoneTimer: ReturnType<typeof setTimeout> | null = null
     let switchTimeoutTimer: ReturnType<typeof setTimeout> | null = null
+
 
     async function loadConfig() {
         try {
@@ -168,7 +169,6 @@ export const useSettingsStore = defineStore('settings', () => {
             clearTimeout(switchTimeoutTimer)
             switchTimeoutTimer = null
         }
-        waitingForStatusReady.value = false
         switchProgress.value = {
             stage: 'idle',
             targetModel: '',
@@ -195,7 +195,6 @@ export const useSettingsStore = defineStore('settings', () => {
         switchingModelDisplay.value = formatModelName(modelName).display
         switchStartedAt.value = Date.now()
         previousModelBeforeSwitch.value = currentModel.value
-        waitingForStatusReady.value = false
 
         // Initialize switch progress state
         switchProgress.value = {
@@ -211,7 +210,6 @@ export const useSettingsStore = defineStore('settings', () => {
         switchTimeoutTimer = setTimeout(() => {
             if (isModelSwitching.value) {
                 console.warn('Model switch timed out, force clearing switch overlay')
-                waitingForStatusReady.value = false
                 isModelSwitching.value = false
                 switchingModelDisplay.value = ''
                 switchStartedAt.value = 0
@@ -227,12 +225,30 @@ export const useSettingsStore = defineStore('settings', () => {
      */
     function handleSwitchResult(result: SwitchResult): void {
         if (result.success) {
-            // Mark done
             switchProgress.value = {
                 ...switchProgress.value,
                 stage: 'done',
                 endTime: Date.now(),
             }
+
+            // 清除安全超时计时器
+            if (switchTimeoutTimer !== null) {
+                clearTimeout(switchTimeoutTimer)
+                switchTimeoutTimer = null
+            }
+            // 启动完成定时器，延迟后清除切换状态
+            if (switchDoneTimer !== null) {
+                clearTimeout(switchDoneTimer)
+                switchDoneTimer = null
+            }
+            switchDoneTimer = setTimeout(() => {
+                isModelSwitching.value = false
+                switchingModelDisplay.value = ''
+                switchStartedAt.value = 0
+                previousModelBeforeSwitch.value = ''
+                resetSwitchProgress()
+                switchDoneTimer = null
+            }, 800)
 
             if (result.current_model) {
                 currentModel.value = result.current_model
@@ -240,11 +256,7 @@ export const useSettingsStore = defineStore('settings', () => {
             if (result.capabilities) {
                 modelCapabilities.value = result.capabilities
             }
-            
-            // Wait for server status to show as running and ready before clearing switch overlay
-            waitingForStatusReady.value = true
         } else {
-            // Mark failed
             handleSwitchFailure(
                 result.error || '模型加载失败',
                 result.previous_model || previousModelBeforeSwitch.value,
@@ -267,7 +279,6 @@ export const useSettingsStore = defineStore('settings', () => {
             clearTimeout(switchTimeoutTimer)
             switchTimeoutTimer = null
         }
-        waitingForStatusReady.value = false
         modelLoadFailed.value = true
         isModelSwitching.value = false
         switchStartedAt.value = 0
@@ -342,26 +353,46 @@ export const useSettingsStore = defineStore('settings', () => {
 
             if (status.running) {
                 stopStatusPolling()
-            } else if (!status.switching && !isModelSwitching.value) {
+                const chatStore = useChatStore()
+                chatStore.loadConversations()
+            } else if (!status.switching && !isModelSwitching.value && switchProgress.value.stage === 'idle') {
                 startStatusPolling()
             }
 
-            // If we're waiting for status to be ready and it's now running and not switching
-            if (waitingForStatusReady.value && status.running && !status.switching) {
-                waitingForStatusReady.value = false
+            // 首次启动加载完成：收到 running 状态（手动切换由 handleSwitchResult 处理）
+            if (switchProgress.value.stage !== 'idle' && status.running && !status.switching && !isModelSwitching.value) {
                 if (switchTimeoutTimer !== null) {
                     clearTimeout(switchTimeoutTimer)
                     switchTimeoutTimer = null
                 }
-                // Clear switching state after a short delay for visual feedback
+                switchProgress.value = {
+                    ...switchProgress.value,
+                    stage: 'done',
+                    endTime: Date.now(),
+                }
                 switchDoneTimer = setTimeout(() => {
-                    isModelSwitching.value = false
-                    switchingModelDisplay.value = ''
-                    switchStartedAt.value = 0
-                    previousModelBeforeSwitch.value = ''
                     resetSwitchProgress()
                     switchDoneTimer = null
-                }, 1200)
+                }, 800)
+            }
+
+            // 模型加载/切换失败：收到 error 且非 running
+            if (switchProgress.value.stage !== 'idle' && !status.running && status.error) {
+                switchProgress.value = {
+                    ...switchProgress.value,
+                    stage: 'failed',
+                    errorMessage: status.error,
+                    endTime: Date.now(),
+                }
+                isModelSwitching.value = false
+                switchStartedAt.value = 0
+                modelLoadFailed.value = true
+                switchingModelDisplay.value = switchProgress.value.targetModel
+                setTimeout(() => {
+                    switchingModelDisplay.value = ''
+                    modelLoadFailed.value = false
+                    resetSwitchProgress()
+                }, 5000)
             }
         })
         checkServerStatus()
@@ -382,10 +413,19 @@ export const useSettingsStore = defineStore('settings', () => {
         }
     }
 
-    async function saveSearchAPIKeys(keys: SearchAPIKeys) {
+    async function saveSearchAPIKeys(keys: Partial<SearchAPIKeys>) {
         try {
-            await wails.setSearchAPIKeys(keys)
-            searchAPIKeys.value = keys
+            // 如果没有需要更新的 key，直接返回
+            if (Object.keys(keys).length === 0) return
+            // 补全空字符串给未提供的字段（后端空值表示不更新）
+            const fullKeys: SearchAPIKeys = {
+                ollama_api_key: keys.ollama_api_key ?? '',
+                tavily_api_key: keys.tavily_api_key ?? '',
+                github_api_key: keys.github_api_key ?? '',
+            }
+            await wails.setSearchAPIKeys(fullKeys)
+            // 更新本地状态：非空的覆盖，空值保留原值
+            searchAPIKeys.value = { ...searchAPIKeys.value, ...keys }
         } catch (e) {
             console.error('Failed to save search API keys:', e)
         }
@@ -475,6 +515,13 @@ export const useSettingsStore = defineStore('settings', () => {
                 stage: progress.stage as SwitchProgressStage,
                 targetModel: progress.targetModel,
             }
+            // 收到 loading 事件但不是手动切换 → 首次启动加载，记录开始时间
+            if (progress.stage === 'loading' && !isModelSwitching.value) {
+                switchProgress.value = {
+                    ...switchProgress.value,
+                    startTime: switchProgress.value.startTime || Date.now(),
+                }
+            }
         })
     }
 
@@ -497,7 +544,6 @@ export const useSettingsStore = defineStore('settings', () => {
         switchingModelDisplay,
         switchStartedAt,
         previousModelBeforeSwitch,
-        waitingForStatusReady,
         // Expose new switch progress state
         switchProgress,
         loadConfig,

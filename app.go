@@ -67,7 +67,6 @@ type App struct {
 	presetsMu        sync.RWMutex
 	currentModelMu   sync.RWMutex
 	currentModelName string
-	switchingMu      sync.Mutex
 	isSwitching      atomic.Bool
 	switchingTo      string
 	switchingToMu    sync.RWMutex
@@ -354,7 +353,7 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 		return
 	}
 
-	a.serverReady.Store(true)
+	a.isSwitching.Store(true)
 
 	a.presetsMu.RLock()
 	presetsSnapshot := make([]llm.ModelPreset, len(a.presets))
@@ -390,21 +389,43 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 	// 启动后自动加载默认模型
 	if modelForDetect != "" && a.client != nil {
 		zlog.Info().Str("model", modelForDetect).Msg("[server] auto-loading default model")
+		a.emitSwitchingStatus(modelForDetect)
+		a.emitSwitchProgress("loading", modelForDetect)
 		if err := a.client.LoadModel(ctx, modelForDetect); err != nil {
-			zlog.Error().Err(err).Str("model", modelForDetect).Msg("[server] auto-load default model failed")
-			// 通知前端模型加载失败，但服务器 HTTP 端点已就绪，用户仍可手动切换
-			runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
-				Running:      true,
-				CurrentModel: modelForDetect,
-				Error:        fmt.Sprintf("默认模型加载失败: %v（可手动切换模型）", err),
-			})
+			if isAlreadyRunningError(err) {
+				// 模型已在运行（llama-server 启动时自动加载了默认模型），视为成功
+				zlog.Info().Str("model", modelForDetect).Msg("[server] default model is already running")
+				a.emitSwitchProgress("done", modelForDetect)
+				a.serverReady.Store(true)
+			} else {
+				zlog.Error().Err(err).Str("model", modelForDetect).Msg("[server] auto-load default model failed")
+				a.emitSwitchProgress("failed", modelForDetect)
+				runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+					Running: false,
+					Error:   fmt.Sprintf("默认模型加载失败: %v（可手动切换模型）", err),
+				})
+			}
 		} else {
-			zlog.Info().Str("model", modelForDetect).Msg("[server] default model loaded successfully")
+			a.emitSwitchProgress("waiting", modelForDetect)
+			if err := a.client.WaitForModelLoaded(ctx, modelForDetect, 120*time.Second); err != nil {
+				zlog.Error().Err(err).Str("model", modelForDetect).Msg("[server] auto-load default model wait failed")
+				a.emitSwitchProgress("failed", modelForDetect)
+				runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+					Running: false,
+					Error:   fmt.Sprintf("默认模型加载超时: %v（可手动切换模型）", err),
+				})
+			} else {
+				zlog.Info().Str("model", modelForDetect).Msg("[server] default model loaded and ready")
+				a.emitSwitchProgress("done", modelForDetect)
+				a.serverReady.Store(true)
+			}
 		}
 	}
 
 	a.isSwitching.Store(false)
-	runtime.EventsEmit(ctx, "server:status", a.runningStatus())
+	if a.serverReady.Load() {
+		runtime.EventsEmit(ctx, "server:status", a.runningStatus())
+	}
 
 	watchCtx, watchCancel := context.WithCancel(ctx)
 	a.serverMu.Lock()
@@ -433,15 +454,34 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 		if err := a.service.DetectModelArchitectureForModel(modelForDetect2); err != nil {
 			zlog.Error().Err(err).Msg("detect model architecture after restart failed")
 		}
-		a.serverReady.Store(true)
-		// 重启后重新加载当前模型
+		// 重启后重新加载当前模型，加载完成后才设置 serverReady
 		if modelForDetect2 != "" && a.client != nil {
 			zlog.Info().Str("model", modelForDetect2).Msg("[server] reloading model after restart")
 			if err := a.client.LoadModel(ctx, modelForDetect2); err != nil {
-				zlog.Error().Err(err).Str("model", modelForDetect2).Msg("[server] reload model after restart failed")
+				if isAlreadyRunningError(err) {
+					zlog.Info().Str("model", modelForDetect2).Msg("[server] model is already running after restart")
+					a.serverReady.Store(true)
+					runtime.EventsEmit(ctx, "server:status", a.runningStatus())
+				} else {
+					zlog.Error().Err(err).Str("model", modelForDetect2).Msg("[server] reload model after restart failed")
+					runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+						Running: false,
+						Error:   fmt.Sprintf("重启后模型加载失败: %v", err),
+					})
+				}
+			} else if err := a.client.WaitForModelLoaded(ctx, modelForDetect2, 120*time.Second); err != nil {
+				zlog.Error().Err(err).Str("model", modelForDetect2).Msg("[server] reload model wait after restart failed")
+				runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+					Running: false,
+					Error:   fmt.Sprintf("重启后模型加载超时: %v", err),
+				})
 			} else {
-				zlog.Info().Str("model", modelForDetect2).Msg("[server] model reloaded after restart")
+				zlog.Info().Str("model", modelForDetect2).Msg("[server] model reloaded and ready after restart")
+				a.serverReady.Store(true)
+				runtime.EventsEmit(ctx, "server:status", a.runningStatus())
 			}
+		} else {
+			a.serverReady.Store(true)
 		}
 	})
 }
@@ -975,36 +1015,13 @@ func (a *App) SelectImageFile() (string, error) {
 }
 
 func (a *App) GetSearchAPIKeys() SearchAPIKeys {
-	keys := a.loadSearchAPIKeys()
-	// 返回掩码值给前端，不暴露实际密钥
-	return SearchAPIKeys{
-		OllamaAPIKey: maskAPIKey(keys.OllamaAPIKey),
-		TavilyAPIKey: maskAPIKey(keys.TavilyAPIKey),
-		GitHubAPIKey: maskAPIKey(keys.GitHubAPIKey),
-	}
-}
-
-// maskAPIKey 将 API Key 掩码化，只显示末4位
-// 空值返回空字符串，长度<=4 返回 "****"
-func maskAPIKey(key string) string {
-	if key == "" {
-		return ""
-	}
-	if len(key) <= 4 {
-		return "****"
-	}
-	return "****" + key[len(key)-4:]
-}
-
-// isMaskedValue 检查是否是掩码值（以 "****" 开头）
-func isMaskedValue(v string) bool {
-	return len(v) >= 4 && v[:4] == "****"
+	return a.loadSearchAPIKeys()
 }
 
 func (a *App) SetSearchAPIKeys(keys SearchAPIKeys) error {
 	setFn := func(dbKey, value string) error {
-		// 掩码值表示用户未修改，跳过更新
-		if isMaskedValue(value) {
+		// 空值表示用户未修改，跳过更新
+		if value == "" {
 			return nil
 		}
 		if a.encKey != nil {
@@ -1447,6 +1464,20 @@ func (a *App) generatePresetFile() error {
 	return nil
 }
 
+// findModelMatch 在模型状态映射中查找匹配的模型
+// 先精确匹配，再模糊匹配（排除 "default" 这种太通用的 ID）
+func findModelMatch(name string, statuses map[string]string) (bool, string) {
+	if status, ok := statuses[name]; ok {
+		return true, status
+	}
+	for id, status := range statuses {
+		if llm.FuzzyMatchModelID(id, name) {
+			return true, status
+		}
+	}
+	return false, ""
+}
+
 func (a *App) GetAvailableModels() ([]llm.ModelOption, error) {
 	a.presetsMu.RLock()
 	presetsCopy := make([]llm.ModelPreset, len(a.presets))
@@ -1455,12 +1486,10 @@ func (a *App) GetAvailableModels() ([]llm.ModelOption, error) {
 
 	options := make([]llm.ModelOption, 0, len(presetsCopy))
 
-	loadedModels := map[string]bool{}
 	modelStatuses := map[string]string{}
 	if a.client != nil && a.serverReady.Load() {
 		if models, err := a.client.GetModelsList(a.ctx); err == nil {
 			for _, m := range models {
-				loadedModels[m.ID] = true
 				modelStatuses[m.ID] = m.Status
 			}
 		}
@@ -1469,16 +1498,17 @@ func (a *App) GetAvailableModels() ([]llm.ModelOption, error) {
 	for _, p := range presetsCopy {
 		isDefault := p.Alias == "default"
 		fileName := filepath.Base(p.ModelPath)
+		isLoaded, status := findModelMatch(p.Name, modelStatuses)
 		options = append(options, llm.ModelOption{
 			Name:         p.Name,
 			ModelPath:    p.ModelPath,
 			FileName:     fileName,
 			IsDefault:    isDefault,
-			IsLoaded:     loadedModels[p.Name],
+			IsLoaded:     isLoaded,
 			MmprojVision: p.MmprojVision,
 			MmprojAudio:  p.MmprojAudio,
 			MmprojVideo:  p.MmprojVideo,
-			Status:       modelStatuses[p.Name],
+			Status:       status,
 		})
 	}
 
@@ -1532,14 +1562,14 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 	previousModel := a.switchPrepare(modelName)
 
 	// 加载新模型
-	alreadyRunning, loadErr := a.switchLoadModel(modelName, previousModel)
+	alreadyRunning, loadErr := a.switchLoadModel(modelName)
 	if loadErr != "" {
 		return a.handleSwitchFailure(modelName, previousModel, loadErr)
 	}
 
 	// 等待模型就绪（已运行的模型跳过）
 	if !alreadyRunning {
-		if waitErr := a.switchWaitReady(modelName, previousModel); waitErr != "" {
+		if waitErr := a.switchWaitReady(modelName); waitErr != "" {
 			return a.handleSwitchFailure(modelName, previousModel, waitErr)
 		}
 	}
@@ -1553,13 +1583,9 @@ func (a *App) switchPreCheck() string {
 	if a.server == nil || a.client == nil {
 		return "服务器未启动"
 	}
-	a.switchingMu.Lock()
-	if a.isSwitching.Load() {
-		a.switchingMu.Unlock()
+	if !a.isSwitching.CompareAndSwap(false, true) {
 		return "正在切换模型中，请稍候。"
 	}
-	a.isSwitching.Store(true)
-	a.switchingMu.Unlock()
 	return ""
 }
 
@@ -1586,19 +1612,20 @@ func (a *App) switchPrepare(modelName string) string {
 }
 
 // switchLoadModel 加载模型，返回 (是否已运行, 错误消息)
-func (a *App) switchLoadModel(modelName, _ string) (bool, string) {
+func (a *App) switchLoadModel(modelName string) (bool, string) {
 	loadErr := a.client.LoadModel(a.ctx, modelName)
 	if loadErr == nil {
+		// LoadModel 返回 200 仅表示开始加载，需要等待模型真正就绪
+		a.emitSwitchProgress("waiting", modelName)
+		if waitErr := a.client.WaitForModelLoaded(a.ctx, modelName, 120*time.Second); waitErr != nil {
+			return false, fmt.Sprintf("模型加载超时: %v", waitErr)
+		}
 		return false, ""
 	}
 
 	if isAlreadyRunningError(loadErr) {
-		// 模型已在运行，视为切换成功
+		// 模型已在运行，视为切换成功（后续 switchFinalize 会发送 done 事件）
 		zlog.Info().Str("model", modelName).Msg("[router] model is already running, treating as switch success")
-		a.emitSwitchProgress("done", modelName)
-		a.currentModelMu.Lock()
-		a.currentModelName = modelName
-		a.currentModelMu.Unlock()
 		return true, ""
 	}
 
@@ -1606,15 +1633,8 @@ func (a *App) switchLoadModel(modelName, _ string) (bool, string) {
 }
 
 // switchWaitReady 等待模型就绪（含 mmproj 回退检测）
-func (a *App) switchWaitReady(modelName, _ string) string {
-	waitCtx, waitCancel := context.WithTimeout(a.ctx, 120*time.Second)
-	defer waitCancel()
-
-	if err := a.client.WaitForModelLoaded(waitCtx, modelName, 120*time.Second); err != nil {
-		zlog.Error().Err(err).Str("model", modelName).Msg("[router] WaitForModelLoaded failed")
-		return fmt.Sprintf("模型加载超时: %v", err)
-	}
-
+// 注意：不需要在此调用 WaitForModelLoaded，因为调用方 switchLoadModel 已确保模型加载完成
+func (a *App) switchWaitReady(modelName string) string {
 	// 等待 mmproj 等后加载初始化完成
 	// 使用指数退避：200ms → 300ms → 500ms → 800ms
 	propsCtx, propsCancel := context.WithTimeout(a.ctx, 15*time.Second)
@@ -1678,9 +1698,6 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 		}
 	}
 
-	// 发射等待阶段事件
-	a.emitSwitchProgress("waiting", modelName)
-
 	// 检测模型架构
 	a.service.SetDetectedModelName(modelName)
 	if err := a.service.DetectModelArchitectureForModel(modelName); err != nil {
@@ -1701,9 +1718,7 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 	a.serverReady.Store(true)
 
 	// 清除切换状态
-	a.switchingMu.Lock()
 	a.isSwitching.Store(false)
-	a.switchingMu.Unlock()
 	a.switchingToMu.Lock()
 	a.switchingTo = ""
 	a.switchingToMu.Unlock()
@@ -1735,7 +1750,7 @@ func (a *App) handleSwitchFailure(modelName, previousModel, errMsg string) Switc
 	rollbackSuccess := false
 	if previousModel != "" && previousModel != modelName {
 		zlog.Info().Str("model", previousModel).Msg("[router] attempting to restore model")
-		restoreCtx, restoreCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		restoreCtx, restoreCancel := context.WithTimeout(a.ctx, 30*time.Second)
 		if restoreErr := a.client.LoadModel(restoreCtx, previousModel); restoreErr == nil {
 			_ = a.client.WaitForModelLoaded(restoreCtx, previousModel, 30*time.Second)
 			a.currentModelMu.Lock()
@@ -1760,9 +1775,7 @@ func (a *App) handleSwitchFailure(modelName, previousModel, errMsg string) Switc
 	}
 
 	// 回滚完成后再清除 isSwitching
-	a.switchingMu.Lock()
 	a.isSwitching.Store(false)
-	a.switchingMu.Unlock()
 
 	return SwitchResult{
 		Error:           errMsg,

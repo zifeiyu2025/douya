@@ -78,7 +78,7 @@
             v-model:value="searchKeys.ollama_api_key"
             type="password"
             show-password-on="click"
-            placeholder="留空保持不变，输入新值则覆盖"
+            placeholder="输入新的 API Key 以覆盖保存"
             @blur="saveSearchKeys"
           />
         </n-form-item>
@@ -88,7 +88,7 @@
             v-model:value="searchKeys.tavily_api_key"
             type="password"
             show-password-on="click"
-            placeholder="留空保持不变，输入新值则覆盖"
+            placeholder="输入新的 API Key 以覆盖保存"
             @blur="saveSearchKeys"
           />
         </n-form-item>
@@ -98,7 +98,7 @@
             v-model:value="searchKeys.github_api_key"
             type="password"
             show-password-on="click"
-            placeholder="留空保持不变，输入新值则覆盖"
+            placeholder="输入新的 API Key 以覆盖保存"
             @blur="saveSearchKeys"
           />
         </n-form-item>
@@ -440,7 +440,18 @@ const searchKeys = ref<SearchAPIKeys>({
 })
 
 function saveSearchKeys() {
-    settingsStore.saveSearchAPIKeys(searchKeys.value)
+    // 只发送非空的 key，空值表示不更新
+    const keysToUpdate: Partial<SearchAPIKeys> = {}
+    if (searchKeys.value.ollama_api_key) {
+        keysToUpdate.ollama_api_key = searchKeys.value.ollama_api_key
+    }
+    if (searchKeys.value.tavily_api_key) {
+        keysToUpdate.tavily_api_key = searchKeys.value.tavily_api_key
+    }
+    if (searchKeys.value.github_api_key) {
+        keysToUpdate.github_api_key = searchKeys.value.github_api_key
+    }
+    settingsStore.saveSearchAPIKeys(keysToUpdate)
 }
 
 const serverApiKey = ref('')
@@ -472,138 +483,180 @@ interface ModelRefConfig {
 
 const MODEL_REFS: Record<string, ModelRefConfig> = {
   'qwen3.5-9b': {
-    name: 'Qwen3.5U-9B',
-    raw: { temperature: 0.6, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
-    raw_thinking: { temperature: 0.8, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    name: 'Qwen3.5-9B',
+    raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: { temperature: 1.0, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
     params: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 128K (YaRN)' },
-      { label: '温度', value: '0.6 (非思考)' },
-      { label: 'Top P', value: '0.95' },
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K / YaRN 扩展 1M' },
+      { label: '温度', value: '0.7 (非思考/常规)' },
+      { label: 'Top P', value: '0.8 (非思考)' },
       { label: 'Top K', value: '20' },
       { label: '重复惩罚', value: '1.0' },
-      { label: '量化格式', value: 'Q4_K_M (~5.4GB VRAM)' },
-      { label: '参数量', value: '~9B' },
+      { label: '参数量', value: '~9B (Dense)' },
     ],
     params_thinking: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 128K (YaRN)' },
-      { label: '温度', value: '0.8 (思考模式)' },
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K / YaRN 扩展 1M' },
+      { label: '温度', value: '1.0 (思考模式/常规)' },
       { label: 'Top P', value: '0.95' },
       { label: 'Top K', value: '20' },
       { label: '重复惩罚', value: '1.0' },
-      { label: '量化格式', value: 'Q4_K_M (~5.4GB VRAM)' },
-      { label: '参数量', value: '~9B' },
+      { label: '参数量', value: '~9B (Dense)' },
     ],
-    note: 'Qwen3.5U 原生上下文 32K，通过 YaRN 扩展可达 128K。非思考模式建议 temperature=0.6，思考模式建议 temperature=0.8',
+    note: 'Qwen3.5-9B 官方推荐：非思考模式 temperature=0.7/top_p=0.8，思考模式 temperature=1.0/top_p=0.95。编码任务建议 temperature=0.6',
   },
   'gemma-4-e4b': {
     name: 'Gemma4-E4B',
-    raw: { temperature: 1.0, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
-    raw_thinking: { temperature: 1.0, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 32768, repeat_penalty: 1.0 },
     params: [
       { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
-      { label: '温度', value: '1.0 (非思考)' },
+      { label: '温度', value: '1.0 (Google 官方推荐)' },
       { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '20' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '量化格式', value: 'Q4_K_M (~5.1GB VRAM)' },
-      { label: '参数量', value: '~7.5B (E4B 架构)' },
+      { label: 'Top K', value: '64' },
+      { label: '重复惩罚', value: '1.0 (不建议开启)' },
+      { label: '参数量', value: '~8B (有效 4.5B)' },
     ],
     params_thinking: [
       { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
-      { label: '温度', value: '1.0 (思考模式)' },
+      { label: '温度', value: '1.0 (Google 官方推荐)' },
       { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '20' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '量化格式', value: 'Q4_K_M (~5.1GB VRAM)' },
-      { label: '参数量', value: '~7.5B (E4B 架构)' },
+      { label: 'Top K', value: '64' },
+      { label: '重复惩罚', value: '1.0 (不建议开启)' },
+      { label: '参数量', value: '~8B (有效 4.5B)' },
     ],
-    note: 'Gemma4 E4B 最大支持 128K 上下文，Google 官方推荐 temperature=1.0，建议 context_size=32K 以获得最佳体验',
+    note: 'Gemma4 E4B 端侧模型，Google 官方推荐 temperature=1.0、top_k=64，不建议开启重复惩罚',
   },
   'gemma-4-12b': {
     name: 'Gemma4-12B',
-    raw: { temperature: 1.0, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
-    raw_thinking: { temperature: 1.0, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 32768, repeat_penalty: 1.0 },
     params: [
       { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
-      { label: '温度', value: '1.0 (非思考)' },
+      { label: '温度', value: '1.0 (Google 官方推荐)' },
       { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '20' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '量化格式', value: 'Q4_K_M (~8GB VRAM)' },
-      { label: '参数量', value: '~12B' },
+      { label: 'Top K', value: '64' },
+      { label: '重复惩罚', value: '1.0 (不建议开启)' },
+      { label: '参数量', value: '~12B (Dense)' },
     ],
     params_thinking: [
       { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
-      { label: '温度', value: '1.0 (思考模式)' },
+      { label: '温度', value: '1.0 (Google 官方推荐)' },
       { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '20' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '量化格式', value: 'Q4_K_M (~8GB VRAM)' },
-      { label: '参数量', value: '~12B' },
+      { label: 'Top K', value: '64' },
+      { label: '重复惩罚', value: '1.0 (不建议开启)' },
+      { label: '参数量', value: '~12B (Dense)' },
     ],
-    note: 'Gemma4 12B 最大支持 128K 上下文，Google 官方推荐 temperature=1.0，建议 context_size=32K 以获得最佳体验',
+    note: 'Gemma4 12B Unified 模型，Google 官方推荐 temperature=1.0、top_k=64，不建议开启重复惩罚',
   },
-  'gemma-4-27b': {
-    name: 'Gemma4-27B',
-    raw: { temperature: 1.0, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
-    raw_thinking: { temperature: 1.0, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+  'gemma-4-e2b': {
+    name: 'Gemma4-E2B',
+    raw: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 32768, repeat_penalty: 1.0 },
     params: [
       { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
-      { label: '温度', value: '1.0 (非思考)' },
+      { label: '温度', value: '1.0 (Google 官方推荐)' },
       { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '20' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '量化格式', value: 'Q4_K_M (~16GB VRAM)' },
-      { label: '参数量', value: '~27B' },
+      { label: 'Top K', value: '64' },
+      { label: '重复惩罚', value: '1.0 (不建议开启)' },
+      { label: '参数量', value: '~5.1B (有效 2.3B)' },
     ],
     params_thinking: [
       { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
-      { label: '温度', value: '1.0 (思考模式)' },
+      { label: '温度', value: '1.0 (Google 官方推荐)' },
       { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '20' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '量化格式', value: 'Q4_K_M (~16GB VRAM)' },
-      { label: '参数量', value: '~27B' },
+      { label: 'Top K', value: '64' },
+      { label: '重复惩罚', value: '1.0 (不建议开启)' },
+      { label: '参数量', value: '~5.1B (有效 2.3B)' },
     ],
-    note: 'Gemma4 27B 最大支持 128K 上下文，Google 官方推荐 temperature=1.0，建议 context_size=32K 以获得最佳体验',
+    note: 'Gemma4 E2B 端侧模型，Google 官方推荐 temperature=1.0、top_k=64，不建议开启重复惩罚',
+  },
+  'gemma-4-26b': {
+    name: 'Gemma4-26B-A4B',
+    raw: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 32768, repeat_penalty: 1.0 },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K' },
+      { label: '温度', value: '1.0 (Google 官方推荐)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '64' },
+      { label: '重复惩罚', value: '1.0 (不建议开启)' },
+      { label: '参数量', value: '~25.2B (MoE, 激活 3.8B)' },
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K' },
+      { label: '温度', value: '1.0 (Google 官方推荐)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '64' },
+      { label: '重复惩罚', value: '1.0 (不建议开启)' },
+      { label: '参数量', value: '~25.2B (MoE, 激活 3.8B)' },
+    ],
+    note: 'Gemma4 26B MoE 架构，激活参数仅 3.8B，Google 官方推荐 temperature=1.0、top_k=64',
+  },
+  'gemma-4-31b': {
+    name: 'Gemma4-31B',
+    raw: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 32768, repeat_penalty: 1.0 },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K' },
+      { label: '温度', value: '1.0 (Google 官方推荐)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '64' },
+      { label: '重复惩罚', value: '1.0 (不建议开启)' },
+      { label: '参数量', value: '~30.7B (Dense)' },
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K' },
+      { label: '温度', value: '1.0 (Google 官方推荐)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '64' },
+      { label: '重复惩罚', value: '1.0 (不建议开启)' },
+      { label: '参数量', value: '~30.7B (Dense)' },
+    ],
+    note: 'Gemma4 31B Dense 架构，Google 官方推荐 temperature=1.0、top_k=64，不建议开启重复惩罚',
   },
   'qwen3.5-9b-deepseek': {
     name: 'Qwen3.5-9B-DeepSeek-V4-Flash',
-    raw: { temperature: 0.6, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
-    raw_thinking: { temperature: 0.8, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: { temperature: 1.0, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
     params: [
       { label: '上下文长度', value: '32K (推荐) / 最大 1M' },
-      { label: '温度', value: '0.6 (非思考)' },
-      { label: 'Top P', value: '0.95' },
+      { label: '温度', value: '0.7 (非思考/常规)' },
+      { label: 'Top P', value: '0.8 (非思考)' },
       { label: 'Top K', value: '20' },
       { label: '重复惩罚', value: '1.0' },
-      { label: '量化格式', value: 'Q4_K_M (~5.4GB VRAM)' },
-      { label: '参数量', value: '~9B' },
+      { label: '参数量', value: '~9B (Dense)' },
     ],
     params_thinking: [
       { label: '上下文长度', value: '32K (推荐) / 最大 1M' },
-      { label: '温度', value: '0.8 (思考模式)' },
+      { label: '温度', value: '1.0 (思考模式/常规)' },
       { label: 'Top P', value: '0.95' },
       { label: 'Top K', value: '20' },
       { label: '重复惩罚', value: '1.0' },
-      { label: '量化格式', value: 'Q4_K_M (~5.4GB VRAM)' },
-      { label: '参数量', value: '~9B' },
+      { label: '参数量', value: '~9B (Dense)' },
     ],
-    note: 'DeepSeek-V4-Flash 蒸馏版，原生支持 1M 上下文，本地受限于显存推荐 32K',
+    note: 'DeepSeek-V4-Flash 蒸馏版，采样参数与 Qwen3.5-9B 一致',
   },
   'qwen3.5-9b-glm': {
     name: 'Qwen3.5-9B-GLM5.1-Distill-v1',
-    raw: { temperature: 0.6, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: { temperature: 1.0, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
     params: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
-      { label: '温度', value: '0.6' },
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K / YaRN 扩展' },
+      { label: '温度', value: '0.7 (非思考/常规)' },
+      { label: 'Top P', value: '0.8 (非思考)' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~9B (Dense)' },
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K / YaRN 扩展' },
+      { label: '温度', value: '1.0 (思考模式/常规)' },
       { label: 'Top P', value: '0.95' },
       { label: 'Top K', value: '20' },
       { label: '重复惩罚', value: '1.0' },
-      { label: '量化格式', value: 'Q4_K_M (~5.4GB VRAM)' },
-      { label: '参数量', value: '~9B' },
+      { label: '参数量', value: '~9B (Dense)' },
     ],
-    note: 'GLM5.1 蒸馏版，纯文本模型，不支持多模态输入',
+    note: 'GLM5.1 蒸馏版，采样参数与 Qwen3.5-9B 一致',
   },
   'llama-3.1-8b': {
     name: 'Llama 3.1 8B',
@@ -828,6 +881,28 @@ const MODEL_REFS: Record<string, ModelRefConfig> = {
       { label: '参数量', value: '~14B' },
     ],
     note: 'Phi-4-Reasoning 推理增强版，思考模式为 Reasoning 类型',
+  },
+  'qwen3.6': {
+    name: 'Qwen3.6-35B-A3B',
+    raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: { temperature: 1.0, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K / YaRN 扩展' },
+      { label: '温度', value: '0.7 (非思考/常规)' },
+      { label: 'Top P', value: '0.8 (非思考)' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~35B (MoE, 激活 3B)' },
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K / YaRN 扩展' },
+      { label: '温度', value: '1.0 (思考模式/常规)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~35B (MoE, 激活 3B)' },
+    ],
+    note: 'Qwen3.6 MoE 架构，35B 总参数仅激活 3B，采样参数与 Qwen3.5 一致',
   },
   'qwen2.5': {
     name: 'Qwen2.5',
