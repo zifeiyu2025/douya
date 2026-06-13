@@ -26,13 +26,8 @@
           <div v-if="message.content" class="user-text">{{ message.content }}</div>
         </template>
         <template v-else>
-          <template v-if="!message.content && message.thinking_content">
-            <div class="markdown-body" v-html="renderedThinkingAsContent" />
-          </template>
-          <template v-else>
-            <ThinkBlock v-if="message.thinking_content" :content="message.thinking_content" :duration="message.thinking_duration" />
-            <div class="markdown-body" v-html="renderedContent" />
-          </template>
+          <ThinkBlock v-if="message.thinking_content" :content="message.thinking_content" :duration="message.thinking_duration" />
+          <div class="markdown-body" v-html="renderedContent" />
           <SearchStatus v-if="hasSearchResults" :searching="false" :results="message.search_results" :default-expanded="false" />
         </template>
       </div>
@@ -142,23 +137,26 @@ const nonImageAttachments = computed<AttachmentSummary[]>(() => {
   if (!props.message.attachments || !Array.isArray(props.message.attachments)) return []
   return props.message.attachments.filter(a => a.type !== 'image')
 })
-const renderedContent = computed(() => {
-  let html = renderMarkdown(props.message.content)
-  if (hasSearchResults.value) {
-    html = linkCitations(html, props.message.search_results)
-  }
-  return html
-})
 
-// 当 content 为空但 thinking_content 不为空时，将 thinking_content 作为正文渲染
-const renderedThinkingAsContent = computed(() => {
-  if (!props.message.thinking_content) return ''
-  let html = renderMarkdown(props.message.thinking_content)
-  if (hasSearchResults.value) {
-    html = linkCitations(html, props.message.search_results)
+// remark 是异步的，使用 ref + watch 模式
+const renderedContent = ref('')
+
+watch(() => props.message.content, async (newContent) => {
+  if (!newContent) {
+    renderedContent.value = ''
+    return
   }
-  return html
-})
+  try {
+    let html = await renderMarkdown(newContent)
+    if (hasSearchResults.value) {
+      html = linkCitations(html, props.message.search_results)
+    }
+    renderedContent.value = html
+  } catch (_) {
+    renderedContent.value = newContent
+  }
+}, { immediate: true })
+
 const isLastAIMessage = computed(() => {
   return chatStore.lastAIMessageId === props.message.id
 })
@@ -198,8 +196,11 @@ async function copyContent() {
   try {
     const markdownEl = rootRef.value?.querySelector('.markdown-body') as HTMLElement | null
     if (markdownEl) {
-      const htmlBlob = new Blob([markdownEl.innerHTML], { type: 'text/html' })
-      const textBlob = new Blob([markdownEl.innerText], { type: 'text/plain' })
+      // 克隆 DOM，移除代码头部（语言标签和复制按钮），只保留纯正文
+      const clone = markdownEl.cloneNode(true) as HTMLElement
+      clone.querySelectorAll('.code-header').forEach(el => el.remove())
+      const htmlBlob = new Blob([clone.innerHTML], { type: 'text/html' })
+      const textBlob = new Blob([clone.innerText], { type: 'text/plain' })
       await navigator.clipboard.write([
         new ClipboardItem({
           'text/html': htmlBlob,

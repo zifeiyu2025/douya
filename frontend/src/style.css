@@ -555,168 +555,92 @@ html, body, #app {
   text-align: center;
 }
 
+/* highlight.js 代码高亮主题 - 亮色模式在 markdown.ts 中导入 */
+/* github.css (亮色) */
+
+/* 项目自定义的代码块样式 */
 .hljs {
-  background: var(--bg-code);
+  background: var(--bg-code) !important;
   border-radius: var(--border-radius-sm);
-  color: #1e1e1e;
-}
-.hljs-keyword,
-.hljs-template-tag,
-.hljs-template-variable,
-.hljs-variable.language_ {
-  color: #0000ff;
-}
-.hljs-type {
-  color: #267f99;
-}
-.hljs-title,
-.hljs-title.function_ {
-  color: #795e26;
-}
-.hljs-title.class_ {
-  color: #267f99;
-}
-.hljs-number,
-.hljs-literal {
-  color: #098658;
-}
-.hljs-attr,
-.hljs-attribute,
-.hljs-selector-attr,
-.hljs-selector-class,
-.hljs-selector-id {
-  color: #e50000;
-}
-.hljs-variable,
-.hljs-meta {
-  color: #001080;
-}
-.hljs-operator {
-  color: #1e1e1e;
-}
-.hljs-regexp,
-.hljs-string,
-.hljs-meta .hljs-string {
-  color: #a31515;
-}
-.hljs-built_in,
-.hljs-symbol {
-  color: #267f99;
-}
-.hljs-comment,
-.hljs-code,
-.hljs-formula {
-  color: #008000;
-}
-.hljs-name,
-.hljs-selector-tag,
-.hljs-selector-pseudo {
-  color: #800000;
-}
-.hljs-quote {
-  color: #098658;
-}
-.hljs-subst {
-  color: #1e1e1e;
-}
-.hljs-section {
-  color: #0000ff;
-  font-weight: bold;
-}
-.hljs-bullet {
-  color: #098658;
-}
-.hljs-emphasis {
-  font-style: italic;
-}
-.hljs-strong {
-  font-weight: bold;
-}
-.hljs-addition {
-  color: #098658;
-  background-color: #e6ffed;
-}
-.hljs-deletion {
-  color: #a31515;
-  background-color: #ffeef0;
 }
 
+/* 暗色模式：覆盖为 GitHub Dark 主题配色 */
 .dark .hljs {
-  color: #d4d4d4;
+  color: #c9d1d9;
+  background: var(--bg-code) !important;
 }
+.dark .hljs-doctag,
 .dark .hljs-keyword,
+.dark .hljs-meta .hljs-keyword,
 .dark .hljs-template-tag,
 .dark .hljs-template-variable,
+.dark .hljs-type,
 .dark .hljs-variable.language_ {
-  color: #569cd6;
-}
-.dark .hljs-type {
-  color: #4ec9b0;
+  color: #ff7b72;
 }
 .dark .hljs-title,
+.dark .hljs-title.class_,
+.dark .hljs-title.class_.inherited__,
 .dark .hljs-title.function_ {
-  color: #dcdcaa;
-}
-.dark .hljs-title.class_ {
-  color: #4ec9b0;
-}
-.dark .hljs-number,
-.dark .hljs-literal {
-  color: #b5cea8;
+  color: #d2a8ff;
 }
 .dark .hljs-attr,
 .dark .hljs-attribute,
+.dark .hljs-literal,
+.dark .hljs-meta,
+.dark .hljs-number,
+.dark .hljs-operator,
+.dark .hljs-variable,
 .dark .hljs-selector-attr,
 .dark .hljs-selector-class,
 .dark .hljs-selector-id {
-  color: #9cdcfe;
-}
-.dark .hljs-variable,
-.dark .hljs-meta {
-  color: #9cdcfe;
-}
-.dark .hljs-operator {
-  color: #d4d4d4;
+  color: #79c0ff;
 }
 .dark .hljs-regexp,
 .dark .hljs-string,
 .dark .hljs-meta .hljs-string {
-  color: #ce9178;
+  color: #a5d6ff;
 }
 .dark .hljs-built_in,
 .dark .hljs-symbol {
-  color: #4ec9b0;
+  color: #ffa657;
 }
 .dark .hljs-comment,
 .dark .hljs-code,
 .dark .hljs-formula {
-  color: #6a9955;
+  color: #8b949e;
 }
 .dark .hljs-name,
+.dark .hljs-quote,
 .dark .hljs-selector-tag,
 .dark .hljs-selector-pseudo {
-  color: #569cd6;
-}
-.dark .hljs-quote {
-  color: #b5cea8;
+  color: #7ee787;
 }
 .dark .hljs-subst {
-  color: #d4d4d4;
+  color: #c9d1d9;
 }
 .dark .hljs-section {
-  color: #569cd6;
+  color: #1f6feb;
   font-weight: bold;
 }
 .dark .hljs-bullet {
-  color: #b5cea8;
+  color: #f2cc60;
+}
+.dark .hljs-emphasis {
+  color: #c9d1d9;
+  font-style: italic;
+}
+.dark .hljs-strong {
+  color: #c9d1d9;
+  font-weight: bold;
 }
 .dark .hljs-addition {
-  color: #b5cea8;
-  background-color: #1a3a1a;
+  color: #aff5b4;
+  background-color: #033a16;
 }
 .dark .hljs-deletion {
-  color: #ce9178;
-  background-color: #3a1a1a;
+  color: #ffdcd7;
+  background-color: #67060c;
 }
 
 @keyframes spin {

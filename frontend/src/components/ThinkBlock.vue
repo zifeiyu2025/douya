@@ -10,15 +10,17 @@
       <span v-else>思考过程</span>
     </div>
     <div v-if="expanded" class="think-block-content">
-      {{ cleanedContent }}
+      <div class="think-block-content-inner markdown-body" v-html="renderedContent" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { NIcon } from 'naive-ui'
 import { ChevronForwardOutline, BulbOutline } from '@vicons/ionicons5'
+import { renderMarkdown } from '../utils/markdown'
+import { cleanStreamingContent } from '../utils/streaming'
 
 const props = defineProps<{
   content: string
@@ -40,6 +42,21 @@ const cleanedContent = computed(() => {
     .join('\n')
     .trim()
 })
+
+// remark 是异步的，使用 ref + watch 模式
+const renderedContent = ref('')
+
+watch(cleanedContent, async (newVal) => {
+  if (!newVal) {
+    renderedContent.value = ''
+    return
+  }
+  try {
+    renderedContent.value = await renderMarkdown(cleanStreamingContent(newVal))
+  } catch (_) {
+    renderedContent.value = newVal
+  }
+}, { immediate: true })
 
 const duration = computed(() => props.duration ?? 0)
 
@@ -107,7 +124,6 @@ const formattedDuration = computed(() => {
   font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.65;
-  white-space: pre-wrap;
 }
 
 .thinking-dots span {

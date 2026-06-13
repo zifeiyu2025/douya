@@ -60,14 +60,9 @@
         </div>
         <div class="message-bubble-wrapper">
           <div class="message-bubble ai-bubble">
-            <template v-if="thinkingAsContent">
-              <div class="markdown-body" v-html="renderedThinkingAsContent" />
-            </template>
-            <template v-else>
-              <ThinkBlock v-if="thinkingContent" :content="thinkingContent" :default-expanded="true" :is-thinking="isThinking" :duration="thinkingDuration" />
-              <div v-if="streamingContent" class="markdown-body" v-html="renderedStreaming" />
-              <n-spin v-else-if="!thinkingContent && !isSearching" size="small" />
-            </template>
+            <ThinkBlock v-if="thinkingContent" :content="thinkingContent" :default-expanded="true" :is-thinking="isThinking" :duration="thinkingDuration" />
+            <div v-if="streamingContent" class="markdown-body" v-html="renderedStreaming" />
+            <n-spin v-else-if="!thinkingContent && !isSearching" size="small" />
             <SearchStatus v-if="isSearching" :searching="true" :results="''" :query="searchQuery" />
             <SearchStatus v-else-if="searchResults" :searching="false" :results="searchResults" :default-expanded="true" />
             <ContextTrimmed :data="contextTrimmed" />
@@ -88,6 +83,7 @@ import ContextTrimmed from './ContextTrimmed.vue'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import { renderMarkdownStreaming } from '../utils/markdown'
+import { cleanStreamingContent } from '../utils/streaming'
 import { formatModelName } from '../utils/model'
 import { bindCodeCopyButtons } from '../utils/codeCopy'
 import defaultAiAvatar from '../assets/images/appicon.png'
@@ -126,16 +122,6 @@ const isThinking = computed(() => chatStore.isThinking)
 const thinkingDuration = computed(() => chatStore.thinkingDuration)
 const searchQuery = computed(() => chatStore.searchQuery)
 const contextTrimmed = computed(() => chatStore.contextTrimmed)
-
-// 当思考完成且正文为空时，将思考内容作为正文展示（纯前端展示优化，不干预引擎输出）
-const thinkingAsContent = computed(() => {
-  return !isThinking.value && thinkingContent.value && !streamingContent.value
-})
-
-const renderedThinkingAsContent = computed(() => {
-  if (!thinkingAsContent.value || !thinkingContent.value) return ''
-  return renderMarkdownStreaming(thinkingContent.value)
-})
 
 const isSwitching = computed(() => settingsStore.isModelSwitching)
 const switchingToModel = computed(() => {
@@ -182,16 +168,21 @@ function getSwitchProgressText(): string {
 }
 
 // PERF-003: throttle 流式 Markdown 渲染，减少高频 token 更新时的渲染开销
-// 使用节流而非防抖：防抖在内容变长后会导致渲染无限延迟（token 积压 → 一次性全显示）
+// remark 是异步的，doRender 改为 async
 const renderedStreaming = ref('')
 let renderTimer: ReturnType<typeof setTimeout> | null = null
 let lastRenderTime = 0
 let pendingContent = ''
 let isRendering = false
 
-function doRender(content: string) {
+async function doRender(content: string) {
   isRendering = true
-  renderedStreaming.value = renderMarkdownStreaming(content)
+  try {
+    const cleaned = cleanStreamingContent(content)
+    renderedStreaming.value = await renderMarkdownStreaming(cleaned)
+  } catch (_) {
+    renderedStreaming.value = ''
+  }
   lastRenderTime = Date.now()
   isRendering = false
 }
@@ -242,6 +233,27 @@ const messageListRef = ref<HTMLElement | null>(null)
 onMounted(() => {
     const el = messageListRef.value
     if (el) bindCodeCopyButtons(el)
+
+    // 主流方案：使用 ResizeObserver 统一管理滚动行为
+    // 监听消息列表高度变化，仅当用户原本在底部时才跟随滚动到底
+    // 避免多次 nextTick 强制滚动导致的"乱跳"问题
+    if (el && typeof ResizeObserver !== 'undefined') {
+        let rafId: number | null = null
+        const ro = new ResizeObserver(() => {
+            if (rafId !== null) return
+            rafId = requestAnimationFrame(() => {
+                rafId = null
+                if (isNearBottom()) {
+                    el.scrollTop = el.scrollHeight
+                }
+            })
+        })
+        ro.observe(el)
+        onUnmounted(() => {
+            if (rafId !== null) cancelAnimationFrame(rafId)
+            ro.disconnect()
+        })
+    }
 })
 
 const scrollToBottom = () => {
@@ -257,38 +269,19 @@ const isNearBottom = () => {
   return el.scrollHeight - el.scrollTop - el.clientHeight < 100
 }
 
-// 监听消息变化 - 新增消息时总是滚动到底部
+// 监听消息变化 - 新增消息时总是滚动到底部（保持向后兼容）
 watch(() => chatStore.messages?.length, (newLen, oldLen) => {
   if (newLen > oldLen) {
-    // 消息数量增加，说明有新消息，总是滚动到底部
-    nextTick(scrollToBottom)
-  } else if (isNearBottom()) {
-    // 其他情况下只有在底部时才滚动
     nextTick(scrollToBottom)
   }
 })
 
-// 监听消息内容变化（done 事件更新数据库消息后需要重新滚动）
-watch(() => chatStore.messages, () => {
-  if (isNearBottom()) {
-    nextTick(scrollToBottom)
-  }
-}, { deep: false })
-
+// 流式内容变化时仅做代码块按钮重新绑定（滚动由 ResizeObserver 统一管理）
 watch(() => chatStore.streamingContent, () => {
-  if (isNearBottom()) {
-    nextTick(() => {
-      scrollToBottom()
-      const el = messageListRef.value
-      if (el) bindCodeCopyButtons(el)
-    })
-  }
-})
-
-watch(() => chatStore.thinkingContent, () => {
-  if (isNearBottom()) {
-    nextTick(scrollToBottom)
-  }
+  nextTick(() => {
+    const el = messageListRef.value
+    if (el) bindCodeCopyButtons(el)
+  })
 })
 
 watch(() => chatStore.lastError, (err) => {
