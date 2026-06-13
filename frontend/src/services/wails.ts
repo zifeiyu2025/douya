@@ -107,6 +107,7 @@ export interface Config {
     cache_type_v: string
     spec_type: string
     spec_draft_n_max: number
+    spec_draft_n_min: number
     cache_type_k_draft: string
     cache_type_v_draft: string
     server_api_key_enabled: boolean
@@ -160,6 +161,7 @@ export const DEFAULT_CONFIG: Config = {
     cache_type_v: '',
     spec_type: '',
     spec_draft_n_max: 0,
+    spec_draft_n_min: 0,
     cache_type_k_draft: '',
     cache_type_v_draft: '',
     server_api_key_enabled: true,

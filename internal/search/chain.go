@@ -122,63 +122,13 @@ func (c *SearchChain) DeepSearch(ctx context.Context, query string, category str
 }
 
 func (c *SearchChain) deepSearchInternal(ctx context.Context, query string, category string, deep bool) *SearchResponse {
-	if !deep {
-		var lastError error
-		for _, pw := range c.providers {
-			if len(pw.Categories) > 0 {
-				matched := false
-				for _, cat := range pw.Categories {
-					if cat == category {
-						matched = true
-						break
-					}
-				}
-				if !matched {
-					continue
-				}
-			}
-
-			if !pw.canAttempt() {
-				continue
-			}
-
-			resp, err := pw.Provider.Search(ctx, query)
-			if err != nil {
-				pw.recordFailure()
-				lastError = err
-				continue
-			}
-
-			pw.recordSuccess()
-			if len(resp.Results) > 0 {
-				return resp
-			}
-		}
-
-		if lastError != nil {
-			return &SearchResponse{
-				Engine: "none",
-				Error:  fmt.Sprintf("all search providers failed or returned no results: %v", lastError),
-			}
-		}
-		return &SearchResponse{
-			Engine: "none",
-			Error:  fmt.Sprintf("no search results found for query: %s", query),
-		}
-	}
-
-	type providerResult struct {
-		resp    *SearchResponse
-		err     error
-		provider string
-	}
-
 	opts := SearchOpts{
-		MaxResults:       10,
-		IncludeAnswer:    true,
+		MaxResults:        10,
+		IncludeAnswer:     true,
 		IncludeRawContent: false,
 	}
 
+	// 收集该 category 下所有可用的 provider
 	var eligible []*ProviderWithCircuit
 	for _, pw := range c.providers {
 		if len(pw.Categories) > 0 {
@@ -198,6 +148,106 @@ func (c *SearchChain) deepSearchInternal(ctx context.Context, query string, cate
 		}
 	}
 
+	if len(eligible) == 0 {
+		return &SearchResponse{
+			Engine: "none",
+			Error:  fmt.Sprintf("no search providers available for query: %s", query),
+		}
+	}
+
+	// deep=false：按顺序串行调用，凑够 MaxResults 条或所有 provider 都调完
+	// deep=true：所有 provider 并发调用后合并去重
+	if !deep {
+		return c.serialSearchWithDedup(ctx, query, eligible, opts)
+	}
+	return c.deepParallelSearchWithDedup(ctx, query, eligible, opts)
+}
+
+// serialSearchWithDedup 串行调用多个 provider，结果按 URL 去重，直到达到 MaxResults 或遍历完所有 provider
+func (c *SearchChain) serialSearchWithDedup(ctx context.Context, query string, eligible []*ProviderWithCircuit, opts SearchOpts) *SearchResponse {
+	urlMap := make(map[string]*SearchResult)
+	var engines []string
+
+	for _, pw := range eligible {
+		select {
+		case <-ctx.Done():
+			return &SearchResponse{
+				Engine: "cancelled",
+				Error:  fmt.Sprintf("search cancelled: %v", ctx.Err()),
+			}
+		default:
+		}
+
+		resp, err := pw.Provider.SearchWithOpts(ctx, query, opts)
+		if err != nil {
+			pw.recordFailure()
+			continue
+		}
+		pw.recordSuccess()
+		if resp == nil || len(resp.Results) == 0 {
+			continue
+		}
+		engines = append(engines, pw.Provider.Name())
+
+		for i := range resp.Results {
+			r := &resp.Results[i]
+			normalizedURL := normalizeURL(r.URL)
+			if normalizedURL == "" {
+				continue
+			}
+			if existing, ok := urlMap[normalizedURL]; ok {
+				existing.Sources++
+				if r.Score > existing.Score {
+					existing.Score = r.Score
+				}
+				if r.Snippet != "" && len(r.Snippet) > len(existing.Snippet) {
+					existing.Snippet = r.Snippet
+				}
+			} else {
+				urlMap[normalizedURL] = &SearchResult{
+					Title:   r.Title,
+					URL:     normalizedURL,
+					Snippet: r.Snippet,
+					Score:   r.Score,
+					Sources: 1,
+				}
+			}
+		}
+
+		// 已凑够 MaxResults，提前返回
+		if len(urlMap) >= opts.MaxResults {
+			break
+		}
+	}
+
+	if len(urlMap) == 0 {
+		return &SearchResponse{
+			Engine: "none",
+			Error:  fmt.Sprintf("no search results found for query: %s", query),
+		}
+	}
+
+	allResults := rankAndDedupeResults(urlMap, opts.MaxResults)
+
+	engineStr := "chain"
+	if len(engines) > 0 {
+		engineStr = "chain:" + strings.Join(engines, ",")
+	}
+
+	return &SearchResponse{
+		Results: allResults,
+		Engine:  engineStr,
+	}
+}
+
+// deepParallelSearchWithDedup 并发调用多个 provider，按 URL 去重排序后截断到 MaxResults
+func (c *SearchChain) deepParallelSearchWithDedup(ctx context.Context, query string, eligible []*ProviderWithCircuit, opts SearchOpts) *SearchResponse {
+	type providerResult struct {
+		resp     *SearchResponse
+		err      error
+		provider string
+	}
+
 	results := make(chan providerResult, len(eligible))
 	var wg sync.WaitGroup
 	maxConcurrent := 3
@@ -208,7 +258,6 @@ func (c *SearchChain) deepSearchInternal(ctx context.Context, query string, cate
 		go func(pw *ProviderWithCircuit) {
 			defer wg.Done()
 
-			// 限制并发数，避免触发 API 限流
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
@@ -259,11 +308,6 @@ func (c *SearchChain) deepSearchInternal(ctx context.Context, query string, cate
 					existing.Snippet = r.Snippet
 				}
 			} else {
-				r.URL = normalizedURL
-				r.Sources = 1
-				if r.Score == 0 {
-					r.Score = 0.5
-				}
 				urlMap[normalizedURL] = &SearchResult{
 					Title:   r.Title,
 					URL:     normalizedURL,
@@ -282,7 +326,19 @@ func (c *SearchChain) deepSearchInternal(ctx context.Context, query string, cate
 		}
 	}
 
-	var allResults []SearchResult
+	allResults := rankAndDedupeResults(urlMap, opts.MaxResults)
+
+	engineStr := "deep:" + strings.Join(engines, ",")
+
+	return &SearchResponse{
+		Results: allResults,
+		Engine:  engineStr,
+	}
+}
+
+// rankAndDedupeResults 对去重后的结果按分数排序并截断到 maxResults
+func rankAndDedupeResults(urlMap map[string]*SearchResult, maxResults int) []SearchResult {
+	allResults := make([]SearchResult, 0, len(urlMap))
 	for _, r := range urlMap {
 		r.Score = r.Score * (1.0 + float64(r.Sources-1)*0.2)
 		allResults = append(allResults, *r)
@@ -292,16 +348,10 @@ func (c *SearchChain) deepSearchInternal(ctx context.Context, query string, cate
 		return allResults[i].Score > allResults[j].Score
 	})
 
-	if len(allResults) > 10 {
-		allResults = allResults[:10]
+	if len(allResults) > maxResults {
+		allResults = allResults[:maxResults]
 	}
-
-	engineStr := "deep:" + strings.Join(engines, ",")
-
-	return &SearchResponse{
-		Results: allResults,
-		Engine:  engineStr,
-	}
+	return allResults
 }
 
 func normalizeURL(u string) string {

@@ -31,6 +31,7 @@ type SmartParams struct {
 	ContextSize   int
 	SpecType         string
 	SpecDraftNMax    int
+	SpecDraftNMin    int
 	CacheTypeKDraft  string
 	CacheTypeVDraft  string
 }
@@ -119,7 +120,7 @@ func CalculateSmartParams(hw *HardwareInfo, resolvedModelPath string) *SmartPara
 			}
 		}
 
-		p.SpecType = "draft-mtp"
+		p.SpecType = "mtp"
 		p.CacheTypeKDraft = "q8_0"
 		p.CacheTypeVDraft = "q8_0"
 		// MTP + 思考模型：降低 draft token 数量，减少跨越思考/正文边界的 token 回退风险
@@ -129,6 +130,10 @@ func CalculateSmartParams(hw *HardwareInfo, resolvedModelPath string) *SmartPara
 		} else {
 			p.SpecDraftNMax = 3
 		}
+	} else if hw.HasGPU {
+		// 非 MTP 模型：自动启用 ngram_mod 推测解码加速（无需 MTP 头，任何模型可用）
+		p.SpecType = "ngram-mod"
+		log.Info().Msg("[smart-params] non-MTP model with GPU detected, auto-enabling ngram_mod speculative decoding")
 	}
 
 	return p

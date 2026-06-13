@@ -39,7 +39,7 @@ func (p *TavilyProvider) SearchWithOpts(ctx context.Context, query string, opts 
 
 	maxResults := opts.MaxResults
 	if maxResults <= 0 {
-		maxResults = 5
+		maxResults = 10
 	}
 
 	reqBody := map[string]interface{}{

@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { wails, type Config, DEFAULT_CONFIG, type ServerStatus, type ModelCapabilities, type SwitchResult, type SearchAPIKeys } from '../services/wails'
-import { useChatStore } from './chat'
 import { formatModelName } from '../utils/model'
 
 /**
@@ -95,7 +94,6 @@ export const useSettingsStore = defineStore('settings', () => {
         rolledBack: false,
     })
 
-    let statusPollingTimer: ReturnType<typeof setInterval> | null = null
     let switchDoneTimer: ReturnType<typeof setTimeout> | null = null
     let switchTimeoutTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -136,24 +134,6 @@ export const useSettingsStore = defineStore('settings', () => {
             }
         } catch (e) {
             console.error('获取服务器状态失败:', e)
-        }
-    }
-
-    function startStatusPolling() {
-        stopStatusPolling()
-        statusPollingTimer = setInterval(async () => {
-            if (!serverStatus.value.running) {
-                await checkServerStatus()
-            } else {
-                stopStatusPolling()
-            }
-        }, 3000)
-    }
-
-    function stopStatusPolling() {
-        if (statusPollingTimer !== null) {
-            clearInterval(statusPollingTimer)
-            statusPollingTimer = null
         }
     }
 
@@ -352,11 +332,7 @@ export const useSettingsStore = defineStore('settings', () => {
             }
 
             if (status.running) {
-                stopStatusPolling()
-                const chatStore = useChatStore()
-                chatStore.loadConversations()
-            } else if (!status.switching && !isModelSwitching.value && switchProgress.value.stage === 'idle') {
-                startStatusPolling()
+                // 服务器运行中，无需额外处理
             }
 
             // 首次启动加载完成：收到 running 状态（手动切换由 handleSwitchResult 处理）
@@ -396,12 +372,10 @@ export const useSettingsStore = defineStore('settings', () => {
             }
         })
         checkServerStatus()
-        startStatusPolling()
     }
 
     function cleanupStatusListener() {
         wails.offServerStatus()
-        stopStatusPolling()
     }
 
     async function loadSearchAPIKeys() {

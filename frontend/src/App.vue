@@ -405,6 +405,16 @@ onMounted(async () => {
   chatStore.loadConversations()
   await settingsStore.loadConfig()
 
+  // 首次启动：当后端 ready 标志位置位（server:status 推送 running=true）后重新加载会话列表
+  // 原因：onMounted 同步调用 loadConversations 时 a.ready 可能仍为 false，会被后端拒掉
+  let hasLoadedOnReady = false
+  watch(() => settingsStore.serverStatus.running, (running) => {
+    if (running && !hasLoadedOnReady) {
+      hasLoadedOnReady = true
+      chatStore.loadConversations()
+    }
+  }, { immediate: true })
+
   wails.onAbnormalCleanup((data) => {
     chatStore.loadConversations()
     discreteMessage.info(`已自动清理 ${data.count} 个异常会话（无有效消息）`, { duration: 5000 })

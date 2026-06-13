@@ -240,11 +240,11 @@
           <n-switch v-model:value="formConfig.context_shift" />
         </n-form-item>
         <n-form-item>
-          <template #label>推测解码 (MTP) <HelpTip content="Multi-Token Prediction：一次预测多个 token 加速推理。需要模型内置 MTP 头（如 Qwen3.6-UD 版本）。自动模式下检测到 MTP 头会自动启用" /></template>
-          <n-select v-model:value="formConfig.spec_type" :options="specTypeOptions" placeholder="自动检测" clearable :disabled="!settingsStore.modelCapabilities.has_mtp" />
+          <template #label>推测解码 <HelpTip content="加速推理的推测解码技术。MTP 需要模型内置 MTP 头（如 Qwen3.6-UD），ngram 类型对所有模型可用。自动模式下检测到 MTP 头会自动启用 mtp，否则启用 ngram-mod" /></template>
+          <n-select v-model:value="formConfig.spec_type" :options="specTypeOptions" placeholder="自动检测" clearable />
         </n-form-item>
-        <n-form-item v-if="formConfig.spec_type === 'draft-mtp' || formConfig.spec_type === 'mtp'" label="MTP 预测数">
-          <n-input-number v-model:value="formConfig.spec_draft_n_max" :min="1" :max="4" :step="1" placeholder="3" @blur="autoSave" :disabled="!settingsStore.modelCapabilities.has_mtp" />
+        <n-form-item v-if="formConfig.spec_type === 'mtp'" label="MTP 预测数">
+          <n-input-number v-model:value="formConfig.spec_draft_n_max" :min="1" :max="4" :step="1" placeholder="3" @blur="autoSave" />
         </n-form-item>
         <n-form-item label="GPU 设备">
           <n-input v-model:value="formConfig.device" placeholder="留空自动选择，多卡如 0,1" />
@@ -369,7 +369,11 @@ const cacheTypeVOptions = [
 
 const specTypeOptions = [
   { label: '自动检测', value: '' },
-  { label: 'MTP 推测解码 🔥', value: 'draft-mtp' },
+  { label: 'MTP 推测解码 🔥', value: 'mtp' },
+  { label: 'Ngram-Mod 推测解码', value: 'ngram-mod' },
+  { label: 'Ngram-Simple 推测解码', value: 'ngram-simple' },
+  { label: 'Ngram-Map-K 推测解码', value: 'ngram-map-k' },
+  { label: 'Ngram-Map-K4V 推测解码', value: 'ngram-map-k4v' },
   { label: '关闭', value: 'none' },
 ]
 
@@ -421,6 +425,7 @@ const formConfig = ref<Config>({
   cache_type_v: '',
   spec_type: '',
   spec_draft_n_max: 0,
+  spec_draft_n_min: 0,
   cache_type_k_draft: '',
   cache_type_v_draft: '',
   server_api_key_enabled: true,
@@ -1077,7 +1082,7 @@ const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'rag_enabled', 'rag_active_kb', 'rag_top_k', 'rag_min_score', 'rag_chunk_size', 'rag_chunk_overlap',
   'mmap', 'kv_offload', 'context_shift', 'min_p',
   'dry_multiplier', 'dry_base', 'dry_allowed_length',
-  'device', 'parallel', 'cache_type_k', 'cache_type_v', 'spec_type', 'spec_draft_n_max', 'cache_type_k_draft', 'cache_type_v_draft', 'api_base',
+  'device', 'parallel', 'cache_type_k', 'cache_type_v', 'spec_type', 'spec_draft_n_max', 'spec_draft_n_min', 'cache_type_k_draft', 'cache_type_v_draft', 'api_base',
 ]
 
 watch(

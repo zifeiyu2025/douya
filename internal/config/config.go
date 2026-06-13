@@ -61,9 +61,10 @@ type Config struct {
 	Parallel          int     `json:"parallel"`
 	CacheTypeK        string  `json:"cache_type_k"`
 	CacheTypeV        string  `json:"cache_type_v"`
-	SpecType          string  `json:"spec_type"`
-	SpecDraftNMax     int     `json:"spec_draft_n_max"`
-	CacheTypeKDraft   string  `json:"cache_type_k_draft"`
+	SpecType          string `json:"spec_type"`
+	SpecDraftNMax     int    `json:"spec_draft_n_max"`
+	SpecDraftNMin     int    `json:"spec_draft_n_min"`
+	CacheTypeKDraft   string `json:"cache_type_k_draft"`
 	CacheTypeVDraft   string  `json:"cache_type_v_draft"`
 	ServerAPIKeyEnabled bool  `json:"server_api_key_enabled"`
 }
@@ -122,6 +123,7 @@ func DefaultConfig() *Config {
 		CacheTypeV:       "",
 		SpecType:         "",
 		SpecDraftNMax:    0,
+		SpecDraftNMin:    0,
 		CacheTypeKDraft:  "",
 		CacheTypeVDraft:  "",
 		ServerAPIKeyEnabled: true,

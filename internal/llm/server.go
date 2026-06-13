@@ -62,6 +62,7 @@ type ServerConfig struct {
 	APIKey           string
 	SpecType         string
 	SpecDraftNMax    int
+	SpecDraftNMin    int
 	CacheTypeKDraft  string
 	CacheTypeVDraft  string
 	SSEPingInterval  int
@@ -216,11 +217,14 @@ func (s *Server) Start() error {
 	if s.config.SpecDraftNMax > 0 && !s.mtpFallbackDisabled {
 		args = append(args, "--spec-draft-n-max", fmt.Sprintf("%d", s.config.SpecDraftNMax))
 	}
+	if s.config.SpecDraftNMin > 0 && !s.mtpFallbackDisabled {
+		args = append(args, "--spec-draft-n-min", fmt.Sprintf("%d", s.config.SpecDraftNMin))
+	}
 	if s.config.CacheTypeKDraft != "" && !s.mtpFallbackDisabled {
-		args = append(args, "--cache-type-k-draft", s.config.CacheTypeKDraft)
+		args = append(args, "--spec-draft-type-k", s.config.CacheTypeKDraft)
 	}
 	if s.config.CacheTypeVDraft != "" && !s.mtpFallbackDisabled {
-		args = append(args, "--cache-type-v-draft", s.config.CacheTypeVDraft)
+		args = append(args, "--spec-draft-type-v", s.config.CacheTypeVDraft)
 	}
 	if s.config.SSEPingInterval > 0 {
 		args = append(args, "--sse-ping-interval", fmt.Sprintf("%d", s.config.SSEPingInterval))

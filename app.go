@@ -291,6 +291,7 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		Parallel:               a.config.Parallel,
 		SpecType:               a.config.SpecType,
 		SpecDraftNMax:          a.config.SpecDraftNMax,
+		SpecDraftNMin:          a.config.SpecDraftNMin,
 		CacheTypeKDraft:        a.config.CacheTypeKDraft,
 		CacheTypeVDraft:        a.config.CacheTypeVDraft,
 		SSEPingInterval:        0,
@@ -311,6 +312,7 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 	if a.config.SpecType == "" && sp.SpecType != "" {
 		serverCfg.SpecType = sp.SpecType
 		serverCfg.SpecDraftNMax = sp.SpecDraftNMax
+		serverCfg.SpecDraftNMin = sp.SpecDraftNMin
 		if serverCfg.CacheTypeKDraft == "" {
 			serverCfg.CacheTypeKDraft = sp.CacheTypeKDraft
 		}
@@ -353,8 +355,6 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 		return
 	}
 
-	a.isSwitching.Store(true)
-
 	a.presetsMu.RLock()
 	presetsSnapshot := make([]llm.ModelPreset, len(a.presets))
 	copy(presetsSnapshot, a.presets)
@@ -389,42 +389,37 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 	// 启动后自动加载默认模型
 	if modelForDetect != "" && a.client != nil {
 		zlog.Info().Str("model", modelForDetect).Msg("[server] auto-loading default model")
-		a.emitSwitchingStatus(modelForDetect)
-		a.emitSwitchProgress("loading", modelForDetect)
+		runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+			Running:     false,
+			Switching:   true,
+			SwitchingTo: modelForDetect,
+		})
 		if err := a.client.LoadModel(ctx, modelForDetect); err != nil {
 			if isAlreadyRunningError(err) {
 				// 模型已在运行（llama-server 启动时自动加载了默认模型），视为成功
 				zlog.Info().Str("model", modelForDetect).Msg("[server] default model is already running")
-				a.emitSwitchProgress("done", modelForDetect)
 				a.serverReady.Store(true)
+				a.emitSwitchSuccess(modelForDetect)
 			} else {
 				zlog.Error().Err(err).Str("model", modelForDetect).Msg("[server] auto-load default model failed")
-				a.emitSwitchProgress("failed", modelForDetect)
 				runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
 					Running: false,
 					Error:   fmt.Sprintf("默认模型加载失败: %v（可手动切换模型）", err),
 				})
 			}
 		} else {
-			a.emitSwitchProgress("waiting", modelForDetect)
 			if err := a.client.WaitForModelLoaded(ctx, modelForDetect, 120*time.Second); err != nil {
 				zlog.Error().Err(err).Str("model", modelForDetect).Msg("[server] auto-load default model wait failed")
-				a.emitSwitchProgress("failed", modelForDetect)
 				runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
 					Running: false,
 					Error:   fmt.Sprintf("默认模型加载超时: %v（可手动切换模型）", err),
 				})
 			} else {
 				zlog.Info().Str("model", modelForDetect).Msg("[server] default model loaded and ready")
-				a.emitSwitchProgress("done", modelForDetect)
 				a.serverReady.Store(true)
+				a.emitSwitchSuccess(modelForDetect)
 			}
 		}
-	}
-
-	a.isSwitching.Store(false)
-	if a.serverReady.Load() {
-		runtime.EventsEmit(ctx, "server:status", a.runningStatus())
 	}
 
 	watchCtx, watchCancel := context.WithCancel(ctx)
