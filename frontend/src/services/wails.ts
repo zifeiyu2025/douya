@@ -56,7 +56,6 @@ export interface SendMessageParams {
 export interface SearchAPIKeys {
     ollama_api_key: string
     tavily_api_key: string
-    github_api_key: string
 }
 
 export interface Config {
@@ -108,6 +107,21 @@ export interface Config {
     spec_type: string
     spec_draft_n_max: number
     spec_draft_n_min: number
+    spec_ngram_mod_n_min: number
+    spec_ngram_mod_n_max: number
+    spec_ngram_mod_n_match: number
+    spec_ngram_simple_size_n: number
+    spec_ngram_simple_size_m: number
+    spec_ngram_simple_min_hits: number
+    spec_ngram_map_k_size_n: number
+    spec_ngram_map_k_size_m: number
+    spec_ngram_map_k_min_hits: number
+    spec_ngram_map_k4v_size_n: number
+    spec_ngram_map_k4v_size_m: number
+    spec_ngram_map_k4v_min_hits: number
+    lookup_cache_static: string
+    lookup_cache_dynamic: string
+    spec_draft_model: string
     cache_type_k_draft: string
     cache_type_v_draft: string
     server_api_key_enabled: boolean
@@ -162,6 +176,21 @@ export const DEFAULT_CONFIG: Config = {
     spec_type: '',
     spec_draft_n_max: 0,
     spec_draft_n_min: 0,
+    spec_ngram_mod_n_min: 0,
+    spec_ngram_mod_n_max: 0,
+    spec_ngram_mod_n_match: 0,
+    spec_ngram_simple_size_n: 0,
+    spec_ngram_simple_size_m: 0,
+    spec_ngram_simple_min_hits: 0,
+    spec_ngram_map_k_size_n: 0,
+    spec_ngram_map_k_size_m: 0,
+    spec_ngram_map_k_min_hits: 0,
+    spec_ngram_map_k4v_size_n: 0,
+    spec_ngram_map_k4v_size_m: 0,
+    spec_ngram_map_k4v_min_hits: 0,
+    lookup_cache_static: '',
+    lookup_cache_dynamic: '',
+    spec_draft_model: '',
     cache_type_k_draft: '',
     cache_type_v_draft: '',
     server_api_key_enabled: true,
@@ -169,6 +198,7 @@ export const DEFAULT_CONFIG: Config = {
 
 export interface ServerStatus {
     running: boolean
+    model_ready?: boolean
     error?: string
     switching?: boolean
     switching_to?: string

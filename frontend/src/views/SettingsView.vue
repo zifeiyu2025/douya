@@ -93,16 +93,6 @@
           />
         </n-form-item>
 
-        <n-form-item label="GitHub API Key">
-          <n-input
-            v-model:value="searchKeys.github_api_key"
-            type="password"
-            show-password-on="click"
-            placeholder="输入新的 API Key 以覆盖保存"
-            @blur="saveSearchKeys"
-          />
-        </n-form-item>
-
         <n-divider>服务 API KEY</n-divider>
         <n-form-item label="本机服务地址">
           <n-input
@@ -229,7 +219,7 @@
           <n-select v-model:value="formConfig.cache_type_k" :options="cacheTypeKOptions" placeholder="自动（q8_0）" clearable />
         </n-form-item>
         <n-form-item>
-          <template #label>KV 缓存 V 类型 <HelpTip content="Value 缓存的量化精度。V 是实际内容，可以更激进压缩。turbo 类型可大幅节省显存。选「自动」由系统智能选择" /></template>
+          <template #label>KV 缓存 V 类型 <HelpTip content="Value 缓存的量化精度。V 是实际内容，可以更激进压缩。选「自动」由系统智能选择" /></template>
           <n-select v-model:value="formConfig.cache_type_v" :options="cacheTypeVOptions" placeholder="自动（q4_0）" clearable />
         </n-form-item>
         <n-form-item label="KV 缓存卸载">
@@ -240,12 +230,69 @@
           <n-switch v-model:value="formConfig.context_shift" />
         </n-form-item>
         <n-form-item>
-          <template #label>推测解码 <HelpTip content="加速推理的推测解码技术。MTP 需要模型内置 MTP 头（如 Qwen3.6-UD），ngram 类型对所有模型可用。自动模式下检测到 MTP 头会自动启用 mtp，否则启用 ngram-mod" /></template>
+          <template #label>推测解码 <HelpTip content="加速推理的推测解码技术。draft-mtp 需要模型内置 MTP 头（如 Qwen3.6-UD），draft-eagle3 需要 Eagle3 草稿模型，ngram 类型对所有模型可用。自动模式下检测到 MTP 头会自动启用 draft-mtp，否则启用 ngram-mod" /></template>
           <n-select v-model:value="formConfig.spec_type" :options="specTypeOptions" placeholder="自动检测" clearable />
         </n-form-item>
-        <n-form-item v-if="formConfig.spec_type === 'mtp'" label="MTP 预测数">
+        <n-form-item v-if="formConfig.spec_type === 'draft-mtp' || formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-simple'" label="推测预测数">
           <n-input-number v-model:value="formConfig.spec_draft_n_max" :min="1" :max="4" :step="1" placeholder="3" @blur="autoSave" />
         </n-form-item>
+        <template v-if="formConfig.spec_type === 'ngram-mod'">
+          <n-form-item label="N-Min">
+            <n-input-number v-model:value="formConfig.spec_ngram_mod_n_min" :min="1" :max="256" :step="1" placeholder="48" @blur="autoSave" />
+          </n-form-item>
+          <n-form-item label="N-Max">
+            <n-input-number v-model:value="formConfig.spec_ngram_mod_n_max" :min="1" :max="256" :step="1" placeholder="64" @blur="autoSave" />
+          </n-form-item>
+          <n-form-item label="N-Match">
+            <n-input-number v-model:value="formConfig.spec_ngram_mod_n_match" :min="1" :max="256" :step="1" placeholder="24" @blur="autoSave" />
+          </n-form-item>
+        </template>
+        <template v-if="formConfig.spec_type === 'ngram-simple'">
+          <n-form-item label="Size-N">
+            <n-input-number v-model:value="formConfig.spec_ngram_simple_size_n" :min="1" :max="256" :step="1" placeholder="64" @blur="autoSave" />
+          </n-form-item>
+          <n-form-item label="Size-M">
+            <n-input-number v-model:value="formConfig.spec_ngram_simple_size_m" :min="1" :max="256" :step="1" placeholder="64" @blur="autoSave" />
+          </n-form-item>
+          <n-form-item label="Min-Hits">
+            <n-input-number v-model:value="formConfig.spec_ngram_simple_min_hits" :min="1" :max="256" :step="1" placeholder="1" @blur="autoSave" />
+          </n-form-item>
+        </template>
+        <template v-if="formConfig.spec_type === 'ngram-map-k'">
+          <n-form-item label="Size-N">
+            <n-input-number v-model:value="formConfig.spec_ngram_map_k_size_n" :min="1" :max="256" :step="1" placeholder="64" @blur="autoSave" />
+          </n-form-item>
+          <n-form-item label="Size-M">
+            <n-input-number v-model:value="formConfig.spec_ngram_map_k_size_m" :min="1" :max="256" :step="1" placeholder="64" @blur="autoSave" />
+          </n-form-item>
+          <n-form-item label="Min-Hits">
+            <n-input-number v-model:value="formConfig.spec_ngram_map_k_min_hits" :min="1" :max="256" :step="1" placeholder="1" @blur="autoSave" />
+          </n-form-item>
+        </template>
+        <template v-if="formConfig.spec_type === 'ngram-map-k4v'">
+          <n-form-item label="Size-N">
+            <n-input-number v-model:value="formConfig.spec_ngram_map_k4v_size_n" :min="1" :max="256" :step="1" placeholder="64" @blur="autoSave" />
+          </n-form-item>
+          <n-form-item label="Size-M">
+            <n-input-number v-model:value="formConfig.spec_ngram_map_k4v_size_m" :min="1" :max="256" :step="1" placeholder="64" @blur="autoSave" />
+          </n-form-item>
+          <n-form-item label="Min-Hits">
+            <n-input-number v-model:value="formConfig.spec_ngram_map_k4v_min_hits" :min="1" :max="256" :step="1" placeholder="1" @blur="autoSave" />
+          </n-form-item>
+        </template>
+        <template v-if="formConfig.spec_type === 'ngram-cache'">
+          <n-form-item label="静态缓存路径">
+            <n-input v-model:value="formConfig.lookup_cache_static" placeholder="lookup-cache-static 文件路径" @blur="autoSave" />
+          </n-form-item>
+          <n-form-item label="动态缓存路径">
+            <n-input v-model:value="formConfig.lookup_cache_dynamic" placeholder="lookup-cache-dynamic 文件路径" @blur="autoSave" />
+          </n-form-item>
+        </template>
+        <template v-if="formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-simple'">
+          <n-form-item label="草稿模型路径">
+            <n-input v-model:value="formConfig.spec_draft_model" placeholder="Eagle3/Draft 草稿模型文件路径" @blur="autoSave" />
+          </n-form-item>
+        </template>
         <n-form-item label="GPU 设备">
           <n-input v-model:value="formConfig.device" placeholder="留空自动选择，多卡如 0,1" />
         </n-form-item>
@@ -344,36 +391,46 @@ const cacheTypeKOptions = [
   { label: '自动', value: '' },
   { label: 'f16 (16bit)', value: 'f16' },
   { label: 'q8_0 (8bit)', value: 'q8_0' },
-  { label: 'q4_0 (4bit)', value: 'q4_0' },
-  { label: 'q4_1 (4bit)', value: 'q4_1' },
-  { label: 'iq4_nl (4bit)', value: 'iq4_nl' },
-  { label: 'q5_0 (5bit)', value: 'q5_0' },
+  { label: 'q6_k (6bit)', value: 'q6_k' },
   { label: 'q5_1 (5bit)', value: 'q5_1' },
-  { label: 'turbo3 (3.5bit) 🔥', value: 'turbo3' },
-  { label: 'turbo4 (4.5bit) 🔥', value: 'turbo4' },
+  { label: 'q5_0 (5bit)', value: 'q5_0' },
+  { label: 'q5_k (5bit)', value: 'q5_k' },
+  { label: 'q4_1 (4bit)', value: 'q4_1' },
+  { label: 'q4_0 (4bit)', value: 'q4_0' },
+  { label: 'q4_k (4bit)', value: 'q4_k' },
+  { label: 'iq4_nl (4bit)', value: 'iq4_nl' },
+  { label: 'iq4_xs (4bit)', value: 'iq4_xs' },
+  { label: 'q3_k (3bit)', value: 'q3_k' },
+  { label: 'q2_k (2bit)', value: 'q2_k' },
 ]
 
 const cacheTypeVOptions = [
   { label: '自动', value: '' },
   { label: 'f16 (16bit)', value: 'f16' },
   { label: 'q8_0 (8bit)', value: 'q8_0' },
-  { label: 'q4_0 (4bit)', value: 'q4_0' },
-  { label: 'q4_1 (4bit)', value: 'q4_1' },
-  { label: 'iq4_nl (4bit)', value: 'iq4_nl' },
-  { label: 'q5_0 (5bit)', value: 'q5_0' },
+  { label: 'q6_k (6bit)', value: 'q6_k' },
   { label: 'q5_1 (5bit)', value: 'q5_1' },
-  { label: 'turbo2 (2bit) 🔥', value: 'turbo2' },
-  { label: 'turbo3 (3.5bit) 🔥', value: 'turbo3' },
-  { label: 'turbo4 (4.5bit) 🔥', value: 'turbo4' },
+  { label: 'q5_0 (5bit)', value: 'q5_0' },
+  { label: 'q5_k (5bit)', value: 'q5_k' },
+  { label: 'q4_1 (4bit)', value: 'q4_1' },
+  { label: 'q4_0 (4bit)', value: 'q4_0' },
+  { label: 'q4_k (4bit)', value: 'q4_k' },
+  { label: 'iq4_nl (4bit)', value: 'iq4_nl' },
+  { label: 'iq4_xs (4bit)', value: 'iq4_xs' },
+  { label: 'q3_k (3bit)', value: 'q3_k' },
+  { label: 'q2_k (2bit)', value: 'q2_k' },
 ]
 
 const specTypeOptions = [
   { label: '自动检测', value: '' },
-  { label: 'MTP 推测解码 🔥', value: 'mtp' },
+  { label: 'MTP 推测解码 🔥', value: 'draft-mtp' },
+  { label: 'Eagle3 推测解码', value: 'draft-eagle3' },
+  { label: 'Draft-Simple 推测解码', value: 'draft-simple' },
   { label: 'Ngram-Mod 推测解码', value: 'ngram-mod' },
   { label: 'Ngram-Simple 推测解码', value: 'ngram-simple' },
   { label: 'Ngram-Map-K 推测解码', value: 'ngram-map-k' },
   { label: 'Ngram-Map-K4V 推测解码', value: 'ngram-map-k4v' },
+  { label: 'Ngram-Cache 推测解码', value: 'ngram-cache' },
   { label: '关闭', value: 'none' },
 ]
 
@@ -426,6 +483,21 @@ const formConfig = ref<Config>({
   spec_type: '',
   spec_draft_n_max: 0,
   spec_draft_n_min: 0,
+  spec_ngram_mod_n_min: 0,
+  spec_ngram_mod_n_max: 0,
+  spec_ngram_mod_n_match: 0,
+  spec_ngram_simple_size_n: 0,
+  spec_ngram_simple_size_m: 0,
+  spec_ngram_simple_min_hits: 0,
+  spec_ngram_map_k_size_n: 0,
+  spec_ngram_map_k_size_m: 0,
+  spec_ngram_map_k_min_hits: 0,
+  spec_ngram_map_k4v_size_n: 0,
+  spec_ngram_map_k4v_size_m: 0,
+  spec_ngram_map_k4v_min_hits: 0,
+  lookup_cache_static: '',
+  lookup_cache_dynamic: '',
+  spec_draft_model: '',
   cache_type_k_draft: '',
   cache_type_v_draft: '',
   server_api_key_enabled: true,
@@ -441,7 +513,6 @@ const backgroundImageUrl = computed(() => {
 const searchKeys = ref<SearchAPIKeys>({
     ollama_api_key: '',
     tavily_api_key: '',
-    github_api_key: '',
 })
 
 function saveSearchKeys() {
@@ -452,9 +523,6 @@ function saveSearchKeys() {
     }
     if (searchKeys.value.tavily_api_key) {
         keysToUpdate.tavily_api_key = searchKeys.value.tavily_api_key
-    }
-    if (searchKeys.value.github_api_key) {
-        keysToUpdate.github_api_key = searchKeys.value.github_api_key
     }
     settingsStore.saveSearchAPIKeys(keysToUpdate)
 }
@@ -1082,7 +1150,7 @@ const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'rag_enabled', 'rag_active_kb', 'rag_top_k', 'rag_min_score', 'rag_chunk_size', 'rag_chunk_overlap',
   'mmap', 'kv_offload', 'context_shift', 'min_p',
   'dry_multiplier', 'dry_base', 'dry_allowed_length',
-  'device', 'parallel', 'cache_type_k', 'cache_type_v', 'spec_type', 'spec_draft_n_max', 'spec_draft_n_min', 'cache_type_k_draft', 'cache_type_v_draft', 'api_base',
+  'device', 'parallel', 'cache_type_k', 'cache_type_v', 'spec_type', 'spec_draft_n_max', 'spec_draft_n_min', 'spec_ngram_mod_n_min', 'spec_ngram_mod_n_max', 'spec_ngram_mod_n_match', 'lookup_cache_static', 'lookup_cache_dynamic', 'cache_type_k_draft', 'cache_type_v_draft', 'api_base',
 ]
 
 watch(

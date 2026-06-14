@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { wails, type Config, DEFAULT_CONFIG, type ServerStatus, type ModelCapabilities, type SwitchResult, type SearchAPIKeys } from '../services/wails'
 import { formatModelName } from '../utils/model'
 
@@ -60,7 +60,6 @@ export const useSettingsStore = defineStore('settings', () => {
     const searchAPIKeys = ref<SearchAPIKeys>({
         ollama_api_key: '',
         tavily_api_key: '',
-        github_api_key: '',
     })
     const serverStatus = ref<ServerStatus>({ running: false })
     const modelCapabilities = ref<ModelCapabilities>({
@@ -82,6 +81,7 @@ export const useSettingsStore = defineStore('settings', () => {
     const switchStartedAt = ref(0)
     const previousModelBeforeSwitch = ref('')
     const modelLoadFailed = ref(false)
+    const hasEverBeenReady = ref(false)
 
 
     // Enhanced switch progress state
@@ -126,6 +126,10 @@ export const useSettingsStore = defineStore('settings', () => {
         try {
             const status = await wails.getServerStatus()
             serverStatus.value = status
+            // 使用 model_ready（模型真正加载完成）而非 running（服务器进程在运行）
+            if (status.model_ready) {
+                hasEverBeenReady.value = true
+            }
             if (status.capabilities) {
                 modelCapabilities.value = status.capabilities
             }
@@ -186,7 +190,7 @@ export const useSettingsStore = defineStore('settings', () => {
             rolledBack: false,
         }
         
-        // Safety timeout - if nothing happens in 120 seconds, clear the switch overlay
+        // Safety timeout - if nothing happens in 300 seconds, clear the switch overlay
         switchTimeoutTimer = setTimeout(() => {
             if (isModelSwitching.value) {
                 console.warn('Model switch timed out, force clearing switch overlay')
@@ -323,6 +327,11 @@ export const useSettingsStore = defineStore('settings', () => {
                 modelCapabilities.value = status.capabilities
             }
 
+            // 使用 model_ready（模型真正加载完成）而非 running（服务器进程在运行）
+            if (status.model_ready) {
+                hasEverBeenReady.value = true
+            }
+
             if (status.current_model && !isModelSwitching.value) {
                 const oldModel = currentModel.value
                 currentModel.value = status.current_model
@@ -331,12 +340,8 @@ export const useSettingsStore = defineStore('settings', () => {
                 }
             }
 
-            if (status.running) {
-                // 服务器运行中，无需额外处理
-            }
-
-            // 首次启动加载完成：收到 running 状态（手动切换由 handleSwitchResult 处理）
-            if (switchProgress.value.stage !== 'idle' && status.running && !status.switching && !isModelSwitching.value) {
+            // 首次启动加载完成：收到 model_ready 状态（手动切换由 handleSwitchResult 处理）
+            if (switchProgress.value.stage !== 'idle' && status.model_ready && !status.switching && !isModelSwitching.value) {
                 if (switchTimeoutTimer !== null) {
                     clearTimeout(switchTimeoutTimer)
                     switchTimeoutTimer = null
@@ -395,7 +400,6 @@ export const useSettingsStore = defineStore('settings', () => {
             const fullKeys: SearchAPIKeys = {
                 ollama_api_key: keys.ollama_api_key ?? '',
                 tavily_api_key: keys.tavily_api_key ?? '',
-                github_api_key: keys.github_api_key ?? '',
             }
             await wails.setSearchAPIKeys(fullKeys)
             // 更新本地状态：非空的覆盖，空值保留原值
@@ -484,6 +488,11 @@ export const useSettingsStore = defineStore('settings', () => {
 
     function initSwitchProgressListener() {
         wails.onSwitchProgress((progress) => {
+            // 状态机单向流转保护：仅在 idle 状态接受进度事件
+            // 终态（done/failed/rolling_back）由 handleSwitchResult / handleSwitchFailure 负责收尾，不应被进度事件回滚
+            if (switchProgress.value.stage !== 'idle') {
+                return
+            }
             switchProgress.value = {
                 ...switchProgress.value,
                 stage: progress.stage as SwitchProgressStage,
@@ -503,6 +512,11 @@ export const useSettingsStore = defineStore('settings', () => {
         wails.offSwitchProgress()
     }
 
+    // 首次加载状态：服务器正在运行但模型尚未就绪，且从未就绪过
+    const isFirstLoad = computed(() => {
+        return !hasEverBeenReady.value && !serverStatus.value.model_ready && !serverStatus.value.error && !isModelSwitching.value
+    })
+
     return {
         config,
         searchEnabled,
@@ -518,6 +532,8 @@ export const useSettingsStore = defineStore('settings', () => {
         switchingModelDisplay,
         switchStartedAt,
         previousModelBeforeSwitch,
+        isFirstLoad,
+        hasEverBeenReady,
         // Expose new switch progress state
         switchProgress,
         loadConfig,

@@ -36,7 +36,7 @@
                     <span class="status-dot stopped" />
                     <span class="status-text error-text">{{ errorModelName }} · 加载失败</span>
                   </div>
-                  <div v-else-if="isServerLoading && switchProgressStage === 'idle'" class="loading-animation">
+                  <div v-else-if="isServerLoading && switchProgressStage === 'idle' && !isFirstLoad" class="loading-animation">
                     <div class="loading-spinner"></div>
                     <span class="status-text">{{ modelName || '启动中...' }}</span>
                   </div>
@@ -143,10 +143,11 @@ const mainAreaStyle = computed(() => {
 })
 
 const isServerLoading = computed(() => {
-  return serverStatus.value.switching || (!serverStatus.value.running && !serverStatus.value.error)
+  return serverStatus.value.switching || (!serverStatus.value.model_ready && !serverStatus.value.error)
 })
 
 const isModelSwitching = computed(() => settingsStore.isModelSwitching)
+const isFirstLoad = computed(() => settingsStore.isFirstLoad)
 const modelLoadFailed = computed(() => settingsStore.modelLoadFailed)
 const switchingModelDisplay = computed(() => settingsStore.switchingModelDisplay)
 const switchStartedAt = computed(() => settingsStore.switchStartedAt)
@@ -167,7 +168,7 @@ const errorModelName = computed(() => {
 const switchDuration = ref('')
 let switchDurationTimer: ReturnType<typeof setInterval> | null = null
 
-const showSwitchOverlay = computed(() => settingsStore.switchProgress.stage !== 'idle' && !isModelSwitching.value)
+const showSwitchOverlay = computed(() => settingsStore.switchProgress.stage !== 'idle' && !isModelSwitching.value && settingsStore.hasEverBeenReady)
 
 const switchProgressStage = computed(() => settingsStore.switchProgress.stage)
 
