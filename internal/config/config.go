@@ -65,7 +65,22 @@ type Config struct {
 	SpecDraftNMax     int    `json:"spec_draft_n_max"`
 	SpecDraftNMin     int    `json:"spec_draft_n_min"`
 	CacheTypeKDraft   string `json:"cache_type_k_draft"`
-	CacheTypeVDraft   string  `json:"cache_type_v_draft"`
+	CacheTypeVDraft   string `json:"cache_type_v_draft"`
+	SpecNgramModNMin   int    `json:"spec_ngram_mod_n_min"`
+	SpecNgramModNMax   int    `json:"spec_ngram_mod_n_max"`
+	SpecNgramModNMatch int    `json:"spec_ngram_mod_n_match"`
+	SpecNgramSimpleSizeN   int    `json:"spec_ngram_simple_size_n"`
+	SpecNgramSimpleSizeM   int    `json:"spec_ngram_simple_size_m"`
+	SpecNgramSimpleMinHits int    `json:"spec_ngram_simple_min_hits"`
+	SpecNgramMapKSizeN     int    `json:"spec_ngram_map_k_size_n"`
+	SpecNgramMapKSizeM     int    `json:"spec_ngram_map_k_size_m"`
+	SpecNgramMapKMinHits   int    `json:"spec_ngram_map_k_min_hits"`
+	SpecNgramMapK4VSizeN   int    `json:"spec_ngram_map_k4v_size_n"`
+	SpecNgramMapK4VSizeM   int    `json:"spec_ngram_map_k4v_size_m"`
+	SpecNgramMapK4VMinHits int    `json:"spec_ngram_map_k4v_min_hits"`
+	LookupCacheStatic  string `json:"lookup_cache_static"`
+	LookupCacheDynamic string `json:"lookup_cache_dynamic"`
+	SpecDraftModel     string `json:"spec_draft_model"`
 	ServerAPIKeyEnabled bool  `json:"server_api_key_enabled"`
 }
 
@@ -155,6 +170,11 @@ func Load(path string) (*Config, error) {
 			}
 		}
 		return nil, fmt.Errorf("解析配置文件失败: %w", err)
+	}
+
+	// 向后兼容：旧版 llama-server 使用 "mtp"，新版改名为 "draft-mtp"
+	if cfg.SpecType == "mtp" {
+		cfg.SpecType = "draft-mtp"
 	}
 
 	return cfg, nil

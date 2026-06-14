@@ -44,7 +44,6 @@ type SwitchResult struct {
 type SearchAPIKeys struct {
 	OllamaAPIKey string `json:"ollama_api_key"`
 	TavilyAPIKey string `json:"tavily_api_key"`
-	GitHubAPIKey string `json:"github_api_key"`
 }
 
 type App struct {
@@ -262,8 +261,6 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		Mlock:                  sp.Mlock,
 		MmprojAuto:             a.config.MmprojAuto,
 		MmprojOffload:          sp.MmprojOffload,
-		Repack:                 true,
-		OpOffload:              true,
 		KVUnified:              a.config.KVUnified,
 		CacheIdleSlots:         a.config.CacheIdleSlots,
 		CacheRAM:               a.config.CacheRAM,
@@ -294,7 +291,21 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		SpecDraftNMin:          a.config.SpecDraftNMin,
 		CacheTypeKDraft:        a.config.CacheTypeKDraft,
 		CacheTypeVDraft:        a.config.CacheTypeVDraft,
-		SSEPingInterval:        0,
+		SpecNgramModNMin:      a.config.SpecNgramModNMin,
+		SpecNgramModNMax:      a.config.SpecNgramModNMax,
+		SpecNgramModNMatch:    a.config.SpecNgramModNMatch,
+		SpecNgramSimpleSizeN:   a.config.SpecNgramSimpleSizeN,
+		SpecNgramSimpleSizeM:   a.config.SpecNgramSimpleSizeM,
+		SpecNgramSimpleMinHits: a.config.SpecNgramSimpleMinHits,
+		SpecNgramMapKSizeN:     a.config.SpecNgramMapKSizeN,
+		SpecNgramMapKSizeM:     a.config.SpecNgramMapKSizeM,
+		SpecNgramMapKMinHits:   a.config.SpecNgramMapKMinHits,
+		SpecNgramMapK4VSizeN:   a.config.SpecNgramMapK4VSizeN,
+		SpecNgramMapK4VSizeM:   a.config.SpecNgramMapK4VSizeM,
+		SpecNgramMapK4VMinHits: a.config.SpecNgramMapK4VMinHits,
+		LookupCacheStatic:     a.config.LookupCacheStatic,
+		LookupCacheDynamic:    a.config.LookupCacheDynamic,
+		SpecDraftModel:         a.config.SpecDraftModel,
 	}
 
 	if a.config.CacheTypeK != "" {
@@ -319,6 +330,15 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		if serverCfg.CacheTypeVDraft == "" {
 			serverCfg.CacheTypeVDraft = sp.CacheTypeVDraft
 		}
+		if serverCfg.SpecNgramModNMin == 0 && sp.NgramModNMin > 0 {
+			serverCfg.SpecNgramModNMin = sp.NgramModNMin
+		}
+		if serverCfg.SpecNgramModNMax == 0 && sp.NgramModNMax > 0 {
+			serverCfg.SpecNgramModNMax = sp.NgramModNMax
+		}
+		if serverCfg.SpecNgramModNMatch == 0 && sp.NgramModNMatch > 0 {
+			serverCfg.SpecNgramModNMatch = sp.NgramModNMatch
+		}
 	}
 
 	if a.db != nil {
@@ -340,8 +360,9 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 	if err := srv.Start(); err != nil {
 		zlog.Error().Err(err).Msg("start llama-server failed")
 		runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
-			Running: false,
-			Error:   fmt.Sprintf("启动 llama-server 失败: %v", err),
+			Running:     false,
+			ModelReady:  false,
+			Error:       fmt.Sprintf("启动 llama-server 失败: %v", err),
 		})
 		return
 	}
@@ -349,8 +370,9 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 	if err := srv.WaitForReady(60e9); err != nil {
 		zlog.Error().Err(err).Msg("wait for server ready failed")
 		runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
-			Running: false,
-			Error:   fmt.Sprintf("llama-server 未就绪: %v", err),
+			Running:     false,
+			ModelReady:  false,
+			Error:       fmt.Sprintf("llama-server 未就绪: %v", err),
 		})
 		return
 	}
@@ -390,30 +412,74 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 	if modelForDetect != "" && a.client != nil {
 		zlog.Info().Str("model", modelForDetect).Msg("[server] auto-loading default model")
 		runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
-			Running:     false,
+			Running:     true,
+			ModelReady:  false,
 			Switching:   true,
 			SwitchingTo: modelForDetect,
 		})
-		if err := a.client.LoadModel(ctx, modelForDetect); err != nil {
-			if isAlreadyRunningError(err) {
-				// 模型已在运行（llama-server 启动时自动加载了默认模型），视为成功
-				zlog.Info().Str("model", modelForDetect).Msg("[server] default model is already running")
-				a.serverReady.Store(true)
-				a.emitSwitchSuccess(modelForDetect)
-			} else {
-				zlog.Error().Err(err).Str("model", modelForDetect).Msg("[server] auto-load default model failed")
-				runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
-					Running: false,
-					Error:   fmt.Sprintf("默认模型加载失败: %v（可手动切换模型）", err),
+
+		loadErr := a.client.LoadModel(ctx, modelForDetect)
+		if loadErr != nil && !isAlreadyRunningError(loadErr) {
+			// 非预期错误（非 "already running"），报告失败
+			zlog.Error().Err(loadErr).Str("model", modelForDetect).Msg("[server] auto-load default model failed")
+			runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+				Running:    false,
+				ModelReady: false,
+				Error:      fmt.Sprintf("默认模型加载失败: %v（可手动切换模型）", loadErr),
+			})
+		} else {
+			// LoadModel 成功或返回 "already running"（模型可能还在 LOADING 状态）
+			// 必须等待模型状态变为 loaded 才能认为就绪
+			if loadErr != nil {
+				zlog.Info().Str("model", modelForDetect).Msg("[server] model is already running/loading, waiting for loaded state")
+			}
+			// 首次加载进度回调：每 5 次轮询推送一次进度
+			lastProgressStage := ""
+			progressCallback := func(pollCount int, status string) {
+				if pollCount%5 != 1 && status == lastProgressStage {
+					return
+				}
+				lastProgressStage = status
+				stage := "loading"
+				switch status {
+				case "loaded", "sleeping":
+					stage = "verifying"
+				case "failed":
+					stage = "failed"
+				case "unloaded":
+					stage = "retrying"
+				}
+				runtime.EventsEmit(ctx, "server:switchProgress", map[string]string{
+					"stage":       stage,
+					"targetModel": modelForDetect,
 				})
 			}
-		} else {
-			if err := a.client.WaitForModelLoaded(ctx, modelForDetect, 120*time.Second); err != nil {
-				zlog.Error().Err(err).Str("model", modelForDetect).Msg("[server] auto-load default model wait failed")
-				runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
-					Running: false,
-					Error:   fmt.Sprintf("默认模型加载超时: %v（可手动切换模型）", err),
-				})
+
+			if err := a.client.WaitForModelLoaded(ctx, modelForDetect, 300*time.Second, progressCallback); err != nil {
+				// 加载失败，尝试去掉 mmproj 重试（mmproj 不兼容会导致子进程崩溃）
+				if a.tryReloadWithoutMmproj(ctx, modelForDetect, progressCallback) {
+					// 重试成功
+				} else {
+					// 重试也失败或不适用，启动后台 goroutine 继续等待
+					zlog.Warn().Err(err).Str("model", modelForDetect).Msg("[server] auto-load default model timed out, continuing to wait in background")
+					go func() {
+						// 后台继续等待，不设超时（依赖 WatchWithCallback 检测崩溃）
+						if bgErr := a.client.WaitForModelLoaded(ctx, modelForDetect, 600*time.Second, progressCallback); bgErr != nil {
+							zlog.Error().Err(bgErr).Str("model", modelForDetect).Msg("[server] auto-load default model background wait also failed")
+							// 修复：将 Running 改为 false，与 Error 字段保持语义一致
+							// 此前 Running: true 会导致前端 `!status.running && status.error` 条件失效，错误被静默丢弃
+							runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+								Running:    false,
+								ModelReady: false,
+								Error:      fmt.Sprintf("默认模型加载失败: %v（可手动切换模型）", bgErr),
+							})
+						} else {
+							zlog.Info().Str("model", modelForDetect).Msg("[server] default model loaded and ready (background)")
+							a.serverReady.Store(true)
+							a.emitSwitchSuccess(modelForDetect)
+						}
+					}()
+				}
 			} else {
 				zlog.Info().Str("model", modelForDetect).Msg("[server] default model loaded and ready")
 				a.serverReady.Store(true)
@@ -434,13 +500,13 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 		curModel := a.currentModelName
 		a.currentModelMu.RUnlock()
 		if status.Running {
-			a.serverReady.Store(true)
 			caps := a.service.GetModelCapabilities()
 			status.Capabilities = &caps
 			status.CurrentModel = curModel
 		} else {
 			a.serverReady.Store(false)
 		}
+		status.ModelReady = a.serverReady.Load()
 		runtime.EventsEmit(ctx, "server:status", status)
 	}, func() {
 		a.currentModelMu.RLock()
@@ -452,33 +518,142 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 		// 重启后重新加载当前模型，加载完成后才设置 serverReady
 		if modelForDetect2 != "" && a.client != nil {
 			zlog.Info().Str("model", modelForDetect2).Msg("[server] reloading model after restart")
-			if err := a.client.LoadModel(ctx, modelForDetect2); err != nil {
-				if isAlreadyRunningError(err) {
-					zlog.Info().Str("model", modelForDetect2).Msg("[server] model is already running after restart")
-					a.serverReady.Store(true)
-					runtime.EventsEmit(ctx, "server:status", a.runningStatus())
-				} else {
-					zlog.Error().Err(err).Str("model", modelForDetect2).Msg("[server] reload model after restart failed")
-					runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
-						Running: false,
-						Error:   fmt.Sprintf("重启后模型加载失败: %v", err),
-					})
-				}
-			} else if err := a.client.WaitForModelLoaded(ctx, modelForDetect2, 120*time.Second); err != nil {
-				zlog.Error().Err(err).Str("model", modelForDetect2).Msg("[server] reload model wait after restart failed")
+			loadErr := a.client.LoadModel(ctx, modelForDetect2)
+			if loadErr != nil && !isAlreadyRunningError(loadErr) {
+				zlog.Error().Err(loadErr).Str("model", modelForDetect2).Msg("[server] reload model after restart failed")
 				runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
-					Running: false,
-					Error:   fmt.Sprintf("重启后模型加载超时: %v", err),
+					Running:    false,
+					ModelReady: false,
+					Error:      fmt.Sprintf("重启后模型加载失败: %v", loadErr),
 				})
 			} else {
-				zlog.Info().Str("model", modelForDetect2).Msg("[server] model reloaded and ready after restart")
-				a.serverReady.Store(true)
-				runtime.EventsEmit(ctx, "server:status", a.runningStatus())
+				if loadErr != nil {
+					zlog.Info().Str("model", modelForDetect2).Msg("[server] model is already running/loading after restart, waiting for loaded state")
+				}
+				if err := a.client.WaitForModelLoaded(ctx, modelForDetect2, 120*time.Second); err != nil {
+					zlog.Error().Err(err).Str("model", modelForDetect2).Msg("[server] reload model wait after restart failed")
+					runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+						Running:    false,
+						ModelReady: false,
+						Error:      fmt.Sprintf("重启后模型加载超时: %v", err),
+					})
+				} else {
+					zlog.Info().Str("model", modelForDetect2).Msg("[server] model reloaded and ready after restart")
+					a.serverReady.Store(true)
+					runtime.EventsEmit(ctx, "server:status", a.runningStatus())
+				}
 			}
 		} else {
 			a.serverReady.Store(true)
 		}
 	})
+
+	// 路由模式下子进程崩溃监控：主进程不会崩溃，但子进程可能崩溃
+	// 定期检查模型状态，如果发现模型从 loaded/sleeping 变为 unloaded/failed，自动重新加载
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		consecutiveCrashes := 0
+		const maxConsecutiveCrashes = 3
+
+		for {
+			select {
+			case <-watchCtx.Done():
+				return
+			case <-ticker.C:
+			}
+
+			// 不在切换中且 serverReady 为 true 时才检查
+			if a.isSwitching.Load() || !a.serverReady.Load() {
+				continue
+			}
+
+			a.currentModelMu.RLock()
+			modelName := a.currentModelName
+			a.currentModelMu.RUnlock()
+			if modelName == "" || a.client == nil {
+				continue
+			}
+
+			status, err := a.client.GetModelStatus(watchCtx, modelName)
+			if err != nil {
+				// 查询失败可能是暂时的网络问题，跳过
+				continue
+			}
+
+			switch status.Status {
+			case "loaded", "sleeping":
+				// 模型正常运行，重置崩溃计数
+				if consecutiveCrashes > 0 {
+					zlog.Info().Str("model", modelName).Msg("[router-monitor] model recovered, resetting crash count")
+					consecutiveCrashes = 0
+				}
+			case "unloaded", "failed":
+				consecutiveCrashes++
+				exitInfo := ""
+				if status.ExitCode != 0 {
+					exitInfo = fmt.Sprintf(" (exit_code=%d)", status.ExitCode)
+				}
+				zlog.Warn().
+					Str("model", modelName).
+					Str("status", status.Status).
+					Bool("failed", status.Failed).
+					Int("crash_count", consecutiveCrashes).
+					Msg("[router-monitor] model became unloaded/failed" + exitInfo)
+
+				// 获取 stderr 诊断信息
+				stderrHint := a.getServerStderrHint()
+				if stderrHint != "" {
+					zlog.Warn().Str("stderr_hint", stderrHint).Msg("[router-monitor] server stderr hint")
+				}
+
+				if consecutiveCrashes > maxConsecutiveCrashes {
+					zlog.Error().Str("model", modelName).Msg("[router-monitor] model keeps crashing, giving up auto-reload")
+					a.serverReady.Store(false)
+					runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+					Running:    false,
+					ModelReady: false,
+					Error:      fmt.Sprintf("模型 %s 反复崩溃，请检查模型文件是否损坏或显存是否充足", modelName),
+				})
+					continue
+				}
+
+				// 自动重新加载模型
+				zlog.Info().Str("model", modelName).Msg("[router-monitor] attempting to reload crashed model")
+				a.serverReady.Store(false)
+				runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+				Running:     false,
+				ModelReady:  false,
+				Switching:   true,
+				SwitchingTo: modelName,
+			})
+
+				loadErr := a.client.LoadModel(watchCtx, modelName)
+				if loadErr != nil && !isAlreadyRunningError(loadErr) {
+					zlog.Error().Err(loadErr).Str("model", modelName).Msg("[router-monitor] reload failed")
+					runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+						Running:    false,
+						ModelReady: false,
+						Error:      fmt.Sprintf("模型重新加载失败: %v", loadErr),
+					})
+					continue
+				}
+
+				if err := a.client.WaitForModelLoaded(watchCtx, modelName, 120*time.Second); err != nil {
+					zlog.Error().Err(err).Str("model", modelName).Msg("[router-monitor] reload wait failed")
+					runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+						Running:    false,
+						ModelReady: false,
+						Error:      fmt.Sprintf("模型重新加载超时: %v", err),
+					})
+				} else {
+					zlog.Info().Str("model", modelName).Msg("[router-monitor] model reloaded successfully")
+					a.serverReady.Store(true)
+					a.emitSwitchSuccess(modelName)
+				}
+			}
+		}
+	}()
 }
 
 func (a *App) validatePaths() []string {
@@ -586,12 +761,6 @@ func (a *App) startup(ctx context.Context) {
 				if v, ok := seMap["tavily_api_key"]; ok && v != "" {
 					if existing := getFn("search_tavily_api_key"); existing == "" {
 						setFn("search_tavily_api_key", fmt.Sprintf("%v", v))
-						migrated = true
-					}
-				}
-				if v, ok := seMap["github_api_key"]; ok && v != "" {
-					if existing := getFn("search_github_api_key"); existing == "" {
-						setFn("search_github_api_key", fmt.Sprintf("%v", v))
 						migrated = true
 					}
 				}
@@ -1030,9 +1199,6 @@ func (a *App) SetSearchAPIKeys(keys SearchAPIKeys) error {
 	if err := setFn("search_tavily_api_key", keys.TavilyAPIKey); err != nil {
 		return fmt.Errorf("save tavily api key: %w", err)
 	}
-	if err := setFn("search_github_api_key", keys.GitHubAPIKey); err != nil {
-		return fmt.Errorf("save github api key: %w", err)
-	}
 	return nil
 }
 
@@ -1057,9 +1223,6 @@ func (a *App) loadSearchAPIKeysFromDB() SearchAPIKeys {
 	if v, err := getFn("search_tavily_api_key"); err == nil {
 		keys.TavilyAPIKey = v
 	}
-	if v, err := getFn("search_github_api_key"); err == nil {
-		keys.GitHubAPIKey = v
-	}
 	return keys
 }
 
@@ -1070,9 +1233,6 @@ func (a *App) applyEnvOverrides(keys *SearchAPIKeys) {
 	}
 	if apiKey := os.Getenv("TAVILY_API_KEY"); apiKey != "" {
 		keys.TavilyAPIKey = apiKey
-	}
-	if apiKey := os.Getenv("GITHUB_API_KEY"); apiKey != "" {
-		keys.GitHubAPIKey = apiKey
 	}
 }
 
@@ -1088,9 +1248,6 @@ func (a *App) buildSearchChain() *search.SearchChain {
 	}
 	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewDuckDuckGoProvider(), Categories: []string{"general"}})
 	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewBingProvider(), Categories: []string{"general"}})
-	if keys.GitHubAPIKey != "" {
-		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewGitHubProvider(keys.GitHubAPIKey), Categories: []string{"code"}})
-	}
 	return search.NewCategorizedSearchChain(searchProviders)
 }
 
@@ -1175,6 +1332,7 @@ func (a *App) GetServerStatus() llm.ServerStatus {
 			status.CurrentModel = a.currentModelName
 			a.currentModelMu.RUnlock()
 		}
+		status.ModelReady = a.serverReady.Load()
 		if a.isSwitching.Load() {
 			status.Switching = true
 			a.switchingToMu.RLock()
@@ -1377,6 +1535,7 @@ func (a *App) runningStatus() llm.ServerStatus {
 	a.currentModelMu.RUnlock()
 	return llm.ServerStatus{
 		Running:      true,
+		ModelReady:   a.serverReady.Load(),
 		CurrentModel: modelName,
 		Capabilities: &caps,
 	}
@@ -1422,6 +1581,21 @@ func (a *App) generatePresetFile() error {
 
 		if presets[i].MmprojPath != "" {
 			presets[i].MmprojPath = resolvePath(presets[i].MmprojPath)
+			var modalities []string
+			if presets[i].MmprojVision {
+				modalities = append(modalities, "vision")
+			}
+			if presets[i].MmprojAudio {
+				modalities = append(modalities, "audio")
+			}
+			if presets[i].MmprojVideo {
+				modalities = append(modalities, "video")
+			}
+			zlog.Info().
+				Str("model", presets[i].Name).
+				Str("mmproj", presets[i].MmprojPath).
+				Strs("modalities", modalities).
+				Msg("[preset] mmproj detected")
 		}
 	}
 
@@ -1444,7 +1618,8 @@ func (a *App) generatePresetFile() error {
 		}
 		sp := system.CalculateSmartParams(a.hwInfo, defaultModelPath)
 		globalDefaults = map[string]string{
-			"ctx-size": fmt.Sprintf("%d", sp.ContextSize),
+			"ctx-size":      fmt.Sprintf("%d", sp.ContextSize),
+			"mmproj-offload": "1",
 		}
 		zlog.Info().Int("ctx-size", sp.ContextSize).Msg("[preset] global defaults")
 	}
@@ -1457,6 +1632,110 @@ func (a *App) generatePresetFile() error {
 
 	zlog.Info().Str("path", presetPath).Int("count", len(presets)).Msg("[preset] generated preset file")
 	return nil
+}
+
+// tryReloadWithoutMmproj 尝试去掉 mmproj 后重新加载模型
+// 当模型加载失败（通常因 mmproj 不兼容导致子进程崩溃）时调用
+// 返回 true 表示重试成功，模型已加载就绪
+func (a *App) tryReloadWithoutMmproj(ctx context.Context, modelName string, progressCallback func(int, string)) bool {
+	// 检查该模型是否有 mmproj，如果没有则不适用此重试策略
+	if !a.regeneratePresetWithoutMmproj(modelName) {
+		return false
+	}
+
+	// 通知路由器重新加载 preset 文件
+	if err := a.client.ReloadPresets(ctx); err != nil {
+		zlog.Warn().Err(err).Msg("[server] failed to reload presets after removing mmproj")
+		return false
+	}
+
+	// 等待一小段时间让路由器处理 preset 重载
+	time.Sleep(2 * time.Second)
+
+	// 重新加载模型（不带 mmproj）
+	zlog.Info().Str("model", modelName).Msg("[server] retrying model load without mmproj")
+	if err := a.client.LoadModel(ctx, modelName); err != nil && !isAlreadyRunningError(err) {
+		zlog.Error().Err(err).Str("model", modelName).Msg("[server] retry load model (without mmproj) failed")
+		return false
+	}
+
+	// 等待模型加载
+	if err := a.client.WaitForModelLoaded(ctx, modelName, 300*time.Second, progressCallback); err != nil {
+		zlog.Error().Err(err).Str("model", modelName).Msg("[server] retry load model (without mmproj) timed out")
+		return false
+	}
+
+	// 重试成功
+	zlog.Info().Str("model", modelName).Msg("[server] model loaded successfully without mmproj (text-only mode)")
+	a.serverReady.Store(true)
+	a.emitSwitchSuccess(modelName)
+
+	// 通知前端多模态不可用
+	runtime.EventsEmit(ctx, "server:mmprojUnavailable", map[string]string{
+		"model": modelName,
+		"hint":  "多模态投影器不兼容，已切换为纯文本模式",
+	})
+
+	return true
+}
+
+// regeneratePresetWithoutMmproj 重新生成不含指定模型 mmproj 的 preset 文件
+// 当模型因 mmproj 不兼容导致子进程崩溃时调用，让模型以纯文本模式加载
+// 返回 true 表示成功去掉了 mmproj 并重新生成了 preset 文件
+func (a *App) regeneratePresetWithoutMmproj(modelName string) bool {
+	a.presetsMu.Lock()
+	defer a.presetsMu.Unlock()
+
+	found := false
+	for i := range a.presets {
+		if a.presets[i].Name == modelName {
+			if a.presets[i].MmprojPath == "" {
+				// 该模型本来就没有 mmproj，不需要重试
+				return false
+			}
+			zlog.Info().Str("model", modelName).Str("mmproj", a.presets[i].MmprojPath).
+				Msg("[preset] removing mmproj from preset due to loading failure, will retry in text-only mode")
+			a.presets[i].MmprojPath = ""
+			a.presets[i].MmprojVision = false
+			a.presets[i].MmprojAudio = false
+			a.presets[i].MmprojVideo = false
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return false
+	}
+
+	// 重新生成 preset 文件
+	var globalDefaults map[string]string
+	if a.hwInfo != nil {
+		defaultModelPath := ""
+		if len(a.presets) > 0 {
+			defaultModelPath = a.presets[0].ModelPath
+			for _, p := range a.presets {
+				if p.Alias == "default" {
+					defaultModelPath = p.ModelPath
+					break
+				}
+			}
+		}
+		sp := system.CalculateSmartParams(a.hwInfo, defaultModelPath)
+		globalDefaults = map[string]string{
+			"ctx-size": fmt.Sprintf("%d", sp.ContextSize),
+		}
+	}
+
+	content := llm.GeneratePreset(a.presets, globalDefaults)
+	presetPath := filepath.Join(appDir(), "router-preset.ini")
+	if err := llm.WritePresetFile(presetPath, content); err != nil {
+		zlog.Error().Err(err).Msg("[preset] failed to write preset file without mmproj")
+		return false
+	}
+
+	zlog.Info().Str("path", presetPath).Msg("[preset] regenerated preset file without mmproj")
+	return true
 }
 
 // findModelMatch 在模型状态映射中查找匹配的模型
@@ -1523,6 +1802,7 @@ func isAlreadyRunningError(err error) bool {
 func (a *App) emitSwitchingStatus(modelName string) {
 	runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
 		Running:     false,
+		ModelReady:  false,
 		Switching:   true,
 		SwitchingTo: modelName,
 	})
@@ -1533,6 +1813,7 @@ func (a *App) emitSwitchSuccess(modelName string) {
 	caps := a.service.GetModelCapabilities()
 	runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
 		Running:      true,
+		ModelReady:   true,
 		CurrentModel: modelName,
 		Capabilities: &caps,
 	})
@@ -1551,6 +1832,28 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 	// 预检查
 	if errMsg := a.switchPreCheck(); errMsg != "" {
 		return SwitchResult{Error: errMsg}
+	}
+
+	// VRAM 预检查（不阻塞切换，只是提前警告）
+	if vramMsg := a.vramPreCheck(modelName); vramMsg != "" {
+		zlog.Warn().Str("model", modelName).Str("vram_msg", vramMsg).Msg("[router] VRAM pre-check warning")
+		// 注意：VRAM 预检查只是警告，不阻止切换（估算可能不准确）
+		// 但将警告信息传递给前端
+		runtime.EventsEmit(a.ctx, "server:switchProgress", map[string]interface{}{
+			"stage":   "vram-warning",
+			"model":   modelName,
+			"message": vramMsg,
+		})
+	}
+
+	// SpecType 兼容性检查（不阻塞切换，只是提前警告）
+	if specMsg := a.specTypeCompatCheck(modelName); specMsg != "" {
+		zlog.Warn().Str("model", modelName).Str("spec_msg", specMsg).Msg("[router] SpecType compatibility warning")
+		runtime.EventsEmit(a.ctx, "server:switchProgress", map[string]interface{}{
+			"stage":   "spec-warning",
+			"model":   modelName,
+			"message": specMsg,
+		})
 	}
 
 	// 停止当前生成，记录旧模型，设置切换状态
@@ -1573,7 +1876,7 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 	return a.switchFinalize(modelName, previousModel)
 }
 
-// switchPreCheck 预检查：服务器是否启动、是否正在切换
+// switchPreCheck 预检查：服务器是否启动、是否正在切换、VRAM 是否足够
 func (a *App) switchPreCheck() string {
 	if a.server == nil || a.client == nil {
 		return "服务器未启动"
@@ -1581,6 +1884,82 @@ func (a *App) switchPreCheck() string {
 	if !a.isSwitching.CompareAndSwap(false, true) {
 		return "正在切换模型中，请稍候。"
 	}
+	return ""
+}
+
+// vramPreCheck VRAM 预检查：估算模型 VRAM 需求，与 GPU VRAM 比较
+func (a *App) vramPreCheck(modelName string) string {
+	a.presetsMu.RLock()
+	var preset *llm.ModelPreset
+	for i := range a.presets {
+		if a.presets[i].Name == modelName {
+			preset = &a.presets[i]
+			break
+		}
+	}
+	a.presetsMu.RUnlock()
+	if preset == nil {
+		return "" // 找不到 preset，跳过预检查
+	}
+
+	modelPath := resolvePath(preset.ModelPath)
+	mmprojPath := ""
+	if preset.MmprojPath != "" {
+		mmprojPath = resolvePath(preset.MmprojPath)
+	}
+
+	estimated := llm.EstimateModelVRAM(modelPath, mmprojPath)
+	gpuVRAM, err := llm.GetGPUVRAMBytes()
+	if err != nil {
+		zlog.Debug().Err(err).Msg("[vram-check] cannot query GPU VRAM, skip pre-check")
+		return ""
+	}
+
+	zlog.Info().
+		Str("model", modelName).
+		Str("estimated", llm.FormatBytes(estimated)).
+		Str("gpu_vram", llm.FormatBytes(gpuVRAM)).
+		Msg("[vram-check] pre-check")
+
+	if estimated > gpuVRAM {
+		return fmt.Sprintf("显存不足：模型预估需要 %s，GPU 仅有 %s。建议使用更小的量化版本或关闭视觉模型。",
+			llm.FormatBytes(estimated), llm.FormatBytes(gpuVRAM))
+	}
+	return ""
+}
+
+// specTypeCompatCheck SpecType 兼容性检查：当 llama-server 以推测解码模式运行但目标模型不兼容时发出警告
+func (a *App) specTypeCompatCheck(modelName string) string {
+	// 获取目标模型的 GGUF 元数据
+	a.presetsMu.RLock()
+	var modelPath string
+	for i := range a.presets {
+		if a.presets[i].Name == modelName {
+			modelPath = resolvePath(a.presets[i].ModelPath)
+			break
+		}
+	}
+	a.presetsMu.RUnlock()
+	if modelPath == "" {
+		return ""
+	}
+
+	meta, err := system.ParseGGUFMetadataCached(modelPath)
+	if err != nil {
+		return ""
+	}
+
+	// 获取当前 llama-server 的 SpecType
+	currentSpecType := ""
+	if a.server != nil {
+		currentSpecType = a.server.GetSpecType()
+	}
+
+	// 如果当前是 MTP 模式但目标模型不支持 MTP
+	if currentSpecType == "draft-mtp" && !meta.HasMTP {
+		return fmt.Sprintf("当前服务器以 MTP 模式运行，但 %s 不支持 MTP。切换可能导致短暂崩溃后自动恢复，建议重启应用以获得最佳体验。", modelName)
+	}
+
 	return ""
 }
 
@@ -1613,18 +1992,68 @@ func (a *App) switchLoadModel(modelName string) (bool, string) {
 		// LoadModel 返回 200 仅表示开始加载，需要等待模型真正就绪
 		a.emitSwitchProgress("waiting", modelName)
 		if waitErr := a.client.WaitForModelLoaded(a.ctx, modelName, 120*time.Second); waitErr != nil {
+			// 从 server stderr 获取详细错误信息
+			stderrHint := a.getServerStderrHint()
+			if stderrHint != "" {
+				return false, fmt.Sprintf("模型加载失败: %v\n\n详细信息: %s", waitErr, stderrHint)
+			}
 			return false, fmt.Sprintf("模型加载超时: %v", waitErr)
 		}
 		return false, ""
 	}
 
 	if isAlreadyRunningError(loadErr) {
-		// 模型已在运行，视为切换成功（后续 switchFinalize 会发送 done 事件）
-		zlog.Info().Str("model", modelName).Msg("[router] model is already running, treating as switch success")
+		// 模型可能还在 LOADING 状态，必须等待状态变为 loaded
+		zlog.Info().Str("model", modelName).Msg("[router] model is already running/loading, waiting for loaded state")
+		a.emitSwitchProgress("waiting", modelName)
+		if waitErr := a.client.WaitForModelLoaded(a.ctx, modelName, 120*time.Second); waitErr != nil {
+			stderrHint := a.getServerStderrHint()
+			if stderrHint != "" {
+				return false, fmt.Sprintf("模型加载失败: %v\n\n详细信息: %s", waitErr, stderrHint)
+			}
+			return false, fmt.Sprintf("模型加载超时: %v", waitErr)
+		}
 		return true, ""
 	}
 
+	// 从 server stderr 获取详细错误信息
+	stderrHint := a.getServerStderrHint()
+	if stderrHint != "" {
+		return false, fmt.Sprintf("模型加载失败: %v\n\n详细信息: %s", loadErr, stderrHint)
+	}
 	return false, fmt.Sprintf("模型加载失败: %v", loadErr)
+}
+
+// getServerStderrHint 从 llama-server 的 stderr 缓冲区提取关键错误信息
+func (a *App) getServerStderrHint() string {
+	if a.server == nil {
+		return ""
+	}
+	stderr := a.server.LastOutput()
+	if stderr == "" {
+		return ""
+	}
+	// 提取关键错误行
+	lines := strings.Split(stderr, "\n")
+	var hints []string
+	keywords := []string{"error", "failed", "OOM", "CUDA", "VRAM", "out of memory", "cannot", "invalid", "unsupported"}
+	for _, line := range lines {
+		lower := strings.ToLower(line)
+		for _, kw := range keywords {
+			if strings.Contains(lower, strings.ToLower(kw)) {
+				hints = append(hints, strings.TrimSpace(line))
+				break
+			}
+		}
+	}
+	if len(hints) == 0 {
+		return ""
+	}
+	// 最多返回 3 条关键信息
+	if len(hints) > 3 {
+		hints = hints[len(hints)-3:]
+	}
+	return strings.Join(hints, "\n")
 }
 
 // switchWaitReady 等待模型就绪（含 mmproj 回退检测）
@@ -1687,6 +2116,7 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 			zlog.Error().Err(err).Msg("[router] save config after model switch failed")
 			runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
 				Running:      true,
+				ModelReady:   true,
 				CurrentModel: modelName,
 				Error:        fmt.Sprintf("config save failed, model may revert on restart: %v", err),
 			})
@@ -1699,6 +2129,7 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 		zlog.Error().Err(err).Msg("[router] detect model architecture after switch failed")
 		runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
 			Running:      true,
+			ModelReady:   true,
 			CurrentModel: modelName,
 			Error:        fmt.Sprintf("模型架构检测失败: %v", err),
 		})
@@ -1757,15 +2188,17 @@ func (a *App) handleSwitchFailure(modelName, previousModel, errMsg string) Switc
 		} else {
 			zlog.Error().Err(restoreErr).Str("model", previousModel).Msg("[router] failed to restore model")
 			runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
-				Running: false,
-				Error:   fmt.Sprintf("%s，恢复旧模型也失败", errMsg),
+				Running:    false,
+				ModelReady: false,
+				Error:      fmt.Sprintf("%s，恢复旧模型也失败", errMsg),
 			})
 		}
 		restoreCancel()
 	} else {
 		runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
-			Running: false,
-			Error:   errMsg,
+			Running:    false,
+			ModelReady: false,
+			Error:      errMsg,
 		})
 	}
 

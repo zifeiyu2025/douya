@@ -32,8 +32,6 @@ type ServerConfig struct {
 	CacheTypeK       string
 	CacheTypeV       string
 	Mlock            bool
-	Repack           bool
-	OpOffload        bool
 	KVUnified        bool
 	CacheIdleSlots   bool
 	CacheRAM         int
@@ -65,7 +63,21 @@ type ServerConfig struct {
 	SpecDraftNMin    int
 	CacheTypeKDraft  string
 	CacheTypeVDraft  string
-	SSEPingInterval  int
+	SpecNgramModNMin   int
+	SpecNgramModNMax   int
+	SpecNgramModNMatch int
+	SpecNgramSimpleSizeN   int
+	SpecNgramSimpleSizeM   int
+	SpecNgramSimpleMinHits int
+	SpecNgramMapKSizeN     int
+	SpecNgramMapKSizeM     int
+	SpecNgramMapKMinHits   int
+	SpecNgramMapK4VSizeN   int
+	SpecNgramMapK4VSizeM   int
+	SpecNgramMapK4VMinHits int
+	LookupCacheStatic  string
+	LookupCacheDynamic string
+	SpecDraftModel     string
 }
 
 type Server struct {
@@ -110,6 +122,10 @@ func (s *Server) Start() error {
 
 	if s.config.ModelsPreset != "" {
 		args = append(args, "--models-preset", s.config.ModelsPreset)
+		// 禁用路由器自动加载：豆芽通过 /models/load API 显式控制模型加载时机
+		// 原版 llama.cpp 默认 models_autoload=true，会在请求到来时自动加载模型，
+		// 这与豆芽的显式加载逻辑冲突，可能导致子进程参数不完整或加载状态混乱
+		args = append(args, "--no-models-autoload")
 	}
 	if s.config.ModelsMax > 0 {
 		args = append(args, "--models-max", fmt.Sprintf("%d", s.config.ModelsMax))
@@ -152,12 +168,6 @@ func (s *Server) Start() error {
 	}
 	if s.config.ReasoningBudgetMessage != "" {
 		args = append(args, "--reasoning-budget-message", s.config.ReasoningBudgetMessage)
-	}
-	if s.config.Repack {
-		args = append(args, "--repack")
-	}
-	if s.config.OpOffload {
-		args = append(args, "--op-offload")
 	}
 	if s.config.KVUnified {
 		args = append(args, "--kv-unified")
@@ -212,7 +222,12 @@ func (s *Server) Start() error {
 		args = append(args, "--api-key", s.config.APIKey)
 	}
 	if s.config.SpecType != "" && !s.mtpFallbackDisabled {
-		args = append(args, "--spec-type", s.config.SpecType)
+		// 向后兼容：旧版配置中 spec_type 可能保存为 "mtp"，新版 llama-server 已改名为 "draft-mtp"
+		specType := s.config.SpecType
+		if specType == "mtp" {
+			specType = "draft-mtp"
+		}
+		args = append(args, "--spec-type", specType)
 	}
 	if s.config.SpecDraftNMax > 0 && !s.mtpFallbackDisabled {
 		args = append(args, "--spec-draft-n-max", fmt.Sprintf("%d", s.config.SpecDraftNMax))
@@ -226,8 +241,55 @@ func (s *Server) Start() error {
 	if s.config.CacheTypeVDraft != "" && !s.mtpFallbackDisabled {
 		args = append(args, "--spec-draft-type-v", s.config.CacheTypeVDraft)
 	}
-	if s.config.SSEPingInterval > 0 {
-		args = append(args, "--sse-ping-interval", fmt.Sprintf("%d", s.config.SSEPingInterval))
+	if s.config.SpecNgramModNMin > 0 && s.config.SpecType == "ngram-mod" {
+		args = append(args, "--spec-ngram-mod-n-min", fmt.Sprintf("%d", s.config.SpecNgramModNMin))
+	}
+	if s.config.SpecNgramModNMax > 0 && s.config.SpecType == "ngram-mod" {
+		args = append(args, "--spec-ngram-mod-n-max", fmt.Sprintf("%d", s.config.SpecNgramModNMax))
+	}
+	if s.config.SpecNgramModNMatch > 0 && s.config.SpecType == "ngram-mod" {
+		args = append(args, "--spec-ngram-mod-n-match", fmt.Sprintf("%d", s.config.SpecNgramModNMatch))
+	}
+	// ngram-simple 子参数
+	if s.config.SpecNgramSimpleSizeN > 0 && s.config.SpecType == "ngram-simple" {
+		args = append(args, "--spec-ngram-simple-size-n", fmt.Sprintf("%d", s.config.SpecNgramSimpleSizeN))
+	}
+	if s.config.SpecNgramSimpleSizeM > 0 && s.config.SpecType == "ngram-simple" {
+		args = append(args, "--spec-ngram-simple-size-m", fmt.Sprintf("%d", s.config.SpecNgramSimpleSizeM))
+	}
+	if s.config.SpecNgramSimpleMinHits > 0 && s.config.SpecType == "ngram-simple" {
+		args = append(args, "--spec-ngram-simple-min-hits", fmt.Sprintf("%d", s.config.SpecNgramSimpleMinHits))
+	}
+	// ngram-map-k 子参数
+	if s.config.SpecNgramMapKSizeN > 0 && s.config.SpecType == "ngram-map-k" {
+		args = append(args, "--spec-ngram-map-k-size-n", fmt.Sprintf("%d", s.config.SpecNgramMapKSizeN))
+	}
+	if s.config.SpecNgramMapKSizeM > 0 && s.config.SpecType == "ngram-map-k" {
+		args = append(args, "--spec-ngram-map-k-size-m", fmt.Sprintf("%d", s.config.SpecNgramMapKSizeM))
+	}
+	if s.config.SpecNgramMapKMinHits > 0 && s.config.SpecType == "ngram-map-k" {
+		args = append(args, "--spec-ngram-map-k-min-hits", fmt.Sprintf("%d", s.config.SpecNgramMapKMinHits))
+	}
+	// ngram-map-k4v 子参数
+	if s.config.SpecNgramMapK4VSizeN > 0 && s.config.SpecType == "ngram-map-k4v" {
+		args = append(args, "--spec-ngram-map-k4v-size-n", fmt.Sprintf("%d", s.config.SpecNgramMapK4VSizeN))
+	}
+	if s.config.SpecNgramMapK4VSizeM > 0 && s.config.SpecType == "ngram-map-k4v" {
+		args = append(args, "--spec-ngram-map-k4v-size-m", fmt.Sprintf("%d", s.config.SpecNgramMapK4VSizeM))
+	}
+	if s.config.SpecNgramMapK4VMinHits > 0 && s.config.SpecType == "ngram-map-k4v" {
+		args = append(args, "--spec-ngram-map-k4v-min-hits", fmt.Sprintf("%d", s.config.SpecNgramMapK4VMinHits))
+	}
+	// lookup-cache 仅在 ngram-cache 模式下传递
+	if s.config.LookupCacheStatic != "" && s.config.SpecType == "ngram-cache" {
+		args = append(args, "--lookup-cache-static", s.config.LookupCacheStatic)
+	}
+	if s.config.LookupCacheDynamic != "" && s.config.SpecType == "ngram-cache" {
+		args = append(args, "--lookup-cache-dynamic", s.config.LookupCacheDynamic)
+	}
+	// draft 模型路径：仅在 draft-eagle3/draft-simple 模式下传递
+	if s.config.SpecDraftModel != "" && (s.config.SpecType == "draft-eagle3" || s.config.SpecType == "draft-simple") {
+		args = append(args, "--spec-draft-model", s.config.SpecDraftModel)
 	}
 
 	s.cmd = exec.Command(s.config.ServerPath, args...)
@@ -484,8 +546,8 @@ func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(Serv
 				currentBackoff = maxBackoff
 			}
 
-			// MTP 崩溃回退：若 MTP 已启用且服务器崩溃，自动禁用 MTP
-			// 窗口设为 120 秒以覆盖大模型加载时间（加载期间崩溃也视为 MTP 问题）
+			// 推测解码崩溃回退：若推测解码已启用且服务器崩溃，自动禁用推测解码
+			// 窗口设为 120 秒以覆盖大模型加载时间（加载期间崩溃也视为推测解码问题）
 			if !s.mtpFallbackDisabled && s.config.SpecType != "" {
 				runDuration := time.Since(s.lastStartTime)
 				if runDuration < 120*time.Second {
@@ -493,7 +555,7 @@ func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(Serv
 					log.Warn().
 						Dur("run_duration", runDuration).
 						Str("spec_type", s.config.SpecType).
-						Msg("[server] MTP crash detected (server died within 15s), restarting without speculative decoding")
+						Msg("[server] speculative decoding crash detected, restarting without speculative decoding")
 					backoff = 1 * time.Second // 快速重启
 				}
 			}
@@ -580,4 +642,14 @@ func (s *Server) LastOutput() string {
 		return ""
 	}
 	return s.stderrBuf.String()
+}
+
+// GetSpecType 返回当前服务器的推测解码类型（MTP 崩溃回退后返回空字符串）
+func (s *Server) GetSpecType() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.mtpFallbackDisabled {
+		return ""
+	}
+	return s.config.SpecType
 }
