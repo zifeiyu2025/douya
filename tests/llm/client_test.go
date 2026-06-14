@@ -1144,3 +1144,169 @@ func TestGetServerProps_WithoutModelName(t *testing.T) {
 		t.Error("expected Modalities.Vision=false")
 	}
 }
+
+func TestWaitForModelLoaded_ImmediateLoaded(t *testing.T) {
+	// 模型立即返回 loaded 状态，WaitForModelLoaded 应该在 2 秒内完成
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			t.Errorf("expected path /v1/models, got %s", r.URL.Path)
+		}
+		callCount++
+		resp := `{"data":[{"id":"test-model","status":{"value":"loaded"}}]}`
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, resp)
+	}))
+	defer server.Close()
+
+	client := llm.NewClient(server.URL, "")
+	start := time.Now()
+	err := client.WaitForModelLoaded(context.Background(), "test-model", 30*time.Second)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// 稳定性检查应该在 2 秒内完成（2次×500ms + 网络开销）
+	if elapsed > 2*time.Second {
+		t.Fatalf("WaitForModelLoaded took too long: %v (expected < 2s for immediate loaded)", elapsed)
+	}
+	// 应该至少轮询 2 次（稳定性检查需要 2 次确认）
+	if callCount < 2 {
+		t.Fatalf("expected at least 2 polls for stability check, got %d", callCount)
+	}
+}
+
+func TestWaitForModelLoaded_LoadingThenLoaded(t *testing.T) {
+	// 模型先返回 loading，然后变为 loaded
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		var resp string
+		if callCount <= 3 {
+			resp = `{"data":[{"id":"test-model","status":{"value":"loading"}}]}`
+		} else {
+			resp = `{"data":[{"id":"test-model","status":{"value":"loaded"}}]}`
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, resp)
+	}))
+	defer server.Close()
+
+	client := llm.NewClient(server.URL, "")
+	err := client.WaitForModelLoaded(context.Background(), "test-model", 30*time.Second)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if callCount < 5 {
+		t.Fatalf("expected at least 5 polls (3 loading + 2 stability), got %d", callCount)
+	}
+}
+
+func TestWaitForModelLoaded_FailedStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := `{"data":[{"id":"test-model","status":{"value":"failed","failed":true}}]}`
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, resp)
+	}))
+	defer server.Close()
+
+	client := llm.NewClient(server.URL, "")
+	err := client.WaitForModelLoaded(context.Background(), "test-model", 30*time.Second)
+
+	if err == nil {
+		t.Fatal("expected error for failed model status, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed") {
+		t.Errorf("expected error to contain 'failed', got: %v", err)
+	}
+}
+
+func TestWaitForModelLoaded_SleepingStatus(t *testing.T) {
+	// sleeping 状态也应该视为就绪
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := `{"data":[{"id":"test-model","status":{"value":"sleeping"}}]}`
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, resp)
+	}))
+	defer server.Close()
+
+	client := llm.NewClient(server.URL, "")
+	err := client.WaitForModelLoaded(context.Background(), "test-model", 30*time.Second)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestWaitForModelLoaded_Timeout(t *testing.T) {
+	// 模型一直 loading，应该超时
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := `{"data":[{"id":"test-model","status":{"value":"loading"}}]}`
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, resp)
+	}))
+	defer server.Close()
+
+	client := llm.NewClient(server.URL, "")
+	err := client.WaitForModelLoaded(context.Background(), "test-model", 2*time.Second)
+
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+	if !strings.Contains(err.Error(), "did not become loaded") {
+		t.Errorf("expected timeout error message, got: %v", err)
+	}
+}
+
+func TestWaitForModelLoaded_CrashAfterLoaded(t *testing.T) {
+	// 模型短暂 loaded 后变为 unloaded（子进程崩溃），应该继续等待而非立即返回
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		var resp string
+		if callCount == 1 {
+			// 第一次：loaded
+			resp = `{"data":[{"id":"test-model","status":{"value":"loaded"}}]}`
+		} else if callCount == 2 {
+			// 第二次：unloaded（崩溃了）
+			resp = `{"data":[{"id":"test-model","status":{"value":"unloaded"}}]}`
+		} else {
+			// 之后重新 loaded
+			resp = `{"data":[{"id":"test-model","status":{"value":"loaded"}}]}`
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, resp)
+	}))
+	defer server.Close()
+
+	client := llm.NewClient(server.URL, "")
+	err := client.WaitForModelLoaded(context.Background(), "test-model", 30*time.Second)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// 应该继续轮询直到模型稳定 loaded，而不是第一次 loaded 就返回
+	if callCount < 4 {
+		t.Fatalf("expected at least 4 polls (1 loaded + 1 unloaded crash + 2 stability), got %d", callCount)
+	}
+}
+
+func TestWaitForModelLoaded_FuzzyMatch(t *testing.T) {
+	// 测试模糊匹配模型名称
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 服务器返回的 ID 是完整路径格式
+		resp := `{"data":[{"id":"models/Gemma-4-12b-it/Gemma-4-12b-it.gguf","status":{"value":"loaded"}}]}`
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, resp)
+	}))
+	defer server.Close()
+
+	client := llm.NewClient(server.URL, "")
+	err := client.WaitForModelLoaded(context.Background(), "Gemma-4-12b-it", 30*time.Second)
+
+	if err != nil {
+		t.Fatalf("expected fuzzy match to work, got error: %v", err)
+	}
+}

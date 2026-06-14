@@ -533,11 +533,39 @@ func (c *Client) LoadModel(ctx context.Context, modelName string) error {
 	}
 	defer resp.Body.Close()
 
+	respBody, _ := readBody(resp.Body)
+
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := readBody(resp.Body)
 		return fmt.Errorf("load model returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
+	log.Info().Str("model", modelName).Int("status", resp.StatusCode).Str("body", string(respBody)).Msg("[client] LoadModel response")
+
+	return nil
+}
+
+// ReloadPresets 通知路由器重新加载 preset 文件
+// 在修改了 router-preset.ini 后调用，使路由器感知到配置变化
+// 原版 llama.cpp 使用 GET /v1/models?reload 来触发 preset 重载
+func (c *Client) ReloadPresets(ctx context.Context) error {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/models?reload=1", nil)
+	if err != nil {
+		return fmt.Errorf("failed to create reload presets request: %w", err)
+	}
+	c.setAuthHeader(httpReq)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("reload presets request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := readBody(resp.Body)
+		return fmt.Errorf("reload presets returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	log.Info().Msg("[client] ReloadPresets: presets reloaded successfully")
 	return nil
 }
 
@@ -639,8 +667,10 @@ func (c *Client) ReloadModels(ctx context.Context) error {
 }
 
 type ModelStatus struct {
-	Name   string `json:"name"`
-	Status string `json:"status"`
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Failed  bool   `json:"failed,omitempty"`
+	ExitCode int   `json:"exit_code,omitempty"`
 }
 
 func (c *Client) GetModelStatus(ctx context.Context, modelName string) (*ModelStatus, error) {
@@ -670,7 +700,9 @@ func (c *Client) GetModelStatus(ctx context.Context, modelName string) (*ModelSt
 		Data []struct {
 			ID     string `json:"id"`
 			Status struct {
-				Value string `json:"value"`
+				Value    string `json:"value"`
+				Failed   bool   `json:"failed,omitempty"`
+				ExitCode int    `json:"exit_code,omitempty"`
 			} `json:"status"`
 		} `json:"data"`
 	}
@@ -680,10 +712,12 @@ func (c *Client) GetModelStatus(ctx context.Context, modelName string) (*ModelSt
 	}
 
 	for _, d := range raw.Data {
-		if d.ID == modelName {
+		if d.ID == modelName || FuzzyMatchModelID(d.ID, modelName) {
 			return &ModelStatus{
-				Name:   d.ID,
-				Status: d.Status.Value,
+				Name:     d.ID,
+				Status:   d.Status.Value,
+				Failed:   d.Status.Failed,
+				ExitCode: d.Status.ExitCode,
 			}, nil
 		}
 	}
@@ -707,10 +741,21 @@ func FuzzyMatchModelID(id, name string) bool {
 	return false
 }
 
-func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeout time.Duration) error {
+func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeout time.Duration, onProgress ...func(pollCount int, status string)) error {
 	deadline := time.Now().Add(timeout)
 	pollClient := &http.Client{Timeout: 3 * time.Second}
 	pollCount := 0
+
+	// 稳定性检查：模型变为 loaded/sleeping 后，再确认几次状态保持稳定
+	// 防止子进程短暂 loaded 后崩溃导致误判
+	stableCount := 0
+	const requiredStablePolls = 2 // 连续 2 次轮询状态稳定才认为真正就绪
+	const stableInterval = 500 * time.Millisecond
+
+	// 详细日志：加载超过 30 秒时每 30 秒记录一次状态
+	startTime := time.Now()
+	lastDetailedLogTime := startTime
+	const detailedLogInterval = 30 * time.Second
 
 	for time.Now().Before(deadline) {
 		select {
@@ -743,8 +788,9 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 			Data []struct {
 				ID     string `json:"id"`
 				Status struct {
-					Value  string `json:"value"`
-					Failed bool   `json:"failed,omitempty"`
+					Value    string `json:"value"`
+					Failed   bool   `json:"failed,omitempty"`
+					ExitCode int    `json:"exit_code,omitempty"`
 				} `json:"status"`
 			} `json:"data"`
 		}
@@ -755,23 +801,108 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 		}
 
 		pollCount++
+
+		// 首次轮询时记录所有模型 ID 和状态，帮助诊断模型名不匹配问题
+		if pollCount == 1 {
+			allModels := make([]string, 0, len(raw.Data))
+			for _, d := range raw.Data {
+				allModels = append(allModels, fmt.Sprintf("%s=%s", d.ID, d.Status.Value))
+			}
+			log.Info().Str("target", modelName).Strs("models", allModels).Msg("[client] WaitForModelLoaded: first poll result")
+		}
+
+		// 进度回调：通知调用者当前轮询状态
+		if len(onProgress) > 0 && onProgress[0] != nil {
+			statusValue := "polling"
+			for _, d := range raw.Data {
+				if d.ID == modelName || FuzzyMatchModelID(d.ID, modelName) {
+					statusValue = d.Status.Value
+					break
+				}
+			}
+			onProgress[0](pollCount, statusValue)
+
+			// 详细日志：加载超过 30 秒时每 30 秒记录一次状态
+			now := time.Now()
+			if now.Sub(lastDetailedLogTime) >= detailedLogInterval {
+				log.Info().
+					Str("model", modelName).
+					Str("status", statusValue).
+					Int("polls", pollCount).
+					Dur("elapsed", now.Sub(startTime)).
+					Msg("[client] WaitForModelLoaded: long-running load")
+				lastDetailedLogTime = now
+			}
+		}
+		found := false
 		for _, d := range raw.Data {
 			if d.ID == modelName || FuzzyMatchModelID(d.ID, modelName) {
+				found = true
+				// 检测 failed 字段：子进程崩溃后路由器可能将状态设为 unloaded+failed
+				// 也可能卡在 loading 状态但 failed 已被设置
+				if d.Status.Failed {
+					return fmt.Errorf("model %s failed to load (exit_code=%d)", modelName, d.Status.ExitCode)
+				}
+				// 每 10 次轮询记录一次状态，帮助排查加载卡住的问题
+				if pollCount%10 == 1 {
+					log.Debug().Str("model", modelName).Str("status", d.Status.Value).Int("poll", pollCount).Msg("[client] WaitForModelLoaded: polling")
+				}
 				switch d.Status.Value {
-				case "loaded":
-					return nil
+				case "loaded", "sleeping":
+					// loaded = 模型已加载就绪
+					// sleeping = 模型已加载但处于休眠状态（仍在 VRAM 中，新请求会自动唤醒）
+					stableCount++
+					if stableCount >= requiredStablePolls {
+						log.Info().Str("model", modelName).Str("status", d.Status.Value).Int("polls", pollCount).Msg("[client] WaitForModelLoaded: model is stable")
+						return nil
+					}
+					log.Debug().Str("model", modelName).Str("status", d.Status.Value).Int("stable", stableCount).Int("required", requiredStablePolls).Msg("[client] WaitForModelLoaded: stability check")
+					// 稳定性检查期间使用较长间隔
+					time.Sleep(stableInterval)
 				case "failed":
 					return fmt.Errorf("model %s failed to load", modelName)
+				case "unloaded":
+					// unloaded 可能是子进程崩溃（exit_code != 0），也可能是初始状态
+					// 如果 exit_code 非零，说明子进程确实崩溃了
+					if d.Status.ExitCode != 0 {
+						return fmt.Errorf("model %s crashed during loading (exit_code=%d)", modelName, d.Status.ExitCode)
+					}
+					// 模型曾经加载后又卸载了（子进程崩溃），重置稳定性计数
+					if stableCount > 0 {
+						log.Warn().Str("model", modelName).Int("previous_stable", stableCount).Msg("[client] WaitForModelLoaded: model became unloaded after being loaded (child process crash?)")
+						stableCount = 0
+					}
+					// 使用正常轮询间隔
+					time.Sleep(300 * time.Millisecond)
+				default:
+					// loading 等其他状态，继续等待
+					// 但如果 loading 状态持续太久（90秒），可能是子进程崩溃但路由器未更新状态
+					// 这种情况发生在子进程因 mmproj 不兼容等原因崩溃，但路由器的监控线程卡住
+					elapsed := time.Since(startTime)
+					if d.Status.Value == "loading" && elapsed > 90*time.Second {
+						log.Warn().Str("model", modelName).Dur("elapsed", elapsed).Msg("[client] WaitForModelLoaded: model stuck in loading state, likely child process crashed")
+						return fmt.Errorf("model %s appears stuck in loading state after %v (child process may have crashed)", modelName, elapsed.Round(time.Second))
+					}
+					if stableCount > 0 {
+						log.Debug().Str("model", modelName).Str("status", d.Status.Value).Int("previous_stable", stableCount).Msg("[client] WaitForModelLoaded: model left loaded state, resetting stability")
+						stableCount = 0
+					}
+					time.Sleep(300 * time.Millisecond)
 				}
 				break
 			}
 		}
 
-		// Dynamic interval: first 3 polls at 300ms, then 500ms
-		if pollCount <= 3 {
+		if !found {
+			// 模型名称未匹配，记录日志帮助调试
+			if pollCount <= 5 {
+				ids := make([]string, 0, len(raw.Data))
+				for _, d := range raw.Data {
+					ids = append(ids, d.ID)
+				}
+				log.Debug().Str("model", modelName).Strs("available_ids", ids).Int("poll", pollCount).Msg("[client] WaitForModelLoaded: model not found in response, retrying")
+			}
 			time.Sleep(300 * time.Millisecond)
-		} else {
-			time.Sleep(500 * time.Millisecond)
 		}
 	}
 

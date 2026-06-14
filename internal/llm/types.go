@@ -170,6 +170,7 @@ type SSEChoice struct {
 
 type ServerStatus struct {
 	Running        bool               `json:"running"`
+	ModelReady     bool               `json:"model_ready,omitempty"`
 	Error          string             `json:"error,omitempty"`
 	Switching      bool               `json:"switching,omitempty"`
 	SwitchingTo    string             `json:"switching_to,omitempty"`

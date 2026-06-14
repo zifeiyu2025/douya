@@ -34,6 +34,9 @@ type SmartParams struct {
 	SpecDraftNMin    int
 	CacheTypeKDraft  string
 	CacheTypeVDraft  string
+	NgramModNMin     int
+	NgramModNMax     int
+	NgramModNMatch   int
 }
 
 func DetectModelTier(resolvedModelPath string) (ModelTier, *GGUFMetadata) {
@@ -94,7 +97,7 @@ func CalculateSmartParams(hw *HardwareInfo, resolvedModelPath string) *SmartPara
 	p.MmprojOffload = hw.HasGPU
 
 	p.ContextSize = calculateContextSize(hw, resolvedModelPath)
-	p.BatchSize = calculateBatchSize(hw)
+	p.BatchSize = calculateBatchSizeFromRatio(hw, meta)
 	p.UBatchSize = p.BatchSize / 2
 
 	if meta != nil && meta.HasMTP {
@@ -120,7 +123,7 @@ func CalculateSmartParams(hw *HardwareInfo, resolvedModelPath string) *SmartPara
 			}
 		}
 
-		p.SpecType = "mtp"
+		p.SpecType = "draft-mtp"
 		p.CacheTypeKDraft = "q8_0"
 		p.CacheTypeVDraft = "q8_0"
 		// MTP + 思考模型：降低 draft token 数量，减少跨越思考/正文边界的 token 回退风险
@@ -132,8 +135,31 @@ func CalculateSmartParams(hw *HardwareInfo, resolvedModelPath string) *SmartPara
 		}
 	} else if hw.HasGPU {
 		// 非 MTP 模型：自动启用 ngram_mod 推测解码加速（无需 MTP 头，任何模型可用）
-		p.SpecType = "ngram-mod"
-		log.Info().Msg("[smart-params] non-MTP model with GPU detected, auto-enabling ngram_mod speculative decoding")
+		// 但需要检查条件：显存太紧张或模型太小则跳过
+		shouldEnableNgram := true
+		if meta != nil && meta.FileSize > 0 && hw.GPUVRAMMB > 0 {
+			vramBytes := float64(hw.GPUVRAMMB) * 1024 * 1024
+			modelBytes := float64(meta.FileSize)
+			ratio := modelBytes / vramBytes
+			if meta.ExpertCount > 0 && meta.ExpertUsed > 0 {
+				ratio = ratio * float64(meta.ExpertUsed) / float64(meta.ExpertCount)
+			}
+			if ratio > 0.85 {
+				shouldEnableNgram = false
+				log.Info().Float64("ratio", ratio).Msg("[smart-params] VRAM too tight for ngram-mod, skipping")
+			}
+			if meta.NParams > 0 && meta.NParams < 3_000_000_000 {
+				shouldEnableNgram = false
+				log.Info().Int64("n_params", meta.NParams).Msg("[smart-params] model too small for ngram-mod, skipping")
+			}
+		}
+		if shouldEnableNgram {
+			p.SpecType = "ngram-mod"
+			p.NgramModNMin = 48
+			p.NgramModNMax = 64
+			p.NgramModNMatch = 24
+			log.Info().Msg("[smart-params] non-MTP model with GPU detected, auto-enabling ngram_mod speculative decoding")
+		}
 	}
 
 	return p
@@ -146,6 +172,72 @@ func calculateContextSize(hw *HardwareInfo, resolvedModelPath string) int {
 		return 4096
 	}
 
+	vramBytes := float64(hw.GPUVRAMMB) * 1024 * 1024
+
+	// 如果有 GGUF 元数据，尝试基于显存预算精确计算上下文长度
+	if meta != nil && meta.FileSize > 0 && meta.BlockCount > 0 {
+		// 先确定 cache-type
+		cacheK, cacheV := calculateCacheTypes(hw, meta)
+
+		// 模型权重占用
+		modelBytes := float64(meta.FileSize)
+		// MoE 模型：mmap 模式下实际内存占用更少，但显存中仍需加载激活参数
+		if meta.ExpertCount > 0 && meta.ExpertUsed > 0 {
+			modelBytes = modelBytes * float64(meta.ExpertUsed) / float64(meta.ExpertCount)
+		}
+
+		// 安全余量 15%（给临时缓冲区、CUDA 内核等）
+		safetyMargin := 0.15
+		availableForKV := vramBytes * (1.0 - safetyMargin) - modelBytes
+
+		if availableForKV <= 0 {
+			// 显存不足以加载模型，返回最小上下文
+			return 2048
+		}
+
+		// KV cache 每token 显存消耗
+		kvCostPerToken := estimateKVCostPerToken(meta, cacheK, cacheV)
+		if kvCostPerToken <= 0 {
+			// 无法估算，回退到查表法
+			return calculateContextSizeFallback(tier, hw, meta)
+		}
+
+		// 反推最大上下文长度
+		maxCtx := int(availableForKV / float64(kvCostPerToken))
+
+		// 对齐到 256 的整数倍
+		maxCtx = (maxCtx / 256) * 256
+		if maxCtx < 2048 {
+			maxCtx = 2048
+		}
+
+		// 不超过模型原生上下文长度
+		if meta.ContextLength > 0 && maxCtx > meta.ContextLength {
+			maxCtx = meta.ContextLength
+		}
+
+		// 不超过 131072（128K）
+		if maxCtx > 131072 {
+			maxCtx = 131072
+		}
+
+		log.Info().
+			Float64("vram_gb", vramBytes/1024/1024/1024).
+			Float64("model_gb", modelBytes/1024/1024/1024).
+			Float64("available_kv_gb", availableForKV/1024/1024/1024).
+			Int64("kv_cost_per_token", kvCostPerToken).
+			Int("max_ctx", maxCtx).
+			Msg("[smart-params] context size calculated from VRAM budget")
+
+		return maxCtx
+	}
+
+	// 无 GGUF 元数据，回退到查表法
+	return calculateContextSizeFallback(tier, hw, meta)
+}
+
+// calculateContextSizeFallback 查表法计算上下文长度（无 GGUF 元数据时的回退方案）
+func calculateContextSizeFallback(tier ModelTier, hw *HardwareInfo, meta *GGUFMetadata) int {
 	vramGB := float64(hw.GPUVRAMMB) / 1024.0
 
 	var vramBased int
@@ -244,6 +336,114 @@ func calculateBatchSize(hw *HardwareInfo) int {
 	}
 }
 
+// calculateBatchSizeFromRatio 根据模型占用比例计算 batch size
+func calculateBatchSizeFromRatio(hw *HardwareInfo, meta *GGUFMetadata) int {
+	if !hw.HasGPU || hw.GPUVRAMMB <= 0 {
+		return 64
+	}
+
+	// 如果没有元数据，回退到仅基于 VRAM 的计算
+	if meta == nil || meta.FileSize <= 0 {
+		return calculateBatchSize(hw)
+	}
+
+	vramBytes := float64(hw.GPUVRAMMB) * 1024 * 1024
+	modelBytes := float64(meta.FileSize)
+	ratio := modelBytes / vramBytes
+	if meta.ExpertCount > 0 && meta.ExpertUsed > 0 {
+		ratio = ratio * float64(meta.ExpertUsed) / float64(meta.ExpertCount)
+	}
+
+	switch {
+	case ratio <= 0.5:
+		return 1024
+	case ratio <= 0.7:
+		return 512
+	case ratio <= 0.85:
+		return 256
+	default:
+		return 128
+	}
+}
+
+// cacheTypeSize 返回每种量化类型每个元素占用的字节数
+func cacheTypeSize(ct string) float64 {
+	switch ct {
+	case "f16":
+		return 2.0
+	case "q8_0":
+		return 1.0
+	case "q6_k":
+		return 0.79
+	case "q5_1":
+		return 0.75
+	case "q5_0":
+		return 0.6875
+	case "q5_k":
+		return 0.6875
+	case "q4_1":
+		return 0.625
+	case "q4_0":
+		return 0.5625
+	case "q4_k":
+		return 0.5625
+	case "iq4_nl":
+		return 0.5
+	case "iq4_xs":
+		return 0.5
+	case "q3_k":
+		return 0.4375
+	case "q2_k":
+		return 0.3125
+	default:
+		return 0.5625 // 默认 q4_0
+	}
+}
+
+// estimateKVCostPerToken 估算 KV cache 每个token的显存消耗（字节）
+// KV cache = 2 (K+V) * num_layers * head_dim * num_kv_heads * sizeof(cache_type)
+func estimateKVCostPerToken(meta *GGUFMetadata, cacheTypeK, cacheTypeV string) int64 {
+	if meta == nil || meta.BlockCount <= 0 {
+		return 0
+	}
+
+	// head_dim：优先使用 GGUF 元数据，否则从 embedding_length 推算
+	headDim := meta.HeadDimKV
+	if headDim <= 0 {
+		headDim = meta.EmbeddingLength
+		// 如果有 KV head 信息且不等于 embedding_length，说明是 GQA
+		// head_dim = embedding_length / num_attention_heads
+		// 但我们没有 num_attention_heads，所以用 embedding_length 作为近似
+		// 对于 GQA 模型，head_dim 通常为 128 或 256
+		if headDim > 256 {
+			// 大概率是 n_embd 而非 head_dim，尝试常见值
+			if headDim%128 == 0 {
+				headDim = 128 // 最常见的 head_dim
+			}
+		}
+	}
+
+	// num_kv_heads：优先使用 GGUF 元数据
+	kvHeads := meta.KVHeadCount
+	if kvHeads <= 0 {
+		// 无法确定，使用保守估计
+		// 假设 head_dim=128, kv_heads = embedding_length / 128
+		if headDim > 0 {
+			kvHeads = meta.EmbeddingLength / headDim
+		}
+		if kvHeads <= 0 {
+			kvHeads = 32 // 保守默认值
+		}
+	}
+
+	// K cache 每token: num_layers * head_dim * num_kv_heads * sizeof(cache_type_k)
+	kCost := float64(meta.BlockCount) * float64(headDim) * float64(kvHeads) * cacheTypeSize(cacheTypeK)
+	// V cache 每token: num_layers * head_dim * num_kv_heads * sizeof(cache_type_v)
+	vCost := float64(meta.BlockCount) * float64(headDim) * float64(kvHeads) * cacheTypeSize(cacheTypeV)
+
+	return int64(kCost + vCost)
+}
+
 func calculateCacheTypes(hw *HardwareInfo, meta *GGUFMetadata) (string, string) {
 	if !hw.HasGPU || hw.GPUVRAMMB <= 0 {
 		return "q4_0", "q4_0"
@@ -256,16 +456,26 @@ func calculateCacheTypes(hw *HardwareInfo, meta *GGUFMetadata) (string, string) 
 	vramBytes := float64(hw.GPUVRAMMB) * 1024 * 1024
 	modelBytes := float64(meta.FileSize)
 	ratio := modelBytes / vramBytes
+	// MoE 模型：按激活参数折算模型权重占用，但 KV cache 不折算
 	if meta.ExpertCount > 0 && meta.ExpertUsed > 0 {
 		ratio = ratio * float64(meta.ExpertUsed) / float64(meta.ExpertCount)
 	}
 
 	switch {
+	case ratio <= 0.5:
+		// 显存充裕，最高精度
+		return "q8_0", "q8_0"
 	case ratio <= 0.7:
+		// 显存较充裕，平衡精度
 		return "q8_0", "q4_0"
-	case ratio <= 1.5:
-		return "q8_0", "turbo3"
+	case ratio <= 0.85:
+		// 显存紧张，压缩 K
+		return "q4_0", "q4_0"
+	case ratio <= 0.95:
+		// 显存很紧张，激进压缩
+		return "q4_0", "iq4_xs"
 	default:
-		return "turbo3", "turbo2"
+		// 极度紧张，极限压缩
+		return "q2_k", "q2_k"
 	}
 }

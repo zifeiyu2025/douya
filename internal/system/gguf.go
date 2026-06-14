@@ -72,6 +72,8 @@ type GGUFMetadata struct {
 	SizeLabel       string
 	NParams         int64
 	ChatTemplate    string
+	KVHeadCount     int
+	HeadDimKV       int
 }
 
 func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
@@ -123,6 +125,14 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 			case "expert_used_per_token":
 				if n, ok := toInt(v); ok {
 					meta.ExpertUsed = n
+				}
+			case "head_count_kv":
+				if n, ok := toInt(v); ok {
+					meta.KVHeadCount = n
+				}
+			case "key_length":
+				if n, ok := toInt(v); ok {
+					meta.HeadDimKV = n
 				}
 			case "mtp_count":
 				if n, ok := toInt(v); ok && n > 0 {
@@ -185,6 +195,24 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 	}
 
 	log.Debug().Str("architecture", meta.Architecture).Bool("has_mtp", meta.HasMTP).Msg("[gguf] MTP detection result")
+
+	// 架构排除：某些模型虽然 GGUF 元数据中有 nextn_predict_layers，
+	// 但其 MTP 实现与 llama-server 的 --spec-type draft-mtp 不兼容
+	if meta.HasMTP && meta.Architecture != "" {
+		lowerArch := strings.ToLower(meta.Architecture)
+		// gemma4 的 MTP 层格式与 llama-server 的 spec-decoding 不兼容
+		// 强制关闭 HasMTP，改走 ngram-mod 分支
+		mtpExcludeKeywords := []string{"gemma4", "gemma-4", "gemma_4"}
+		for _, kw := range mtpExcludeKeywords {
+			if strings.Contains(lowerArch, kw) {
+				log.Warn().
+					Str("architecture", meta.Architecture).
+					Msg("[gguf] MTP detected but architecture incompatible with llama-server spec-decoding, disabling HasMTP")
+				meta.HasMTP = false
+				break
+			}
+		}
+	}
 
 	return meta, nil
 }
