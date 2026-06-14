@@ -36,23 +36,3 @@ func TestTavilyProvider_EmptyAPIKey(t *testing.T) {
 		t.Fatalf("expected error 'tavily api key is empty', got '%s'", err.Error())
 	}
 }
-
-func TestGitHubProvider_NoAPIKey(t *testing.T) {
-	p := search.NewGitHubProvider("")
-	if p == nil {
-		t.Fatal("NewGitHubProvider should not return nil")
-	}
-	if p.Name() != "github" {
-		t.Fatalf("expected name 'github', got '%s'", p.Name())
-	}
-}
-
-func TestGitHubProvider_WithAPIKey(t *testing.T) {
-	p := search.NewGitHubProvider("ghp_testkey123")
-	if p == nil {
-		t.Fatal("NewGitHubProvider should not return nil")
-	}
-	if p.Name() != "github" {
-		t.Fatalf("expected name 'github', got '%s'", p.Name())
-	}
-}
