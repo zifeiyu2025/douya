@@ -24,7 +24,29 @@
         </div>
       </div>
     </Transition>
-    <div v-if="(!messages || messages.length === 0) && !isGenerating" class="message-list-empty">
+    <Transition name="first-load">
+      <div v-if="isFirstLoad" class="first-load-container">
+        <div class="first-load-content">
+          <div class="first-load-logo">
+            <svg width="64" height="64" viewBox="0 0 64 64" fill="none" class="logo-pulse">
+              <circle cx="32" cy="32" r="28" stroke="var(--accent-primary)" stroke-width="2" opacity="0.3" class="logo-ring-outer"/>
+              <circle cx="32" cy="32" r="20" stroke="var(--accent-primary)" stroke-width="2" opacity="0.5" class="logo-ring-inner"/>
+              <circle cx="32" cy="32" r="8" fill="var(--accent-primary)" class="logo-core"/>
+            </svg>
+          </div>
+          <div class="first-load-title">正在启动豆芽</div>
+          <div class="first-load-subtitle">{{ firstLoadProgressText }}</div>
+          <div v-if="firstLoadElapsedText" class="first-load-elapsed">已等待 {{ firstLoadElapsedText }}</div>
+          <div v-if="firstLoadHint" class="first-load-hint">{{ firstLoadHint }}</div>
+          <div class="first-load-dots">
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+          </div>
+        </div>
+      </div>
+    </Transition>
+    <div v-if="(!messages || messages.length === 0) && !isGenerating && !isFirstLoad" class="message-list-empty">
       <div class="welcome-container">
         <div class="welcome-title">欢迎使用 Douya</div>
         <div class="welcome-subtitle">智能对话助手 · 本地部署 · 隐私优先</div>
@@ -124,6 +146,59 @@ const searchQuery = computed(() => chatStore.searchQuery)
 const contextTrimmed = computed(() => chatStore.contextTrimmed)
 
 const isSwitching = computed(() => settingsStore.isModelSwitching)
+const isFirstLoad = computed(() => settingsStore.isFirstLoad)
+
+const firstLoadProgressText = computed(() => {
+  const stage = settingsStore.switchProgress.stage
+  const texts: Record<string, string> = {
+    'idle': '加载本地 AI 模型中，请稍候...',
+    'loading': '正在加载模型到显存...',
+    'verifying': '正在验证模型状态...',
+    'retrying': '正在重新加载模型...',
+    'failed': '模型加载失败',
+  }
+  return texts[stage] || '加载本地 AI 模型中，请稍候...'
+})
+
+// 首次加载已等待时间
+const firstLoadElapsed = ref(0)
+let firstLoadTimer: ReturnType<typeof setInterval> | null = null
+
+watch(isFirstLoad, (val) => {
+  if (val) {
+    firstLoadElapsed.value = 0
+    firstLoadTimer = setInterval(() => {
+      firstLoadElapsed.value++
+    }, 1000)
+  } else {
+    if (firstLoadTimer) {
+      clearInterval(firstLoadTimer)
+      firstLoadTimer = null
+    }
+  }
+})
+
+const firstLoadElapsedText = computed(() => {
+    if (firstLoadElapsed.value <= 0) return ''
+    const mins = Math.floor(firstLoadElapsed.value / 60)
+    const secs = firstLoadElapsed.value % 60
+    if (mins > 0) {
+        return `${mins}分${secs}秒`
+    }
+    return `${secs}秒`
+})
+
+// 首次加载降级提示：避免用户误判为"无限加载"
+const firstLoadHint = computed(() => {
+    const elapsed = firstLoadElapsed.value
+    if (elapsed >= 180) {
+        return '仍在加载中...如长时间无响应，可尝试重启应用'
+    }
+    if (elapsed >= 90) {
+        return '加载时间较长，请检查模型文件或显存是否充足'
+    }
+    return ''
+})
 const switchingToModel = computed(() => {
   if (settingsStore.serverStatus.switching_to) {
     return formatModelName(settingsStore.serverStatus.switching_to).display
@@ -234,12 +309,11 @@ onMounted(() => {
     const el = messageListRef.value
     if (el) bindCodeCopyButtons(el)
 
-    // 主流方案：使用 ResizeObserver 统一管理滚动行为
-    // 监听消息列表高度变化，仅当用户原本在底部时才跟随滚动到底
-    // 避免多次 nextTick 强制滚动导致的"乱跳"问题
-    if (el && typeof ResizeObserver !== 'undefined') {
+    // 使用 MutationObserver 监听内容变化，配合 isNearBottom 实现智能滚动跟随
+    // 流式回复时内容频繁更新，仅当用户在底部附近时才自动滚动
+    if (el && typeof MutationObserver !== 'undefined') {
         let rafId: number | null = null
-        const ro = new ResizeObserver(() => {
+        const mo = new MutationObserver(() => {
             if (rafId !== null) return
             rafId = requestAnimationFrame(() => {
                 rafId = null
@@ -248,10 +322,11 @@ onMounted(() => {
                 }
             })
         })
-        ro.observe(el)
+        // 监听子节点变化和文本内容变化（覆盖流式回复场景）
+        mo.observe(el, { childList: true, subtree: true, characterData: true })
         onUnmounted(() => {
             if (rafId !== null) cancelAnimationFrame(rafId)
-            ro.disconnect()
+            mo.disconnect()
         })
     }
 })
@@ -493,6 +568,164 @@ watch(() => chatStore.lastError, (err) => {
   font-size: 16px;
   font-weight: 400;
   color: var(--text-secondary);
+}
+
+/* ===== 首次加载动效 ===== */
+.first-load-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+
+.first-load-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.first-load-logo {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo-pulse {
+  animation: logoBreath 2.5s ease-in-out infinite;
+}
+
+.logo-ring-outer {
+  animation: ringExpand 2.5s ease-in-out infinite;
+}
+
+.logo-ring-inner {
+  animation: ringExpand 2.5s ease-in-out infinite 0.3s;
+}
+
+.logo-core {
+  animation: coreGlow 2.5s ease-in-out infinite;
+}
+
+.first-load-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 2px;
+}
+
+.first-load-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.first-load-elapsed {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.first-load-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+  max-width: 320px;
+  text-align: center;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+
+.first-load-dots {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.first-load-dots .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--accent-primary);
+  animation: dotBounce 1.4s ease-in-out infinite;
+}
+
+.first-load-dots .dot:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.first-load-dots .dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.first-load-dots .dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes logoBreath {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}
+
+@keyframes ringExpand {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes coreGlow {
+  0%, 100% {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+@keyframes dotBounce {
+  0%, 80%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  40% {
+    transform: translateY(-8px);
+    opacity: 1;
+  }
+}
+
+.first-load-enter-active {
+  transition: opacity 0.5s ease;
+}
+
+.first-load-leave-active {
+  transition: opacity 0.6s ease;
+}
+
+.first-load-enter-from,
+.first-load-leave-to {
+  opacity: 0;
 }
 
 .switch-overlay {
