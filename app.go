@@ -476,6 +476,10 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 						} else {
 							zlog.Info().Str("model", modelForDetect).Msg("[server] default model loaded and ready (background)")
 							a.serverReady.Store(true)
+							// 模型加载完成后重新检测架构，因为首次检测时 mmproj 可能尚未加载
+							if err := a.service.DetectModelArchitectureForModel(modelForDetect); err != nil {
+								zlog.Warn().Err(err).Msg("[server] re-detect model architecture after background load failed")
+							}
 							a.emitSwitchSuccess(modelForDetect)
 						}
 					}()
@@ -483,6 +487,10 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 			} else {
 				zlog.Info().Str("model", modelForDetect).Msg("[server] default model loaded and ready")
 				a.serverReady.Store(true)
+				// 模型加载完成后重新检测架构，因为首次检测时 mmproj 可能尚未加载
+				if err := a.service.DetectModelArchitectureForModel(modelForDetect); err != nil {
+					zlog.Warn().Err(err).Msg("[server] re-detect model architecture after load failed")
+				}
 				a.emitSwitchSuccess(modelForDetect)
 			}
 		}
@@ -540,6 +548,10 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 				} else {
 					zlog.Info().Str("model", modelForDetect2).Msg("[server] model reloaded and ready after restart")
 					a.serverReady.Store(true)
+					// 模型加载完成后重新检测架构，因为首次检测时 mmproj 可能尚未加载
+					if err := a.service.DetectModelArchitectureForModel(modelForDetect2); err != nil {
+						zlog.Warn().Err(err).Msg("[server] re-detect model architecture after restart load failed")
+					}
 					runtime.EventsEmit(ctx, "server:status", a.runningStatus())
 				}
 			}

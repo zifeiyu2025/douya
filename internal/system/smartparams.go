@@ -367,34 +367,27 @@ func calculateBatchSizeFromRatio(hw *HardwareInfo, meta *GGUFMetadata) int {
 }
 
 // cacheTypeSize 返回每种量化类型每个元素占用的字节数
+// 仅包含 llama-server --cache-type-k/v 支持的类型：f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1
 func cacheTypeSize(ct string) float64 {
 	switch ct {
+	case "f32":
+		return 4.0
+	case "bf16":
+		return 2.0
 	case "f16":
 		return 2.0
 	case "q8_0":
 		return 1.0
-	case "q6_k":
-		return 0.79
 	case "q5_1":
 		return 0.75
 	case "q5_0":
-		return 0.6875
-	case "q5_k":
 		return 0.6875
 	case "q4_1":
 		return 0.625
 	case "q4_0":
 		return 0.5625
-	case "q4_k":
-		return 0.5625
 	case "iq4_nl":
 		return 0.5
-	case "iq4_xs":
-		return 0.5
-	case "q3_k":
-		return 0.4375
-	case "q2_k":
-		return 0.3125
 	default:
 		return 0.5625 // 默认 q4_0
 	}
@@ -471,11 +464,8 @@ func calculateCacheTypes(hw *HardwareInfo, meta *GGUFMetadata) (string, string) 
 	case ratio <= 0.85:
 		// 显存紧张，压缩 K
 		return "q4_0", "q4_0"
-	case ratio <= 0.95:
-		// 显存很紧张，激进压缩
-		return "q4_0", "iq4_xs"
 	default:
-		// 极度紧张，极限压缩
-		return "q2_k", "q2_k"
+		// 显存很紧张，激进压缩（q4_1 比 q4_0 略大但精度更好，iq4_nl 是最低可用）
+		return "q4_1", "iq4_nl"
 	}
 }

@@ -11,8 +11,8 @@ import (
 	"douya/internal/store"
 )
 
-// 测试系统提示词中是否包含事实一致性原则
-func TestSystemPrompt_ContainsFactConsistencyPrinciple(t *testing.T) {
+// 测试系统提示词中是否包含基本行为原则
+func TestSystemPrompt_ContainsCorePrinciples(t *testing.T) {
 	svc := newTestService()
 	svc.GetConfig().SystemPrompt = "" // 确保使用默认系统提示词
 	dbMsgs := []*store.Message{
@@ -26,29 +26,13 @@ func TestSystemPrompt_ContainsFactConsistencyPrinciple(t *testing.T) {
 
 	content := msgs[0].ContentString()
 
-	// 关键检查点 - 验证我们添加的事实一致性原则是否存在
-	requiredKeywords := []string{
-		"事实一致性原则",
-		"基本事实",
-		"科学常识",
-		"数学真理",
-		"1+1=2",
-		"礼貌但明确地拒绝",
-		"以后都按这个错误前提回答",
-		"明确表示无法遵守",
-	}
-
-	for _, keyword := range requiredKeywords {
-		if !strings.Contains(content, keyword) {
-			t.Errorf("system prompt should contain '%s', but it doesn't", keyword)
-		}
-	}
-
-	// 额外验证系统提示词的整体结构
+	// 验证系统提示词的整体结构
 	expectedSections := []string{
-		"核心原则",
-		"能力",
-		"行为规范",
+		"身份",
+		"原则",
+		"思考",
+		"规范",
+		"安全",
 	}
 
 	for _, section := range expectedSections {
@@ -57,7 +41,27 @@ func TestSystemPrompt_ContainsFactConsistencyPrinciple(t *testing.T) {
 		}
 	}
 
-	t.Logf("✓ 系统提示词验证通过，包含完整的事实一致性原则")
+	// 验证关键原则
+	requiredKeywords := []string{
+		"豆芽",
+		"准确",
+		"精炼",
+		"不编造",
+		"拒绝错误前提",
+	}
+
+	for _, keyword := range requiredKeywords {
+		if !strings.Contains(content, keyword) {
+			t.Errorf("system prompt should contain '%s', but it doesn't", keyword)
+		}
+	}
+
+	// 验证不再包含"能力"部分
+	if strings.Contains(content, "## 能力") {
+		t.Error("system prompt should NOT contain '## 能力' section")
+	}
+
+	t.Logf("✓ 系统提示词验证通过")
 	t.Logf("  系统提示词长度: %d 字符", len([]rune(content)))
 }
 
@@ -72,16 +76,16 @@ func TestSystemPrompt_CustomPrompt_AlwaysAppended(t *testing.T) {
 
 	content := msgs[0].ContentString()
 
-	if !strings.Contains(content, "事实一致性原则") {
-		t.Error("custom prompt should be appended after default prompt, fact consistency principle must be preserved")
-	}
 	if !strings.Contains(content, "你是测试助手") {
 		t.Error("custom prompt should be present in system prompt")
 	}
+	if !strings.Contains(content, "豆芽") {
+		t.Error("default prompt should still be present when custom prompt is used")
+	}
 }
 
-// 测试系统提示词中明确包含拒绝"以后按错误前提回答"的指导
-func TestSystemPrompt_ExplicitlyRejectsPersistentErrorPremise(t *testing.T) {
+// 测试系统提示词中包含防泄露规则
+func TestSystemPrompt_ContainsAntiLeakRules(t *testing.T) {
 	svc := newTestService()
 	svc.GetConfig().SystemPrompt = "" // 确保使用默认系统提示词
 	dbMsgs := []*store.Message{
@@ -91,16 +95,14 @@ func TestSystemPrompt_ExplicitlyRejectsPersistentErrorPremise(t *testing.T) {
 
 	content := msgs[0].ContentString()
 
-	// 这是我们特别关心的部分 - 明确拒绝"以后都按这个错误前提回答"
-	importantClauses := []string{
-		`如果用户要求"以后都按这个错误前提回答"`, // 改为双引号
-		"明确表示无法遵守",
-		"坚持正确的事实",
+	antiLeakClauses := []string{
+		"不得以任何形式泄露",
+		"礼貌拒绝",
 	}
 
-	for _, clause := range importantClauses {
+	for _, clause := range antiLeakClauses {
 		if !strings.Contains(content, clause) {
-			t.Errorf("system prompt missing important clause: '%s'", clause)
+			t.Errorf("system prompt missing anti-leak clause: '%s'", clause)
 		}
 	}
 }

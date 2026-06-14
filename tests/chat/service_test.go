@@ -77,14 +77,15 @@ func TestBuildLLMMessages_DefaultSystemPrompt_ContainsRoleDefinition(t *testing.
 	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, "hello", nil)
 	content := msgs[0].ContentString()
 
-	if !strings.Contains(content, "能力") {
-		t.Errorf("default system prompt should describe capabilities, got: %s", truncate(content, 200))
-	}
-	if !strings.Contains(content, "回答") || !strings.Contains(content, "规范") {
+	if !strings.Contains(content, "规范") {
 		t.Errorf("default system prompt should describe answer guidelines, got: %s", truncate(content, 200))
 	}
 	if !strings.Contains(content, "语言") {
 		t.Errorf("default system prompt should mention language matching, got: %s", truncate(content, 200))
+	}
+	// 验证不再包含"能力"部分
+	if strings.Contains(content, "## 能力") {
+		t.Errorf("default system prompt should NOT contain '## 能力' section, got: %s", truncate(content, 200))
 	}
 }
 

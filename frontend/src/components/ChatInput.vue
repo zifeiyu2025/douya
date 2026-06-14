@@ -53,7 +53,7 @@
             <div v-if="showAttachMenu" class="attach-menu">
               <button
                 class="attach-menu-item"
-                :class="{ disabled: !capabilities.image_input }"
+                :class="{ disabled: !capabilities.mmproj_loaded || !capabilities.image_input }"
                 @click="triggerFileUpload('image')"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
@@ -63,7 +63,7 @@
               </button>
               <button
                 class="attach-menu-item"
-                :class="{ disabled: !capabilities.audio_input }"
+                :class="{ disabled: !capabilities.mmproj_loaded || !capabilities.audio_input }"
                 @click="triggerFileUpload('audio')"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
@@ -73,7 +73,7 @@
               </button>
               <button
                 class="attach-menu-item"
-                :class="{ disabled: !capabilities.video_input }"
+                :class="{ disabled: !capabilities.mmproj_loaded || !capabilities.video_input }"
                 @click="triggerFileUpload('video')"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
@@ -282,6 +282,8 @@ function getAcceptForType(type: string): string {
 }
 
 function triggerFileUpload(type: string) {
+  // 图片/音频/视频需要 mmproj 已加载才可用
+  if ((type === 'image' || type === 'audio' || type === 'video') && !capabilities.value.mmproj_loaded) return
   if (type === 'image' && !capabilities.value.image_input) return
   if (type === 'audio' && !capabilities.value.audio_input) return
   if (type === 'video' && !capabilities.value.video_input) return

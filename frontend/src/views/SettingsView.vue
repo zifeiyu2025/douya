@@ -233,6 +233,9 @@
           <template #label>推测解码 <HelpTip content="加速推理的推测解码技术。draft-mtp 需要模型内置 MTP 头（如 Qwen3.6-UD），draft-eagle3 需要 Eagle3 草稿模型，ngram 类型对所有模型可用。自动模式下检测到 MTP 头会自动启用 draft-mtp，否则启用 ngram-mod" /></template>
           <n-select v-model:value="formConfig.spec_type" :options="specTypeOptions" placeholder="自动检测" clearable />
         </n-form-item>
+        <n-text v-if="!settingsStore.modelCapabilities.has_mtp" depth="3" style="font-size: 12px; margin-top: -12px; display: block; margin-bottom: 8px;">
+          当前模型不支持 MTP，draft-mtp 选项已隐藏
+        </n-text>
         <n-form-item v-if="formConfig.spec_type === 'draft-mtp' || formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-simple'" label="推测预测数">
           <n-input-number v-model:value="formConfig.spec_draft_n_max" :min="1" :max="4" :step="1" placeholder="3" @blur="autoSave" />
         </n-form-item>
@@ -389,50 +392,51 @@ function applyContextSizeRef() {
 
 const cacheTypeKOptions = [
   { label: '自动', value: '' },
+  { label: 'f32 (32bit)', value: 'f32' },
   { label: 'f16 (16bit)', value: 'f16' },
+  { label: 'bf16 (16bit)', value: 'bf16' },
   { label: 'q8_0 (8bit)', value: 'q8_0' },
-  { label: 'q6_k (6bit)', value: 'q6_k' },
   { label: 'q5_1 (5bit)', value: 'q5_1' },
   { label: 'q5_0 (5bit)', value: 'q5_0' },
-  { label: 'q5_k (5bit)', value: 'q5_k' },
   { label: 'q4_1 (4bit)', value: 'q4_1' },
   { label: 'q4_0 (4bit)', value: 'q4_0' },
-  { label: 'q4_k (4bit)', value: 'q4_k' },
   { label: 'iq4_nl (4bit)', value: 'iq4_nl' },
-  { label: 'iq4_xs (4bit)', value: 'iq4_xs' },
-  { label: 'q3_k (3bit)', value: 'q3_k' },
-  { label: 'q2_k (2bit)', value: 'q2_k' },
 ]
 
 const cacheTypeVOptions = [
   { label: '自动', value: '' },
+  { label: 'f32 (32bit)', value: 'f32' },
   { label: 'f16 (16bit)', value: 'f16' },
+  { label: 'bf16 (16bit)', value: 'bf16' },
   { label: 'q8_0 (8bit)', value: 'q8_0' },
-  { label: 'q6_k (6bit)', value: 'q6_k' },
   { label: 'q5_1 (5bit)', value: 'q5_1' },
   { label: 'q5_0 (5bit)', value: 'q5_0' },
-  { label: 'q5_k (5bit)', value: 'q5_k' },
   { label: 'q4_1 (4bit)', value: 'q4_1' },
   { label: 'q4_0 (4bit)', value: 'q4_0' },
-  { label: 'q4_k (4bit)', value: 'q4_k' },
   { label: 'iq4_nl (4bit)', value: 'iq4_nl' },
-  { label: 'iq4_xs (4bit)', value: 'iq4_xs' },
-  { label: 'q3_k (3bit)', value: 'q3_k' },
-  { label: 'q2_k (2bit)', value: 'q2_k' },
 ]
 
-const specTypeOptions = [
-  { label: '自动检测', value: '' },
-  { label: 'MTP 推测解码 🔥', value: 'draft-mtp' },
-  { label: 'Eagle3 推测解码', value: 'draft-eagle3' },
-  { label: 'Draft-Simple 推测解码', value: 'draft-simple' },
-  { label: 'Ngram-Mod 推测解码', value: 'ngram-mod' },
-  { label: 'Ngram-Simple 推测解码', value: 'ngram-simple' },
-  { label: 'Ngram-Map-K 推测解码', value: 'ngram-map-k' },
-  { label: 'Ngram-Map-K4V 推测解码', value: 'ngram-map-k4v' },
-  { label: 'Ngram-Cache 推测解码', value: 'ngram-cache' },
-  { label: '关闭', value: 'none' },
-]
+const specTypeOptions = computed(() => {
+  const caps = settingsStore.modelCapabilities
+  const options = [
+    { label: '自动检测', value: '' },
+  ]
+  // 仅当模型支持 MTP 时才显示 draft-mtp 选项
+  if (caps.has_mtp) {
+    options.push({ label: 'MTP 推测解码 🔥', value: 'draft-mtp' })
+  }
+  options.push(
+    { label: 'Eagle3 推测解码', value: 'draft-eagle3' },
+    { label: 'Draft-Simple 推测解码', value: 'draft-simple' },
+    { label: 'Ngram-Mod 推测解码', value: 'ngram-mod' },
+    { label: 'Ngram-Simple 推测解码', value: 'ngram-simple' },
+    { label: 'Ngram-Map-K 推测解码', value: 'ngram-map-k' },
+    { label: 'Ngram-Map-K4V 推测解码', value: 'ngram-map-k4v' },
+    { label: 'Ngram-Cache 推测解码', value: 'ngram-cache' },
+    { label: '关闭', value: 'none' },
+  )
+  return options
+})
 
 const formConfig = ref<Config>({
   model_path: '',
@@ -1136,6 +1140,10 @@ watch(() => settingsStore.currentModel, async () => {
     contextSizeIndex.value = findClosestStepIndex(formConfig.value.context_size)
     if (currentModelRef.value) {
       applyModelRef()
+    }
+    // 如果当前 spec_type 为 draft-mtp 但模型不支持 MTP，自动重置为空（自动检测）
+    if (formConfig.value.spec_type === 'draft-mtp' && !settingsStore.modelCapabilities.has_mtp) {
+      formConfig.value.spec_type = ''
     }
   }
 })
