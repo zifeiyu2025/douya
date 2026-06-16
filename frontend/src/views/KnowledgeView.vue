@@ -267,8 +267,8 @@ async function handleFileUpload({ file }: any) {
   uploading.value = true
   try {
     const f = file.file as File
-    if (f.size > 20 * 1024 * 1024) {
-      message.error('文件大小不能超过 20MB')
+    if (f.size > 200 * 1024 * 1024) {
+      message.error('文件大小不能超过 200MB')
       return
     }
     const arrayBuffer = await f.arrayBuffer()

@@ -307,6 +307,7 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		LookupCacheDynamic:    a.config.LookupCacheDynamic,
 		SpecDraftModel:         a.config.SpecDraftModel,
 		Embedding:              true, // 启用 embedding API（RAG 知识库需要）
+		Pooling:                "mean", // 聊天模型 pooling=none 不兼容 OAI embedding API
 	}
 
 	if a.config.CacheTypeK != "" {
@@ -975,7 +976,7 @@ var allowedDocMIMETypes = map[string]bool{
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": true,
 }
 
-const maxUploadSize = 50 * 1024 * 1024 // 50MB
+const maxUploadSize = 200 * 1024 * 1024 // 200MB
 
 func (a *App) UploadDocument(kbName string, fileName string, fileData string, mimeType string) error {
 	if a.ragVS == nil {
@@ -1637,6 +1638,7 @@ func (a *App) generatePresetFile() error {
 		globalDefaults = map[string]string{
 			"ctx-size":      fmt.Sprintf("%d", sp.ContextSize),
 			"mmproj-offload": "1",
+			"pooling":       "mean",
 		}
 		zlog.Info().Int("ctx-size", sp.ContextSize).Msg("[preset] global defaults")
 	}

@@ -78,7 +78,8 @@ type ServerConfig struct {
 	LookupCacheStatic  string
 	LookupCacheDynamic string
 	SpecDraftModel     string
-	Embedding          bool // 启用 /v1/embeddings API（RAG 知识库需要）
+	Embedding          bool   // 启用 /v1/embeddings API（RAG 知识库需要）
+	Pooling            string // 嵌入池化类型（mean/cls），解决聊天模型 pooling=none 不兼容 OAI embedding API
 }
 
 type Server struct {
@@ -296,6 +297,10 @@ func (s *Server) Start() error {
 	// 启用 embedding API（RAG 知识库需要 /v1/embeddings 接口）
 	if s.config.Embedding {
 		args = append(args, "--embedding")
+	}
+	// 嵌入池化类型：聊天模型默认 pooling=none 不兼容 OAI embedding API，需指定 mean
+	if s.config.Pooling != "" {
+		args = append(args, "--pooling", s.config.Pooling)
 	}
 
 	s.cmd = exec.Command(s.config.ServerPath, args...)
