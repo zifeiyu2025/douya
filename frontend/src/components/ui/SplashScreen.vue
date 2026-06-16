@@ -5,12 +5,13 @@
         <!-- 品牌标识 -->
         <div class="splash-brand">
           <div class="splash-logo">
-            <svg width="56" height="56" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <img :src="appiconUrl" alt="豆芽" class="splash-logo-img" />
+            <svg width="56" height="56" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg"
+              class="logo-progress-ring-svg">
               <circle cx="28" cy="28" r="26" stroke="currentColor" stroke-width="2.5" opacity="0.3" />
               <circle cx="28" cy="28" r="26" stroke="currentColor" stroke-width="2.5"
                 stroke-dasharray="163.36" :stroke-dashoffset="163.36 - (163.36 * progress / 100)"
                 class="logo-progress-ring" />
-              <text x="28" y="33" text-anchor="middle" fill="currentColor" font-size="22" font-weight="700">豆</text>
             </svg>
           </div>
           <div class="splash-title">豆芽</div>
@@ -34,6 +35,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import appiconUrl from '../../assets/images/appicon.png'
 
 const props = withDefaults(defineProps<{
   visible: boolean
@@ -93,8 +95,28 @@ const stageText = computed(() => {
 }
 
 .splash-logo {
+  position: relative;
+  width: 56px;
+  height: 56px;
   color: var(--accent-primary);
   animation: breathe 2.4s ease-in-out infinite;
+}
+
+.splash-logo-img {
+  width: 40px;
+  height: 40px;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 12px;
+  object-fit: contain;
+}
+
+.logo-progress-ring-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
 }
 
 .logo-progress-ring {

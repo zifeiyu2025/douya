@@ -2,6 +2,7 @@
   <div class="sidebar" :class="{ collapsed }">
     <div class="sidebar-header" style="--wails-draggable:drag">
       <div class="sidebar-logo">
+        <img :src="appiconUrl" alt="豆芽" class="sidebar-logo-img" />
         <div class="logo-text">
           <span class="logo-dou">Dou</span><span class="logo-ya">Ya</span>
         </div>
@@ -86,6 +87,7 @@ import { AddOutline, SearchOutline, SettingsOutline, BookOutline, PencilOutline,
 import { useChatStore } from '../stores/chat'
 import { fixUtf8 } from '../utils/utf8'
 import type { Conversation } from '../services/wails'
+import appiconUrl from '../assets/images/appicon.png'
 
 const props = defineProps<{ collapsed: boolean }>()
 const emit = defineEmits<{ toggle: [] }>()
@@ -235,6 +237,15 @@ async function handleExport(id: string, format: string) {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 10px;
+}
+
+.sidebar-logo-img {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .loading-container {

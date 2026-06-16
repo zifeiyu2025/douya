@@ -5,7 +5,7 @@
 <template>
     <div class="welcome-panel">
         <div class="welcome-icon glass-icon">
-            <AppIcon name="bulb" :size="32" />
+            <img :src="appiconUrl" alt="豆芽" class="welcome-logo-img" />
         </div>
         <div class="welcome-title">开始一个新对话</div>
         <div class="welcome-subtitle">支持联网搜索、多模态输入、长对话记忆</div>
@@ -20,6 +20,7 @@
 
 <script setup lang="ts">
 import AppIcon from '../ui/AppIcon.vue'
+import appiconUrl from '../../assets/images/appicon.png'
 
 const tips = [
     { icon: 'globe' as const, text: '支持联网搜索,回答包含最新信息' },
@@ -48,6 +49,13 @@ const tips = [
     border-radius: 50%;
     background: var(--bg-tertiary);
     color: var(--accent-primary);
+}
+
+.welcome-logo-img {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    object-fit: contain;
 }
 
 .glass-icon {
