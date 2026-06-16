@@ -78,6 +78,7 @@ type ServerConfig struct {
 	LookupCacheStatic  string
 	LookupCacheDynamic string
 	SpecDraftModel     string
+	Embedding          bool // 启用 /v1/embeddings API（RAG 知识库需要）
 }
 
 type Server struct {
@@ -290,6 +291,11 @@ func (s *Server) Start() error {
 	// draft 模型路径：仅在 draft-eagle3/draft-simple 模式下传递
 	if s.config.SpecDraftModel != "" && (s.config.SpecType == "draft-eagle3" || s.config.SpecType == "draft-simple") {
 		args = append(args, "--spec-draft-model", s.config.SpecDraftModel)
+	}
+
+	// 启用 embedding API（RAG 知识库需要 /v1/embeddings 接口）
+	if s.config.Embedding {
+		args = append(args, "--embedding")
 	}
 
 	s.cmd = exec.Command(s.config.ServerPath, args...)

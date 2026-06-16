@@ -93,6 +93,7 @@ export interface Config {
     rag_min_score: number
     rag_chunk_size: number
     rag_chunk_overlap: number
+    embedding_model: string
     mmap: boolean
     kv_offload: boolean
     context_shift: boolean
@@ -162,6 +163,7 @@ export const DEFAULT_CONFIG: Config = {
     rag_min_score: 0.3,
     rag_chunk_size: 512,
     rag_chunk_overlap: 64,
+    embedding_model: '',
     mmap: true,
     kv_offload: true,
     context_shift: false,

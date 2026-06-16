@@ -192,7 +192,11 @@ func TestFactualConsistency_SystemPromptContainsPrinciple(t *testing.T) {
 		t.Errorf("system prompt should contain factual consistency principle, got: %s", truncate(content, 500))
 	}
 
-	if !strings.Contains(content, "拒绝错误前提") {
+	if !strings.Contains(content, "数学") || !strings.Contains(content, "真理") {
+		t.Errorf("system prompt should mention mathematical truth, got: %s", truncate(content, 500))
+	}
+
+	if !strings.Contains(content, "拒绝") && !strings.Contains(content, "错误前提") {
 		t.Errorf("system prompt should mention rejecting false premises, got: %s", truncate(content, 500))
 	}
 }

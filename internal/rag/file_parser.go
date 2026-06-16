@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	pdf "github.com/ledongthuc/pdf"
 )
 
 var textExtensions = map[string]bool{
@@ -52,7 +54,11 @@ func ParseFileFromBytes(data []byte, fileName string) (string, error) {
 
 	switch ext {
 	case ".pdf":
-		text := extractPDFTextFromBytes(data)
+		text, err := extractPDFTextWithLib(data)
+		if err != nil {
+			// 库解析失败时回退到正则提取
+			text = extractPDFTextFromBytes(data)
+		}
 		if text == "" {
 			return "", fmt.Errorf("failed to extract text from PDF: %s", fileName)
 		}
@@ -69,6 +75,41 @@ func parseAsText(data []byte) (string, error) {
 		return "", fmt.Errorf("file content is not valid UTF-8")
 	}
 	return string(data), nil
+}
+
+// extractPDFTextWithLib 使用 ledongthuc/pdf 库提取 PDF 文本，支持中文和编码流
+func extractPDFTextWithLib(data []byte) (string, error) {
+	reader, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return "", fmt.Errorf("pdf reader: %w", err)
+	}
+
+	var buf strings.Builder
+	pageCount := reader.NumPage()
+	for i := 1; i <= pageCount; i++ {
+		page := reader.Page(i)
+		if page.V.IsNull() {
+			continue
+		}
+		content, err := page.GetPlainText(nil)
+		if err != nil {
+			// 单页解析失败不中断，继续下一页
+			continue
+		}
+		text := strings.TrimSpace(content)
+		if text != "" {
+			if buf.Len() > 0 {
+				buf.WriteString("\n")
+			}
+			buf.WriteString(text)
+		}
+	}
+
+	result := buf.String()
+	if result == "" {
+		return "", fmt.Errorf("no text extracted from PDF")
+	}
+	return result, nil
 }
 
 func extractPDFTextFromBytes(data []byte) string {

@@ -49,6 +49,7 @@ type Config struct {
 	RAGMinScore       float64 `json:"rag_min_score"`
 	RAGChunkSize      int     `json:"rag_chunk_size"`
 	RAGChunkOverlap   int     `json:"rag_chunk_overlap"`
+	EmbeddingModel    string  `json:"embedding_model"` // 专用嵌入模型路径（可选，为空则用聊天模型）
 	ReasoningBudgetMessage string `json:"reasoning_budget_message"`
 	Mmap              bool    `json:"mmap"`
 	KVOffload         bool    `json:"kv_offload"`

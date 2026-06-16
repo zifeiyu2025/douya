@@ -306,6 +306,7 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		LookupCacheStatic:     a.config.LookupCacheStatic,
 		LookupCacheDynamic:    a.config.LookupCacheDynamic,
 		SpecDraftModel:         a.config.SpecDraftModel,
+		Embedding:              true, // 启用 embedding API（RAG 知识库需要）
 	}
 
 	if a.config.CacheTypeK != "" {
@@ -803,18 +804,22 @@ func (a *App) startup(ctx context.Context) {
 	} else {
 		a.ragVS = ragVS
 		a.ragDS = rag.NewDocumentStore(ragVS.DB())
-		a.currentModelMu.RLock()
-		modelName := a.currentModelName
-		a.currentModelMu.RUnlock()
+		// 嵌入模型：优先使用专用嵌入模型，否则使用当前聊天模型
+		embedModel := a.config.EmbeddingModel
+		if embedModel == "" {
+			a.currentModelMu.RLock()
+			embedModel = a.currentModelName
+			a.currentModelMu.RUnlock()
+		}
 		embedder := &rag.ClientEmbedder{Client: a.client}
-		embedder.SetModel(modelName)
+		embedder.SetModel(embedModel)
 		a.ragEmbedder = embedder
 		collection := a.config.RAGActiveKB
 		if collection == "" {
 			collection = "default"
 		}
 		a.service.SetRAG(ragVS, a.ragDS, embedder, collection, a.config.RAGEnabled)
-		zlog.Info().Str("dir", ragDir).Str("collection", collection).Bool("enabled", a.config.RAGEnabled).Msg("[startup] RAG initialized")
+		zlog.Info().Str("dir", ragDir).Str("collection", collection).Str("embed_model", embedModel).Bool("enabled", a.config.RAGEnabled).Msg("[startup] RAG initialized")
 	}
 
 	a.serverMu.Lock()
@@ -2113,8 +2118,8 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 	a.currentModelName = modelName
 	a.currentModelMu.Unlock()
 
-	// 更新嵌入模型名
-	if a.ragEmbedder != nil {
+	// 更新嵌入模型名（仅在未配置专用嵌入模型时跟随聊天模型切换）
+	if a.ragEmbedder != nil && a.config.EmbeddingModel == "" {
 		a.ragEmbedder.SetModel(modelName)
 	}
 

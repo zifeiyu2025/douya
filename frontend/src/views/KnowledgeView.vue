@@ -121,6 +121,12 @@
           <n-form-item label="分块重叠">
             <n-input-number v-model:value="ragConfig.chunkOverlap" :min="0" :max="512" :step="16" size="small" class="rag-input" />
           </n-form-item>
+          <n-form-item label="嵌入模型">
+            <n-input v-model:value="ragConfig.embeddingModel" placeholder="留空则使用当前聊天模型" size="small" class="rag-input" />
+          </n-form-item>
+          <n-text v-if="!ragConfig.embeddingModel" depth="3" style="font-size: 12px; margin-top: -8px; display: block; margin-bottom: 4px;">
+            未配置专用嵌入模型，将使用聊天模型做嵌入，检索质量可能较差。推荐使用 bge-base-en-v1.5 等专用嵌入模型。
+          </n-text>
         </n-form>
 
         <div class="rag-save-row">
@@ -161,6 +167,7 @@ const ragConfig = ref({
   minScore: 0.3,
   chunkSize: 512,
   chunkOverlap: 64,
+  embeddingModel: '',
 })
 
 const kbOptions = computed(() =>
@@ -186,6 +193,7 @@ async function loadData() {
       ragConfig.value.minScore = config.rag_min_score ?? 0.3
       ragConfig.value.chunkSize = config.rag_chunk_size ?? 512
       ragConfig.value.chunkOverlap = config.rag_chunk_overlap ?? 64
+      ragConfig.value.embeddingModel = config.embedding_model ?? ''
     }
     await loadDocuments()
   } catch (e: any) {
@@ -299,6 +307,7 @@ async function handleSaveRAGConfig() {
     config.rag_min_score = ragConfig.value.minScore
     config.rag_chunk_size = ragConfig.value.chunkSize
     config.rag_chunk_overlap = ragConfig.value.chunkOverlap
+    config.embedding_model = ragConfig.value.embeddingModel
     await wails.updateConfig(config)
     message.success('RAG 设置已保存')
   } catch (e: any) {

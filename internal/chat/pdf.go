@@ -5,10 +5,14 @@ package chat
 
 import (
 	"bytes"
+	"fmt"
 	"regexp"
 	"strings"
+
+	pdf "github.com/ledongthuc/pdf"
 )
 
+// extractPDFText 提取 PDF 文本内容，优先使用 pdf 库，失败时回退到正则提取
 func extractPDFText(data []byte) string {
 	if len(data) == 0 {
 		return ""
@@ -18,6 +22,52 @@ func extractPDFText(data []byte) string {
 		return ""
 	}
 
+	// 优先使用 pdf 库提取（支持中文、编码流等）
+	text, err := extractPDFTextWithLib(data)
+	if err == nil && text != "" {
+		return text
+	}
+
+	// 回退到正则提取
+	return extractPDFTextWithRegex(data)
+}
+
+// extractPDFTextWithLib 使用 ledongthuc/pdf 库提取 PDF 文本
+func extractPDFTextWithLib(data []byte) (string, error) {
+	reader, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return "", fmt.Errorf("pdf reader: %w", err)
+	}
+
+	var buf strings.Builder
+	pageCount := reader.NumPage()
+	for i := 1; i <= pageCount; i++ {
+		page := reader.Page(i)
+		if page.V.IsNull() {
+			continue
+		}
+		content, err := page.GetPlainText(nil)
+		if err != nil {
+			continue
+		}
+		text := strings.TrimSpace(content)
+		if text != "" {
+			if buf.Len() > 0 {
+				buf.WriteString("\n")
+			}
+			buf.WriteString(text)
+		}
+	}
+
+	result := buf.String()
+	if result == "" {
+		return "", fmt.Errorf("no text extracted from PDF")
+	}
+	return result, nil
+}
+
+// extractPDFTextWithRegex 使用正则提取 PDF 文本（fallback）
+func extractPDFTextWithRegex(data []byte) string {
 	text := string(data)
 
 	streamRe := regexp.MustCompile(`(?s)stream\r?\n.*?\r?\nendstream`)
