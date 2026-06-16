@@ -81,13 +81,14 @@ func DefaultHNSWConfig() HNSWConfig {
 // VectorStore provides a vector database backed by Badger (KV) and an
 // in-memory index. It is safe for concurrent use.
 type VectorStore struct {
-	db  *badger.DB
-	cfg HNSWConfig
+	db        *badger.DB
+	cfg       HNSWConfig
+	bm25Index *BM25Index // BM25 关键词检索索引
 
 	// Per-collection state. Access is protected by the collection-level lock map.
-	mu     sync.RWMutex
-	locks  map[string]*sync.Mutex // collection name → lock
-	indexes map[string]*memIndex // collection name → in-memory index (nil until first load)
+	mu      sync.RWMutex
+	locks   map[string]*sync.Mutex  // collection name → lock
+	indexes map[string]*memIndex    // collection name → in-memory index (nil until first load)
 }
 
 // memIndex is an in-memory vector index backed by Badger.
@@ -234,12 +235,49 @@ func NewVectorStore(dataDir string, cfg HNSWConfig) (*VectorStore, error) {
 		return nil, fmt.Errorf("open badger: %w", err)
 	}
 
-	return &VectorStore{
-		db:      db,
-		cfg:     cfg,
-		locks:   make(map[string]*sync.Mutex),
-		indexes: make(map[string]*memIndex),
-	}, nil
+	vs := &VectorStore{
+		db:        db,
+		cfg:       cfg,
+		bm25Index: NewBM25Index(),
+		locks:     make(map[string]*sync.Mutex),
+		indexes:   make(map[string]*memIndex),
+	}
+
+	// 从 Badger 中重建 BM25 索引（程序重启后保持混合检索能力）
+	vs.rebuildBM25Index()
+
+	return vs, nil
+}
+
+// rebuildBM25Index 从 Badger 中加载所有已存储的 chunk 文本，重建 BM25 索引
+func (vs *VectorStore) rebuildBM25Index() {
+	prefix := []byte("chunk:")
+	count := 0
+	err := vs.db.View(func(txn *badger.Txn) error {
+		it := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer it.Close()
+		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+			item := it.Item()
+			id := string(item.Key()[len(prefix):])
+			val, err := item.ValueCopy(nil)
+			if err != nil {
+				continue
+			}
+			content := string(val)
+			if content != "" {
+				vs.bm25Index.AddDocument(id, content)
+				count++
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		log.Warn().Err(err).Msg("[rag] failed to rebuild BM25 index")
+		return
+	}
+	if count > 0 {
+		log.Info().Int("count", count).Msg("[rag] BM25 index rebuilt from Badger")
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -384,6 +422,30 @@ func (vs *VectorStore) getCollectionMeta(name string) (collectionMeta, error) {
 	return meta, err
 }
 
+// updateCollectionDim updates the dimension of an existing collection.
+func (vs *VectorStore) updateCollectionDim(name string, dim int32) error {
+	return vs.db.Update(func(txn *badger.Txn) error {
+		item, err := txn.Get(collectionKey(name))
+		if err != nil {
+			return err
+		}
+		b, err := item.ValueCopy(nil)
+		if err != nil {
+			return err
+		}
+		meta, err := bytesToMeta(b)
+		if err != nil {
+			return err
+		}
+		meta.Dim = dim
+		data, err := metaToBytes(meta)
+		if err != nil {
+			return err
+		}
+		return txn.Set(collectionKey(name), data)
+	})
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -441,6 +503,14 @@ func (vs *VectorStore) AddVectors(collection string, ids []string, vectors [][]f
 	}
 	dim := int(meta.Dim)
 
+	// 如果集合维度为 0（旧数据或初始化时未确定维度），自动更新为实际向量维度
+	if dim == 0 && len(vectors) > 0 && len(vectors[0]) > 0 {
+		dim = len(vectors[0])
+		if err := vs.updateCollectionDim(collection, int32(dim)); err != nil {
+			return fmt.Errorf("update collection dim: %w", err)
+		}
+	}
+
 	// Validate all vectors before any write.
 	for i, v := range vectors {
 		if len(v) == 0 {
@@ -480,6 +550,13 @@ func (vs *VectorStore) AddVectors(collection string, ids []string, vectors [][]f
 	defer mu.Unlock()
 	for i := range ids {
 		idx.insert(ids[i], vectors[i])
+	}
+
+	// 同步更新 BM25 索引：从 Badger 读取 chunk 文本
+	for _, id := range ids {
+		if content, err := vs.loadChunkContent(collection, id); err == nil && content != "" {
+			vs.bm25Index.AddDocument(id, content)
+		}
 	}
 
 	log.Info().Str("collection", collection).Int("count", len(vectors)).Msg("vectors added")

@@ -30,8 +30,15 @@ func DefaultChunkConfig() ChunkConfig {
 	return ChunkConfig{
 		ChunkSize:    512,
 		ChunkOverlap: 64,
-		Separators:   []string{"\n\n", "\n", "。", ". ", " "},
+		Separators:   []string{"\n\n", "\n", "。", ".", "！", "？", "；", ";", " "},
 	}
+}
+
+// estimateTokens 粗略估算文本的 token 数
+// 中文约 1 字 ≈ 1.5 token，英文约 1 词 ≈ 1.3 token
+// 简化估算：rune 数 × 0.7 作为 token 近似值
+func estimateTokens(text string) int {
+	return int(float64(utf8.RuneCountInString(text)) * 0.7)
 }
 
 type Embedder interface {
@@ -47,6 +54,10 @@ type IngestResult struct {
 
 const embedBatchSize = 32
 
+// ChunkDocument 使用递归字符分块策略将文本拆分为块。
+// 策略：按分隔符优先级递归切分 —— 先用高级分隔符(段落)切分，
+// 超过 chunkSize 的块再用低级分隔符(句子)继续切分，依此类推。
+// 每个块保留 chunkOverlap 的重叠以保证上下文连贯。
 func ChunkDocument(text string, cfg ChunkConfig) []Chunk {
 	if cfg.ChunkSize <= 0 {
 		cfg.ChunkSize = 512
@@ -58,68 +69,108 @@ func ChunkDocument(text string, cfg ChunkConfig) []Chunk {
 		cfg.ChunkOverlap = cfg.ChunkSize / 4
 	}
 	if len(cfg.Separators) == 0 {
-		cfg.Separators = []string{"\n\n", "\n", "。", ". ", " "}
+		cfg.Separators = []string{"\n\n", "\n", "。", ".", "！", "？", "；", ";", " "}
 	}
 
 	if text == "" {
 		return nil
 	}
 
-	chunks := make([]Chunk, 0)
+	text = cleanText(text)
+	return recursiveChunk(text, cfg.Separators, cfg.ChunkSize, cfg.ChunkOverlap)
+}
 
-	for _, sep := range cfg.Separators {
-		parts := strings.Split(text, sep)
-		if len(parts) <= 1 {
+// recursiveChunk 递归字符分块核心逻辑
+func recursiveChunk(text string, separators []string, chunkSize, chunkOverlap int) []Chunk {
+	// 没有更多分隔符可用时，按字符硬切
+	if len(separators) == 0 {
+		return hardSplit(text, chunkSize, chunkOverlap)
+	}
+
+	sep := separators[0]
+	remainingSeps := separators[1:]
+	parts := strings.Split(text, sep)
+
+	var chunks []Chunk
+	var current strings.Builder
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
 			continue
 		}
 
-		var current strings.Builder
-		for _, part := range parts {
-			part = strings.TrimSpace(part)
-			if part == "" {
-				continue
-			}
+		// 当前块加入此部分后是否超过大小限制
+		combinedLen := estimateTokens(current.String()) + estimateTokens(part)
+		if current.Len() > 0 && combinedLen > chunkSize {
+			// 当前块已满，先保存
+			chunks = append(chunks, Chunk{Content: current.String()})
 
-			if current.Len() > 0 && current.Len()+len(sep)+utf8.RuneCountInString(part) > cfg.ChunkSize {
-				chunks = append(chunks, Chunk{Content: current.String()})
-				overlapRunes := []rune(current.String())
-				overlapStart := len(overlapRunes) - cfg.ChunkOverlap
-				if overlapStart < 0 {
-					overlapStart = 0
-				}
-				current.Reset()
-				current.WriteString(string(overlapRunes[overlapStart:]))
-			}
+			// 保留重叠部分
+			overlapText := takeOverlap(current.String(), chunkOverlap)
+			current.Reset()
+			current.WriteString(overlapText)
+		}
 
+		// 检查单个部分是否就超过大小限制
+		if estimateTokens(part) > chunkSize && len(remainingSeps) > 0 {
+			// 先把当前积累的内容保存
 			if current.Len() > 0 {
-				current.WriteString(sep)
+				chunks = append(chunks, Chunk{Content: current.String()})
+				current.Reset()
 			}
-			current.WriteString(part)
+			// 递归用下一级分隔符切分
+			subChunks := recursiveChunk(part, remainingSeps, chunkSize, chunkOverlap)
+			chunks = append(chunks, subChunks...)
+			continue
 		}
 
 		if current.Len() > 0 {
-			chunks = append(chunks, Chunk{Content: current.String()})
+			current.WriteString(sep)
 		}
+		current.WriteString(part)
+	}
 
-		if len(chunks) > 0 {
+	if current.Len() > 0 {
+		chunks = append(chunks, Chunk{Content: current.String()})
+	}
+
+	return chunks
+}
+
+// takeOverlap 从文本末尾取约 overlapTokens 个 token 的重叠文本
+func takeOverlap(text string, overlapTokens int) string {
+	runes := []rune(text)
+	// overlapTokens 对应的字符数约 overlapTokens / 0.7
+	overlapChars := int(float64(overlapTokens) / 0.7)
+	if overlapChars >= len(runes) {
+		return text
+	}
+	start := len(runes) - overlapChars
+	return string(runes[start:])
+}
+
+// hardSplit 按字符硬切（最后兜底）
+func hardSplit(text string, chunkSize, chunkOverlap int) []Chunk {
+	runes := []rune(text)
+	// chunkSize token 对应的字符数
+	charSize := int(float64(chunkSize) / 0.7)
+	charOverlap := int(float64(chunkOverlap) / 0.7)
+	if charOverlap >= charSize {
+		charOverlap = charSize / 4
+	}
+
+	var chunks []Chunk
+	for i := 0; i < len(runes); i += charSize - charOverlap {
+		end := i + charSize
+		if end > len(runes) {
+			end = len(runes)
+		}
+		chunks = append(chunks, Chunk{Content: string(runes[i:end])})
+		if end >= len(runes) {
 			break
 		}
 	}
-
-	if len(chunks) == 0 {
-		runes := []rune(text)
-		for i := 0; i < len(runes); i += cfg.ChunkSize - cfg.ChunkOverlap {
-			end := i + cfg.ChunkSize
-			if end > len(runes) {
-				end = len(runes)
-			}
-			chunks = append(chunks, Chunk{Content: string(runes[i:end])})
-			if end >= len(runes) {
-				break
-			}
-		}
-	}
-
 	return chunks
 }
 

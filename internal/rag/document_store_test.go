@@ -6,7 +6,7 @@ import (
 
 func newTestDocStore(t *testing.T) (*DocumentStore, func()) {
 	t.Helper()
-	vs, cleanup := newTestVectorStore(t)
+	vs, cleanup := newTestStore(t)
 	ds := NewDocumentStore(vs.DB())
 	return ds, cleanup
 }

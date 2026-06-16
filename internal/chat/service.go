@@ -1447,10 +1447,11 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 			if minScore <= 0 {
 				minScore = 0.3
 			}
-			results, err2 := s.ragVectorStore.SearchWithThreshold(s.ragCollection, vecs[0], topK, minScore)
-			if err2 == nil && len(results) > 0 {
+			// 混合检索：向量语义 + BM25 关键词，RRF 融合
+			hybridResults, err2 := s.ragVectorStore.HybridSearch(s.ragCollection, vecs[0], currentUserContent, topK, minScore)
+			if err2 == nil && len(hybridResults) > 0 {
 				var refParts []string
-				for i, r := range results {
+				for i, r := range hybridResults {
 					source := r.Metadata["source"]
 					if source != "" {
 						refParts = append(refParts, fmt.Sprintf("[%d] (来源: %s)\n%s", i+1, source, r.ChunkContent))
@@ -1460,7 +1461,7 @@ func (s *Service) buildLLMMessages(dbMsgs []*store.Message, currentUserContent s
 				}
 				if len(refParts) > 0 {
 					systemContent += "\n\n## 参考资料\n" + strings.Join(refParts, "\n---\n")
-					systemContent += "\n\n请消化吸收以上资料，像运用自身知识一样自然融入回答并标注引用编号。若资料与问题无关则忽略。"
+					systemContent += "\n\n请基于以上参考资料回答用户问题。要求：1.自然融入回答，不要生硬引用；2.在相关内容后标注引用编号[1][2]等；3.若资料与问题无关则忽略，用自己的知识回答。"
 				}
 			}
 		}
