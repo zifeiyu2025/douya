@@ -281,9 +281,11 @@ async function handleFileUpload({ file }: any) {
     }
     const base64 = btoa(binary)
     await wails.uploadDocument(activeKB.value, f.name, base64, f.type || 'application/octet-stream')
+    message.destroyAll()
     message.success(`${f.name} 上传成功`)
     await loadDocuments()
   } catch (e: any) {
+    message.destroyAll()
     message.error('上传失败: ' + (e.message || e))
   } finally {
     uploading.value = false

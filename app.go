@@ -814,6 +814,12 @@ func (a *App) startup(ctx context.Context) {
 		}
 		embedder := &rag.ClientEmbedder{Client: a.client}
 		embedder.SetModel(embedModel)
+		// 当专用嵌入模型为空时，动态获取当前聊天模型名
+		embedder.SetCurrentModelFn(func() string {
+			a.currentModelMu.RLock()
+			defer a.currentModelMu.RUnlock()
+			return a.currentModelName
+		})
 		a.ragEmbedder = embedder
 		collection := a.config.RAGActiveKB
 		if collection == "" {

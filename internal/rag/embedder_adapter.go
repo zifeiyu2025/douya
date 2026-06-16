@@ -10,9 +10,10 @@ import (
 
 // ClientEmbedder adapts llm.Client to the Embedder interface.
 type ClientEmbedder struct {
-	Client *llm.Client
-	model  string // embedding model name (protected by mu)
-	mu     sync.RWMutex
+	Client      *llm.Client
+	model       string // embedding model name (protected by mu)
+	mu          sync.RWMutex
+	currentModelFn func() string // 获取当前聊天模型名的回调（model 为空时使用）
 }
 
 // SetModel updates the embedding model name (safe for concurrent use).
@@ -20,6 +21,13 @@ func (e *ClientEmbedder) SetModel(name string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.model = name
+}
+
+// SetCurrentModelFn sets a callback to get the current chat model name (used when model is empty).
+func (e *ClientEmbedder) SetCurrentModelFn(fn func() string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.currentModelFn = fn
 }
 
 // GetModel returns the current embedding model name (safe for concurrent use).
@@ -37,7 +45,13 @@ func (e *ClientEmbedder) Embed(ctx context.Context, texts []string) ([][]float64
 
 	e.mu.RLock()
 	modelName := e.model
+	fn := e.currentModelFn
 	e.mu.RUnlock()
+
+	// 专用嵌入模型为空时，回退到当前聊天模型
+	if modelName == "" && fn != nil {
+		modelName = fn()
+	}
 
 	req := &llm.EmbeddingRequest{
 		Input: texts,
