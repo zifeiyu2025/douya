@@ -1060,6 +1060,7 @@ function applyModelRef() {
   contextSizeIndex.value = idx
   formConfig.value.context_size = contextSizeSteps[idx]
   const modeLabel = useThinking ? '思考模式' : '非思考模式'
+  message.destroyAll()
   message.success(`已应用 ${ref.name} ${modeLabel}参考参数`)
 }
 
@@ -1079,6 +1080,7 @@ async function selectBackgroundImage() {
       formConfig.value.chat_background = filePath
     }
   } catch {
+    message.destroyAll()
     message.error('选择图片失败')
   }
 }
@@ -1091,6 +1093,7 @@ function clearBackground() {
 async function handleUserAvatarUpload(data: any) {
   const file = data.file.file as File
   if (file.size > 1024 * 1024) {
+    message.destroyAll()
     message.error('头像图片大小不能超过 1MB')
     return
   }
@@ -1098,6 +1101,7 @@ async function handleUserAvatarUpload(data: any) {
     const base64 = await fileToBase64(file)
     formConfig.value.user_avatar = base64
   } catch {
+    message.destroyAll()
     message.error('上传失败')
   }
 }
@@ -1109,6 +1113,7 @@ function clearUserAvatar() {
 async function handleAIAvatarUpload(data: any) {
   const file = data.file.file as File
   if (file.size > 1024 * 1024) {
+    message.destroyAll()
     message.error('头像图片大小不能超过 1MB')
     return
   }
@@ -1116,6 +1121,7 @@ async function handleAIAvatarUpload(data: any) {
     const base64 = await fileToBase64(file)
     formConfig.value.ai_avatar = base64
   } catch {
+    message.destroyAll()
     message.error('上传失败')
   }
 }
@@ -1194,6 +1200,7 @@ async function autoSave() {
     formConfig.value = JSON.parse(JSON.stringify(settingsStore.config))
     genParamsDirty.value = false
   } catch {
+    message.destroyAll()
     message.error('保存失败')
   } finally {
     saving.value = false

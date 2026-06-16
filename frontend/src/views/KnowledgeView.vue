@@ -197,6 +197,7 @@ async function loadData() {
     }
     await loadDocuments()
   } catch (e: any) {
+    message.destroyAll()
     message.error('加载知识库数据失败: ' + (e.message || e))
   }
 }
@@ -215,21 +216,25 @@ async function handleKBChange(name: string) {
     activeKB.value = name
     await loadDocuments()
   } catch (e: any) {
+    message.destroyAll()
     message.error('切换知识库失败: ' + (e.message || e))
   }
 }
 
 async function handleCreateKB() {
   if (!newKBName.value.trim()) {
+    message.destroyAll()
     message.warning('请输入知识库名称')
     return
   }
   try {
     await wails.createKnowledgeBase(newKBName.value.trim())
+    message.destroyAll()
     message.success('知识库创建成功')
     newKBName.value = ''
     await loadData()
   } catch (e: any) {
+    message.destroyAll()
     message.error('创建失败: ' + (e.message || e))
   }
 }
@@ -243,10 +248,12 @@ async function handleDeleteKB() {
     onPositiveClick: async () => {
       try {
         await wails.deleteKnowledgeBase(activeKB.value)
+        message.destroyAll()
         message.success('知识库已删除')
         activeKB.value = 'default'
         await loadData()
       } catch (e: any) {
+        message.destroyAll()
         message.error('删除失败: ' + (e.message || e))
       }
     },
@@ -256,9 +263,11 @@ async function handleDeleteKB() {
 async function handleDeleteDoc(docID: string) {
   try {
     await wails.deleteDocument(activeKB.value, docID)
+    message.destroyAll()
     message.success('文档已删除')
     await loadDocuments()
   } catch (e: any) {
+    message.destroyAll()
     message.error('删除文档失败: ' + (e.message || e))
   }
 }
@@ -268,6 +277,7 @@ async function handleFileUpload({ file }: any) {
   try {
     const f = file.file as File
     if (f.size > 200 * 1024 * 1024) {
+      message.destroyAll()
       message.error('文件大小不能超过 200MB')
       return
     }
@@ -297,6 +307,7 @@ async function handleRAGToggle(enabled: boolean) {
     await wails.setRAGEnabled(enabled)
     ragConfig.value.enabled = enabled
   } catch (e: any) {
+    message.destroyAll()
     message.error('切换 RAG 失败: ' + (e.message || e))
   }
 }
@@ -311,8 +322,10 @@ async function handleSaveRAGConfig() {
     config.rag_chunk_overlap = ragConfig.value.chunkOverlap
     config.embedding_model = ragConfig.value.embeddingModel
     await wails.updateConfig(config)
+    message.destroyAll()
     message.success('RAG 设置已保存')
   } catch (e: any) {
+    message.destroyAll()
     message.error('保存失败: ' + (e.message || e))
   } finally {
     savingRAG.value = false

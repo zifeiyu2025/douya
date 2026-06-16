@@ -212,6 +212,7 @@ async function handleContextAction(key: string, conv: Conversation) {
         negativeText: '取消',
         onPositiveClick: async () => {
           await chatStore.deleteConversation(conv.id)
+          message.destroyAll()
           message.success('已删除')
         },
       })
@@ -222,6 +223,7 @@ async function handleContextAction(key: string, conv: Conversation) {
 async function handleExport(id: string, format: string) {
     const success = await chatStore.exportConversationWithDialog(id, format)
     if (success) {
+        message.destroyAll()
         message.success('导出成功')
     }
 }

@@ -293,6 +293,7 @@ watch(() => chatStore.thinkingContent, () => {
 
 watch(() => chatStore.lastError, (err) => {
     if (err) {
+        message.destroyAll()
         message.error(err)
     }
 })
