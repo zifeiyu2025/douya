@@ -24,8 +24,11 @@ import { all as lowlightAll } from 'lowlight'
 import rehypeStringify from 'rehype-stringify'
 import { visit } from 'unist-util-visit'
 import DOMPurify from 'dompurify'
-import mermaid from 'mermaid'
 import { preprocessLaTeX } from './latex-protection'
+
+// 关键改动：mermaid 改为 dynamic import，启动时不加载（2.84MB 独立 chunk，按需加载）
+// 类型：typeof import('mermaid') 用于类型推断，运行时不会触发实际加载
+type MermaidModule = typeof import('mermaid')
 
 // KaTeX CSS
 import 'katex/dist/katex.min.css'
@@ -59,24 +62,54 @@ const purify = (() => {
     }
 })()
 
-// ===== Mermaid 初始化 =====
+// ===== Mermaid 懒加载 =====
 
-mermaid.initialize({
-    startOnLoad: false,
-    theme: 'default',
-    securityLevel: 'strict',
-})
-
+// mermaid 模块缓存：首次 dynamic import 后保留引用
+let mermaidModule: MermaidModule | null = null
+let mermaidInitialized = false
 let mermaidCounter = 0
 
+/**
+ * 懒加载 mermaid 模块并初始化（仅首次调用时触发实际下载）
+ * 后续调用直接返回缓存的模块引用
+ */
+async function loadMermaid(): Promise<MermaidModule> {
+    if (mermaidModule) return mermaidModule
+    // dynamic import: 启动时不会加载，2.84MB chunk 按需下载
+    const mod = await import('mermaid')
+    mermaidModule = mod
+    if (!mermaidInitialized) {
+        mod.default.initialize({
+            startOnLoad: false,
+            theme: 'default',
+            securityLevel: 'strict',
+        })
+        mermaidInitialized = true
+    }
+    return mod
+}
+
+/**
+ * 渲染指定元素内的所有 mermaid 图表
+ * 首次调用时才会触发 mermaid chunk 下载
+ *
+ * 注意：Mermaid 输出已是 securityLevel: 'strict' 模式下的安全 SVG，
+ * 跳过 DOMPurify 二次清洗（Step 6 优化）。Mermaid 自身禁用所有 HTML 标签和事件属性。
+ */
 export async function renderMermaidInElement(el: HTMLElement) {
-    const mermaidEls = el.querySelectorAll('.mermaid')
+    const mermaidEls = el.querySelectorAll('.mermaid:not([data-mermaid-rendered])')
+    if (mermaidEls.length === 0) return
+
+    // 首次触发 mermaid 模块加载（dynamic import 异步）
+    const mermaid = await loadMermaid()
     const elements = Array.from(mermaidEls) as HTMLElement[]
     for (const mermaidEl of elements) {
         const id = `mermaid-${++mermaidCounter}`
+        mermaidEl.setAttribute('data-mermaid-rendered', '1')
         try {
-            const { svg } = await mermaid.render(id, (mermaidEl as HTMLElement).textContent || '')
-            mermaidEl.innerHTML = sanitizeHtml(svg)
+            const { svg } = await mermaid.default.render(id, mermaidEl.textContent || '')
+            // 直接插入 SVG，跳过 DOMPurify（mermaid securityLevel: strict 已保证安全）
+            mermaidEl.innerHTML = svg
         } catch (_) { /* empty */ }
     }
 }
@@ -210,6 +243,9 @@ function rehypeExternalLinks() {
 
 // ===== Processor 工厂 =====
 
+/** 共享 processor 实例：避免每次渲染都重建 remark 管道（plugin 链、AST 缓存、microtask 注册等） */
+let sharedProcessor: ReturnType<typeof createProcessor> | null = null
+
 /** 创建 remark + rehype 处理管道（与 llama.cpp webui 一致） */
 function createProcessor() {
     return remark()
@@ -227,13 +263,20 @@ function createProcessor() {
         .use(rehypeStringify, { allowDangerousHtml: true })  // 输出 HTML
 }
 
+/** 获取共享 processor（首次调用时创建） */
+function getProcessor() {
+    if (!sharedProcessor) {
+        sharedProcessor = createProcessor()
+    }
+    return sharedProcessor
+}
+
 // ===== 核心渲染函数 =====
 
 /** 处理 Markdown 为 HTML（内部函数） */
 async function processMarkdown(content: string): Promise<string> {
     const normalized = preprocessLaTeX(content)
-    const processor = createProcessor()
-    const result = await processor.process(normalized)
+    const result = await getProcessor().process(normalized)
     return String(result)
 }
 

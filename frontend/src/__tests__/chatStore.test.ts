@@ -3,37 +3,41 @@ import { setActivePinia, createPinia } from 'pinia'
 import { useChatStore } from '../stores/chat'
 import type { StreamEvent, Conversation, Message } from '../services/wails'
 
-vi.mock('../services/wails', () => ({
-    wails: {
-        getConversations: vi.fn().mockResolvedValue([]),
-        getMessages: vi.fn().mockResolvedValue([]),
-        sendMessage: vi.fn(),
-        stopGeneration: vi.fn(),
-        createConversation: vi.fn().mockResolvedValue({ id: 'conv-1', title: '新对话', created_at: '', updated_at: '' }),
-        renameConversation: vi.fn(),
-        deleteConversation: vi.fn(),
-        searchMessages: vi.fn().mockResolvedValue([]),
-        exportConversation: vi.fn(),
-        getConfig: vi.fn().mockResolvedValue({}),
-        getCleanupResult: vi.fn().mockResolvedValue([]),
-        updateConfig: vi.fn(),
-        getServerStatus: vi.fn().mockResolvedValue({ running: false }),
-        restartServer: vi.fn(),
-        deleteMessage: vi.fn(),
-        regenerateMessage: vi.fn(),
-        getAvailableModels: vi.fn().mockResolvedValue([]),
-        switchModel: vi.fn(),
-        onChatStream: vi.fn(),
-        onServerStatus: vi.fn(),
-        onSwitchProgress: vi.fn(),
-        offChatStream: vi.fn(),
-        offServerStatus: vi.fn(),
-        offSwitchProgress: vi.fn(),
-        prepareShutdown: vi.fn(),
-        onAbnormalCleanup: vi.fn(),
-        offAbnormalCleanup: vi.fn(),
-    },
-}))
+vi.mock('../services/wails', async (importOriginal) => {
+    const actual = await importOriginal() as Record<string, unknown>
+    return {
+        ...actual,
+        wails: {
+            getConversations: vi.fn().mockResolvedValue([]),
+            getMessages: vi.fn().mockResolvedValue([]),
+            sendMessage: vi.fn(),
+            stopGeneration: vi.fn(),
+            createConversation: vi.fn().mockResolvedValue({ id: 'conv-1', title: '新对话', created_at: '', updated_at: '' }),
+            renameConversation: vi.fn(),
+            deleteConversation: vi.fn(),
+            searchMessages: vi.fn().mockResolvedValue([]),
+            exportConversation: vi.fn(),
+            getConfig: vi.fn().mockResolvedValue({}),
+            getCleanupResult: vi.fn().mockResolvedValue([]),
+            updateConfig: vi.fn(),
+            getServerStatus: vi.fn().mockResolvedValue({ running: false }),
+            restartServer: vi.fn(),
+            deleteMessage: vi.fn(),
+            regenerateMessage: vi.fn(),
+            getAvailableModels: vi.fn().mockResolvedValue([]),
+            switchModel: vi.fn(),
+            onChatStream: vi.fn(),
+            onServerStatus: vi.fn(),
+            onSwitchProgress: vi.fn(),
+            offChatStream: vi.fn(),
+            offServerStatus: vi.fn(),
+            offSwitchProgress: vi.fn(),
+            prepareShutdown: vi.fn(),
+            onAbnormalCleanup: vi.fn(),
+            offAbnormalCleanup: vi.fn(),
+        },
+    }
+})
 
 function setupGeneratingState(store: ReturnType<typeof useChatStore>, convId: string = '') {
     store.generatingConvId = convId

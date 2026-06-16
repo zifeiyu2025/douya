@@ -2,80 +2,73 @@
   <n-config-provider :theme="isDark ? darkTheme : undefined" :locale="zhCN" :date-locale="dateZhCN">
     <n-message-provider>
       <n-dialog-provider>
-        <div class="app-layout" :class="{ dark: isDark, 'has-background': !!settingsStore.config.chat_background }" :style="mainAreaStyle">
-          <Sidebar :collapsed="sidebarCollapsed" @toggle="sidebarCollapsed = !sidebarCollapsed" />
-          <div class="main-area" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
-            <div class="main-header" style="--wails-draggable:drag">
-              <div class="main-header-left" style="--wails-draggable:no-drag">
-                <n-button quaternary circle @click="sidebarCollapsed = !sidebarCollapsed" size="large">
-                  <template #icon>
-                    <n-icon size="20"><MenuOutline /></n-icon>
-                  </template>
-                </n-button>
-                <div class="header-content">
-                  <div class="header-title" :title="currentTitle">{{ currentTitle }}</div>
+        <Transition name="main-fade">
+          <div v-if="!showSplash" class="app-layout" :class="{ dark: isDark, 'has-background': !!settingsStore.config.chat_background }" :style="mainAreaStyle">
+            <Sidebar :collapsed="sidebarCollapsed" @toggle="sidebarCollapsed = !sidebarCollapsed" />
+            <div class="main-area" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
+              <div class="main-header" style="--wails-draggable:drag">
+                <div class="main-header-left" style="--wails-draggable:no-drag">
+                  <n-button quaternary circle @click="sidebarCollapsed = !sidebarCollapsed" size="large">
+                    <template #icon>
+                      <n-icon size="20"><MenuOutline /></n-icon>
+                    </template>
+                  </n-button>
+                  <div class="header-content">
+                    <div class="header-title" :title="currentTitle">{{ currentTitle }}</div>
+                  </div>
+                </div>
+                <div class="main-header-right" style="--wails-draggable:no-drag">
+                  <n-select
+                    :value="selectedModel"
+                    :options="modelOptions"
+                    size="small"
+                    placeholder="选择模型"
+                    class="model-selector"
+                    :disabled="isModelSwitching || !serverStatus.running"
+                    :render-label="renderModelLabel"
+                    @update:value="handleModelChange"
+                  />
+                  <div class="server-status" :title="modelFullName">
+                    <div v-if="isModelSwitching && switchProgressStage !== 'idle'" class="switching-animation">
+                      <div class="loading-spinner"></div>
+                      <span class="status-text">{{ switchingModelName }} · {{ switchStageText }}{{ switchDuration }}</span>
+                    </div>
+                    <div v-else-if="modelLoadFailed" class="error-animation">
+                      <span class="status-dot stopped" />
+                      <span class="status-text error-text">{{ errorModelName }} · 加载失败</span>
+                    </div>
+                    <div v-else-if="isServerLoading && switchProgressStage === 'idle' && !isFirstLoad" class="loading-animation">
+                      <div class="loading-spinner"></div>
+                      <span class="status-text">{{ modelName || '启动中...' }}</span>
+                    </div>
+                    <template v-else>
+                      <span class="status-dot" :class="serverStatus.running ? 'running' : 'stopped'" />
+                      <span class="status-text" :class="{ 'error-text': !serverStatus.running && serverStatus.error }">{{ modelName }} · {{ serverStatus.running ? '已就绪' : (serverStatus.error || '未运行') }}</span>
+                    </template>
+                  </div>
+                </div>
+                <div class="window-controls" style="--wails-draggable:no-drag">
+                  <button class="win-btn theme-btn" @click="themeStore.toggleTheme()" :title="isDark ? '切换亮色模式' : '切换暗色模式'">
+                    <n-icon size="16">
+                      <SunnyOutline v-if="isDark" />
+                      <MoonOutline v-else />
+                    </n-icon>
+                  </button>
+                  <button class="win-btn" @click="handleMinimize" title="最小化">
+                    <AppIcon name="minimize" :size="14" />
+                  </button>
+                  <button class="win-btn" @click="handleToggleMaximize" title="最大化">
+                    <AppIcon :name="isMaximized ? 'restore' : 'maximize'" :size="12" />
+                  </button>
+                  <button class="win-btn win-btn-close" @click="handleClose" title="关闭">
+                    <AppIcon name="close" :size="14" />
+                  </button>
                 </div>
               </div>
-              <div class="main-header-right" style="--wails-draggable:no-drag">
-                <n-select
-                  :value="selectedModel"
-                  :options="modelOptions"
-                  size="small"
-                  placeholder="选择模型"
-                  class="model-selector"
-                  :disabled="isModelSwitching || !serverStatus.running"
-                  :render-label="renderModelLabel"
-                  @update:value="handleModelChange"
-                />
-                <div class="server-status" :title="modelFullName">
-                  <div v-if="isModelSwitching && switchProgressStage !== 'idle'" class="switching-animation">
-                    <div class="loading-spinner"></div>
-                    <span class="status-text">{{ switchingModelName }} · {{ switchStageText }}{{ switchDuration }}</span>
-                  </div>
-                  <div v-else-if="modelLoadFailed" class="error-animation">
-                    <span class="status-dot stopped" />
-                    <span class="status-text error-text">{{ errorModelName }} · 加载失败</span>
-                  </div>
-                  <div v-else-if="isServerLoading && switchProgressStage === 'idle' && !isFirstLoad" class="loading-animation">
-                    <div class="loading-spinner"></div>
-                    <span class="status-text">{{ modelName || '启动中...' }}</span>
-                  </div>
-                  <template v-else>
-                    <span class="status-dot" :class="serverStatus.running ? 'running' : 'stopped'" />
-                    <span class="status-text" :class="{ 'error-text': !serverStatus.running && serverStatus.error }">{{ modelName }} · {{ serverStatus.running ? '已就绪' : (serverStatus.error || '未运行') }}</span>
-                  </template>
-                </div>
-              </div>
-              <div class="window-controls" style="--wails-draggable:no-drag">
-                <button class="win-btn theme-btn" @click="themeStore.toggleTheme()" :title="isDark ? '切换亮色模式' : '切换暗色模式'">
-                  <n-icon size="16">
-                    <SunnyOutline v-if="isDark" />
-                    <MoonOutline v-else />
-                  </n-icon>
-                </button>
-                <button class="win-btn" @click="handleMinimize" title="最小化">
-                  <svg width="12" height="12" viewBox="0 0 12 12"><rect y="5" width="12" height="1.5" fill="currentColor"/></svg>
-                </button>
-                <button class="win-btn" @click="handleToggleMaximize" title="最大化">
-                  <svg v-if="isMaximized" width="12" height="12" viewBox="0 0 12 12">
-                    <rect x="2.5" y="0" width="9.5" height="9.5" fill="none" stroke="currentColor" stroke-width="1.2"/>
-                    <rect x="0" y="2.5" width="9.5" height="9.5" fill="var(--bg-primary)" stroke="currentColor" stroke-width="1.2"/>
-                  </svg>
-                  <svg v-else width="12" height="12" viewBox="0 0 12 12">
-                    <rect x="0.5" y="0.5" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.2"/>
-                  </svg>
-                </button>
-                <button class="win-btn win-btn-close" @click="handleClose" title="关闭">
-                  <svg width="12" height="12" viewBox="0 0 12 12">
-                    <line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" stroke-width="1.4"/>
-                    <line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" stroke-width="1.4"/>
-                  </svg>
-                </button>
-              </div>
+              <router-view />
             </div>
-            <router-view />
           </div>
-        </div>
+        </Transition>
     <Transition name="switch-overlay">
       <div v-if="showSwitchOverlay" class="switch-overlay">
         <div class="switch-overlay-content">
@@ -94,6 +87,12 @@
         </div>
       </div>
     </Transition>
+    <SplashScreen
+      :visible="showSplash"
+      :stage="splashStage"
+      :model-name="splashModelName"
+      :progress="splashProgress"
+    />
       </n-dialog-provider>
     </n-message-provider>
   </n-config-provider>
@@ -105,6 +104,8 @@ import { darkTheme, zhCN, dateZhCN, createDiscreteApi } from 'naive-ui'
 import { NConfigProvider, NMessageProvider, NDialogProvider, NButton, NIcon, NSelect, NTooltip } from 'naive-ui'
 import { MenuOutline, SunnyOutline, MoonOutline } from '@vicons/ionicons5'
 import Sidebar from './components/Sidebar.vue'
+import AppIcon from './components/ui/AppIcon.vue'
+import SplashScreen from './components/ui/SplashScreen.vue'
 import { useChatStore } from './stores/chat'
 import { fixUtf8 } from './utils/utf8'
 import { useSettingsStore } from './stores/settings'
@@ -193,6 +194,32 @@ const overlayModelName = computed(() => {
 const isMaximized = ref(false)
 const isExiting = ref(false)
 const exitMessage = ref('')
+
+// SplashScreen 逻辑
+const showSplash = computed(() => {
+  // 首次加载且未就绪且未失败时显示
+  if (!settingsStore.hasEverBeenReady && !modelLoadFailed.value) return true
+  // 加载失败但还没显示过主界面时也显示（显示错误状态）
+  if (!settingsStore.hasEverBeenReady && modelLoadFailed.value) return true
+  return false
+})
+
+const splashStage = computed(() => settingsStore.switchProgress.stage)
+
+const splashModelName = computed(() => {
+  const name = settingsStore.switchProgress.targetModel || settingsStore.currentModel
+  if (!name) return ''
+  return formatModelName(name).display
+})
+
+const splashProgress = computed(() => {
+  const stageMap: Record<string, number> = {
+    idle: 5, preparing: 15, loading: 40,
+    waiting: 70, detecting: 90, done: 100,
+    failed: 100, rolling_back: 50,
+  }
+  return stageMap[settingsStore.switchProgress.stage] ?? 10
+})
 
 watch(switchProgressStage, (stage) => {
   if (stage !== 'idle') {
@@ -454,6 +481,24 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.main-fade-enter-active {
+  transition: opacity 0.5s ease 0.3s, transform 0.5s cubic-bezier(0.4, 0, 0.2, 1) 0.3s;
+}
+
+.main-fade-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.main-fade-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.main-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
 .model-selector {
   min-width: 120px;
   max-width: 260px;

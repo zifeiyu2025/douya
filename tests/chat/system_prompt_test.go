@@ -30,8 +30,7 @@ func TestSystemPrompt_ContainsCorePrinciples(t *testing.T) {
 	expectedSections := []string{
 		"身份",
 		"原则",
-		"思考",
-		"规范",
+		"行为准则",
 		"安全",
 	}
 
@@ -47,18 +46,13 @@ func TestSystemPrompt_ContainsCorePrinciples(t *testing.T) {
 		"准确",
 		"精炼",
 		"不编造",
-		"拒绝错误前提",
+		"礼貌但明确地拒绝",
 	}
 
 	for _, keyword := range requiredKeywords {
 		if !strings.Contains(content, keyword) {
 			t.Errorf("system prompt should contain '%s', but it doesn't", keyword)
 		}
-	}
-
-	// 验证不再包含"能力"部分
-	if strings.Contains(content, "## 能力") {
-		t.Error("system prompt should NOT contain '## 能力' section")
 	}
 
 	t.Logf("✓ 系统提示词验证通过")

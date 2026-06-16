@@ -81,6 +81,11 @@
             placeholder="输入新的 API Key 以覆盖保存"
             @blur="saveSearchKeys"
           />
+          <template #feedback>
+            <span style="font-size: 12px; color: var(--n-text-color-3);">
+              获取地址：<n-a href="https://ollama.com/settings/keys" target="_blank">https://ollama.com/settings/keys</n-a>
+            </span>
+          </template>
         </n-form-item>
 
         <n-form-item label="Tavily API Key">
@@ -91,6 +96,12 @@
             placeholder="输入新的 API Key 以覆盖保存"
             @blur="saveSearchKeys"
           />
+          <template #feedback>
+            <span style="font-size: 12px; color: var(--n-text-color-3);">
+              获取地址：<n-a href="https://app.tavily.com/" target="_blank">https://app.tavily.com/</n-a>
+              （免费额度 1000 次/月）
+            </span>
+          </template>
         </n-form-item>
 
         <n-divider>服务 API KEY</n-divider>
@@ -518,6 +529,7 @@ const backgroundImageUrl = computed(() => {
 const searchKeys = ref<SearchAPIKeys>({
     ollama_api_key: '',
     tavily_api_key: '',
+    github_api_key: '',
 })
 
 function saveSearchKeys() {

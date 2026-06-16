@@ -122,11 +122,46 @@
             <n-input-number v-model:value="ragConfig.chunkOverlap" :min="0" :max="512" :step="16" size="small" class="rag-input" />
           </n-form-item>
           <n-form-item label="嵌入模型">
-            <n-input v-model:value="ragConfig.embeddingModel" placeholder="留空则使用当前聊天模型" size="small" class="rag-input" />
+            <div class="embedding-config">
+              <n-select
+                v-model:value="selectedEmbeddingModel"
+                :options="embeddingModelOptions"
+                placeholder="从列表选择嵌入模型"
+                size="small"
+                clearable
+                class="embedding-select"
+                @update:value="onEmbeddingModelSelect"
+              />
+              <n-input
+                v-model:value="manualEmbeddingModel"
+                placeholder="或手动输入模型名称"
+                size="small"
+                class="embedding-input"
+                @update:value="onManualEmbeddingModelInput"
+              />
+              <div class="embedding-help">
+                <div class="embedding-status">
+                  <span v-if="ragConfig.embeddingModel" class="status-active">
+                    ✓ 使用专用嵌入模型：{{ ragConfig.embeddingModel }}
+                  </span>
+                  <span v-else class="status-fallback">
+                    ⚠ 未配置专用嵌入模型，将使用聊天模型（检索质量可能较差）
+                  </span>
+                </div>
+                <div class="embedding-recommend">
+                  <span class="recommend-label">推荐模型：</span>
+                  <span class="recommend-tags">
+                    <span class="recommend-tag" @click="selectRecommendedModel('nomic-embed-text')">nomic-embed-text</span>
+                    <span class="recommend-tag" @click="selectRecommendedModel('bge-base-en-v1.5')">bge-base-en-v1.5</span>
+                    <span class="recommend-tag" @click="selectRecommendedModel('bge-large-zh-v1.5')">bge-large-zh-v1.5</span>
+                  </span>
+                </div>
+                <div class="embedding-tip">
+                  💡 专用嵌入模型更快、更准确。留空则使用当前聊天模型。
+                </div>
+              </div>
+            </div>
           </n-form-item>
-          <n-text v-if="!ragConfig.embeddingModel" depth="3" style="font-size: 12px; margin-top: -8px; display: block; margin-bottom: 4px;">
-            未配置专用嵌入模型，将使用聊天模型做嵌入，检索质量可能较差。推荐使用 bge-base-en-v1.5 等专用嵌入模型。
-          </n-text>
         </n-form>
 
         <div class="rag-save-row">
@@ -148,7 +183,7 @@ import {
   useMessage, useDialog,
 } from 'naive-ui'
 import { ArrowBackOutline, AddOutline, TrashOutline, CloseOutline, CloudUploadOutline, CheckmarkCircleOutline } from '@vicons/ionicons5'
-import { wails, type CollectionInfo, type DocumentMeta } from '../services/wails'
+import { wails, type CollectionInfo, type DocumentMeta, type ModelOption } from '../services/wails'
 
 const message = useMessage()
 const dialog = useDialog()
@@ -160,6 +195,11 @@ const uploading = ref(false)
 const savingRAG = ref(false)
 const showCreateKB = ref(false)
 const newKBName = ref('')
+
+// 嵌入模型相关
+const availableModels = ref<ModelOption[]>([])
+const selectedEmbeddingModel = ref<string | null>(null) // 下拉选择的模型
+const manualEmbeddingModel = ref('') // 手动输入的模型
 
 const ragConfig = ref({
   enabled: false,
@@ -176,6 +216,54 @@ const kbOptions = computed(() =>
     value: kb.name,
   }))
 )
+
+// 嵌入模型下拉选项
+const embeddingModelOptions = computed(() =>
+  availableModels.value.map(m => ({
+    label: m.name,
+    value: m.name,
+  }))
+)
+
+// 加载可用模型列表
+async function loadModels() {
+  try {
+    availableModels.value = await wails.getAvailableModels()
+  } catch (e) {
+    console.error('Failed to load models:', e)
+  }
+}
+
+// 下拉选择变化时
+function onEmbeddingModelSelect(value: string | null) {
+  selectedEmbeddingModel.value = value
+  if (value) {
+    // 选择了下拉，清空手动输入
+    manualEmbeddingModel.value = ''
+    ragConfig.value.embeddingModel = value
+  } else {
+    ragConfig.value.embeddingModel = manualEmbeddingModel.value
+  }
+}
+
+// 手动输入变化时
+function onManualEmbeddingModelInput(value: string) {
+  manualEmbeddingModel.value = value
+  if (value) {
+    // 手动输入时，清空下拉选择
+    selectedEmbeddingModel.value = null
+    ragConfig.value.embeddingModel = value
+  } else {
+    ragConfig.value.embeddingModel = selectedEmbeddingModel.value || ''
+  }
+}
+
+// 点击推荐模型标签
+function selectRecommendedModel(modelName: string) {
+  manualEmbeddingModel.value = modelName
+  selectedEmbeddingModel.value = null
+  ragConfig.value.embeddingModel = modelName
+}
 
 async function loadData() {
   try {
@@ -194,6 +282,23 @@ async function loadData() {
       ragConfig.value.chunkSize = config.rag_chunk_size ?? 512
       ragConfig.value.chunkOverlap = config.rag_chunk_overlap ?? 64
       ragConfig.value.embeddingModel = config.embedding_model ?? ''
+      
+      // 初始化嵌入模型状态
+      const embeddingModel = config.embedding_model ?? ''
+      if (embeddingModel) {
+        // 检查是否在可用模型列表中
+        const isInList = availableModels.value.some(m => m.name === embeddingModel)
+        if (isInList) {
+          selectedEmbeddingModel.value = embeddingModel
+          manualEmbeddingModel.value = ''
+        } else {
+          selectedEmbeddingModel.value = null
+          manualEmbeddingModel.value = embeddingModel
+        }
+      } else {
+        selectedEmbeddingModel.value = null
+        manualEmbeddingModel.value = ''
+      }
     }
     await loadDocuments()
   } catch (e: any) {
@@ -360,7 +465,10 @@ function formatTime(ts: string): string {
   }
 }
 
-onMounted(loadData)
+onMounted(async () => {
+  await loadModels()
+  await loadData()
+})
 </script>
 
 <style scoped>
@@ -637,6 +745,85 @@ onMounted(loadData)
 
 .rag-input {
   width: 120px;
+}
+
+.embedding-config {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.embedding-select,
+.embedding-input {
+  width: 100%;
+}
+
+.embedding-help {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--bg-tertiary, rgba(0, 0, 0, 0.02));
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.embedding-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.status-active {
+  color: var(--success-color, #18a058);
+  font-weight: 500;
+}
+
+.status-fallback {
+  color: var(--warning-color, #f0a020);
+  font-weight: 500;
+}
+
+.embedding-recommend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.recommend-label {
+  color: var(--text-secondary, #666);
+  font-weight: 500;
+}
+
+.recommend-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.recommend-tag {
+  padding: 2px 8px;
+  background: var(--bg-primary, #fff);
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.recommend-tag:hover {
+  background: var(--accent-color, #2080f0);
+  color: white;
+  border-color: var(--accent-color, #2080f0);
+}
+
+.embedding-tip {
+  color: var(--text-tertiary, #999);
+  font-size: 11px;
 }
 
 .rag-save-row {

@@ -88,6 +88,7 @@ import ContextTrimmed from './ContextTrimmed.vue'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import { renderMarkdownStreaming } from '../utils/markdown'
+import { useMarkdownWorker } from '../composables/useMarkdownWorker'
 import { formatModelName } from '../utils/model'
 import { bindCodeCopyButtons } from '../utils/codeCopy'
 import defaultAiAvatar from '../assets/images/appicon.png'
@@ -181,61 +182,11 @@ function getSwitchProgressText(): string {
   }
 }
 
-// PERF-003: throttle 流式 Markdown 渲染，减少高频 token 更新时的渲染开销
-// 使用节流而非防抖：防抖在内容变长后会导致渲染无限延迟（token 积压 → 一次性全显示）
-const renderedStreaming = ref('')
-let renderTimer: ReturnType<typeof setTimeout> | null = null
-let lastRenderTime = 0
-let pendingContent = ''
-let isRendering = false
-
-async function doRender(content: string) {
-  isRendering = true
-  renderedStreaming.value = await renderMarkdownStreaming(content)
-  lastRenderTime = Date.now()
-  isRendering = false
-}
-
-function scheduleRender(content: string) {
-  pendingContent = content
-  if (isRendering) return // 渲染中，等完成后再触发
-
-  // 根据内容长度动态调整节流间隔：
-  // 短内容（<2KB）快速渲染，长内容（>10KB）降低频率
-  const len = content.length
-  const interval = len > 10000 ? 200 : len > 2000 ? 100 : 50
-  const elapsed = Date.now() - lastRenderTime
-  const remaining = interval - elapsed
-
-  if (remaining <= 0) {
-    // 已超过节流间隔，立即渲染
-    if (renderTimer) { clearTimeout(renderTimer); renderTimer = null }
-    doRender(content)
-  } else if (!renderTimer) {
-    // 未超过节流间隔，延迟渲染
-    renderTimer = setTimeout(() => {
-      renderTimer = null
-      doRender(pendingContent)
-    }, remaining)
-  }
-  // 如果已有定时器在等待，不做任何事（内容已更新到 pendingContent）
-}
-
-watch(streamingContent, (newContent) => {
-  if (!newContent) {
-    if (renderTimer) { clearTimeout(renderTimer); renderTimer = null }
-    renderedStreaming.value = ''
-    return
-  }
-  scheduleRender(newContent)
-}, { immediate: true })
-
-onUnmounted(() => {
-  if (renderTimer) {
-    clearTimeout(renderTimer)
-    renderTimer = null
-  }
-})
+// PERF-003 + Step 3: 流式 Markdown 渲染跑在 Web Worker 中，主线程零阻塞
+// - useMarkdownWorker 内部维护任务 ID 防过期、动态节流、Worker 复用
+// - Worker 失败时自动降级到主线程渲染
+const { rendered: renderedStreaming, bind: bindMarkdown } = useMarkdownWorker()
+bindMarkdown(() => streamingContent.value)
 
 const messageListRef = ref<HTMLElement | null>(null)
 

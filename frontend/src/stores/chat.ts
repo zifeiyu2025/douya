@@ -3,20 +3,9 @@ import { ref, reactive, computed, nextTick } from 'vue'
 import { wails, type Conversation, type Message, type StreamEvent, type Attachment } from '../services/wails'
 import { fixUtf8 } from '../utils/utf8'
 import { useSettingsStore } from './settings'
+import type { ConvStreamingState } from '../types/chat'
 
-interface ConvStreamingState {
-    isGenerating: boolean
-    streamingContent: string
-    thinkingContent: string
-    searchResults: string
-    isSearching: boolean
-    isThinking: boolean
-    thinkingStartTime: number
-    thinkingDuration: number
-    searchQuery: string
-    contextTrimmed: { reason: string; promptTokens?: number; contextSize?: number; messagesAfter?: number } | null
-}
-
+/** 流式状态创建 */
 function createEmptyStreamingState(): ConvStreamingState {
     return {
         isGenerating: false,
@@ -32,6 +21,7 @@ function createEmptyStreamingState(): ConvStreamingState {
     }
 }
 
+/** 清空流式状态（保留 contextTrimmed,contextTrimmed 是通知性事件） */
 function clearConvState(state: ConvStreamingState) {
     state.isGenerating = false
     state.streamingContent = ''
@@ -52,10 +42,23 @@ export const useChatStore = defineStore('chat', () => {
     const generatingConvId = ref('')
     const convStreamingStates = reactive(new Map<string, ConvStreamingState>())
     const isLoadingConversations = ref(false)
-    let generatingTimeout: ReturnType<typeof setTimeout> | null = null
-    let firstTokenTimeout: ReturnType<typeof setTimeout> | null = null
-    let stopTimeout: ReturnType<typeof setTimeout> | null = null
     const waitingFirstToken = ref(false)
+
+    // ----- 集中 timer 管理（防止泄漏/竞态） -----
+    const timers: ReturnType<typeof setTimeout>[] = []
+    function addTimer(fn: () => void, ms: number) {
+        const id = setTimeout(() => {
+            const idx = timers.indexOf(id)
+            if (idx >= 0) timers.splice(idx, 1)
+            fn()
+        }, ms)
+        timers.push(id)
+        return id
+    }
+    function clearTimers() {
+        for (const t of timers) clearTimeout(t)
+        timers.length = 0
+    }
 
     function getConvState(convId: string): ConvStreamingState {
         let state = convStreamingStates.get(convId)
@@ -95,20 +98,11 @@ export const useChatStore = defineStore('chat', () => {
         return ''
     })
 
-    function forceResetGenerating() {
-        clearGeneratingTimeout()
-        clearFirstTokenOnResponse()
-        if (generatingConvId.value) {
-            const state = getConvState(generatingConvId.value)
-            clearConvState(state)
-        }
-        generatingConvId.value = ''
-    }
-
+    // ----- 计时器封装（每次 start 都会先 clear） -----
     function startGeneratingTimeout() {
-        clearGeneratingTimeout()
+        clearTimers()
         const timeout = settingsStore.thinkingEnabled ? 300 * 1000 : 120 * 1000
-        generatingTimeout = setTimeout(() => {
+        addTimer(() => {
             if (generatingConvId.value) {
                 const state = getConvState(generatingConvId.value)
                 if (state.isGenerating) {
@@ -125,9 +119,9 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     function startFirstTokenTimeout() {
-        clearFirstTokenTimeout()
+        clearTimers()
         waitingFirstToken.value = true
-        firstTokenTimeout = setTimeout(() => {
+        addTimer(() => {
             if (waitingFirstToken.value && generatingConvId.value) {
                 const state = getConvState(generatingConvId.value)
                 if (state.isGenerating && !state.streamingContent && !state.thinkingContent) {
@@ -143,39 +137,28 @@ export const useChatStore = defineStore('chat', () => {
         }, 60 * 1000)
     }
 
-    function clearFirstTokenTimeout() {
-        if (firstTokenTimeout) {
-            clearTimeout(firstTokenTimeout)
-            firstTokenTimeout = null
-        }
-    }
-
     function clearFirstTokenOnResponse() {
-        clearFirstTokenTimeout()
+        clearTimers()
         waitingFirstToken.value = false
     }
 
-    function resetGeneratingTimeout() {
-        startGeneratingTimeout()
-    }
-
-    function clearGeneratingTimeout() {
-        if (generatingTimeout) {
-            clearTimeout(generatingTimeout)
-            generatingTimeout = null
+    function forceResetGenerating() {
+        clearTimers()
+        if (generatingConvId.value) {
+            const state = getConvState(generatingConvId.value)
+            clearConvState(state)
         }
+        generatingConvId.value = ''
     }
 
+    // ----- 会话与消息 -----
     async function loadConversations() {
         isLoadingConversations.value = true
         try {
             const convs = await wails.getConversations()
-            const newConvs = convs.map((c: any) => ({
-                ...c,
-                title: fixUtf8(c.title)
-            }))
-            const newIdSet = new Set(newConvs.map((c: any) => c.id))
-            const keptOld = conversations.value.filter((c: any) => !newIdSet.has(c.id))
+            const newConvs = (convs as Conversation[]).map((c) => ({ ...c, title: fixUtf8(c.title) }))
+            const newIdSet = new Set(newConvs.map((c) => c.id))
+            const keptOld = conversations.value.filter((c) => !newIdSet.has(c.id))
             conversations.value = [...keptOld, ...newConvs]
 
             for (const key of convStreamingStates.keys()) {
@@ -214,12 +197,7 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     function handleTerminalEvent(convId: string) {
-        clearGeneratingTimeout()
-        clearFirstTokenOnResponse()
-        if (stopTimeout !== null) {
-            clearTimeout(stopTimeout)
-            stopTimeout = null
-        }
+        clearTimers()
         const state = convStreamingStates.get(convId)
         if (state) {
             clearConvState(state)
@@ -229,236 +207,221 @@ export const useChatStore = defineStore('chat', () => {
         }
     }
 
+    // ----- 流式事件 reducer（独立小函数,易单测） -----
+
+    function handleToken(convId: string, content: any) {
+        startGeneratingTimeout()
+        clearFirstTokenOnResponse()
+        const state = getConvState(convId)
+        if (state.isThinking && state.thinkingContent) {
+            state.isThinking = false
+            state.thinkingDuration = (Date.now() - state.thinkingStartTime) / 1000
+        } else if (!state.isThinking && state.thinkingContent && state.thinkingDuration === 0) {
+            state.thinkingDuration = (Date.now() - state.thinkingStartTime) / 1000
+        }
+        state.streamingContent += content
+    }
+
+    function handleThinking(convId: string, content: any) {
+        startGeneratingTimeout()
+        clearFirstTokenOnResponse()
+        const state = getConvState(convId)
+        if (!state.isThinking && !state.thinkingContent) {
+            state.isThinking = true
+            state.thinkingStartTime = Date.now()
+            state.thinkingDuration = 0
+        }
+        state.thinkingContent += content
+    }
+
+    function handleToolCallStart(convId: string, content: any) {
+        startGeneratingTimeout()
+        clearFirstTokenOnResponse()
+        const state = getConvState(convId)
+        state.isSearching = true
+        state.searchQuery = content?.query || ''
+    }
+
+    function handleSearchStart(convId: string, content: any) {
+        startGeneratingTimeout()
+        clearFirstTokenOnResponse()
+        const state = getConvState(convId)
+        state.isSearching = true
+        if (typeof content === 'string') {
+            try {
+                const parsed = JSON.parse(content)
+                state.searchQuery = parsed.query || content
+            } catch {
+                state.searchQuery = content
+            }
+        }
+    }
+
+    function handleSearchResult(convId: string, content: any) {
+        startGeneratingTimeout()
+        clearFirstTokenOnResponse()
+        const state = getConvState(convId)
+        state.isSearching = false
+        state.searchQuery = ''
+        try {
+            let c: unknown = content
+            if (typeof c === 'string') {
+                try { c = JSON.parse(c) } catch { c = null }
+            }
+            if (Array.isArray(c) && c.length > 0) {
+                state.searchResults = JSON.stringify(c)
+            } else {
+                state.searchResults = ''
+            }
+        } catch {
+            state.searchResults = ''
+        }
+    }
+
+    async function handleTerminalAsync(convId: string) {
+        const targetConvId = convId || generatingConvId.value
+        if (targetConvId) {
+            try {
+                const msgs = (await wails.getMessages(targetConvId)) as Message[]
+                if (targetConvId === currentConversationId.value || targetConvId === generatingConvId.value) {
+                    messages.value = msgs || []
+                }
+                nextTick(() => handleTerminalEvent(convId))
+            } catch {
+                handleTerminalEvent(convId)
+            }
+        } else {
+            handleTerminalEvent(convId)
+        }
+        if (convId) {
+            // 终态后刷新会话列表
+            loadConversations()
+        }
+    }
+
+    function handleError(convId: string, content: any, isCurrentConv: boolean) {
+        handleTerminalEvent(convId)
+        if (isCurrentConv || !convId) {
+            lastError.value = ''
+            nextTick(() => {
+                lastError.value = String(content || '生成过程中发生错误')
+            })
+        }
+    }
+
+    function handleContextTrimmed(convId: string, content: any) {
+        const state = getConvState(convId)
+        state.contextTrimmed = {
+            reason: content?.reason || 'unknown',
+            promptTokens: content?.prompt_tokens,
+            contextSize: content?.context_size,
+            messagesAfter: content?.messages_after,
+        }
+    }
+
+    function handleConvCreated(content: any) {
+        if (!content?.id) return
+        const newConvId = content.id
+        const oldState = convStreamingStates.get('')
+        if (oldState) {
+            convStreamingStates.delete('')
+            convStreamingStates.set(newConvId, oldState)
+        }
+        generatingConvId.value = newConvId
+        currentConversationId.value = newConvId
+        const tempIdx = messages.value.findIndex((m: Message) => m.id.startsWith('temp-'))
+        if (tempIdx >= 0) {
+            messages.value[tempIdx].conversation_id = newConvId
+        }
+        conversations.value.unshift({ ...content, title: fixUtf8(content.title) })
+    }
+
+    function handleAssistantMsg(content: any, isCurrentConv: boolean) {
+        if (!content || !isCurrentConv) return
+        const idx = messages.value.findIndex((m: Message) => m.id === content.id)
+        if (idx >= 0) {
+            messages.value[idx] = content
+        } else {
+            messages.value.push(content)
+        }
+    }
+
+    function handleUserMsg(content: any, isCurrentConv: boolean) {
+        if (!content || !isCurrentConv) return
+        const exists = messages.value.some((m: Message) =>
+            m.role === 'user' && m.content === content.content
+        )
+        if (!exists) {
+            messages.value.push(content)
+        } else {
+            const idx = messages.value.findIndex((m: Message) =>
+                m.role === 'user' && m.content === content.content && m.id.startsWith('temp-')
+            )
+            if (idx >= 0) messages.value[idx] = content
+        }
+    }
+
+    function handleConvUpdated(content: any) {
+        if (!content?.id) return
+        const conv = conversations.value.find((c: Conversation) => c.id === content.id)
+        if (conv) {
+            conv.title = fixUtf8(content.title)
+            conv.updated_at = content.updated_at
+        }
+    }
+
+    function handleConvDeleted(content: any) {
+        const deletedId = typeof content === 'string' ? content : content?.id
+        if (!deletedId) return
+        conversations.value = conversations.value.filter((c: Conversation) => c.id !== deletedId)
+        convStreamingStates.delete(deletedId)
+        if (generatingConvId.value === deletedId) generatingConvId.value = ''
+        if (currentConversationId.value === deletedId) {
+            currentConversationId.value = ''
+            messages.value = []
+        }
+    }
+
+    function handleMsgDeleted(content: any, isCurrentConv: boolean) {
+        const deletedId = typeof content === 'string' ? content : content?.id
+        if (deletedId && isCurrentConv) {
+            messages.value = messages.value.filter((m: Message) => m.id !== deletedId)
+        }
+    }
+
+    // ----- 事件分发表（reducer map） -----
+    type StreamHandler = (convId: string, content: any, isCurrentConv: boolean) => void | Promise<void>
+
+    const streamHandlers: Record<string, StreamHandler> = {
+        token: (id, c) => handleToken(id, c),
+        thinking: (id, c) => handleThinking(id, c),
+        tool_call_start: (id, c) => handleToolCallStart(id, c),
+        search_start: (id, c) => handleSearchStart(id, c),
+        search_result: (id, c) => handleSearchResult(id, c),
+        done: (id) => { void handleTerminalAsync(id) },
+        stopped: (id) => { void handleTerminalAsync(id) },
+        error: (id, c, current) => handleError(id, c, current),
+        context_trimmed: (id, c) => handleContextTrimmed(id, c),
+        conversation_created: (_, c) => handleConvCreated(c),
+        assistant_message: (_, c, current) => handleAssistantMsg(c, current),
+        user_message: (_, c, current) => handleUserMsg(c, current),
+        conversation_updated: (_, c) => handleConvUpdated(c),
+        conversation_deleted: (_, c) => handleConvDeleted(c),
+        message_deleted: (_, c, current) => handleMsgDeleted(c, current),
+    }
+
     function handleStreamEvent(event: StreamEvent) {
         const convId = event.conversation_id || ''
         const isCurrentConv = convId === currentConversationId.value
             || convId === generatingConvId.value
             || (generatingConvId.value === '' && !currentConversationId.value)
-
-        switch (event.type) {
-            case 'token': {
-                resetGeneratingTimeout()
-                clearFirstTokenOnResponse()
-                const state = getConvState(convId)
-                if (state.isThinking && state.thinkingContent) {
-                    state.isThinking = false
-                    state.thinkingDuration = (Date.now() - state.thinkingStartTime) / 1000
-                } else if (!state.isThinking && state.thinkingContent && state.thinkingDuration === 0) {
-                    state.thinkingDuration = (Date.now() - state.thinkingStartTime) / 1000
-                }
-                state.streamingContent += event.content
-                break
-            }
-            case 'thinking': {
-                resetGeneratingTimeout()
-                clearFirstTokenOnResponse()
-                const state = getConvState(convId)
-                if (!state.isThinking && !state.thinkingContent) {
-                    state.isThinking = true
-                    state.thinkingStartTime = Date.now()
-                    state.thinkingDuration = 0
-                }
-                state.thinkingContent += event.content
-                break
-            }
-            case 'tool_call_start': {
-                resetGeneratingTimeout()
-                clearFirstTokenOnResponse()
-                const state = getConvState(convId)
-                state.isSearching = true
-                const content = event.content as any
-                state.searchQuery = content?.query || ''
-                break
-            }
-            case 'search_start': {
-                resetGeneratingTimeout()
-                clearFirstTokenOnResponse()
-                const state = getConvState(convId)
-                state.isSearching = true
-                if (typeof event.content === 'string') {
-                    try {
-                        const parsed = JSON.parse(event.content)
-                        state.searchQuery = parsed.query || event.content
-                    } catch {
-                        state.searchQuery = event.content
-                    }
-                }
-                break
-            }
-            case 'search_result': {
-                resetGeneratingTimeout()
-                clearFirstTokenOnResponse()
-                const state = getConvState(convId)
-                state.isSearching = false
-                state.searchQuery = ''
-                try {
-                    let content = event.content
-                    if (typeof content === 'string') {
-                        try { content = JSON.parse(content) } catch { content = null }
-                    }
-                    if (Array.isArray(content) && content.length > 0) {
-                        state.searchResults = JSON.stringify(content)
-                    } else {
-                        state.searchResults = ''
-                    }
-                } catch {
-                    state.searchResults = ''
-                }
-                break
-            }
-            case 'done': {
-                const targetConvId = convId || generatingConvId.value
-                if (targetConvId) {
-                    wails.getMessages(targetConvId).then((msgs: Message[]) => {
-                        if (targetConvId === currentConversationId.value || targetConvId === generatingConvId.value) {
-                            messages.value = msgs || []
-                        }
-                        // 等待 Vue 渲染数据库消息后再清空流式状态，避免滚动条上移
-                        nextTick(() => {
-                            handleTerminalEvent(convId)
-                        })
-                    }).catch(() => {
-                        handleTerminalEvent(convId)
-                    })
-                } else {
-                    handleTerminalEvent(convId)
-                }
-                loadConversations()
-                break
-            }
-            case 'stopped': {
-                const targetConvId = convId || generatingConvId.value
-                if (targetConvId) {
-                    wails.getMessages(targetConvId).then((msgs: Message[]) => {
-                        if (targetConvId === currentConversationId.value || targetConvId === generatingConvId.value) {
-                            messages.value = msgs || []
-                        }
-                        // 等待 Vue 渲染数据库消息后再清空流式状态，避免滚动条上移
-                        nextTick(() => {
-                            handleTerminalEvent(convId)
-                        })
-                    }).catch(() => {
-                        handleTerminalEvent(convId)
-                    })
-                } else {
-                    handleTerminalEvent(convId)
-                }
-                break
-            }
-            case 'error': {
-                handleTerminalEvent(convId)
-                if (isCurrentConv || !convId) {
-                    lastError.value = ''
-                    nextTick(() => {
-                        lastError.value = String(event.content || '生成过程中发生错误')
-                    })
-                }
-                break
-            }
-            case 'context_trimmed': {
-                const state = getConvState(convId)
-                const content = event.content as any
-                state.contextTrimmed = {
-                    reason: content?.reason || 'unknown',
-                    promptTokens: content?.prompt_tokens,
-                    contextSize: content?.context_size,
-                    messagesAfter: content?.messages_after,
-                }
-                break
-            }
-            case 'conversation_created': {
-                if (event.content?.id) {
-                    const newConvId = event.content.id
-                    const oldState = convStreamingStates.get('')
-                    if (oldState) {
-                        convStreamingStates.delete('')
-                        convStreamingStates.set(newConvId, oldState)
-                    }
-                    generatingConvId.value = newConvId
-                    currentConversationId.value = newConvId
-                    const tempIdx = messages.value.findIndex((m: Message) => m.id.startsWith('temp-'))
-                    if (tempIdx >= 0) {
-                        messages.value[tempIdx].conversation_id = newConvId
-                    }
-                    conversations.value.unshift({
-                        ...event.content,
-                        title: fixUtf8(event.content.title)
-                    })
-                }
-                break
-            }
-            case 'assistant_message': {
-                if (event.content) {
-                    if (isCurrentConv) {
-                        const idx = messages.value.findIndex((m: Message) => m.id === event.content.id)
-                        if (idx >= 0) {
-                            messages.value[idx] = event.content
-                        } else {
-                            messages.value.push(event.content)
-                        }
-                    }
-                }
-                break
-            }
-            case 'user_message': {
-                if (event.content) {
-                    if (isCurrentConv) {
-                        const exists = messages.value.some((m: Message) =>
-                            m.role === 'user' && m.content === event.content.content
-                        )
-                        if (!exists) {
-                            messages.value.push(event.content)
-                        } else {
-                            const idx = messages.value.findIndex((m: Message) =>
-                                m.role === 'user' && m.content === event.content.content && m.id.startsWith('temp-')
-                            )
-                            if (idx >= 0) {
-                                messages.value[idx] = event.content
-                            }
-                        }
-                    }
-                }
-                break
-            }
-            case 'conversation_updated': {
-                if (event.content?.id) {
-                    const conv = conversations.value.find((c: Conversation) => c.id === event.content.id)
-                    if (conv) {
-                        conv.title = fixUtf8(event.content.title)
-                        conv.updated_at = event.content.updated_at
-                    }
-                }
-                break
-            }
-            case 'conversation_deleted': {
-                if (event.content) {
-                    const deletedId = typeof event.content === 'string' ? event.content : event.content.id
-                    if (deletedId) {
-                        conversations.value = conversations.value.filter((c: Conversation) => c.id !== deletedId)
-                        convStreamingStates.delete(deletedId)
-                        if (generatingConvId.value === deletedId) {
-                            generatingConvId.value = ''
-                        }
-                        if (currentConversationId.value === deletedId) {
-                            currentConversationId.value = ''
-                            messages.value = []
-                        }
-                    }
-                }
-                break
-            }
-            case 'message_deleted': {
-                if (event.content) {
-                    const deletedMsgId = typeof event.content === 'string' ? event.content : event.content.id
-                    if (deletedMsgId && isCurrentConv) {
-                        messages.value = messages.value.filter((m: Message) => m.id !== deletedMsgId)
-                    }
-                }
-                break
-            }
+        const handler = streamHandlers[event.type]
+        if (handler) {
+            handler(convId, event.content, isCurrentConv)
         }
     }
 
+    // ----- 业务函数 -----
     async function deleteMessage(id: string) {
         try {
             const msg = messages.value.find((m: Message) => m.id === id)
@@ -491,9 +454,9 @@ export const useChatStore = defineStore('chat', () => {
 
         const userMsgIdx = messages.value.findIndex((m: Message) => m.id === userMessageID)
         if (userMsgIdx >= 0) {
-            messages.value = messages.value.filter((m: Message, idx: number) => {
+            messages.value = messages.value.filter((_m, idx) => {
                 if (idx <= userMsgIdx) return true
-                return m.role !== 'assistant'
+                return messages.value[idx].role !== 'assistant'
             })
         }
 
@@ -507,8 +470,7 @@ export const useChatStore = defineStore('chat', () => {
         try {
             await wails.regenerateMessage(userMessageID, searchEnabled)
         } catch (e) {
-            clearGeneratingTimeout()
-            clearFirstTokenOnResponse()
+            clearTimers()
             clearConvState(state)
             generatingConvId.value = ''
             console.error('重新生成失败:', e)
@@ -549,21 +511,15 @@ export const useChatStore = defineStore('chat', () => {
         messages.value.push(tempUserMsg)
 
         try {
-            const params: any = {
+            await wails.sendMessage({
                 conversation_id: convId,
                 content,
                 search_enabled: searchEnabled,
-            }
-            if (images && images.length > 0) {
-                params.images = images
-            }
-            if (attachments && attachments.length > 0) {
-                params.attachments = attachments
-            }
-            await wails.sendMessage(params)
-        } catch (e: any) {
-            clearGeneratingTimeout()
-            clearFirstTokenOnResponse()
+                images,
+                attachments,
+            })
+        } catch (e) {
+            clearTimers()
             const currentGenId = generatingConvId.value
             if (currentGenId) {
                 const currentState = getConvState(currentGenId)
@@ -585,20 +541,15 @@ export const useChatStore = defineStore('chat', () => {
         } catch (e) {
             console.error('停止生成失败:', e)
         }
-        clearGeneratingTimeout()
-        clearFirstTokenOnResponse()
+        clearTimers()
 
-        if (stopTimeout !== null) {
-            clearTimeout(stopTimeout)
-        }
-        stopTimeout = setTimeout(() => {
+        addTimer(() => {
             const convId = generatingConvId.value
             if (convId) {
                 const state = getConvState(convId)
                 clearConvState(state)
             }
             generatingConvId.value = ''
-            stopTimeout = null
         }, 5000)
     }
 
@@ -629,9 +580,7 @@ export const useChatStore = defineStore('chat', () => {
             await wails.deleteConversation(id)
             conversations.value = conversations.value.filter((c: Conversation) => c.id !== id)
             convStreamingStates.delete(id)
-            if (generatingConvId.value === id) {
-                generatingConvId.value = ''
-            }
+            if (generatingConvId.value === id) generatingConvId.value = ''
             if (currentConversationId.value === id) {
                 currentConversationId.value = ''
                 messages.value = []
@@ -676,6 +625,7 @@ export const useChatStore = defineStore('chat', () => {
 
     function cleanupStreamListener() {
         wails.offChatStream()
+        clearTimers()
     }
 
     return {

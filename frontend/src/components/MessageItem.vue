@@ -16,10 +16,7 @@
           </div>
           <div v-if="nonImageAttachments.length > 0" class="message-attachments">
             <div v-for="(att, idx) in nonImageAttachments" :key="idx" class="attachment-tag" :class="'att-' + att.type">
-              <svg v-if="att.type === 'audio'" class="att-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-              <svg v-else-if="att.type === 'video'" class="att-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-              <svg v-else-if="att.type === 'pdf'" class="att-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-              <svg v-else class="att-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+              <AppIcon :name="attachmentIcon(att.type)" class="att-icon" :size="14" />
               <span class="att-name">{{ att.name }}</span>
             </div>
           </div>
@@ -35,26 +32,15 @@
       <div class="msg-actions" :class="{ 'user-actions': isUser, 'ai-actions': !isUser }">
         <div class="action-row">
           <button class="action-btn" @click="copyContent" title="复制">
-            <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-            </svg>
+            <AppIcon name="copy" class="action-icon" :size="14" />
             <span class="action-label">复制</span>
           </button>
           <button v-if="!isUser && !chatStore.isGenerating && isLastAIMessage" class="action-btn" @click="regenerate" title="重新生成">
-            <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="23 4 23 10 17 10"/>
-              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-            </svg>
+            <AppIcon name="regenerate" class="action-icon" :size="14" />
             <span class="action-label">重新生成</span>
           </button>
           <button v-if="isUser" class="action-btn danger" @click="deleteMsg" title="删除">
-            <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="3 6 5 6 21 6"/>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-              <line x1="10" y1="11" x2="10" y2="17"/>
-              <line x1="14" y1="11" x2="14" y2="17"/>
-            </svg>
+            <AppIcon name="trash" class="action-icon" :size="14" />
             <span class="action-label">删除</span>
           </button>
         </div>
@@ -68,11 +54,14 @@ import { computed, ref, watch, onMounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import ThinkBlock from './ThinkBlock.vue'
 import SearchStatus from './SearchStatus.vue'
-import { renderMarkdown, renderMermaidInElement } from '../utils/markdown'
+import { renderMarkdown } from '../utils/markdown'
+import { useMermaid } from '../composables/useMermaid'
 import { bindCodeCopyButtons } from '../utils/codeCopy'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import type { Message, AttachmentSummary } from '../services/wails'
+import type { SearchResultItem } from '../types/search'
+import AppIcon from './ui/AppIcon.vue'
 import defaultUserAvatar from '../assets/images/user-avatar.svg'
 import defaultAiAvatar from '../assets/images/appicon.png'
 
@@ -82,10 +71,16 @@ const settingsStore = useSettingsStore()
 const messageApi = useMessage()
 const dialog = useDialog()
 
-interface SearchResultItem {
-  title: string
-  url: string
-  snippet: string
+const ATTACHMENT_ICON_MAP: Record<string, 'audio' | 'video' | 'pdf' | 'file' | 'image'> = {
+    audio: 'audio',
+    video: 'video',
+    pdf: 'pdf',
+    text: 'file',
+    image: 'image',
+}
+
+function attachmentIcon(type: string): 'audio' | 'video' | 'pdf' | 'file' | 'image' {
+    return ATTACHMENT_ICON_MAP[type] || 'file'
 }
 
 function isSafeUrl(url: string): boolean {
@@ -175,10 +170,12 @@ const findPreviousUserMessage = () => {
 
 const rootRef = ref<HTMLElement>()
 
+// 使用 IntersectionObserver 懒加载 mermaid（仅进入视口才下载 2.84MB chunk）
+const { refreshObservation } = useMermaid(rootRef)
+
 onMounted(() => {
     const el = rootRef.value
     if (el) {
-        renderMermaidInElement(el)
         bindCodeCopyButtons(el)
     }
 })
@@ -187,7 +184,8 @@ watch(renderedContent, async () => {
     await Promise.resolve()
     const el = rootRef.value
     if (el) {
-        renderMermaidInElement(el)
+        // 内容更新后重新观察新出现的 .mermaid 元素
+        refreshObservation()
         bindCodeCopyButtons(el)
     }
 })

@@ -359,6 +359,11 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 }
 
 func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
+	// 推送首次启动进度：准备启动引擎
+	runtime.EventsEmit(ctx, "server:switchProgress", map[string]string{
+		"stage": "preparing",
+	})
+
 	if err := srv.Start(); err != nil {
 		zlog.Error().Err(err).Msg("start llama-server failed")
 		runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
@@ -378,6 +383,11 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 		})
 		return
 	}
+
+	// 推送首次启动进度：引擎已就绪，准备加载模型
+	runtime.EventsEmit(ctx, "server:switchProgress", map[string]string{
+		"stage": "loading",
+	})
 
 	a.presetsMu.RLock()
 	presetsSnapshot := make([]llm.ModelPreset, len(a.presets))
@@ -406,6 +416,13 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 	a.currentModelMu.RLock()
 	modelForDetect := a.currentModelName
 	a.currentModelMu.RUnlock()
+
+	// 推送首次启动进度：检测模型能力
+	runtime.EventsEmit(ctx, "server:switchProgress", map[string]string{
+		"stage":       "detecting",
+		"targetModel": modelForDetect,
+	})
+
 	if err := a.service.DetectModelArchitectureForModel(modelForDetect); err != nil {
 		zlog.Error().Err(err).Msg("detect model architecture failed")
 	}
@@ -445,7 +462,7 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 				stage := "loading"
 				switch status {
 				case "loaded", "sleeping":
-					stage = "verifying"
+					stage = "waiting"
 				case "failed":
 					stage = "failed"
 				case "unloaded":
@@ -1261,9 +1278,11 @@ func (a *App) applyEnvOverrides(keys *SearchAPIKeys) {
 }
 
 // buildSearchChain 根据当前 API Key 配置构建搜索链
+// 搜索源优先级：Tavily（高质量） > Ollama > DuckDuckGo > Bing
 func (a *App) buildSearchChain() *search.SearchChain {
 	var searchProviders []search.CategorizedProvider
 	keys := a.loadSearchAPIKeys()
+
 	if keys.TavilyAPIKey != "" {
 		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewTavilyProvider(keys.TavilyAPIKey), Categories: []string{"general", "code"}})
 	}
