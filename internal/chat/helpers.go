@@ -357,7 +357,7 @@ func (s *Service) doSearch(ctx context.Context, query string) *search.SearchResp
 	if isCodeRelated(query) {
 		category = "code"
 	}
-	resp := s.searchChain.SearchWithCategory(ctx, query, category)
+	resp := s.searchChain.SearchWithCategory(ctx, query, category, 5)
 	if resp == nil {
 		log.Warn().Str("query", query).Msg("[chat] search returned nil")
 	}
