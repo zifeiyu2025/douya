@@ -120,6 +120,10 @@
             @blur="autoSave"
           />
         </n-form-item>
+        <n-form-item label="暴露服务器地址" label-width="140" label-placement="left">
+          <n-switch v-model:value="formConfig.expose_server" @update:value="onExposeServerToggle" />
+          <span class="setting-hint">开启后局域网设备可通过本机 IP 访问（需重启服务生效）</span>
+        </n-form-item>
         <n-form-item label="启用 API Key 验证" label-width="140" label-placement="left">
           <n-switch v-model:value="formConfig.server_api_key_enabled" @update:value="onServerAPIKeyToggle" />
         </n-form-item>
@@ -598,6 +602,16 @@ async function onServerAPIKeyToggle() {
     }
 }
 
+async function onExposeServerToggle() {
+    await autoSave()
+    message.destroyAll()
+    if (formConfig.value.expose_server) {
+        message.warning('已开启局域网访问，重启服务后生效。请确保已设置 API Key 防止未授权访问。', { duration: 5000 })
+    } else {
+        message.info('已关闭局域网访问，重启服务后仅本机可访问。', { duration: 3000 })
+    }
+}
+
 const currentModelRef = computed(() => {
   return matchModelRef(settingsStore.currentModel, MODEL_REFS)
 })
@@ -933,6 +947,12 @@ async function autoSave() {
 .api-key-hint {
   font-size: 12px;
   color: var(--n-text-color-3);
+}
+
+.setting-hint {
+  font-size: 12px;
+  color: var(--n-text-color-3);
+  margin-left: 12px;
 }
 
 .avatar-preview {

@@ -409,7 +409,8 @@ func (s *Server) Start() error {
 		}
 	}
 
-	s.ctx, s.cancel = context.WithCancel(context.Background())
+	// 清理旧的 cancel 函数并创建新的 context，避免重复调用 Start() 时旧 cancel 被覆盖导致资源泄漏
+	s.replaceContext()
 	s.status = ServerStatus{Running: true}
 
 	go func() {
@@ -430,6 +431,20 @@ func (s *Server) Start() error {
 
 	s.mu.Unlock()
 	return nil
+}
+
+// replaceContext 清理旧的 cancel 函数并创建新的 context，避免资源泄漏
+//
+// 生活类比：就像换新电池前先关掉旧电池供电的设备。
+// 每次 Start() 都会创建新的 context 和 cancel 函数，如果旧 cancel 未被调用就被覆盖，
+// 旧 context 衍生的资源（如 goroutine、定时器）将无法被回收，造成资源泄漏。
+// 调用此方法会先触发旧 cancel（通知旧 context 的所有消费者退出），再创建新 context。
+func (s *Server) replaceContext() {
+	// 清理旧的 cancel 函数，避免资源泄漏
+	if s.cancel != nil {
+		s.cancel()
+	}
+	s.ctx, s.cancel = context.WithCancel(context.Background())
 }
 
 func (s *Server) WaitForReady(timeout time.Duration) error {

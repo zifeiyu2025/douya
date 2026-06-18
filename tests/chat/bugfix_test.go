@@ -320,12 +320,16 @@ func TestDetectLanguage(t *testing.T) {
 
 func TestSearchResultInstruction(t *testing.T) {
 	zh := chat.SearchResultInstruction("zh")
-	if !strings.Contains(zh, "自然地融入") {
-		t.Errorf("Chinese instruction should contain '自然地融入', got: %s", zh)
+	// 防幻觉措辞：应包含"仅基于以上信息"，不应包含"用你自己的话"
+	if !strings.Contains(zh, "仅基于以上信息") {
+		t.Errorf("Chinese instruction should contain '仅基于以上信息', got: %s", zh)
+	}
+	if strings.Contains(zh, "用你自己的话") {
+		t.Errorf("Chinese instruction should not contain '用你自己的话' (anti-hallucination), got: %s", zh)
 	}
 	en := chat.SearchResultInstruction("en")
-	if !strings.Contains(en, "Absorb") && !strings.Contains(en, "naturally") {
-		t.Errorf("English instruction should contain absorb and naturally, got: %s", en)
+	if !strings.Contains(en, "strictly") && !strings.Contains(en, "based on") {
+		t.Errorf("English instruction should contain 'based strictly on', got: %s", en)
 	}
 }
 
@@ -425,8 +429,9 @@ func TestBuildLLMMessages_SearchDisabled_HasSearchToolInstruction(t *testing.T) 
 	}
 	msgs, _ := chat.BuildLLMMessagesWithSearch(svc, dbMsgs, "hello", nil, "off")
 
-	if !strings.Contains(msgs[0].ContentString(), "获取实时信息") && !strings.Contains(msgs[0].ContentString(), "内置工具") {
-		t.Errorf("when searchEnabled=false, system prompt SHOULD mention search tool, got: %s", msgs[0].ContentString())
+	// SearchMode 为 off 时，系统提示词不应包含搜索工具说明
+	if strings.Contains(msgs[0].ContentString(), "search 工具") {
+		t.Errorf("when SearchMode=off, system prompt should NOT contain search tool guidance, got: %s", msgs[0].ContentString())
 	}
 }
 

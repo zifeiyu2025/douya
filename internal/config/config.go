@@ -6,6 +6,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 )
@@ -196,6 +197,11 @@ func Load(path string) (*Config, error) {
 			if unquoteErr := json.Unmarshal(data, &inner); unquoteErr == nil {
 				if innerErr := json.Unmarshal([]byte(inner), cfg); innerErr == nil {
 					_ = Save(path, cfg)
+					// 校验配置，若失败则回退到默认配置
+					if validateErr := cfg.Validate(); validateErr != nil {
+						log.Printf("警告: 配置校验失败: %v，回退到默认配置", validateErr)
+						return DefaultConfig(), nil
+					}
 					return cfg, nil
 				}
 			}
@@ -203,6 +209,11 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("解析配置文件失败: %w", err)
 	}
 
+	// 校验配置，若失败则回退到默认配置
+	if validateErr := cfg.Validate(); validateErr != nil {
+		log.Printf("警告: 配置校验失败: %v，回退到默认配置", validateErr)
+		return DefaultConfig(), nil
+	}
 	return cfg, nil
 }
 
@@ -237,8 +248,8 @@ func (c *Config) Validate() error {
 	if c.Port <= 0 || c.Port > 65535 {
 		return fmt.Errorf("invalid port: %d (must be 1-65535)", c.Port)
 	}
-	if c.ContextSize <= 0 {
-		return fmt.Errorf("invalid context_size: %d (must be > 0)", c.ContextSize)
+	if c.ContextSize < 1 || c.ContextSize > 131072 {
+		return fmt.Errorf("invalid context_size: %d (must be 1-131072)", c.ContextSize)
 	}
 	if c.Temperature < 0 || c.Temperature > 2 {
 		return fmt.Errorf("invalid temperature: %.2f (must be 0-2)", c.Temperature)
@@ -246,11 +257,48 @@ func (c *Config) Validate() error {
 	if c.TopP < 0 || c.TopP > 1 {
 		return fmt.Errorf("invalid top_p: %.2f (must be 0-1)", c.TopP)
 	}
+	if c.TopK < 0 {
+		return fmt.Errorf("invalid top_k: %d (必须 >= 0)", c.TopK)
+	}
+	if c.MinP < 0 || c.MinP > 1 {
+		return fmt.Errorf("invalid min_p: %.2f (必须为 0-1)", c.MinP)
+	}
 	if c.RepeatPenalty < 0 {
 		return fmt.Errorf("invalid repeat_penalty: %.2f (must be >= 0)", c.RepeatPenalty)
 	}
 	if c.ChatBackgroundOpacity < 0 || c.ChatBackgroundOpacity > 1 {
 		return fmt.Errorf("invalid chat_background_opacity: %.2f (must be 0-1)", c.ChatBackgroundOpacity)
+	}
+	if c.DryMultiplier < 0 {
+		return fmt.Errorf("invalid dry_multiplier: %.2f (必须 >= 0)", c.DryMultiplier)
+	}
+	if c.DryBase < 0 {
+		return fmt.Errorf("invalid dry_base: %.2f (必须 >= 0)", c.DryBase)
+	}
+	if c.DryAllowedLength < 0 {
+		return fmt.Errorf("invalid dry_allowed_length: %d (必须 >= 0)", c.DryAllowedLength)
+	}
+	if c.RAGTopK <= 0 {
+		return fmt.Errorf("invalid rag_top_k: %d (必须 > 0)", c.RAGTopK)
+	}
+	if c.RAGMinScore < 0 || c.RAGMinScore > 1 {
+		return fmt.Errorf("invalid rag_min_score: %.2f (必须为 0-1)", c.RAGMinScore)
+	}
+	// 当分块大小和重叠大小都 > 0 时，重叠大小必须小于分块大小
+	if c.RAGChunkSize > 0 && c.RAGChunkOverlap > 0 && c.RAGChunkOverlap >= c.RAGChunkSize {
+		return fmt.Errorf("invalid rag_chunk_overlap: %d (必须小于 rag_chunk_size: %d)", c.RAGChunkOverlap, c.RAGChunkSize)
+	}
+	// SearchMode 必须是 off / auto / on 之一
+	switch c.SearchMode {
+	case "off", "auto", "on":
+	default:
+		return fmt.Errorf("invalid search_mode: %q (必须是 off / auto / on)", c.SearchMode)
+	}
+	// SystemPromptMode 必须是 append / replace / 空字符串（视为 append）之一
+	switch c.SystemPromptMode {
+	case "append", "replace", "":
+	default:
+		return fmt.Errorf("invalid system_prompt_mode: %q (必须是 append / replace)", c.SystemPromptMode)
 	}
 	return nil
 }

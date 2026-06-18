@@ -370,9 +370,9 @@ func TrimMessagesToFit(messages []llm.ChatMessage, maxTokens int, reserve int) [
 
 func searchResultInstruction(lang string) string {
 	if lang == "zh" {
-		return "\n请基于以上信息，用你自己的话综合总结回答用户的问题，不要使用[1][2]等编号引用格式。"
+		return "\n请仅基于以上信息回答用户的问题，无法确认时明确说明，不要使用[1][2]等编号引用格式。"
 	}
-	return "\nBased on the above information, summarize and answer the user's question in your own words. Do not use numbered citation formats like [1][2]."
+	return "\nAnswer the user's question based strictly on the above information. If you cannot confirm, state it clearly. Do not use numbered citation formats like [1][2]."
 }
 
 // DetectLanguage is the exported version for testing.
@@ -381,7 +381,9 @@ func DetectLanguage(content string) string { return detectLanguage(content) }
 // SearchResultInstruction is the exported version for testing.
 func SearchResultInstruction(lang string) string { return searchResultInstruction(lang) }
 func (s *Service) doSearch(ctx context.Context, query string) *search.SearchResponse {
-	if s.searchChain == nil {
+	// 在锁保护下获取搜索链快照，避免数据竞争
+	chain := s.getSearchChainSnapshot()
+	if chain == nil {
 		log.Warn().Str("query", query).Msg("[chat] searchChain is nil, cannot search")
 		return nil
 	}
@@ -389,7 +391,7 @@ func (s *Service) doSearch(ctx context.Context, query string) *search.SearchResp
 	if isCodeRelated(query) {
 		category = "code"
 	}
-	resp := s.searchChain.SearchWithCategory(ctx, query, category, 10)
+	resp := chain.SearchWithCategory(ctx, query, category, 10)
 	if resp == nil {
 		log.Warn().Str("query", query).Msg("[chat] search returned nil")
 	}
