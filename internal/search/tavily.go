@@ -20,7 +20,7 @@ type TavilyProvider struct {
 func NewTavilyProvider(apiKey string) *TavilyProvider {
 	return &TavilyProvider{
 		apiKey:     apiKey,
-		httpClient: &http.Client{Timeout: 10 * time.Second},
+		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -43,11 +43,11 @@ func (p *TavilyProvider) SearchWithOpts(ctx context.Context, query string, opts 
 	}
 
 	reqBody := map[string]interface{}{
-		"query":             query,
-		"api_key":           p.apiKey,
-		"max_results":       maxResults,
-		"include_answer":    opts.IncludeAnswer,
+		"query":               query,
+		"max_results":         maxResults,
+		"include_answer":      opts.IncludeAnswer,
 		"include_raw_content": opts.IncludeRawContent,
+		"search_depth":        "basic",
 	}
 	body, err := json.Marshal(reqBody)
 	if err != nil {
@@ -59,6 +59,7 @@ func (p *TavilyProvider) SearchWithOpts(ctx context.Context, query string, opts 
 		return nil, fmt.Errorf("tavily create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
 
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
@@ -97,6 +98,7 @@ func (p *TavilyProvider) SearchWithOpts(ctx context.Context, query string, opts 
 			Score:   r.Score,
 		})
 	}
+	searchResp.Answer = result.Answer
 
 	return searchResp, nil
 }

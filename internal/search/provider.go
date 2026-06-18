@@ -10,20 +10,31 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
+
+	"douya/internal/httputil"
+
+	"github.com/rs/zerolog/log"
 )
+
+// ---------------------------------------------------------------------------
+// 搜索结果与选项
+// ---------------------------------------------------------------------------
 
 type SearchResponse struct {
 	Results []SearchResult
+	Answer  string // API 类引擎返回的直接回答（如 Tavily）
 	Error   string
 	Engine  string
 }
 
 type SearchResult struct {
-	Title       string
-	URL         string
-	Snippet     string
-	RawContent  string
-	Score       float64
+	Title      string  `json:"title"`
+	URL        string  `json:"url"`
+	Snippet    string  `json:"snippet"`
+	RawContent string  `json:"raw_content,omitempty"`
+	Score      float64 `json:"score,omitempty"`
 }
 
 type SearchOpts struct {
@@ -32,83 +43,312 @@ type SearchOpts struct {
 	IncludeRawContent bool
 }
 
+// ---------------------------------------------------------------------------
+// Provider 接口与分类包装
+// ---------------------------------------------------------------------------
+
 type Provider interface {
 	Name() string
 	Search(ctx context.Context, query string) (*SearchResponse, error)
 	SearchWithOpts(ctx context.Context, query string, opts SearchOpts) (*SearchResponse, error)
 }
 
+// SearchProvider 是 Provider 的类型别名，保持向后兼容。
+type SearchProvider = Provider
+
 type CategorizedProvider struct {
-	Provider Provider
+	Provider   Provider
 	Categories []string
 }
 
+// ---------------------------------------------------------------------------
+// 熔断器（Circuit Breaker）
+// ---------------------------------------------------------------------------
+
+type CircuitState int
+
+const (
+	CircuitClosed   CircuitState = iota // 正常
+	CircuitOpen                         // 熔断中，跳过该 provider
+	CircuitHalfOpen                     // 试探性放行一次请求
+)
+
+func (s CircuitState) String() string {
+	switch s {
+	case CircuitClosed:
+		return "closed"
+	case CircuitOpen:
+		return "open"
+	case CircuitHalfOpen:
+		return "half-open"
+	default:
+		return "unknown"
+	}
+}
+
+const (
+	DefaultFailureThreshold = 3
+	DefaultResetTimeout     = 30 * time.Second
+	DefaultMaxRetries       = 0 // 额外重试次数（0 表示不重试，可外部调整）
+	DefaultSearchTimeout    = 35 * time.Second
+)
+
+// ProviderWithCircuit 为 Provider 附加熔断与重试能力。
+// 导出的配置字段（FailureThreshold / ResetTimeout / MaxRetries）可在外部调整。
+type ProviderWithCircuit struct {
+	Provider Provider
+
+	// 配置
+	FailureThreshold int
+	ResetTimeout     time.Duration
+	MaxRetries       int
+
+	// 运行时状态（通过 record* 方法更新，测试中可直接读取）
+	mu            sync.Mutex
+	State         CircuitState
+	Failures      int
+	LastFailureAt time.Time
+
+	// 分类信息（由 SearchChain 构造函数注入）
+	categories []string
+}
+
+func newProviderWithCircuit(p Provider) *ProviderWithCircuit {
+	return &ProviderWithCircuit{
+		Provider:         p,
+		FailureThreshold: DefaultFailureThreshold,
+		ResetTimeout:     DefaultResetTimeout,
+		MaxRetries:       DefaultMaxRetries,
+		State:            CircuitClosed,
+	}
+}
+
+// IsOpen 判断熔断器是否处于打开状态（应跳过该 provider）。
+// 若已超过 ResetTimeout，自动转为 HalfOpen 允许一次试探。
+func (pw *ProviderWithCircuit) IsOpen() bool {
+	pw.mu.Lock()
+	defer pw.mu.Unlock()
+
+	if pw.State == CircuitOpen {
+		if !pw.LastFailureAt.IsZero() && time.Since(pw.LastFailureAt) > pw.ResetTimeout {
+			pw.State = CircuitHalfOpen
+			return false
+		}
+		return true
+	}
+	return false
+}
+
+func (pw *ProviderWithCircuit) recordSuccess() {
+	pw.mu.Lock()
+	defer pw.mu.Unlock()
+	pw.State = CircuitClosed
+	pw.Failures = 0
+}
+
+func (pw *ProviderWithCircuit) recordFailure() {
+	pw.mu.Lock()
+	defer pw.mu.Unlock()
+	pw.Failures++
+	pw.LastFailureAt = time.Now()
+	if pw.Failures >= pw.FailureThreshold {
+		pw.State = CircuitOpen
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SearchChain —— 多引擎顺序降级调度
+// ---------------------------------------------------------------------------
+
 type SearchChain struct {
-	providers []CategorizedProvider
+	providers []*ProviderWithCircuit
 }
 
+// NewCategorizedSearchChain 从带分类信息的 provider 列表构建搜索链。
 func NewCategorizedSearchChain(providers []CategorizedProvider) *SearchChain {
-	return &SearchChain{providers: providers}
+	wrapped := make([]*ProviderWithCircuit, len(providers))
+	for i, cp := range providers {
+		pw := newProviderWithCircuit(cp.Provider)
+		pw.categories = cp.Categories
+		wrapped[i] = pw
+	}
+	return &SearchChain{providers: wrapped}
 }
 
+// NewSearchChain 是便捷构造函数，将所有 provider 归入通用分类（无类别过滤）。
+func NewSearchChain(providers ...Provider) *SearchChain {
+	wrapped := make([]*ProviderWithCircuit, len(providers))
+	for i, p := range providers {
+		wrapped[i] = newProviderWithCircuit(p)
+	}
+	return &SearchChain{providers: wrapped}
+}
+
+// Providers 返回链中所有 provider 的引用，便于外部调整熔断参数。
+func (c *SearchChain) Providers() []*ProviderWithCircuit {
+	return c.providers
+}
+
+// Search 以默认参数执行搜索（category=general, maxResults=5）。
 func (c *SearchChain) Search(ctx context.Context, query string) *SearchResponse {
 	return c.SearchWithCategory(ctx, query, "general", 5)
 }
 
-func (c *SearchChain) SearchWithCategory(ctx context.Context, query string, category string, maxResults int) *SearchResponse {
+// SearchWithCategory 在指定分类下按优先级顺序调度符合条件的 provider，
+// 每个 provider 内部支持指数退避重试，同时具备熔断降级能力。
+// 当某个 provider 成功返回结果时立即返回，失败时自动降级到下一个 provider。
+func (c *SearchChain) SearchWithCategory(ctx context.Context, query string, category string, maxResults ...int) *SearchResponse {
+	startTime := time.Now()
+
+	mr := 5
+	if len(maxResults) > 0 {
+		mr = maxResults[0]
+	}
 	opts := SearchOpts{
-		MaxResults:        maxResults,
+		MaxResults:        mr,
 		IncludeAnswer:     true,
 		IncludeRawContent: false,
 	}
 
-	// 收集该 category 下所有可用的 provider
+	// 1. 筛选符合 category 的 provider
 	var eligible []*ProviderWithCircuit
 	for _, pw := range c.providers {
-		if len(pw.Categories) > 0 {
-			matched := false
-			for _, cat := range pw.Categories {
-				if cat == category {
-					matched = true
-					break
-				}
-			}
-			if !matched {
-				continue
-			}
-		}
-		eligible = append(eligible, &ProviderWithCircuit{Provider: pw.Provider})
-	}
-
-	// 串行逐步降级搜索
-	for _, pw := range eligible {
-		resp, err := pw.Provider.SearchWithOpts(ctx, query, opts)
-		if err != nil {
+		if !matchCategory(pw, category) {
 			continue
 		}
-		if resp != nil && len(resp.Results) > 0 {
-			return resp
-		}
+		eligible = append(eligible, pw)
 	}
 
-	return nil
+	if len(eligible) == 0 {
+		log.Warn().
+			Str("category", category).
+			Str("query", query).
+			Msg("[search] no eligible providers for category")
+		return &SearchResponse{Engine: "none", Error: "no providers available"}
+	}
+
+	// 2. 设置全局搜索超时
+	searchCtx, cancel := context.WithTimeout(ctx, DefaultSearchTimeout)
+	defer cancel()
+
+	// 3. 顺序降级 —— 按优先级依次尝试各 provider
+	var errMsgs []string
+	for _, pw := range eligible {
+		if pw.IsOpen() {
+			log.Debug().
+				Str("engine", pw.Provider.Name()).
+				Str("state", pw.State.String()).
+				Msg("[search] circuit breaker open, skipping provider")
+			errMsgs = append(errMsgs, fmt.Sprintf("%s: circuit open", pw.Provider.Name()))
+			continue
+		}
+
+		resp, err := c.callWithRetry(searchCtx, pw, query, opts)
+		if err != nil {
+			pw.recordFailure()
+			log.Warn().
+				Str("engine", pw.Provider.Name()).
+				Err(err).
+				Int("failures", pw.Failures).
+				Str("state", pw.State.String()).
+				Msg("[search] provider failed")
+			errMsgs = append(errMsgs, fmt.Sprintf("%s: %v", pw.Provider.Name(), err))
+			continue
+		}
+
+		if resp != nil && len(resp.Results) > 0 {
+			pw.recordSuccess()
+			elapsed := time.Since(startTime)
+			log.Info().
+				Str("engine", pw.Provider.Name()).
+				Int("results", len(resp.Results)).
+				Dur("elapsed", elapsed).
+				Msg("[search] provider succeeded")
+			return resp
+		}
+
+		// 成功但无结果，视为软失败
+		pw.recordFailure()
+		errMsgs = append(errMsgs, fmt.Sprintf("%s: empty results", pw.Provider.Name()))
+	}
+
+	// 4. 全部失败 —— 优雅降级
+	elapsed := time.Since(startTime)
+	log.Error().
+		Str("query", query).
+		Str("category", category).
+		Dur("elapsed", elapsed).
+		Int("tried", len(eligible)).
+		Msg("[search] all providers failed")
+
+	return &SearchResponse{
+		Engine: "none",
+		Error:  fmt.Sprintf("all search providers failed: %s", strings.Join(errMsgs, "; ")),
+	}
 }
 
-type ProviderWithCircuit struct {
-	Provider Provider
+// callWithRetry 对单个 provider 执行带指数退避的重试调用。
+func (c *SearchChain) callWithRetry(ctx context.Context, pw *ProviderWithCircuit, query string, opts SearchOpts) (*SearchResponse, error) {
+	maxAttempts := pw.MaxRetries + 1
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(1<<(attempt-1)) * 200 * time.Millisecond
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(backoff):
+			}
+			log.Debug().
+				Str("engine", pw.Provider.Name()).
+				Int("attempt", attempt+1).
+				Dur("backoff", backoff).
+				Msg("[search] retrying provider")
+		}
+
+		resp, err := pw.Provider.SearchWithOpts(ctx, query, opts)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
 }
+
+// matchCategory 检查 provider 是否属于指定分类。
+// 未设置 Categories 的 provider 匹配所有分类。
+func matchCategory(pw *ProviderWithCircuit, category string) bool {
+	if len(pw.categories) == 0 {
+		return true
+	}
+	for _, cat := range pw.categories {
+		if cat == category {
+			return true
+		}
+	}
+	return false
+}
+
+// ---------------------------------------------------------------------------
+// HTML 处理工具
+// ---------------------------------------------------------------------------
 
 var (
-	reHTMLTag      = regexp.MustCompile(`<[^>]+>`)
-	reNumEntity    = regexp.MustCompile(`&#(\d+);`)
-	reHexEntity    = regexp.MustCompile(`&#x([0-9a-fA-F]+);`)
-	reMultiSpace   = regexp.MustCompile(`\s+`)
-	reLink         = regexp.MustCompile(`<a[^>]+href="(https?://[^"]+)"[^>]*>`)
-	reH3           = regexp.MustCompile(`<h[1-6][^>]*>(.*?)</h[1-6]>`)
+	reHTMLTag    = regexp.MustCompile(`<[^>]+>`)
+	reNumEntity  = regexp.MustCompile(`&#(\d+);`)
+	reHexEntity  = regexp.MustCompile(`&#x([0-9a-fA-F]+);`)
+	reMultiSpace = regexp.MustCompile(`\s+`)
+	reLink       = regexp.MustCompile(`<a[^>]+href="(https?://[^"]+)"[^>]*>`)
+	reH3         = regexp.MustCompile(`<h[1-6][^>]*>(.*?)</h[1-6]>`)
 )
 
+// readBody 读取 HTTP 响应体，限制最大 10MB 防止内存耗尽。
 func readBody(r io.Reader) ([]byte, error) {
-	return io.ReadAll(io.LimitReader(r, 10*1024*1024))
+	return httputil.ReadBodyLimited(r, 10*1024*1024)
 }
 
 func stripHTML(s string) string {
@@ -151,20 +391,18 @@ func stripHTML(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// parseGenericSearchResults 从 HTML 中提取通用搜索结果
+// parseGenericSearchResults 从 HTML 中提取通用搜索结果。
 func parseGenericSearchResults(html string) []SearchResult {
-	// 找到所有外部链接
 	linkMatches := reLink.FindAllStringSubmatch(html, -1)
-	
+
 	var results []SearchResult
-	
+
 	for _, match := range linkMatches {
 		if len(match) < 2 {
 			continue
 		}
 		link := match[1]
-		
-		// 为每个链接找最近的 h3 标题
+
 		title := ""
 		h3Matches := reH3.FindAllStringSubmatch(html, -1)
 		for _, h3Match := range h3Matches {
@@ -177,8 +415,7 @@ func parseGenericSearchResults(html string) []SearchResult {
 				break
 			}
 		}
-		
-		// 如果没有找到标题，使用 URL 的最后一部分作为标题
+
 		if title == "" {
 			u, err := url.Parse(link)
 			if err == nil {
@@ -188,14 +425,14 @@ func parseGenericSearchResults(html string) []SearchResult {
 				}
 			}
 		}
-		
+
 		results = append(results, SearchResult{
-			Title:  title,
-			URL:    link,
+			Title:   title,
+			URL:     link,
 			Snippet: "搜索结果内容",
-			Score:  0.5,
+			Score:   0.5,
 		})
 	}
-	
+
 	return results
 }

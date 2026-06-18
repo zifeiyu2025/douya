@@ -50,13 +50,15 @@ export function shouldKeepSwitchingVisible(
 export const useSettingsStore = defineStore('settings', () => {
     // ----- 基础配置 -----
     const config = ref<Config>({ ...DEFAULT_CONFIG })
-    const searchEnabled = ref(false)
+    const searchMode = ref<'off' | 'auto' | 'on'>('off')
     const thinkingEnabled = ref(true)
     const thinkingSoftSwitch = ref<'auto' | 'think' | 'no_think'>('auto')
     const searchAPIKeys = ref<SearchAPIKeys>({
         ollama_api_key: '',
         tavily_api_key: '',
         github_api_key: '',
+        ollama_api_key_set: false,
+        tavily_api_key_set: false,
     })
     const serverStatus = ref<ServerStatus>({ running: false })
     const modelCapabilities = ref<ModelCapabilities>({
@@ -70,6 +72,7 @@ export const useSettingsStore = defineStore('settings', () => {
         thinking_mode: 'none',
         soft_switch_support: false,
         n_params: 0,
+        tool_call_support: false,
     })
     const currentModel = ref('')
     const modelLoadError = ref('')
@@ -288,7 +291,7 @@ export const useSettingsStore = defineStore('settings', () => {
     async function loadConfig() {
         try {
             config.value = await wails.getConfig()
-            searchEnabled.value = config.value.search_enabled ?? false
+            searchMode.value = (config.value.search_mode as 'off' | 'auto' | 'on') ?? 'off'
             thinkingEnabled.value = config.value.thinking_enabled ?? true
             thinkingSoftSwitch.value = config.value.thinking_soft_switch || 'auto'
             if (!config.value.thinking_enabled && thinkingSoftSwitch.value === 'auto') {
@@ -330,7 +333,12 @@ export const useSettingsStore = defineStore('settings', () => {
     async function loadSearchAPIKeys() {
         try {
             const keys = await wails.getSearchAPIKeys()
-            searchAPIKeys.value = keys
+            // 后端不再返回实际密钥，仅返回设置状态
+            searchAPIKeys.value = {
+                ...searchAPIKeys.value,
+                ollama_api_key_set: keys.ollama_api_key_set ?? false,
+                tavily_api_key_set: keys.tavily_api_key_set ?? false,
+            }
         } catch (e) {
             console.error('Failed to load search API keys:', e)
         }
@@ -338,14 +346,18 @@ export const useSettingsStore = defineStore('settings', () => {
 
     async function saveSearchAPIKeys(keys: Partial<SearchAPIKeys>) {
         try {
-            if (Object.keys(keys).length === 0) return
+            // 仅保存用户实际输入的新密钥，空字符串表示未修改
             const fullKeys: SearchAPIKeys = {
                 ollama_api_key: keys.ollama_api_key ?? '',
                 tavily_api_key: keys.tavily_api_key ?? '',
-                github_api_key: keys.github_api_key ?? '',
+                github_api_key: '',
+                ollama_api_key_set: false,
+                tavily_api_key_set: false,
             }
+            if (!fullKeys.ollama_api_key && !fullKeys.tavily_api_key) return
             await wails.setSearchAPIKeys(fullKeys)
-            searchAPIKeys.value = { ...searchAPIKeys.value, ...keys }
+            // 保存成功后刷新设置状态
+            await loadSearchAPIKeys()
         } catch (e) {
             console.error('Failed to save search API keys:', e)
         }
@@ -368,16 +380,36 @@ export const useSettingsStore = defineStore('settings', () => {
         }
     }
 
-    async function toggleSearch() {
-        const oldValue = searchEnabled.value
-        searchEnabled.value = !searchEnabled.value
+    async function cycleSearchMode() {
+        const next: Record<string, 'off' | 'auto' | 'on'> = {
+            'off': 'auto',
+            'auto': 'on',
+            'on': 'off',
+        }
+        const oldValue = searchMode.value
+        const nextMode = next[oldValue] || 'off'
+        searchMode.value = nextMode
         try {
             const fullConfig = await wails.getConfig()
-            fullConfig.search_enabled = searchEnabled.value
+            fullConfig.search_mode = nextMode
             await wails.updateConfig(fullConfig)
             config.value = fullConfig
         } catch (e) {
-            searchEnabled.value = oldValue
+            searchMode.value = oldValue
+            console.error('保存搜索设置失败:', e)
+        }
+    }
+
+    async function setSearchMode(mode: 'off' | 'auto' | 'on') {
+        const oldValue = searchMode.value
+        searchMode.value = mode
+        try {
+            const fullConfig = await wails.getConfig()
+            fullConfig.search_mode = mode
+            await wails.updateConfig(fullConfig)
+            config.value = fullConfig
+        } catch (e) {
+            searchMode.value = oldValue
             console.error('保存搜索设置失败:', e)
         }
     }
@@ -492,7 +524,7 @@ export const useSettingsStore = defineStore('settings', () => {
     return {
         // 基础状态
         config,
-        searchEnabled,
+        searchMode,
         thinkingEnabled,
         thinkingSoftSwitch,
         searchAPIKeys,
@@ -516,7 +548,9 @@ export const useSettingsStore = defineStore('settings', () => {
         saveSearchAPIKeys,
         hasServerAPIKey,
         saveServerAPIKey,
-        toggleSearch,
+        toggleSearch: cycleSearchMode,
+        cycleSearchMode,
+        setSearchMode,
         cycleThinkingMode,
         toggleThinking: cycleThinkingMode,
         switchModel,

@@ -184,9 +184,11 @@ import {
 } from 'naive-ui'
 import { ArrowBackOutline, AddOutline, TrashOutline, CloseOutline, CloudUploadOutline, CheckmarkCircleOutline } from '@vicons/ionicons5'
 import { wails, type CollectionInfo, type DocumentMeta, type ModelOption } from '../services/wails'
+import { useSettingsStore } from '../stores/settings'
 
 const message = useMessage()
 const dialog = useDialog()
+const settingsStore = useSettingsStore()
 
 const knowledgeBases = ref<CollectionInfo[]>([])
 const activeKB = ref('default')
@@ -411,6 +413,14 @@ async function handleRAGToggle(enabled: boolean) {
   try {
     await wails.setRAGEnabled(enabled)
     ragConfig.value.enabled = enabled
+    message.destroyAll()
+    if (enabled) {
+      // RAG 开启时自动关闭联网搜索（两者互斥）
+      settingsStore.setSearchMode('off')
+      message.success('RAG 已开启，已自动关闭联网搜索', { duration: 3500 })
+    } else {
+      message.info('RAG 已关闭', { duration: 2000 })
+    }
   } catch (e: any) {
     message.destroyAll()
     message.error('切换 RAG 失败: ' + (e.message || e))

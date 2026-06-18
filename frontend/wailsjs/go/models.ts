@@ -121,19 +121,19 @@ export namespace chat {
 	export class SendMessageParams {
 	    conversation_id: string;
 	    content: string;
-	    search_enabled: boolean;
+	    search_mode: string;
 	    images?: string[];
 	    attachments?: Attachment[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new SendMessageParams(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.conversation_id = source["conversation_id"];
 	        this.content = source["content"];
-	        this.search_enabled = source["search_enabled"];
+	        this.search_mode = source["search_mode"];
 	        this.images = source["images"];
 	        this.attachments = this.convertValues(source["attachments"], Attachment);
 	    }
@@ -187,7 +187,7 @@ export namespace config {
 	    chat_background: string;
 	    user_avatar: string;
 	    ai_avatar: string;
-	    search_enabled: boolean;
+	    search_mode: string;
 	    sleep_idle_seconds: number;
 	    models_max: number;
 	    rag_enabled: boolean;
@@ -228,8 +228,8 @@ export namespace config {
 	        this.chat_background = source["chat_background"];
 	        this.user_avatar = source["user_avatar"];
 	        this.ai_avatar = source["ai_avatar"];
-	        this.search_enabled = source["search_enabled"];
-	        this.sleep_idle_seconds = source["sleep_idle_seconds"];
+	        this.search_mode = source["search_mode"];
+        this.sleep_idle_seconds = source["sleep_idle_seconds"];
 	        this.models_max = source["models_max"];
 	        this.rag_enabled = source["rag_enabled"];
 	        this.rag_active_kb = source["rag_active_kb"];
@@ -250,11 +250,12 @@ export namespace llm {
 	    text_input: boolean;
 	    reasoning: boolean;
 	    mmproj_loaded: boolean;
-	
+	    tool_call_support: boolean;
+
 	    static createFrom(source: any = {}) {
 	        return new ModelCapabilities(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.image_input = source["image_input"];
@@ -262,6 +263,7 @@ export namespace llm {
 	        this.text_input = source["text_input"];
 	        this.reasoning = source["reasoning"];
 	        this.mmproj_loaded = source["mmproj_loaded"];
+	        this.tool_call_support = source["tool_call_support"];
 	    }
 	}
 	export class ModelOption {
@@ -334,7 +336,25 @@ export namespace llm {
 }
 
 export namespace main {
-	
+
+	export class SmartParamsInfo {
+	    hardware: { cpu_cores: number; has_gpu: boolean; gpu_name: string; gpu_vram_mb: number; };
+	    model: { architecture: string; block_count: number; embedding_length: number; context_length: number; file_size_mb: number; expert_count: number; expert_used: number; has_mtp: boolean; has_reasoning: boolean; n_params: number; size_label: string; };
+	    params: { gpu_layers: number; threads: number; batch_size: number; ubatch_size: number; flash_attn: boolean; cache_type_k: string; cache_type_v: string; mlock: boolean; mmproj_offload: boolean; context_size: number; spec_type: string; spec_draft_n_max: number; spec_draft_n_min: number; ngram_mod_n_min: number; ngram_mod_n_max: number; ngram_mod_n_match: number; };
+	    overrides: { gpu_layers: boolean; flash_attn: boolean; mlock: boolean; threads: boolean; batch_size: boolean; context_size: boolean; cache_type_k: boolean; cache_type_v: boolean; spec_type: boolean; };
+
+	    static createFrom(source: any = {}) {
+	        return new SmartParamsInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.hardware = source["hardware"];
+	        this.model = source["model"];
+	        this.params = source["params"];
+	        this.overrides = source["overrides"];
+	    }
+	}
 	export class SearchAPIKeys {
 	    ollama_api_key: string;
 	    tavily_api_key: string;

@@ -88,7 +88,6 @@ import { fixUtf8 } from '../utils/utf8'
 import type { Conversation } from '../services/wails'
 
 const props = defineProps<{ collapsed: boolean }>()
-const emit = defineEmits<{ toggle: [] }>()
 
 const chatStore = useChatStore()
 const dialog = useDialog()

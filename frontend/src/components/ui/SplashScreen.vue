@@ -2,31 +2,31 @@
   <Transition name="splash" @after-leave="$emit('complete')">
     <div v-if="visible" class="splash-screen">
       <div class="splash-content">
+        <!-- Logo + 无限旋转弧线 -->
+        <div class="splash-logo">
+          <svg width="72" height="72" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- 底层静态淡圈 -->
+            <circle cx="36" cy="36" r="34" stroke="currentColor" stroke-width="2" opacity="0.12" />
+            <!-- 旋转弧线 -->
+            <circle cx="36" cy="36" r="34" stroke="currentColor" stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-dasharray="78 136"
+              class="logo-spinner-ring" />
+            <!-- Logo 图标 -->
+            <image x="10" y="10" width="52" height="52" :href="appLogo" />
+          </svg>
+        </div>
+
         <!-- 品牌标识 -->
         <div class="splash-brand">
-          <div class="splash-logo">
-            <img :src="appiconUrl" alt="豆芽" class="splash-logo-img" />
-            <svg width="56" height="56" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg"
-              class="logo-progress-ring-svg">
-              <circle cx="28" cy="28" r="26" stroke="currentColor" stroke-width="2.5" opacity="0.3" />
-              <circle cx="28" cy="28" r="26" stroke="currentColor" stroke-width="2.5"
-                stroke-dasharray="163.36" :stroke-dashoffset="163.36 - (163.36 * progress / 100)"
-                class="logo-progress-ring" />
-            </svg>
-          </div>
           <div class="splash-title">豆芽</div>
           <div class="splash-subtitle">本地 AI 聊天助手</div>
         </div>
 
-        <!-- 进度条 -->
-        <div class="splash-progress">
-          <div class="progress-track">
-            <div class="progress-fill" :style="{ width: progress + '%' }" />
-          </div>
-          <div class="progress-status">
-            <span class="status-text">{{ stageText }}</span>
-            <span v-if="modelName && stage !== 'done' && stage !== 'failed'" class="status-model">{{ modelName }}</span>
-          </div>
+        <!-- 状态文字 -->
+        <div class="splash-status">
+          <span class="status-text">{{ stageText }}</span>
+          <span v-if="modelName && stage !== 'done' && stage !== 'failed'" class="status-model">{{ modelName }}</span>
         </div>
       </div>
     </div>
@@ -35,7 +35,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import appiconUrl from '../../assets/images/appicon.png'
+import appLogo from '../../assets/images/appicon.png'
 
 const props = withDefaults(defineProps<{
   visible: boolean
@@ -83,7 +83,23 @@ const stageText = computed(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 40px;
+  gap: 28px;
+}
+
+/* Logo 旋转弧线 */
+.splash-logo {
+  color: var(--accent-primary);
+}
+
+.logo-spinner-ring {
+  transform-origin: 36px 36px;
+  animation: spin 1.4s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* 品牌标识 */
@@ -91,92 +107,32 @@ const stageText = computed(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-}
-
-.splash-logo {
-  position: relative;
-  width: 56px;
-  height: 56px;
-  color: var(--accent-primary);
-  animation: breathe 2.4s ease-in-out infinite;
-}
-
-.splash-logo-img {
-  width: 40px;
-  height: 40px;
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  border-radius: 12px;
-  object-fit: contain;
-}
-
-.logo-progress-ring-svg {
-  position: absolute;
-  top: 0;
-  left: 0;
-}
-
-.logo-progress-ring {
-  transition: stroke-dashoffset 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  gap: 6px;
 }
 
 .splash-title {
-  font-size: 42px;
+  font-size: 38px;
   font-weight: 700;
   color: var(--accent-primary);
-  letter-spacing: 4px;
-  animation: breathe 2.4s ease-in-out infinite;
+  letter-spacing: 6px;
+  /* 标题左侧补偿字距，视觉居中 */
+  padding-left: 6px;
 }
 
 .splash-subtitle {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-secondary);
-  letter-spacing: 2px;
-  margin-top: -4px;
+  letter-spacing: 3px;
+  padding-left: 3px;
 }
 
-@keyframes breathe {
-  0%, 100% {
-    opacity: 0.75;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-/* 进度条 */
-.splash-progress {
+/* 状态文字 */
+.splash-status {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  width: 260px;
-}
-
-.progress-track {
-  width: 100%;
-  height: 3px;
-  background: var(--border-color);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.progress-fill {
-  height: 100%;
-  background: var(--accent-primary);
-  border-radius: 2px;
-  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-primary) 40%, transparent);
-}
-
-.progress-status {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
+  gap: 3px;
+  min-height: 34px;
 }
 
 .status-text {
@@ -193,7 +149,7 @@ const stageText = computed(() => {
   text-overflow: ellipsis;
 }
 
-/* 过渡动画 */
+/* 进出场过渡 */
 .splash-enter-active {
   transition: opacity 0.4s ease;
 }

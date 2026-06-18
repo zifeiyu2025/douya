@@ -39,7 +39,7 @@ export interface Attachment {
 export interface SendMessageParams {
     conversation_id: string
     content: string
-    search_enabled: boolean
+    search_mode: string
     images?: string[]
     attachments?: Attachment[]
 }
@@ -61,12 +61,15 @@ export interface ModelCapabilities {
     thinking_mode: string
     soft_switch_support: boolean
     n_params: number
+    tool_call_support: boolean
 }
 
 export interface SearchAPIKeys {
     ollama_api_key: string
     tavily_api_key: string
     github_api_key: string
+    ollama_api_key_set: boolean
+    tavily_api_key_set: boolean
 }
 
 export interface Config {
@@ -93,7 +96,7 @@ export interface Config {
     chat_background_opacity: number
     user_avatar: string
     ai_avatar: string
-    search_enabled: boolean
+    search_mode: string
     thinking_enabled: boolean
     thinking_soft_switch: 'auto' | 'think' | 'no_think'
     sleep_idle_seconds: number
@@ -137,6 +140,72 @@ export interface Config {
     cache_type_k_draft: string
     cache_type_v_draft: string
     server_api_key_enabled: boolean
+    expose_server: boolean
+    swa_full: boolean
+    ctx_checkpoints: number
+    checkpoint_min_step: number
+    tools: string
+    prefill_assistant: boolean
+    slot_prompt_similarity: number
+    skip_chat_parsing: boolean
+    api_prefix: string
+    simple_io: boolean
+    gpu_layers: number
+    flash_attn: boolean | null
+    mlock: boolean | null
+    threads: number
+    batch_size: number
+}
+
+export interface SmartParamsInfo {
+    hardware: {
+        cpu_cores: number
+        has_gpu: boolean
+        gpu_name: string
+        gpu_vram_mb: number
+    }
+    model: {
+        architecture: string
+        block_count: number
+        embedding_length: number
+        context_length: number
+        file_size_mb: number
+        expert_count: number
+        expert_used: number
+        has_mtp: boolean
+        has_reasoning: boolean
+        n_params: number
+        size_label: string
+    }
+    params: {
+        gpu_layers: number
+        threads: number
+        batch_size: number
+        ubatch_size: number
+        flash_attn: boolean
+        cache_type_k: string
+        cache_type_v: string
+        mlock: boolean
+        mmproj_offload: boolean
+        context_size: number
+        spec_type: string
+        spec_draft_n_max: number
+        spec_draft_n_min: number
+        ngram_mod_n_min: number
+        ngram_mod_n_max: number
+        ngram_mod_n_match: number
+    }
+    overrides: {
+        gpu_layers: boolean
+        flash_attn: boolean
+        mlock: boolean
+        threads: boolean
+        batch_size: boolean
+        context_size: boolean
+        cache_type_k: boolean
+        cache_type_v: boolean
+        spec_type: boolean
+    }
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -163,7 +232,7 @@ export const DEFAULT_CONFIG: Config = {
     chat_background_opacity: 0.8,
     user_avatar: '',
     ai_avatar: '',
-    search_enabled: false,
+    search_mode: 'off',
     thinking_enabled: true,
     thinking_soft_switch: 'auto',
     sleep_idle_seconds: 120,
@@ -207,6 +276,21 @@ export const DEFAULT_CONFIG: Config = {
     cache_type_k_draft: '',
     cache_type_v_draft: '',
     server_api_key_enabled: true,
+    expose_server: false,
+    swa_full: false,
+    ctx_checkpoints: 0,
+    checkpoint_min_step: 0,
+    tools: '',
+    prefill_assistant: true,
+    slot_prompt_similarity: 0.0,
+    skip_chat_parsing: false,
+    api_prefix: '',
+    simple_io: false,
+    gpu_layers: 0,
+    flash_attn: null,
+    mlock: null,
+    threads: 0,
+    batch_size: 0,
 }
 
 export interface ServerStatus {

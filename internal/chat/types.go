@@ -40,7 +40,7 @@ type Attachment struct {
 type SendMessageParams struct {
 	ConversationID string       `json:"conversation_id"`
 	Content        string       `json:"content"`
-	SearchEnabled  bool         `json:"search_enabled"`
+	SearchMode     string       `json:"search_mode"` // "off", "auto", "on"
 	Images         []string     `json:"images,omitempty"`
 	Attachments    []Attachment `json:"attachments,omitempty"`
 }

@@ -18,7 +18,7 @@ const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
 
 function handleSend(content: string, images?: string[], attachments?: Attachment[]) {
-  chatStore.sendMessage(content, settingsStore.searchEnabled, images, attachments)
+  chatStore.sendMessage(content, settingsStore.searchMode, images, attachments)
 }
 </script>
 

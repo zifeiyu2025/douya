@@ -62,6 +62,10 @@ export function GetModelCapabilities() {
   return window['go']['main']['App']['GetModelCapabilities']();
 }
 
+export function GetSmartParams() {
+  return window['go']['main']['App']['GetSmartParams']();
+}
+
 export function GetSearchAPIKeys() {
   return window['go']['main']['App']['GetSearchAPIKeys']();
 }

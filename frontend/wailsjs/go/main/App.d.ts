@@ -36,6 +36,8 @@ export function GetMessages(arg1:string):Promise<Array<chat.Message>>;
 
 export function GetModelCapabilities():Promise<llm.ModelCapabilities>;
 
+export function GetSmartParams():Promise<main.SmartParamsInfo>;
+
 export function GetSearchAPIKeys():Promise<main.SearchAPIKeys>;
 
 export function HasServerAPIKey():Promise<boolean>;
@@ -52,7 +54,7 @@ export function ListKnowledgeBases():Promise<Array<rag.CollectionInfo>>;
 
 export function PrepareShutdown():Promise<void>;
 
-export function RegenerateMessage(arg1:string,arg2:boolean):Promise<void>;
+export function RegenerateMessage(arg1:string,arg2:string):Promise<void>;
 
 export function ReloadModels():Promise<void>;
 

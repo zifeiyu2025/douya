@@ -25,6 +25,7 @@ import rehypeStringify from 'rehype-stringify'
 import { visit } from 'unist-util-visit'
 import DOMPurify from 'dompurify'
 import { preprocessLaTeX } from './latex-protection'
+import { rehypeMermaidPre, rehypeExternalLinks, hastToString } from './rehypePlugins'
 
 // 关键改动：mermaid 改为 dynamic import，启动时不加载（2.84MB 独立 chunk，按需加载）
 // 类型：typeof import('mermaid') 用于类型推断，运行时不会触发实际加载
@@ -93,8 +94,8 @@ async function loadMermaid(): Promise<MermaidModule> {
  * 渲染指定元素内的所有 mermaid 图表
  * 首次调用时才会触发 mermaid chunk 下载
  *
- * 注意：Mermaid 输出已是 securityLevel: 'strict' 模式下的安全 SVG，
- * 跳过 DOMPurify 二次清洗（Step 6 优化）。Mermaid 自身禁用所有 HTML 标签和事件属性。
+ * Mermaid 输出已是 securityLevel: 'strict' 模式下的安全 SVG，
+ * 但仍通过 sanitizeMermaidSvg 进行二次消毒，防止未来版本或配置变更导致风险。
  */
 export async function renderMermaidInElement(el: HTMLElement) {
     const mermaidEls = el.querySelectorAll('.mermaid:not([data-mermaid-rendered])')
@@ -108,58 +109,13 @@ export async function renderMermaidInElement(el: HTMLElement) {
         mermaidEl.setAttribute('data-mermaid-rendered', '1')
         try {
             const { svg } = await mermaid.default.render(id, mermaidEl.textContent || '')
-            // 直接插入 SVG，跳过 DOMPurify（mermaid securityLevel: strict 已保证安全）
-            mermaidEl.innerHTML = svg
+            // 即使 mermaid 已设置 securityLevel: strict，仍用 DOMPurify 二次消毒
+            mermaidEl.innerHTML = sanitizeMermaidSvg(svg)
         } catch (_) { /* empty */ }
     }
 }
 
-// ===== Hast 辅助函数 =====
-
-/** 从 hast 节点提取纯文本内容 */
-function hastToString(node: any): string {
-    if (node.type === 'text') return node.value || ''
-    if (Array.isArray(node.children)) {
-        return node.children.map(hastToString).join('')
-    }
-    return ''
-}
-
 // ===== 自定义 rehype 插件 =====
-
-/**
- * rehypeMermaidPre: 在 rehype-highlight 之前运行
- * 将 <pre><code class="language-mermaid"> 转换为 <div class="mermaid">
- * 避免 rehype-highlight 尝试高亮 mermaid 语法
- */
-function rehypeMermaidPre() {
-    return (tree: any) => {
-        visit(tree, 'element', (node: any) => {
-            if (node.tagName !== 'pre') return
-
-            const codeChild = node.children?.find(
-                (child: any) => child.type === 'element' && child.tagName === 'code'
-            )
-            if (!codeChild) return
-
-            const classes = codeChild.properties?.className
-            if (!Array.isArray(classes)) return
-
-            const hasMermaid = classes.some(
-                (c: any) => typeof c === 'string' && c === 'language-mermaid'
-            )
-            if (!hasMermaid) return
-
-            // 提取原始代码文本
-            const rawCode = hastToString(codeChild)
-
-            // 转换为 <div class="mermaid">
-            node.tagName = 'div'
-            node.properties = { className: ['mermaid'] }
-            node.children = [{ type: 'text', value: rawCode }]
-        })
-    }
-}
 
 /**
  * rehypeCodeBlocks: 在 rehype-highlight 之后运行
@@ -220,22 +176,6 @@ function rehypeCodeBlocks() {
             if (!node.properties.className) node.properties.className = []
             if (!node.properties.className.includes('hljs')) {
                 node.properties.className.push('hljs')
-            }
-        })
-    }
-}
-
-/**
- * rehypeExternalLinks: 外部链接在新窗口打开
- */
-function rehypeExternalLinks() {
-    return (tree: any) => {
-        visit(tree, 'element', (node: any) => {
-            if (node.tagName !== 'a') return
-            const href = node.properties?.href
-            if (typeof href === 'string' && (href.startsWith('http://') || href.startsWith('https://'))) {
-                node.properties.target = '_blank'
-                node.properties.rel = 'noopener noreferrer'
             }
         })
     }
@@ -323,5 +263,36 @@ export function sanitizeHtml(html: string): string {
     return purify.sanitize(html, {
         ADD_TAGS: ['math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mroot', 'munder', 'mover', 'munderover', 'mtable', 'mtr', 'mtd', 'mtext', 'mspace', 'mpadded', 'mphantom', 'mfenced', 'menclose', 'mstyle', 'merror', 'annotation', 'mglyph', 'mlabeledtr', 'mlongdiv', 'mscarries', 'mscarry', 'msgroup', 'msline', 'msrow', 'mstack', 'maction'],
         ADD_ATTR: ['mathvariant', 'mathsize', 'mathcolor', 'mathbackground', 'displaystyle', 'scriptlevel', 'linethickness', 'lspace', 'rspace', 'stretchy', 'symmetric', 'largeop', 'movablelimits', 'accent', 'accentunder', 'bevelled', 'close', 'open', 'separators', 'notation', 'subscriptshift', 'superscriptshift', 'align', 'columnalign', 'rowalign', 'equalcolumns', 'equalrows', 'columnspacing', 'rowspacing', 'columnlines', 'rowlines', 'frame', 'framespacing', 'groupalign', 'scope', 'encoding', 'class', 'target', 'rel'],
+    })
+}
+
+/**
+ * 专门用于消毒 Mermaid 生成的 SVG
+ * 允许 SVG 绘图所需标签和属性，但禁止 script/foreignObject/use 等可能引入脚本的内容
+ */
+export function sanitizeMermaidSvg(html: string): string {
+    return purify.sanitize(html, {
+        ADD_TAGS: [
+            'svg', 'g', 'defs', 'marker', 'pattern', 'clipPath', 'mask',
+            'linearGradient', 'radialGradient', 'stop',
+            'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path',
+            'text', 'tspan', 'textPath',
+            'image', 'title', 'desc',
+        ],
+        ADD_ATTR: [
+            'viewBox', 'width', 'height', 'xmlns', 'xmlns:xlink', 'version',
+            'x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry',
+            'd', 'points', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin',
+            'stroke-dasharray', 'stroke-dashoffset', 'opacity', 'transform',
+            'font-family', 'font-size', 'font-weight', 'text-anchor', 'dominant-baseline',
+            'marker-start', 'marker-end', 'marker-mid', 'markerWidth', 'markerHeight',
+            'refX', 'refY', 'orient', 'gradientUnits', 'gradientTransform',
+            'offset', 'stop-color', 'stop-opacity',
+            'clip-path', 'mask', 'filter',
+            'class', 'id', 'style',
+        ],
+        // 明确禁止 foreignObject、script、use 等危险 SVG 子元素
+        FORBID_TAGS: ['script', 'foreignObject', 'use', 'audio', 'video', 'iframe', 'embed', 'object'],
+        FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'href', 'xlink:href'],
     })
 }

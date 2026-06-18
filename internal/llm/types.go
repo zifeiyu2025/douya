@@ -3,8 +3,6 @@
 
 package llm
 
-import "strings"
-
 type ContentPart struct {
 	Type       string      `json:"type"`
 	Text       string      `json:"text"`
@@ -195,6 +193,7 @@ type ModelCapabilities struct {
 	ThinkingMode      string  `json:"thinking_mode"`
 	SoftSwitchSupport bool    `json:"soft_switch_support"` // 是否支持 /think /no_think 软开关（目前仅 Qwen3）
 	NParams           float64 `json:"n_params"`
+	ToolCallSupport   bool    `json:"tool_call_support"` // 模型是否支持 tool call
 }
 
 // EmbeddingRequest represents a request to /v1/embeddings
@@ -225,22 +224,4 @@ type Usage struct {
 	TotalTokens  int `json:"total_tokens"`
 }
 
-func IsWeakModel(caps ModelCapabilities, modelName string) bool {
-	lowerName := strings.ToLower(modelName)
-	moeKeywords := []string{"a3b", "a2b", "a1b", "moe", "mixture"}
-	for _, kw := range moeKeywords {
-		if strings.Contains(lowerName, kw) {
-			return true
-		}
-	}
-	strongKeywords := []string{"qwen3", "qwen2.5", "qwen2-", "gemma", "llama", "phi-4", "phi-3", "mistral", "yi-", "deepseek", "command-r"}
-	for _, kw := range strongKeywords {
-		if strings.Contains(lowerName, kw) {
-			return false
-		}
-	}
-	if caps.NParams > 0 && caps.NParams < 20e9 {
-		return true
-	}
-	return false
-}
+

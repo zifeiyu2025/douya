@@ -80,6 +80,19 @@ type ServerConfig struct {
 	SpecDraftModel     string
 	Embedding          bool   // 启用 /v1/embeddings API（RAG 知识库需要）
 	Pooling            string // 嵌入池化类型（mean/cls），解决聊天模型 pooling=none 不兼容 OAI embedding API
+	ExposeServer       bool   // 暴露服务器地址，允许局域网访问
+	SwaFull              bool
+	CtxCheckpoints       int
+	CheckpointMinStep    int
+	Tools                string
+	PrefillAssistant     bool
+	SlotPromptSimilarity float64
+	SkipChatParsing      bool
+	APIPrefix            string
+	SimpleIO             bool
+	BatchSize            int
+	UBatchSize           int
+	ContextSize          int
 }
 
 type Server struct {
@@ -117,9 +130,15 @@ func (s *Server) Start() error {
 	args := []string{
 		"--models-dir", s.config.ModelsDir,
 		"--port", fmt.Sprintf("%d", s.config.Port),
-		"--host", "127.0.0.1",
 		"--jinja",
 		"--fit", "on",
+	}
+
+	// 根据配置决定绑定地址：暴露则 0.0.0.0（局域网可访问），否则 127.0.0.1（仅本机）
+	if s.config.ExposeServer {
+		args = append(args, "--host", "0.0.0.0")
+	} else {
+		args = append(args, "--host", "127.0.0.1")
 	}
 
 	if s.config.ModelsPreset != "" {
@@ -152,6 +171,15 @@ func (s *Server) Start() error {
 	}
 	if s.config.Threads > 0 {
 		args = append(args, "-t", fmt.Sprintf("%d", s.config.Threads))
+	}
+	if s.config.BatchSize > 0 {
+		args = append(args, "-b", fmt.Sprintf("%d", s.config.BatchSize))
+	}
+	if s.config.UBatchSize > 0 {
+		args = append(args, "-ub", fmt.Sprintf("%d", s.config.UBatchSize))
+	}
+	if s.config.ContextSize > 0 {
+		args = append(args, "-c", fmt.Sprintf("%d", s.config.ContextSize))
 	}
 	if s.config.MmprojAuto {
 		args = append(args, "--mmproj-auto")
@@ -224,12 +252,7 @@ func (s *Server) Start() error {
 		args = append(args, "--api-key", s.config.APIKey)
 	}
 	if s.config.SpecType != "" && !s.mtpFallbackDisabled {
-		// 向后兼容：旧版配置中 spec_type 可能保存为 "mtp"，新版 llama-server 已改名为 "draft-mtp"
-		specType := s.config.SpecType
-		if specType == "mtp" {
-			specType = "draft-mtp"
-		}
-		args = append(args, "--spec-type", specType)
+		args = append(args, "--spec-type", s.config.SpecType)
 	}
 	if s.config.SpecDraftNMax > 0 && !s.mtpFallbackDisabled {
 		args = append(args, "--spec-draft-n-max", fmt.Sprintf("%d", s.config.SpecDraftNMax))
@@ -301,6 +324,35 @@ func (s *Server) Start() error {
 	// 嵌入池化类型：聊天模型默认 pooling=none 不兼容 OAI embedding API，需指定 mean
 	if s.config.Pooling != "" {
 		args = append(args, "--pooling", s.config.Pooling)
+	}
+
+	// 新增参数
+	if s.config.SwaFull {
+		args = append(args, "--swa-full")
+	}
+	if s.config.CtxCheckpoints > 0 {
+		args = append(args, "--ctx-checkpoints", fmt.Sprintf("%d", s.config.CtxCheckpoints))
+	}
+	if s.config.CheckpointMinStep > 0 {
+		args = append(args, "--checkpoint-min-step", fmt.Sprintf("%d", s.config.CheckpointMinStep))
+	}
+	if s.config.Tools != "" {
+		args = append(args, "--tools", s.config.Tools)
+	}
+	if !s.config.PrefillAssistant {
+		args = append(args, "--no-prefill-assistant")
+	}
+	if s.config.SlotPromptSimilarity > 0 {
+		args = append(args, "--slot-prompt-similarity", fmt.Sprintf("%.2f", s.config.SlotPromptSimilarity))
+	}
+	if s.config.SkipChatParsing {
+		args = append(args, "--skip-chat-parsing")
+	}
+	if s.config.APIPrefix != "" {
+		args = append(args, "--api-prefix", s.config.APIPrefix)
+	}
+	if s.config.SimpleIO {
+		args = append(args, "--simple-io")
 	}
 
 	s.cmd = exec.Command(s.config.ServerPath, args...)

@@ -2,6 +2,8 @@ package rag
 
 import (
 	"testing"
+
+	"douya/internal/pdfutil"
 )
 
 func TestParseFileFromBytes_TextFile(t *testing.T) {
@@ -49,7 +51,7 @@ func TestParseFileFromBytes_NonUTF8Text(t *testing.T) {
 func TestParseFileFromBytes_EmptyPDF(t *testing.T) {
 	// 空数据
 	data := []byte{}
-	text := extractPDFTextFromBytes(data)
+	text := pdfutil.ExtractTextWithFallback(data, "")
 	if text != "" {
 		t.Errorf("expected empty string for empty data, got %q", text)
 	}
@@ -58,7 +60,7 @@ func TestParseFileFromBytes_EmptyPDF(t *testing.T) {
 func TestParseFileFromBytes_InvalidPDF(t *testing.T) {
 	// 非 PDF 头部的数据
 	data := []byte("This is not a PDF")
-	text := extractPDFTextFromBytes(data)
+	text := pdfutil.ExtractTextWithFallback(data, "")
 	if text != "" {
 		t.Errorf("expected empty string for non-PDF data, got %q", text)
 	}
@@ -67,7 +69,7 @@ func TestParseFileFromBytes_InvalidPDF(t *testing.T) {
 func TestParseFileFromBytes_PDFWithText(t *testing.T) {
 	// 最小 PDF 结构，包含括号文本
 	data := []byte("%PDF-1.4\n(Hello PDF World)\nendobj")
-	text := extractPDFTextFromBytes(data)
+	text := pdfutil.ExtractTextWithFallback(data, "")
 	if text == "" {
 		t.Error("expected non-empty text from PDF with parenthesized text")
 	}

@@ -103,21 +103,32 @@ func TestFunctional_ForcedSearch_InjectsContext(t *testing.T) {
 
 	svc := newInteractionTestService(t, server, searchProvider)
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "search test",
-		SearchEnabled: true,
+		Content:    "search test",
+		SearchMode: "on",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
 
-	hasSearchContext := false
+	hasSimulatedToolCall := false
+	hasToolMsg := false
 	for _, m := range receivedMessages {
-		if m.Role == "user" && strings.Contains(m.ContentString(), "[补充信息]") {
-			hasSearchContext = true
+		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+			for _, tc := range m.ToolCalls {
+				if tc.ID == "search_pre" {
+					hasSimulatedToolCall = true
+				}
+			}
+		}
+		if m.Role == "tool" && m.ToolCallID == "search_pre" {
+			hasToolMsg = true
 		}
 	}
-	if !hasSearchContext {
-		t.Error("forced search should inject [补充信息] context")
+	if !hasSimulatedToolCall {
+		t.Error("forced search should inject simulated assistant tool_call message")
+	}
+	if !hasToolMsg {
+		t.Error("forced search should inject tool message with search results")
 	}
 }
 
@@ -149,8 +160,8 @@ func TestFunctional_ForcedSearch_NoTools(t *testing.T) {
 
 	svc := newInteractionTestService(t, server, searchProvider)
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "search test",
-		SearchEnabled: true,
+		Content:    "search test",
+		SearchMode: "on",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -193,8 +204,8 @@ func TestFunctional_AutonomousSearch_ModelDecidesToSearch(t *testing.T) {
 
 	svc := newInteractionTestService(t, server, searchProvider)
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "What's the latest news?",
-		SearchEnabled: false,
+		Content:    "What's the latest news?",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -223,8 +234,8 @@ func TestFunctional_SearchNoResults(t *testing.T) {
 
 	svc := newInteractionTestService(t, server, searchProvider)
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "obscure query xyz123",
-		SearchEnabled: true,
+		Content:    "obscure query xyz123",
+		SearchMode: "on",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -248,7 +259,9 @@ func TestFunctional_SingleToolCall(t *testing.T) {
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/v1/models/") || r.URL.Path == "/props" {
-			json.NewEncoder(w).Encode(map[string]interface{}{})
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"chat_template_tool_use": "default",
+			})
 			return
 		}
 		callCount++
@@ -289,8 +302,8 @@ func TestFunctional_SingleToolCall(t *testing.T) {
 		t.Fatalf("DetectModelArchitecture failed: %v", err)
 	}
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "search for something",
-		SearchEnabled: true,
+		Content:    "search for something",
+		SearchMode: "on",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -596,21 +609,32 @@ func TestFunctional_SearchI18n_ChineseQuery(t *testing.T) {
 
 	svc := newInteractionTestService(t, server, searchProvider)
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "今天天气怎么样？",
-		SearchEnabled: true,
+		Content:    "今天天气怎么样？",
+		SearchMode: "on",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
 
-	hasSearchInLastUserMsg := false
+	hasSimulatedToolCall := false
+	hasToolMsg := false
 	for _, m := range receivedMessages {
-		if m.Role == "user" && strings.Contains(m.ContentString(), "补充信息") {
-			hasSearchInLastUserMsg = true
+		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+			for _, tc := range m.ToolCalls {
+				if tc.ID == "search_pre" {
+					hasSimulatedToolCall = true
+				}
+			}
+		}
+		if m.Role == "tool" && m.ToolCallID == "search_pre" {
+			hasToolMsg = true
 		}
 	}
-	if !hasSearchInLastUserMsg {
-		t.Error("Chinese query should have search results appended to user message")
+	if !hasSimulatedToolCall {
+		t.Error("Chinese query should inject simulated assistant tool_call message")
+	}
+	if !hasToolMsg {
+		t.Error("Chinese query should inject tool message with search results")
 	}
 }
 
@@ -642,20 +666,31 @@ func TestFunctional_SearchI18n_EnglishQuery(t *testing.T) {
 
 	svc := newInteractionTestService(t, server, searchProvider)
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "What is the weather today?",
-		SearchEnabled: true,
+		Content:    "What is the weather today?",
+		SearchMode: "on",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
 
-	hasSearchInLastUserMsg := false
+	hasSimulatedToolCall := false
+	hasToolMsg := false
 	for _, m := range receivedMessages {
-		if m.Role == "user" && (strings.Contains(m.ContentString(), "search results") || strings.Contains(m.ContentString(), "supplementary information")) {
-			hasSearchInLastUserMsg = true
+		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+			for _, tc := range m.ToolCalls {
+				if tc.ID == "search_pre" {
+					hasSimulatedToolCall = true
+				}
+			}
+		}
+		if m.Role == "tool" && m.ToolCallID == "search_pre" {
+			hasToolMsg = true
 		}
 	}
-	if !hasSearchInLastUserMsg {
-		t.Error("English query should have search results appended to user message")
+	if !hasSimulatedToolCall {
+		t.Error("English query should inject simulated assistant tool_call message")
+	}
+	if !hasToolMsg {
+		t.Error("English query should inject tool message with search results")
 	}
 }

@@ -60,20 +60,21 @@ const (
 )
 
 type GGUFMetadata struct {
-	Architecture    string
-	BlockCount      int
-	EmbeddingLength int
-	ContextLength   int
-	FileSize        int64
-	ExpertCount     int
-	ExpertUsed      int
-	HasMTP          bool
-	HasReasoning    bool
-	SizeLabel       string
-	NParams         int64
-	ChatTemplate    string
-	KVHeadCount     int
-	HeadDimKV       int
+	Architecture         string
+	BlockCount           int
+	EmbeddingLength      int
+	ContextLength        int
+	FileSize             int64
+	ExpertCount          int
+	ExpertUsed           int
+	HasMTP               bool
+	HasReasoning         bool
+	SizeLabel            string
+	NParams              int64
+	ChatTemplate         string
+	ChatTemplateToolUse  string
+	KVHeadCount          int
+	HeadDimKV            int
 }
 
 func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
@@ -96,6 +97,9 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 
 	if v, ok := kvMap["tokenizer.chat_template"].(string); ok {
 		meta.ChatTemplate = v
+	}
+	if v, ok := kvMap["tokenizer.chat_template_tool_use"].(string); ok {
+		meta.ChatTemplateToolUse = v
 	}
 
 	if meta.Architecture != "" {

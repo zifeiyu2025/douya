@@ -132,13 +132,6 @@ func GetMessagesByConversation(db *sql.DB, convID string, encKey []byte) ([]*Mes
 	return msgs, nil
 }
 
-func escapeLikeWildcards(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "%", "\\%")
-	s = strings.ReplaceAll(s, "_", "\\_")
-	return s
-}
-
 // SearchMessages 在内存中搜索消息（支持加密内容）
 // 加密后 FTS5 无法使用，改为加载所有消息解密后在内存中匹配
 func SearchMessages(db *sql.DB, query string, encKey []byte) ([]*Message, error) {

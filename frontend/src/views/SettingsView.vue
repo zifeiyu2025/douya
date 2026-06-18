@@ -74,30 +74,38 @@
         <n-divider>搜索 API KEY</n-divider>
 
         <n-form-item label="Ollama API Key">
-          <n-input
-            v-model:value="searchKeys.ollama_api_key"
-            type="password"
-            show-password-on="click"
-            placeholder="输入新的 API Key 以覆盖保存"
-            @blur="saveSearchKeys"
-          />
+          <div class="api-key-row">
+            <n-input
+              v-model:value="newOllamaApiKey"
+              type="password"
+              show-password-on="click"
+              :placeholder="searchKeys.ollama_api_key_set ? '已设置，输入新值覆盖' : '输入 API Key 保存'"
+              @blur="saveSearchKeys"
+              class="api-key-input"
+            />
+            <n-tag v-if="searchKeys.ollama_api_key_set" type="success" size="small">已设置</n-tag>
+          </div>
           <template #feedback>
-            <span style="font-size: 12px; color: var(--n-text-color-3);">
+            <span class="api-key-hint">
               获取地址：<n-a href="https://ollama.com/settings/keys" target="_blank">https://ollama.com/settings/keys</n-a>
             </span>
           </template>
         </n-form-item>
 
         <n-form-item label="Tavily API Key">
-          <n-input
-            v-model:value="searchKeys.tavily_api_key"
-            type="password"
-            show-password-on="click"
-            placeholder="输入新的 API Key 以覆盖保存"
-            @blur="saveSearchKeys"
-          />
+          <div class="api-key-row">
+            <n-input
+              v-model:value="newTavilyApiKey"
+              type="password"
+              show-password-on="click"
+              :placeholder="searchKeys.tavily_api_key_set ? '已设置，输入新值覆盖' : '输入 API Key 保存'"
+              @blur="saveSearchKeys"
+              class="api-key-input"
+            />
+            <n-tag v-if="searchKeys.tavily_api_key_set" type="success" size="small">已设置</n-tag>
+          </div>
           <template #feedback>
-            <span style="font-size: 12px; color: var(--n-text-color-3);">
+            <span class="api-key-hint">
               获取地址：<n-a href="https://app.tavily.com/" target="_blank">https://app.tavily.com/</n-a>
               （免费额度 1000 次/月）
             </span>
@@ -116,14 +124,14 @@
           <n-switch v-model:value="formConfig.server_api_key_enabled" @update:value="onServerAPIKeyToggle" />
         </n-form-item>
         <n-form-item v-if="formConfig.server_api_key_enabled" label="API Key" label-width="80">
-          <div style="display: flex; align-items: center; gap: 8px; width: 100%;">
+          <div class="api-key-row">
             <n-input
               v-model:value="serverApiKey"
               type="password"
               show-password-on="click"
               :placeholder="hasServerApiKey ? '已设置，留空保持不变' : '设置后 API 请求需携带此密钥'"
               @blur="saveServerApiKey"
-              style="flex: 1;"
+              class="api-key-input"
             />
             <n-tag v-if="hasServerApiKey" type="success" size="small">已设置</n-tag>
           </div>
@@ -333,6 +341,7 @@ import {
 import { ArrowBackOutline } from '@vicons/ionicons5'
 import { useSettingsStore } from '../stores/settings'
 import { matchModelRef } from '../stores/settings'
+import { MODEL_REFS } from '../utils/modelRefs'
 import { type Config, type SearchAPIKeys } from '../services/wails'
 import { wails } from '../services/wails'
 import defaultUserAvatar from '../assets/images/user-avatar.svg'
@@ -473,7 +482,7 @@ const formConfig = ref<Config>({
   chat_background_opacity: 0.8,
   user_avatar: '',
   ai_avatar: '',
-  search_enabled: false,
+  search_mode: 'off',
   thinking_enabled: true,
   thinking_soft_switch: 'auto',
   sleep_idle_seconds: 120,
@@ -517,6 +526,21 @@ const formConfig = ref<Config>({
   cache_type_k_draft: '',
   cache_type_v_draft: '',
   server_api_key_enabled: true,
+  expose_server: false,
+  swa_full: false,
+  ctx_checkpoints: 0,
+  checkpoint_min_step: 0,
+  tools: '',
+  prefill_assistant: false,
+  slot_prompt_similarity: 0.8,
+  skip_chat_parsing: false,
+  api_prefix: '',
+  simple_io: false,
+  gpu_layers: 0,
+  flash_attn: null,
+  mlock: null,
+  threads: 0,
+  batch_size: 0,
 })
 
 const backgroundImageUrl = computed(() => {
@@ -526,22 +550,34 @@ const backgroundImageUrl = computed(() => {
     return '/local-file/' + encodeURIComponent(bg)
 })
 
+// 搜索 API Key 设置状态（后端不再返回实际密钥，仅返回是否已设置）
 const searchKeys = ref<SearchAPIKeys>({
     ollama_api_key: '',
     tavily_api_key: '',
     github_api_key: '',
+    ollama_api_key_set: false,
+    tavily_api_key_set: false,
 })
+
+// 用户输入的新 API Key（不在状态中保存真实密钥）
+const newOllamaApiKey = ref('')
+const newTavilyApiKey = ref('')
 
 function saveSearchKeys() {
     // 只发送非空的 key，空值表示不更新
     const keysToUpdate: Partial<SearchAPIKeys> = {}
-    if (searchKeys.value.ollama_api_key) {
-        keysToUpdate.ollama_api_key = searchKeys.value.ollama_api_key
+    if (newOllamaApiKey.value) {
+        keysToUpdate.ollama_api_key = newOllamaApiKey.value
     }
-    if (searchKeys.value.tavily_api_key) {
-        keysToUpdate.tavily_api_key = searchKeys.value.tavily_api_key
+    if (newTavilyApiKey.value) {
+        keysToUpdate.tavily_api_key = newTavilyApiKey.value
     }
-    settingsStore.saveSearchAPIKeys(keysToUpdate)
+    if (Object.keys(keysToUpdate).length === 0) return
+    settingsStore.saveSearchAPIKeys(keysToUpdate).then(() => {
+        // 保存成功后清空输入框
+        newOllamaApiKey.value = ''
+        newTavilyApiKey.value = ''
+    })
 }
 
 const serverApiKey = ref('')
@@ -560,492 +596,6 @@ async function onServerAPIKeyToggle() {
     if (formConfig.value.server_api_key_enabled) {
         hasServerApiKey.value = await settingsStore.hasServerAPIKey()
     }
-}
-
-interface ModelRefConfig {
-  name: string
-  raw: { temperature: number; top_p: number; top_k: number; context_size: number; repeat_penalty: number }
-  raw_thinking?: { temperature: number; top_p: number; top_k: number; context_size: number; repeat_penalty: number }
-  params: { label: string; value: string }[]
-  params_thinking?: { label: string; value: string }[]
-  note?: string
-}
-
-const MODEL_REFS: Record<string, ModelRefConfig> = {
-  'qwen3.5-9b': {
-    name: 'Qwen3.5-9B',
-    raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
-    raw_thinking: { temperature: 1.0, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
-    params: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 256K / YaRN 扩展 1M' },
-      { label: '温度', value: '0.7 (非思考/常规)' },
-      { label: 'Top P', value: '0.8 (非思考)' },
-      { label: 'Top K', value: '20' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '~9B (Dense)' },
-    ],
-    params_thinking: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 256K / YaRN 扩展 1M' },
-      { label: '温度', value: '1.0 (思考模式/常规)' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '20' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '~9B (Dense)' },
-    ],
-    note: 'Qwen3.5-9B 官方推荐：非思考模式 temperature=0.7/top_p=0.8，思考模式 temperature=1.0/top_p=0.95。编码任务建议 temperature=0.6',
-  },
-  'gemma-4-e4b': {
-    name: 'Gemma4-E4B',
-    raw: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 32768, repeat_penalty: 1.0 },
-    raw_thinking: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 32768, repeat_penalty: 1.0 },
-    params: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
-      { label: '温度', value: '1.0 (Google 官方推荐)' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '64' },
-      { label: '重复惩罚', value: '1.0 (不建议开启)' },
-      { label: '参数量', value: '~8B (有效 4.5B)' },
-    ],
-    params_thinking: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
-      { label: '温度', value: '1.0 (Google 官方推荐)' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '64' },
-      { label: '重复惩罚', value: '1.0 (不建议开启)' },
-      { label: '参数量', value: '~8B (有效 4.5B)' },
-    ],
-    note: 'Gemma4 E4B 端侧模型，Google 官方推荐 temperature=1.0、top_k=64，不建议开启重复惩罚',
-  },
-  'gemma-4-12b': {
-    name: 'Gemma4-12B',
-    raw: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 32768, repeat_penalty: 1.0 },
-    raw_thinking: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 32768, repeat_penalty: 1.0 },
-    params: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
-      { label: '温度', value: '1.0 (Google 官方推荐)' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '64' },
-      { label: '重复惩罚', value: '1.0 (不建议开启)' },
-      { label: '参数量', value: '~12B (Dense)' },
-    ],
-    params_thinking: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
-      { label: '温度', value: '1.0 (Google 官方推荐)' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '64' },
-      { label: '重复惩罚', value: '1.0 (不建议开启)' },
-      { label: '参数量', value: '~12B (Dense)' },
-    ],
-    note: 'Gemma4 12B Unified 模型，Google 官方推荐 temperature=1.0、top_k=64，不建议开启重复惩罚',
-  },
-  'gemma-4-e2b': {
-    name: 'Gemma4-E2B',
-    raw: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 32768, repeat_penalty: 1.0 },
-    raw_thinking: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 32768, repeat_penalty: 1.0 },
-    params: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
-      { label: '温度', value: '1.0 (Google 官方推荐)' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '64' },
-      { label: '重复惩罚', value: '1.0 (不建议开启)' },
-      { label: '参数量', value: '~5.1B (有效 2.3B)' },
-    ],
-    params_thinking: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
-      { label: '温度', value: '1.0 (Google 官方推荐)' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '64' },
-      { label: '重复惩罚', value: '1.0 (不建议开启)' },
-      { label: '参数量', value: '~5.1B (有效 2.3B)' },
-    ],
-    note: 'Gemma4 E2B 端侧模型，Google 官方推荐 temperature=1.0、top_k=64，不建议开启重复惩罚',
-  },
-  'gemma-4-26b': {
-    name: 'Gemma4-26B-A4B',
-    raw: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 32768, repeat_penalty: 1.0 },
-    raw_thinking: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 32768, repeat_penalty: 1.0 },
-    params: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 256K' },
-      { label: '温度', value: '1.0 (Google 官方推荐)' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '64' },
-      { label: '重复惩罚', value: '1.0 (不建议开启)' },
-      { label: '参数量', value: '~25.2B (MoE, 激活 3.8B)' },
-    ],
-    params_thinking: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 256K' },
-      { label: '温度', value: '1.0 (Google 官方推荐)' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '64' },
-      { label: '重复惩罚', value: '1.0 (不建议开启)' },
-      { label: '参数量', value: '~25.2B (MoE, 激活 3.8B)' },
-    ],
-    note: 'Gemma4 26B MoE 架构，激活参数仅 3.8B，Google 官方推荐 temperature=1.0、top_k=64',
-  },
-  'gemma-4-31b': {
-    name: 'Gemma4-31B',
-    raw: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 32768, repeat_penalty: 1.0 },
-    raw_thinking: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 32768, repeat_penalty: 1.0 },
-    params: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 256K' },
-      { label: '温度', value: '1.0 (Google 官方推荐)' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '64' },
-      { label: '重复惩罚', value: '1.0 (不建议开启)' },
-      { label: '参数量', value: '~30.7B (Dense)' },
-    ],
-    params_thinking: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 256K' },
-      { label: '温度', value: '1.0 (Google 官方推荐)' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '64' },
-      { label: '重复惩罚', value: '1.0 (不建议开启)' },
-      { label: '参数量', value: '~30.7B (Dense)' },
-    ],
-    note: 'Gemma4 31B Dense 架构，Google 官方推荐 temperature=1.0、top_k=64，不建议开启重复惩罚',
-  },
-  'qwen3.5-9b-deepseek': {
-    name: 'Qwen3.5-9B-DeepSeek-V4-Flash',
-    raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
-    raw_thinking: { temperature: 1.0, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
-    params: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 1M' },
-      { label: '温度', value: '0.7 (非思考/常规)' },
-      { label: 'Top P', value: '0.8 (非思考)' },
-      { label: 'Top K', value: '20' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '~9B (Dense)' },
-    ],
-    params_thinking: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 1M' },
-      { label: '温度', value: '1.0 (思考模式/常规)' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '20' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '~9B (Dense)' },
-    ],
-    note: 'DeepSeek-V4-Flash 蒸馏版，采样参数与 Qwen3.5-9B 一致',
-  },
-  'qwen3.5-9b-glm': {
-    name: 'Qwen3.5-9B-GLM5.1-Distill-v1',
-    raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
-    raw_thinking: { temperature: 1.0, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
-    params: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 256K / YaRN 扩展' },
-      { label: '温度', value: '0.7 (非思考/常规)' },
-      { label: 'Top P', value: '0.8 (非思考)' },
-      { label: 'Top K', value: '20' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '~9B (Dense)' },
-    ],
-    params_thinking: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 256K / YaRN 扩展' },
-      { label: '温度', value: '1.0 (思考模式/常规)' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '20' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '~9B (Dense)' },
-    ],
-    note: 'GLM5.1 蒸馏版，采样参数与 Qwen3.5-9B 一致',
-  },
-  'llama-3.1-8b': {
-    name: 'Llama 3.1 8B',
-    raw: { temperature: 0.6, top_p: 0.9, top_k: 40, context_size: 8192, repeat_penalty: 1.1 },
-    params: [
-      { label: '上下文长度', value: '8K (推荐) / 最大 128K' },
-      { label: '温度', value: '0.6' },
-      { label: 'Top P', value: '0.9' },
-      { label: 'Top K', value: '40' },
-      { label: '重复惩罚', value: '1.1' },
-      { label: '量化格式', value: 'Q4_K_M (~5GB VRAM)' },
-      { label: '参数量', value: '~8B' },
-    ],
-    note: 'Llama 3.1 8B 原生上下文 128K，本地推荐 8K 以节省显存',
-  },
-  'llama-3.1-70b': {
-    name: 'Llama 3.1 70B',
-    raw: { temperature: 0.6, top_p: 0.9, top_k: 40, context_size: 8192, repeat_penalty: 1.1 },
-    params: [
-      { label: '上下文长度', value: '8K (推荐) / 最大 128K' },
-      { label: '温度', value: '0.6' },
-      { label: 'Top P', value: '0.9' },
-      { label: 'Top K', value: '40' },
-      { label: '重复惩罚', value: '1.1' },
-      { label: '量化格式', value: 'Q4_K_M (~40GB VRAM)' },
-      { label: '参数量', value: '~70B' },
-    ],
-    note: 'Llama 3.1 70B 需要 40GB+ 显存，推荐多卡或 Q2_K 量化',
-  },
-  'llama-3.3-70b': {
-    name: 'Llama 3.3 70B',
-    raw: { temperature: 0.6, top_p: 0.9, top_k: 40, context_size: 8192, repeat_penalty: 1.1 },
-    params: [
-      { label: '上下文长度', value: '8K (推荐) / 最大 128K' },
-      { label: '温度', value: '0.6' },
-      { label: 'Top P', value: '0.9' },
-      { label: 'Top K', value: '40' },
-      { label: '重复惩罚', value: '1.1' },
-      { label: '量化格式', value: 'Q4_K_M (~40GB VRAM)' },
-      { label: '参数量', value: '~70B' },
-    ],
-    note: 'Llama 3.3 70B Instruct 是 Llama 3.1 70B 的升级版，指令跟随能力更强',
-  },
-  'llama-4-scout': {
-    name: 'Llama 4 Scout',
-    raw: { temperature: 0.6, top_p: 0.9, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
-    raw_thinking: { temperature: 0.8, top_p: 0.95, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
-    params: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 10M' },
-      { label: '温度', value: '0.6 (非思考)' },
-      { label: 'Top P', value: '0.9' },
-      { label: 'Top K', value: '40' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '~17B (MoE 16专家)' },
-    ],
-    params_thinking: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 10M' },
-      { label: '温度', value: '0.8 (思考模式)' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '40' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '~17B (MoE 16专家)' },
-    ],
-    note: 'Llama 4 Scout MoE 架构，原生支持 10M 超长上下文，支持思考模式',
-  },
-  'llama-4-maverick': {
-    name: 'Llama 4 Maverick',
-    raw: { temperature: 0.6, top_p: 0.9, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
-    raw_thinking: { temperature: 0.8, top_p: 0.95, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
-    params: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 1M' },
-      { label: '温度', value: '0.6 (非思考)' },
-      { label: 'Top P', value: '0.9' },
-      { label: 'Top K', value: '40' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '~17B (MoE 128专家)' },
-    ],
-    params_thinking: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 1M' },
-      { label: '温度', value: '0.8 (思考模式)' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '40' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '~17B (MoE 128专家)' },
-    ],
-    note: 'Llama 4 Maverick MoE 架构，128专家路由，支持思考模式',
-  },
-  'deepseek-r1': {
-    name: 'DeepSeek-R1',
-    raw: { temperature: 0.6, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
-    raw_thinking: { temperature: 0.6, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
-    params: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
-      { label: '温度', value: '0.6' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '20' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '~671B (MoE 37B激活)' },
-    ],
-    params_thinking: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
-      { label: '温度', value: '0.6' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '20' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '~671B (MoE 37B激活)' },
-    ],
-    note: 'DeepSeek-R1 推理模型，思考模式为 Reasoning 类型（不可关闭思考），temperature 建议 0.5-0.7',
-  },
-  'deepseek-r1-distill': {
-    name: 'DeepSeek-R1-Distill',
-    raw: { temperature: 0.6, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
-    raw_thinking: { temperature: 0.6, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
-    params: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
-      { label: '温度', value: '0.6' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '20' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '1.5B/7B/8B/14B/32B/70B' },
-    ],
-    params_thinking: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
-      { label: '温度', value: '0.6' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '20' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '1.5B/7B/8B/14B/32B/70B' },
-    ],
-    note: 'DeepSeek-R1 蒸馏版，保留推理能力，思考模式为 Reasoning 类型',
-  },
-  'deepseek-v3': {
-    name: 'DeepSeek-V3',
-    raw: { temperature: 0.6, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
-    raw_thinking: { temperature: 0.6, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
-    params: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
-      { label: '温度', value: '0.6' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '20' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '~671B (MoE 37B激活)' },
-    ],
-    params_thinking: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
-      { label: '温度', value: '0.6' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '20' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '~671B (MoE 37B激活)' },
-    ],
-    note: 'DeepSeek-V3 MoE 架构，支持思考模式（Reasoning 类型）',
-  },
-  'mistral-7b': {
-    name: 'Mistral 7B',
-    raw: { temperature: 0.7, top_p: 0.9, top_k: 40, context_size: 8192, repeat_penalty: 1.1 },
-    params: [
-      { label: '上下文长度', value: '8K (推荐) / 最大 32K (RoPE)' },
-      { label: '温度', value: '0.7' },
-      { label: 'Top P', value: '0.9' },
-      { label: 'Top K', value: '40' },
-      { label: '重复惩罚', value: '1.1' },
-      { label: '量化格式', value: 'Q4_K_M (~4.4GB VRAM)' },
-      { label: '参数量', value: '~7B' },
-    ],
-    note: 'Mistral 7B 经典小模型，适合基础对话和文本生成',
-  },
-  'mistral-small': {
-    name: 'Mistral Small',
-    raw: { temperature: 0.7, top_p: 0.9, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
-    raw_thinking: { temperature: 0.8, top_p: 0.95, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
-    params: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
-      { label: '温度', value: '0.7 (非思考)' },
-      { label: 'Top P', value: '0.9' },
-      { label: 'Top K', value: '40' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '~24B' },
-    ],
-    params_thinking: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
-      { label: '温度', value: '0.8 (思考模式)' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '40' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '~24B' },
-    ],
-    note: 'Mistral Small 3.1 支持视觉和思考模式（Template 类型），推荐 Q4_K_M 量化',
-  },
-  'phi-4': {
-    name: 'Phi-4',
-    raw: { temperature: 0.7, top_p: 0.9, top_k: 40, context_size: 16384, repeat_penalty: 1.0 },
-    params: [
-      { label: '上下文长度', value: '16K (推荐) / 最大 16K' },
-      { label: '温度', value: '0.7' },
-      { label: 'Top P', value: '0.9' },
-      { label: 'Top K', value: '40' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '量化格式', value: 'Q4_K_M (~5.5GB VRAM)' },
-      { label: '参数量', value: '~14B' },
-    ],
-    note: 'Phi-4 微软小模型，擅长推理和编程，上下文 16K',
-  },
-  'phi-4-reasoning': {
-    name: 'Phi-4-Reasoning',
-    raw: { temperature: 0.8, top_p: 0.95, top_k: 40, context_size: 16384, repeat_penalty: 1.0 },
-    raw_thinking: { temperature: 0.8, top_p: 0.95, top_k: 40, context_size: 16384, repeat_penalty: 1.0 },
-    params: [
-      { label: '上下文长度', value: '16K (推荐) / 最大 16K' },
-      { label: '温度', value: '0.8' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '40' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '~14B' },
-    ],
-    params_thinking: [
-      { label: '上下文长度', value: '16K (推荐) / 最大 16K' },
-      { label: '温度', value: '0.8' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '40' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '~14B' },
-    ],
-    note: 'Phi-4-Reasoning 推理增强版，思考模式为 Reasoning 类型',
-  },
-  'qwen3.6': {
-    name: 'Qwen3.6-35B-A3B',
-    raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
-    raw_thinking: { temperature: 1.0, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
-    params: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 256K / YaRN 扩展' },
-      { label: '温度', value: '0.7 (非思考/常规)' },
-      { label: 'Top P', value: '0.8 (非思考)' },
-      { label: 'Top K', value: '20' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '~35B (MoE, 激活 3B)' },
-    ],
-    params_thinking: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 256K / YaRN 扩展' },
-      { label: '温度', value: '1.0 (思考模式/常规)' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '20' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '~35B (MoE, 激活 3B)' },
-    ],
-    note: 'Qwen3.6 MoE 架构，35B 总参数仅激活 3B，采样参数与 Qwen3.5 一致',
-  },
-  'qwen2.5': {
-    name: 'Qwen2.5',
-    raw: { temperature: 0.7, top_p: 0.9, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
-    params: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 128K (YaRN)' },
-      { label: '温度', value: '0.7' },
-      { label: 'Top P', value: '0.9' },
-      { label: 'Top K', value: '40' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '0.5B~72B' },
-    ],
-    note: 'Qwen2.5 系列，0.5B 到 72B 多种规格，Coder 版本适合编程',
-  },
-  'qwen2.5-coder': {
-    name: 'Qwen2.5-Coder',
-    raw: { temperature: 0.2, top_p: 0.9, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
-    params: [
-      { label: '上下文长度', value: '32K (推荐) / 最大 128K (YaRN)' },
-      { label: '温度', value: '0.2 (编程推荐低温度)' },
-      { label: 'Top P', value: '0.9' },
-      { label: 'Top K', value: '40' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '0.5B~32B' },
-    ],
-    note: 'Qwen2.5-Coder 编程专用，推荐低 temperature (0.1-0.3) 获得确定性输出',
-  },
-  'yi-1.5': {
-    name: 'Yi-1.5',
-    raw: { temperature: 0.6, top_p: 0.9, top_k: 40, context_size: 4096, repeat_penalty: 1.0 },
-    params: [
-      { label: '上下文长度', value: '4K (推荐) / 最大 16K' },
-      { label: '温度', value: '0.6' },
-      { label: 'Top P', value: '0.9' },
-      { label: 'Top K', value: '40' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '6B/9B/34B' },
-    ],
-    note: 'Yi-1.5 系列，中文能力强，6B/9B 适合轻量部署',
-  },
-  'gemma-2': {
-    name: 'Gemma 2',
-    raw: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 8192, repeat_penalty: 1.0 },
-    params: [
-      { label: '上下文长度', value: '8K (2B/9B) / 32K (27B)' },
-      { label: '温度', value: '1.0 (Google 官方推荐)' },
-      { label: 'Top P', value: '0.95' },
-      { label: 'Top K', value: '64' },
-      { label: '重复惩罚', value: '1.0' },
-      { label: '参数量', value: '2B/9B/27B' },
-    ],
-    note: 'Gemma 2 Google 官方推荐 temperature=1.0，Top K=64，与 Gemma 4 参数风格一致',
-  },
 }
 
 const currentModelRef = computed(() => {
@@ -1168,16 +718,27 @@ watch(() => settingsStore.currentModel, async () => {
 })
 
 const ALL_CONFIG_KEYS: (keyof Config)[] = [
-  'model_path', 'temperature', 'top_p', 'top_k', 'context_size', 'repeat_penalty',
+  'model_path', 'llama_server_path', 'api_base', 'port', 'context_size',
+  'temperature', 'top_p', 'top_k', 'repeat_penalty',
+  'mmproj_auto', 'mmproj_offload', 'kv_unified', 'cache_idle_slots', 'cache_ram',
+  'image_min_tokens', 'image_max_tokens', 'fit_target', 'fit_ctx',
   'system_prompt', 'chat_background', 'chat_background_opacity', 'user_avatar', 'ai_avatar',
-  'search_enabled', 'thinking_enabled', 'sleep_idle_seconds', 'models_max',
-  'mmproj_auto', 'mmproj_offload', 'kv_unified', 'cache_idle_slots',
-  'cache_ram', 'image_min_tokens', 'image_max_tokens',
-  'fit_target', 'fit_ctx',
+  'search_mode', 'thinking_enabled', 'thinking_soft_switch', 'sleep_idle_seconds', 'models_max',
   'rag_enabled', 'rag_active_kb', 'rag_top_k', 'rag_min_score', 'rag_chunk_size', 'rag_chunk_overlap', 'embedding_model',
   'mmap', 'kv_offload', 'context_shift', 'min_p',
   'dry_multiplier', 'dry_base', 'dry_allowed_length',
-  'device', 'parallel', 'cache_type_k', 'cache_type_v', 'spec_type', 'spec_draft_n_max', 'spec_draft_n_min', 'spec_ngram_mod_n_min', 'spec_ngram_mod_n_max', 'spec_ngram_mod_n_match', 'lookup_cache_static', 'lookup_cache_dynamic', 'cache_type_k_draft', 'cache_type_v_draft', 'api_base',
+  'device', 'parallel', 'cache_type_k', 'cache_type_v', 'spec_type',
+  'spec_draft_n_max', 'spec_draft_n_min',
+  'spec_ngram_mod_n_min', 'spec_ngram_mod_n_max', 'spec_ngram_mod_n_match',
+  'spec_ngram_simple_size_n', 'spec_ngram_simple_size_m', 'spec_ngram_simple_min_hits',
+  'spec_ngram_map_k_size_n', 'spec_ngram_map_k_size_m', 'spec_ngram_map_k_min_hits',
+  'spec_ngram_map_k4v_size_n', 'spec_ngram_map_k4v_size_m', 'spec_ngram_map_k4v_min_hits',
+  'lookup_cache_static', 'lookup_cache_dynamic', 'spec_draft_model',
+  'cache_type_k_draft', 'cache_type_v_draft',
+  'server_api_key_enabled', 'expose_server', 'swa_full',
+  'ctx_checkpoints', 'checkpoint_min_step', 'tools', 'prefill_assistant',
+  'slot_prompt_similarity', 'skip_chat_parsing', 'api_prefix', 'simple_io',
+  'gpu_layers', 'flash_attn', 'mlock', 'threads', 'batch_size',
 ]
 
 watch(
@@ -1355,6 +916,23 @@ async function autoSave() {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* API Key 输入行：输入框 + 状态标签水平排列 */
+.api-key-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.api-key-input {
+  flex: 1;
+}
+
+.api-key-hint {
+  font-size: 12px;
+  color: var(--n-text-color-3);
 }
 
 .avatar-preview {

@@ -446,7 +446,7 @@ export const useChatStore = defineStore('chat', () => {
         }
     }
 
-    async function regenerateMessage(userMessageID: string, searchEnabled: boolean) {
+    async function regenerateMessage(userMessageID: string, searchMode: string) {
         if (isGenerating.value) return
 
         const convId = currentConversationId.value
@@ -468,7 +468,7 @@ export const useChatStore = defineStore('chat', () => {
         startFirstTokenTimeout()
 
         try {
-            await wails.regenerateMessage(userMessageID, searchEnabled)
+            await wails.regenerateMessage(userMessageID, searchMode)
         } catch (e) {
             clearTimers()
             clearConvState(state)
@@ -477,7 +477,7 @@ export const useChatStore = defineStore('chat', () => {
         }
     }
 
-    async function sendMessage(content: string, searchEnabled: boolean, images?: string[], attachments?: Attachment[]) {
+    async function sendMessage(content: string, searchMode: string, images?: string[], attachments?: Attachment[]) {
         if (isGenerating.value) return
 
         const convId = currentConversationId.value
@@ -514,7 +514,7 @@ export const useChatStore = defineStore('chat', () => {
             await wails.sendMessage({
                 conversation_id: convId,
                 content,
-                search_enabled: searchEnabled,
+                search_mode: searchMode,
                 images,
                 attachments,
             })

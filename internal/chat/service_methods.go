@@ -144,7 +144,7 @@ func (s *Service) DeleteMessage(id string) error {
 }
 
 // RegenerateMessage regenerates the last assistant message in a conversation.
-func (s *Service) RegenerateMessage(msgID string, searchEnabled bool) error {
+func (s *Service) RegenerateMessage(msgID string, searchMode string) error {
 	s.mutex.Lock()
 	var oldCancel context.CancelFunc
 	var oldConvID string
@@ -228,12 +228,12 @@ func (s *Service) RegenerateMessage(msgID string, searchEnabled bool) error {
 		return fmt.Errorf("reload messages: %w", err)
 	}
 
-	llmMessages, _, err := s.buildLLMMessages(dbMsgs, userContent, userAttachments, searchEnabled, "")
+	llmMessages, _, err := s.buildLLMMessages(dbMsgs, userContent, userAttachments, searchMode, "")
 	if err != nil {
 		return err
 	}
 
-	return s.streamWithSearch(cancelCtx, convID, llmMessages, searchEnabled, userContent, userContent, nil)
+	return s.streamWithSearch(cancelCtx, convID, llmMessages, searchMode, userContent, userContent, nil)
 }
 
 // SearchMessages searches messages across all conversations.

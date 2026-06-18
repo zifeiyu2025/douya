@@ -39,11 +39,11 @@
       </div>
       <div class="chat-input-container">
         <div class="left-buttons">
-                <button class="think-btn" :class="thinkBtnClass" :disabled="!supportsThinking" @click="settingsStore.cycleThinkingMode()" :title="thinkingTitle">
+                <button class="think-btn" :class="thinkBtnClass" :disabled="!supportsThinking" @click="handleThinkClick" :title="thinkingTitle">
                   <n-icon size="22" class="think-icon"><BulbOutline /></n-icon>
                   <span v-if="thinkingMode === 'no_think'" class="think-slash"></span>
                 </button>
-                <button class="search-btn" :class="{ active: searchEnabled }" @click="settingsStore.toggleSearch()" :title="searchEnabled ? '联网搜索已开启' : '开启联网搜索'">
+                <button class="search-btn" :class="searchBtnClass" @click="handleSearchClick" :title="searchTitle">
                   <n-icon size="22"><GlobeOutline /></n-icon>
                 </button>
                 <div class="attach-wrapper">
@@ -149,7 +149,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { NIcon } from 'naive-ui'
+import { NIcon, useMessage } from 'naive-ui'
 import { GlobeOutline, AttachOutline, BulbOutline } from '@vicons/ionicons5'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
@@ -190,6 +190,7 @@ declare global {
 const emit = defineEmits<{ send: [content: string, images?: string[], attachments?: Attachment[]] }>()
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
+const message = useMessage()
 const inputText = ref('')
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
@@ -206,7 +207,7 @@ const speechSupported = computed(() => {
   return !!(window.SpeechRecognition || window.webkitSpeechRecognition)
 })
 
-const searchEnabled = computed(() => settingsStore.searchEnabled)
+const searchMode = computed(() => settingsStore.searchMode)
 const thinkingMode = computed(() => settingsStore.thinkingSoftSwitch)
 const capabilities = computed(() => settingsStore.modelCapabilities)
 const isSwitching = computed(() => settingsStore.isModelSwitching)
@@ -225,7 +226,57 @@ const thinkBtnClass = computed(() => ({
     'no-think-mode': thinkingMode.value === 'no_think',
     unsupported: !supportsThinking.value,
 }))
+const searchTitle = computed(() => {
+    switch (searchMode.value) {
+        case 'on': return '强制搜索（所有消息都搜索）'
+        case 'auto': return '智能搜索（按需自动搜索）'
+        default: return '联网搜索已关闭'
+    }
+})
+const searchBtnClass = computed(() => ({
+    active: searchMode.value === 'on',
+    'auto-mode': searchMode.value === 'auto',
+}))
 const canSend = computed(() => !isSwitching.value && (inputText.value.trim() || attachments.value.length > 0))
+
+async function handleSearchClick() {
+    const prevMode = searchMode.value
+    await settingsStore.cycleSearchMode()
+    const curMode = searchMode.value
+    if (curMode === prevMode) return
+    message.destroyAll()
+    switch (curMode) {
+        case 'off':
+            message.info('联网搜索已关闭', { duration: 2000 })
+            break
+        case 'auto':
+            message.success('智能搜索已开启，按需自动搜索', { duration: 2500 })
+            break
+        case 'on':
+            message.success('强制搜索已开启，所有消息都将搜索', { duration: 2500 })
+            break
+    }
+}
+
+async function handleThinkClick() {
+    if (!supportsThinking.value) return
+    const prevMode = thinkingMode.value
+    await settingsStore.cycleThinkingMode()
+    const curMode = thinkingMode.value
+    if (curMode === prevMode) return
+    message.destroyAll()
+    switch (curMode) {
+        case 'auto':
+            message.info('已切换为自动思考', { duration: 2000 })
+            break
+        case 'think':
+            message.success('已开启强制深度思考', { duration: 2000 })
+            break
+        case 'no_think':
+            message.info('已切换为快速回答（不思考）', { duration: 2000 })
+            break
+    }
+}
 
 function adjustHeight() {
   if (textareaRef.value) {
@@ -800,15 +851,24 @@ onUnmounted(() => {
   background: var(--accent-tertiary);
 }
 
+.search-btn.auto-mode {
+  color: var(--accent-warning);
+  background: color-mix(in srgb, var(--accent-warning) 8%, transparent);
+}
+
+.search-btn.auto-mode:hover {
+  background: color-mix(in srgb, var(--accent-warning) 14%, transparent);
+}
+
 .think-btn.active {
-    color: #f59e0b;
-    background: rgba(245, 158, 11, 0.12);
+    color: var(--accent-warning);
+    background: color-mix(in srgb, var(--accent-warning) 12%, transparent);
     animation: think-pulse 3s ease-in-out infinite;
 }
 
 @keyframes think-pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
-    50% { box-shadow: 0 0 6px 1px rgba(245, 158, 11, 0.18); }
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-warning) 0%, transparent); }
+    50% { box-shadow: 0 0 6px 1px color-mix(in srgb, var(--accent-warning) 18%, transparent); }
 }
 
 .think-btn.unsupported {

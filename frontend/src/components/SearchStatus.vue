@@ -16,10 +16,11 @@
       <a
         v-for="(item, idx) in resultItems"
         :key="idx"
-        :href="item.url"
-        target="_blank"
-        rel="noopener noreferrer"
+        :href="safeUrl(item.url)"
+        :target="isSafeUrl(item.url) ? '_blank' : undefined"
+        :rel="isSafeUrl(item.url) ? 'noopener noreferrer' : undefined"
         class="search-result-item"
+        :class="{ 'unsafe-url': !isSafeUrl(item.url) }"
       >
         <div class="search-result-title">{{ item.title }}</div>
         <div class="search-result-snippet">{{ item.snippet }}</div>
@@ -33,6 +34,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { NIcon, NSpin } from 'naive-ui'
 import { ChevronForwardOutline, SearchOutline } from '@vicons/ionicons5'
+import { isSafeUrl } from '../utils/lightSanitize'
 
 interface SearchResultItem {
   title: string
@@ -50,6 +52,14 @@ const props = defineProps<{
 const expanded = ref(props.defaultExpanded ?? false)
 const userExpanded = ref(false)
 let autoCollapseTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * 校验搜索结果 URL 安全性：仅允许 http:// 或 https:// 协议
+ * 防止 javascript: / data: 等伪协议导致的点击 XSS
+ */
+function safeUrl(url: string): string {
+  return isSafeUrl(url) ? url : '#'
+}
 
 const resultItems = computed<SearchResultItem[]>(() => {
   if (!props.results) return []
@@ -177,10 +187,16 @@ onUnmounted(() => {
   transform: translateX(2px);
 }
 
+.search-result-item.unsafe-url {
+  cursor: not-allowed;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
 .search-result-title {
   font-size: 13px;
   font-weight: 500;
-  color: #576b95;
+  color: var(--accent-primary);
   margin-bottom: 4px;
   white-space: nowrap;
   overflow: hidden;

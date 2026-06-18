@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 import Components from 'unplugin-vue-components/vite'
 import { NaiveUiResolver } from 'unplugin-vue-components/resolvers'
@@ -70,5 +70,10 @@ export default defineConfig({
     },
     worker: {
         format: 'es',
+    },
+    test: {
+        environment: 'happy-dom',
+        globals: true,
+        include: ['src/**/*.{test,spec}.ts'],
     },
 })

@@ -60,7 +60,6 @@ import { bindCodeCopyButtons } from '../utils/codeCopy'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import type { Message, AttachmentSummary } from '../services/wails'
-import type { SearchResultItem } from '../types/search'
 import AppIcon from './ui/AppIcon.vue'
 import defaultUserAvatar from '../assets/images/user-avatar.svg'
 import defaultAiAvatar from '../assets/images/appicon.png'
@@ -81,34 +80,6 @@ const ATTACHMENT_ICON_MAP: Record<string, 'audio' | 'video' | 'pdf' | 'file' | '
 
 function attachmentIcon(type: string): 'audio' | 'video' | 'pdf' | 'file' | 'image' {
     return ATTACHMENT_ICON_MAP[type] || 'file'
-}
-
-function isSafeUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url)
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
-  } catch {
-    return false
-  }
-}
-
-function linkCitations(html: string, searchResultsJson: string): string {
-  let items: SearchResultItem[] = []
-  try {
-    const parsed = JSON.parse(searchResultsJson)
-    if (Array.isArray(parsed)) items = parsed
-    else if (parsed.results && Array.isArray(parsed.results)) items = parsed.results
-  } catch {
-    return html
-  }
-  if (items.length === 0) return html
-  return html.replace(/\[(\d+)\]/g, (match, numStr) => {
-    const idx = parseInt(numStr, 10) - 1
-    if (idx >= 0 && idx < items.length && items[idx].url && isSafeUrl(items[idx].url)) {
-      return `<a href="${items[idx].url}" target="_blank" rel="noopener noreferrer" class="citation-link">[${numStr}]</a>`
-    }
-    return match
-  })
 }
 
 const isUser = computed(() => props.message.role === 'user')
@@ -143,9 +114,6 @@ watch(() => props.message.content, async (newContent) => {
   }
   try {
     let html = await renderMarkdown(newContent)
-    if (hasSearchResults.value) {
-      html = linkCitations(html, props.message.search_results)
-    }
     renderedContent.value = html
   } catch (_) {
     renderedContent.value = newContent
@@ -253,10 +221,10 @@ function regenerate() {
       positiveText: '联网搜索',
       negativeText: '直接生成',
       onPositiveClick: () => {
-        chatStore.regenerateMessage(userMessageId, true)
+        chatStore.regenerateMessage(userMessageId, 'on')
       },
       onNegativeClick: () => {
-        chatStore.regenerateMessage(userMessageId, false)
+        chatStore.regenerateMessage(userMessageId, 'off')
       },
     })
   }
@@ -273,9 +241,6 @@ function regenerate() {
   width: 100%;
   max-width: var(--msg-max-width);
   align-items: flex-start;
-  animation: messageSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  content-visibility: auto;
-  contain-intrinsic-size: 0 200px;
 }
 
 @keyframes messageSlideIn {
@@ -289,9 +254,11 @@ function regenerate() {
   }
 }
 
+/* messageSlideIn 动画只应用于用户消息，避免 AI 流式消息动画干扰 */
 .message-item.user {
   flex-direction: row-reverse;
   margin-left: auto;
+  animation: messageSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .message-item:not(.user) {

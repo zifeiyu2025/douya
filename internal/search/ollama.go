@@ -17,7 +17,7 @@ type OllamaProvider struct {
 func NewOllamaProvider(apiKey string) *OllamaProvider {
 	return &OllamaProvider{
 		apiKey:     apiKey,
-		httpClient: &http.Client{Timeout: 8 * time.Second},
+		httpClient: &http.Client{Timeout: 20 * time.Second},
 	}
 }
 

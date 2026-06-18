@@ -38,7 +38,7 @@ type Config struct {
 	ChatBackgroundOpacity float64 `json:"chat_background_opacity"`
 	UserAvatar        string `json:"user_avatar"`
 	AiAvatar          string `json:"ai_avatar"`
-	SearchEnabled     bool   `json:"search_enabled"`
+	SearchMode        string `json:"search_mode"` // "off", "auto", "on"
 	ThinkingEnabled     bool   `json:"thinking_enabled"`
 	ThinkingSoftSwitch  string `json:"thinking_soft_switch"`
 	SleepIdleSeconds  int    `json:"sleep_idle_seconds"`
@@ -83,6 +83,21 @@ type Config struct {
 	LookupCacheDynamic string `json:"lookup_cache_dynamic"`
 	SpecDraftModel     string `json:"spec_draft_model"`
 	ServerAPIKeyEnabled bool  `json:"server_api_key_enabled"`
+	ExposeServer       bool  `json:"expose_server"` // 暴露服务器地址，允许局域网访问
+	SwaFull              bool    `json:"swa_full"`
+	CtxCheckpoints       int     `json:"ctx_checkpoints"`
+	CheckpointMinStep    int     `json:"checkpoint_min_step"`
+	Tools                string  `json:"tools"`
+	PrefillAssistant     bool    `json:"prefill_assistant"`
+	SlotPromptSimilarity float64 `json:"slot_prompt_similarity"`
+	SkipChatParsing      bool    `json:"skip_chat_parsing"`
+	APIPrefix            string  `json:"api_prefix"`
+	SimpleIO             bool    `json:"simple_io"`
+	GPULayers            int     `json:"gpu_layers"`  // 0=自动（99全部卸载），正数=指定层数
+	FlashAttn            *bool   `json:"flash_attn"`  // nil=自动，指针类型区分"未设置"和"false"
+	Mlock                *bool   `json:"mlock"`       // nil=自动
+	Threads              int     `json:"threads"`    // 0=自动
+	BatchSize            int     `json:"batch_size"`  // 0=自动
 }
 
 func DefaultConfig() *Config {
@@ -114,7 +129,7 @@ func DefaultConfig() *Config {
 		ChatBackgroundOpacity: 0.8,
 		UserAvatar:        "",
 		AiAvatar:          "",
-		SearchEnabled:     false,
+		SearchMode:        "off",
 		ThinkingEnabled:     true,
 		ThinkingSoftSwitch:  "auto",
 		SleepIdleSeconds: 120,
@@ -143,6 +158,21 @@ func DefaultConfig() *Config {
 		CacheTypeKDraft:  "",
 		CacheTypeVDraft:  "",
 		ServerAPIKeyEnabled: true,
+		ExposeServer:       false,
+		SwaFull:              false,
+		CtxCheckpoints:       0,
+		CheckpointMinStep:    0,
+		Tools:                "",
+		PrefillAssistant:     true,
+		SlotPromptSimilarity: 0.0,
+		SkipChatParsing:      false,
+		APIPrefix:            "",
+		SimpleIO:             false,
+		GPULayers:            0,
+		FlashAttn:            nil,
+		Mlock:                nil,
+		Threads:              0,
+		BatchSize:            0,
 	}
 }
 
@@ -171,11 +201,6 @@ func Load(path string) (*Config, error) {
 			}
 		}
 		return nil, fmt.Errorf("解析配置文件失败: %w", err)
-	}
-
-	// 向后兼容：旧版 llama-server 使用 "mtp"，新版改名为 "draft-mtp"
-	if cfg.SpecType == "mtp" {
-		cfg.SpecType = "draft-mtp"
 	}
 
 	return cfg, nil

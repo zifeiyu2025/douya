@@ -266,6 +266,15 @@ func estimateChatMessageTokens(msg llm.ChatMessage) int {
 	return total
 }
 
+// estimateMessagesTokens 估算消息列表的总 token 数
+func estimateMessagesTokens(messages []llm.ChatMessage) int {
+	total := 0
+	for _, msg := range messages {
+		total += estimateChatMessageTokens(msg)
+	}
+	return total
+}
+
 func TrimMessagesToFit(messages []llm.ChatMessage, maxTokens int, reserve int) []llm.ChatMessage {
 	if len(messages) <= 2 {
 		return messages
@@ -333,14 +342,37 @@ func TrimMessagesToFit(messages []llm.ChatMessage, maxTokens int, reserve int) [
 	}
 	result = append(result, kept...)
 	result = append(result, lastMsg)
+
+	// 确保结果中至少包含一条 user 消息（Jinja 模板要求）
+	hasUser := false
+	for _, msg := range result {
+		if msg.Role == "user" {
+			hasUser = true
+			break
+		}
+	}
+	if !hasUser {
+		// 从原始消息中找到最后一条 user 消息，插入到 lastMsg 之前
+		var lastUserMsg *llm.ChatMessage
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i].Role == "user" {
+				lastUserMsg = &messages[i]
+				break
+			}
+		}
+		if lastUserMsg != nil {
+			result = append(result[:len(result)-1], *lastUserMsg, result[len(result)-1])
+		}
+	}
+
 	return result
 }
 
 func searchResultInstruction(lang string) string {
 	if lang == "zh" {
-		return "以下是为回答用户问题提供的补充参考信息。请先消化吸收这些内容，然后像运用自身知识一样自然地融入回答。不要提及或暗示存在'搜索'或'补充信息'这一过程。"
+		return "\n请基于以上信息，用你自己的话综合总结回答用户的问题，不要使用[1][2]等编号引用格式。"
 	}
-	return "Below is supplementary reference information for answering the user's question. Absorb and internalize this content, then naturally integrate it into your response as if it were your own knowledge. Do not mention or allude to the existence of a 'search' or 'supplementary information' process."
+	return "\nBased on the above information, summarize and answer the user's question in your own words. Do not use numbered citation formats like [1][2]."
 }
 
 // DetectLanguage is the exported version for testing.
@@ -357,7 +389,7 @@ func (s *Service) doSearch(ctx context.Context, query string) *search.SearchResp
 	if isCodeRelated(query) {
 		category = "code"
 	}
-	resp := s.searchChain.SearchWithCategory(ctx, query, category, 5)
+	resp := s.searchChain.SearchWithCategory(ctx, query, category, 10)
 	if resp == nil {
 		log.Warn().Str("query", query).Msg("[chat] search returned nil")
 	}

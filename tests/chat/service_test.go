@@ -114,9 +114,10 @@ func TestBuildLLMMessages_ThinkConciselyInstruction(t *testing.T) {
 	}
 	msgs, _ := chat.BuildLLMMessages(svc, dbMsgs, "hello", nil)
 
-	// 检查是否有工具相关的提示
-	if !strings.Contains(msgs[0].ContentString(), "获取实时信息") && !strings.Contains(msgs[0].ContentString(), "工具") {
-		t.Errorf("system prompt should contain tool guidance, got: %s", msgs[0].ContentString())
+	// 检查系统提示词是否包含简洁精炼的回答要求
+	content := msgs[0].ContentString()
+	if !strings.Contains(content, "简洁") && !strings.Contains(content, "精炼") && !strings.Contains(content, "不啰嗦") {
+		t.Errorf("system prompt should contain concise instruction, got: %s", content)
 	}
 }
 

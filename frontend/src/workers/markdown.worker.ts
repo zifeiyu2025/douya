@@ -18,9 +18,9 @@ import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeStringify from 'rehype-stringify'
 import { all as lowlightAll } from 'lowlight'
-import { visit } from 'unist-util-visit'
 import { preprocessLaTeX } from '../utils/latex-protection'
 import { lightSanitize } from '../utils/lightSanitize'
+import { rehypeMermaidPre, rehypeExternalLinks } from '../utils/rehypePlugins'
 
 // 工厂函数：每个 worker 创建一个 processor（worker 复用，复用 processor 更省内存）
 function createProcessor() {
@@ -31,43 +31,10 @@ function createProcessor() {
         .use(remarkRehype)
         .use(rehypeKatex)
         // mermaid 代码块转换为 <div class="mermaid">
-        .use(() => (tree: any) => {
-            visit(tree, 'element', (node: any) => {
-                if (node.tagName !== 'pre') return
-                const codeChild = node.children?.find(
-                    (c: any) => c.type === 'element' && c.tagName === 'code'
-                )
-                if (!codeChild) return
-                const classes = codeChild.properties?.className
-                if (!Array.isArray(classes)) return
-                const hasMermaid = classes.some(
-                    (c: any) => typeof c === 'string' && c === 'language-mermaid'
-                )
-                if (!hasMermaid) return
-                // 提取代码文本
-                const extractText = (n: any): string => {
-                    if (n.type === 'text') return n.value || ''
-                    if (Array.isArray(n.children)) return n.children.map(extractText).join('')
-                    return ''
-                }
-                const rawCode = extractText(codeChild)
-                node.tagName = 'div'
-                node.properties = { className: ['mermaid'] }
-                node.children = [{ type: 'text', value: rawCode }]
-            })
-        })
+        .use(rehypeMermaidPre)
         .use(rehypeHighlight, { languages: lowlightAll })
         // 外部链接新窗口
-        .use(() => (tree: any) => {
-            visit(tree, 'element', (node: any) => {
-                if (node.tagName !== 'a') return
-                const href = node.properties?.href
-                if (typeof href === 'string' && (href.startsWith('http://') || href.startsWith('https://'))) {
-                    node.properties.target = '_blank'
-                    node.properties.rel = 'noopener noreferrer'
-                }
-            })
-        })
+        .use(rehypeExternalLinks)
         .use(rehypeStringify, { allowDangerousHtml: true })
 }
 

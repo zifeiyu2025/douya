@@ -38,6 +38,7 @@ import {
     HasServerAPIKey,
     SetServerAPIKey,
     SelectImageFile,
+    GetSmartParams,
 } from '../../wailsjs/go/main/App'
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
 import { chat as ChatModel } from '../../wailsjs/go/models'
@@ -55,6 +56,7 @@ import type {
     Attachment,
     AttachmentSummary,
     ModelCapabilities,
+    SmartParamsInfo,
 } from '../types/chat'
 import type { CollectionInfo, DocumentMeta } from '../types/search'
 import { DEFAULT_CONFIG } from '../types/chat'
@@ -73,6 +75,7 @@ export type {
     Attachment,
     AttachmentSummary,
     ModelCapabilities,
+    SmartParamsInfo,
     CollectionInfo,
     DocumentMeta,
 }
@@ -123,7 +126,7 @@ export const wails = {
         const wailsParams = ChatModel.SendMessageParams.createFrom({
             conversation_id: params.conversation_id,
             content: params.content,
-            search_enabled: params.search_enabled,
+            search_mode: params.search_mode,
             images: params.images,
             attachments: params.attachments,
         })
@@ -149,6 +152,9 @@ export const wails = {
         return (await ExportConversationWithDialog(id, format)) as boolean
     },
     getConfig: async (): Promise<Config> => adaptConfig(await GetConfig()),
+    getSmartParams: async (): Promise<SmartParamsInfo> => {
+        return (await GetSmartParams()) as SmartParamsInfo
+    },
     getCleanupResult: async (): Promise<CleanupResult[]> => {
         return (await GetCleanupResult()) as CleanupResult[]
     },
@@ -161,8 +167,8 @@ export const wails = {
     deleteMessage: async (id: string): Promise<void> => {
         await DeleteMessage(id)
     },
-    regenerateMessage: async (userMessageID: string, searchEnabled: boolean): Promise<void> => {
-        await RegenerateMessage(userMessageID, searchEnabled)
+    regenerateMessage: async (userMessageID: string, searchMode: string): Promise<void> => {
+        await RegenerateMessage(userMessageID, searchMode)
     },
     getAvailableModels: async (): Promise<ModelOption[]> => {
         return (await GetAvailableModels()) as ModelOption[]

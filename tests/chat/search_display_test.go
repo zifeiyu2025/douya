@@ -12,11 +12,11 @@ import (
 func TestStoreMsgToChat_PreservesSearchResults(t *testing.T) {
 	searchJSON := `[{"title":"test","url":"http://example.com","snippet":"test snippet"}]`
 	msg := &store.Message{
-		ID:            "msg-1",
+		ID:             "msg-1",
 		ConversationID: "conv-1",
-		Role:          "assistant",
-		Content:       "response content",
-		SearchResults: searchJSON,
+		Role:           "assistant",
+		Content:        "response content",
+		SearchResults:  searchJSON,
 	}
 
 	result := chat.StoreMsgToChat(msg)
@@ -31,11 +31,11 @@ func TestStoreMsgToChat_PreservesSearchResults(t *testing.T) {
 
 func TestStoreMsgToChat_EmptySearchResults(t *testing.T) {
 	msg := &store.Message{
-		ID:            "msg-1",
+		ID:             "msg-1",
 		ConversationID: "conv-1",
-		Role:          "assistant",
-		Content:       "response",
-		SearchResults: "",
+		Role:           "assistant",
+		Content:        "response",
+		SearchResults:  "",
 	}
 
 	result := chat.StoreMsgToChat(msg)
@@ -71,12 +71,12 @@ func TestStoreMsgToChat_AllFieldsPreserved(t *testing.T) {
 
 func TestMessageJSON_Serialization_SearchResultsNotOmitted(t *testing.T) {
 	msg := chat.Message{
-		ID:            "msg-1",
+		ID:             "msg-1",
 		ConversationID: "conv-1",
-		Role:          "assistant",
-		Content:       "response",
-		SearchResults: `[{"title":"test"}]`,
-		CreatedAt:     "2024-01-01T00:00:00Z",
+		Role:           "assistant",
+		Content:        "response",
+		SearchResults:  `[{"title":"test"}]`,
+		CreatedAt:      "2024-01-01T00:00:00Z",
 	}
 
 	data, err := json.Marshal(msg)
@@ -96,12 +96,12 @@ func TestMessageJSON_Serialization_SearchResultsNotOmitted(t *testing.T) {
 
 func TestMessageJSON_Serialization_SearchResultsAlwaysPresent(t *testing.T) {
 	msg := chat.Message{
-		ID:            "msg-1",
+		ID:             "msg-1",
 		ConversationID: "conv-1",
-		Role:          "assistant",
-		Content:       "response",
-		SearchResults: "",
-		CreatedAt:     "2024-01-01T00:00:00Z",
+		Role:           "assistant",
+		Content:        "response",
+		SearchResults:  "",
+		CreatedAt:      "2024-01-01T00:00:00Z",
 	}
 
 	data, err := json.Marshal(msg)
@@ -132,7 +132,7 @@ func TestSearchResponseJSON_Serialization_NilResults(t *testing.T) {
 		t.Fatalf("json.Unmarshal failed: %v", err)
 	}
 
-	results, ok := parsed["results"]
+	results, ok := parsed["Results"]
 	if !ok {
 		t.Error("results field should be present in SearchResponse JSON")
 	}
@@ -157,7 +157,7 @@ func TestSearchResponseJSON_Serialization_EmptyResults(t *testing.T) {
 		t.Fatalf("json.Unmarshal failed: %v", err)
 	}
 
-	results, ok := parsed["results"]
+	results, ok := parsed["Results"]
 	if !ok {
 		t.Error("results field should be present in SearchResponse JSON")
 	}
@@ -188,7 +188,7 @@ func TestSearchResponseJSON_Serialization_WithResults(t *testing.T) {
 		t.Fatalf("json.Unmarshal failed: %v", err)
 	}
 
-	results, ok := parsed["results"]
+	results, ok := parsed["Results"]
 	if !ok {
 		t.Error("results field should be present in SearchResponse JSON")
 	}
@@ -337,12 +337,12 @@ func TestGetMessages_SearchResultsPreserved(t *testing.T) {
 		Content:        "什么是Go语言？",
 	}, nil)
 	store.CreateMessage(chat.GetDB(svc), &store.Message{
-		ConversationID:  conv.ID,
-		Role:            "assistant",
-		Content:         "Go是一种编程语言[1]",
-		ThinkingContent: "用户问Go语言",
+		ConversationID:   conv.ID,
+		Role:             "assistant",
+		Content:          "Go是一种编程语言[1]",
+		ThinkingContent:  "用户问Go语言",
 		ThinkingDuration: 2.5,
-		SearchResults:   searchJSON,
+		SearchResults:    searchJSON,
 	}, nil)
 
 	msgs, err := svc.GetMessages(conv.ID)

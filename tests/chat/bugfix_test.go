@@ -169,16 +169,18 @@ func TestStoreMsgToChat_ThinkingDurationAndImages(t *testing.T) {
 
 func TestCalcMaxTokens_DefaultContextSize(t *testing.T) {
 	svc := newTestService()
-	result := chat.CalcMaxTokens(svc)
-	if result != 2048 {
-		t.Errorf("expected 2048 (4096/2), got %d", result)
+	// 默认 ctxSize=4096, promptTokens=0 → maxTokens=4096 (capped to 16384)
+	result := chat.CalcMaxTokens(svc, 0)
+	if result != 4096 {
+		t.Errorf("expected 4096 (4096-0), got %d", result)
 	}
 }
 
 func TestCalcMaxTokens_LargeContextSize(t *testing.T) {
 	svc := newTestService()
 	svc.GetConfig().ContextSize = 65536
-	result := chat.CalcMaxTokens(svc)
+	// ctxSize=65536, promptTokens=0 → 65536, capped to 16384
+	result := chat.CalcMaxTokens(svc, 0)
 	if result != 16384 {
 		t.Errorf("expected 16384 (capped), got %d", result)
 	}
@@ -187,18 +189,30 @@ func TestCalcMaxTokens_LargeContextSize(t *testing.T) {
 func TestCalcMaxTokens_SmallContextSize(t *testing.T) {
 	svc := newTestService()
 	svc.GetConfig().ContextSize = 600
-	result := chat.CalcMaxTokens(svc)
-	if result != 512 {
-		t.Errorf("expected 512 (minimum), got %d", result)
+	// ctxSize=600, promptTokens=0 → 600
+	result := chat.CalcMaxTokens(svc, 0)
+	if result != 600 {
+		t.Errorf("expected 600 (600-0), got %d", result)
 	}
 }
 
 func TestCalcMaxTokens_ZeroContextSize(t *testing.T) {
 	svc := newTestService()
 	svc.GetConfig().ContextSize = 0
-	result := chat.CalcMaxTokens(svc)
-	if result != 2048 {
-		t.Errorf("expected 2048 (default 4096/2), got %d", result)
+	// default ctxSize=4096, promptTokens=0 → 4096
+	result := chat.CalcMaxTokens(svc, 0)
+	if result != 4096 {
+		t.Errorf("expected 4096 (default 4096-0), got %d", result)
+	}
+}
+
+func TestCalcMaxTokens_WithPromptTokens(t *testing.T) {
+	svc := newTestService()
+	svc.GetConfig().ContextSize = 8192
+	// ctxSize=8192, promptTokens=6000 → 2192
+	result := chat.CalcMaxTokens(svc, 6000)
+	if result != 2192 {
+		t.Errorf("expected 2192 (8192-6000), got %d", result)
 	}
 }
 
@@ -236,19 +250,22 @@ func TestFormatSearchResults_Format(t *testing.T) {
 	if strings.Contains(out, "Search results for") {
 		t.Errorf("should NOT contain old format 'Search results for', got: %s", out)
 	}
-	if !strings.Contains(out, "[1]") || !strings.Contains(out, "[2]") {
-		t.Errorf("should contain numbered indices [1] and [2], got: %s", out)
+	if !strings.Contains(out, "<search_results>") {
+		t.Errorf("should contain XML tag <search_results>, got: %s", out)
+	}
+	if !strings.Contains(out, "<result>") {
+		t.Errorf("should contain XML tag <result>, got: %s", out)
 	}
 }
 
 func TestFormatSearchResults_Empty(t *testing.T) {
 	out := chat.FormatSearchResults(nil)
-	if out != "" {
-		t.Errorf("expected empty string for nil results, got: %q", out)
+	if out != "<search_results>\n</search_results>" {
+		t.Errorf("expected XML wrapper for nil results, got: %q", out)
 	}
 	out = chat.FormatSearchResults([]search.SearchResult{})
-	if out != "" {
-		t.Errorf("expected empty string for empty results, got: %q", out)
+	if out != "<search_results>\n</search_results>" {
+		t.Errorf("expected XML wrapper for empty results, got: %q", out)
 	}
 }
 
@@ -394,7 +411,7 @@ func TestBuildLLMMessages_SearchEnabled_NoSearchToolInstruction(t *testing.T) {
 	dbMsgs := []*store.Message{
 		{ID: "1", Role: "user", Content: "hello"},
 	}
-	msgs, _ := chat.BuildLLMMessagesWithSearch(svc, dbMsgs, "hello", nil, true)
+	msgs, _ := chat.BuildLLMMessagesWithSearch(svc, dbMsgs, "hello", nil, "on")
 
 	if strings.Contains(msgs[0].ContentString(), "search工具") || strings.Contains(msgs[0].ContentString(), "内置工具") {
 		t.Errorf("when searchEnabled=true, system prompt should NOT mention search tool, got: %s", msgs[0].ContentString())
@@ -406,7 +423,7 @@ func TestBuildLLMMessages_SearchDisabled_HasSearchToolInstruction(t *testing.T) 
 	dbMsgs := []*store.Message{
 		{ID: "1", Role: "user", Content: "hello"},
 	}
-	msgs, _ := chat.BuildLLMMessagesWithSearch(svc, dbMsgs, "hello", nil, false)
+	msgs, _ := chat.BuildLLMMessagesWithSearch(svc, dbMsgs, "hello", nil, "off")
 
 	if !strings.Contains(msgs[0].ContentString(), "获取实时信息") && !strings.Contains(msgs[0].ContentString(), "内置工具") {
 		t.Errorf("when searchEnabled=false, system prompt SHOULD mention search tool, got: %s", msgs[0].ContentString())
@@ -439,9 +456,9 @@ func TestSendMessage_ImageAttachment_NoDuplicate(t *testing.T) {
 	imageData := "data:image/png;base64,iVBORw0KGgo="
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "描述这张图片",
-		SearchEnabled: false,
-		Images:        []string{imageData},
+		Content:    "描述这张图片",
+		SearchMode: "off",
+		Images:     []string{imageData},
 		Attachments: []chat.Attachment{
 			{Type: "image", Name: "test.png", MimeType: "image/png", Data: imageData},
 		},
@@ -502,8 +519,8 @@ func TestSendMessage_PDFAttachment_SentAsDataURL(t *testing.T) {
 	pdfBase64 := "JVBERi0xLjQKMSAwIG9iago8PAovVHlwZSAvQ2F0YWxvZwovUGFnZXMgMiAwIFIKPj4KZW5kb2Jq"
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "总结这个PDF",
-		SearchEnabled: false,
+		Content:    "总结这个PDF",
+		SearchMode: "off",
 		Attachments: []chat.Attachment{
 			{Type: "pdf", Name: "test.pdf", MimeType: "application/pdf", Data: pdfBase64},
 		},
@@ -566,8 +583,8 @@ func TestSendMessage_AttachmentsPersistedToDB(t *testing.T) {
 	svc := newInteractionTestService(t, server, nil)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "带附件的消息",
-		SearchEnabled: false,
+		Content:    "带附件的消息",
+		SearchMode: "off",
 		Attachments: []chat.Attachment{
 			{Type: "text", Name: "note.txt", MimeType: "text/plain", Data: "hello world"},
 		},
@@ -649,9 +666,9 @@ func TestSendMessage_HistoryAttachmentsRestored(t *testing.T) {
 	imageData := "data:image/png;base64,iVBORw0KGgo="
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "描述这张图片",
-		SearchEnabled: false,
-		Images:        []string{imageData},
+		Content:    "描述这张图片",
+		SearchMode: "off",
+		Images:     []string{imageData},
 		Attachments: []chat.Attachment{
 			{Type: "image", Name: "test.png", MimeType: "image/png", Data: imageData},
 		},
@@ -683,7 +700,7 @@ func TestSendMessage_HistoryAttachmentsRestored(t *testing.T) {
 	err = svc.SendMessage(context.Background(), chat.SendMessageParams{
 		Content:        "继续",
 		ConversationID: convID,
-		SearchEnabled:  false,
+		SearchMode:     "off",
 	})
 	if err != nil {
 		t.Fatalf("second SendMessage failed: %v", err)
@@ -735,9 +752,9 @@ func TestSendMessage_ImageOnly_AlwaysHasTextContentPart(t *testing.T) {
 	imageData := "data:image/png;base64,iVBORw0KGgo="
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "",
-		SearchEnabled: false,
-		Images:        []string{imageData},
+		Content:    "",
+		SearchMode: "off",
+		Images:     []string{imageData},
 		Attachments: []chat.Attachment{
 			{Type: "image", Name: "test.png", MimeType: "image/png", Data: imageData},
 		},
@@ -796,8 +813,8 @@ func TestSendMessage_TextAttachment_HasFileLabel(t *testing.T) {
 	svc := newInteractionTestService(t, server, nil)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "文件里面有什么内容",
-		SearchEnabled: false,
+		Content:    "文件里面有什么内容",
+		SearchMode: "off",
 		Attachments: []chat.Attachment{
 			{Type: "text", Name: "note.txt", MimeType: "text/plain", Data: "你好\nhello\n我爱你\nhhhh"},
 		},
@@ -1273,7 +1290,7 @@ func TestBuildLLMMessages_WithSearchContext(t *testing.T) {
 		{ID: "3", Role: "user", Content: "搜索一下最新新闻"},
 	}
 
-	msgs, err := chat.BuildLLMMessagesWithSearch(svc, dbMsgs, "搜索一下最新新闻", nil, true)
+	msgs, err := chat.BuildLLMMessagesWithSearch(svc, dbMsgs, "搜索一下最新新闻", nil, "on")
 	if err != nil {
 		t.Fatalf("BuildLLMMessagesWithSearch failed: %v", err)
 	}

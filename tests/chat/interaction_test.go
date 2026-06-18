@@ -165,7 +165,7 @@ func TestSendMessage_ModelAutonomousThinking(t *testing.T) {
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
 		Content:        "Go语言如何实现并发？",
-		SearchEnabled:  true,
+		SearchMode:     "on",
 		ConversationID: "",
 	})
 	if err != nil {
@@ -224,8 +224,8 @@ func TestSendMessage_ModelAutonomousToolCallSearch(t *testing.T) {
 		for _, m := range req.Messages {
 			if m.Role == "tool" {
 				hasToolMsg = true
-				if !strings.Contains(m.ContentString(), "内容:") {
-					t.Errorf("tool message should contain search result format '内容:', got: %s", m.ContentString())
+				if !strings.Contains(m.ContentString(), "<search_results>") {
+					t.Errorf("tool message should contain search results in XML format, got: %s", m.ContentString())
 				}
 				if !strings.Contains(m.ContentString(), "AI技术突破") {
 					t.Errorf("tool message should contain search result 'AI技术突破', got: %s", m.ContentString())
@@ -266,8 +266,8 @@ func TestSendMessage_ModelAutonomousToolCallSearch(t *testing.T) {
 	svc := newInteractionTestService(t, server, searchProvider)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "2026年最新的AI技术趋势是什么？",
-		SearchEnabled: false,
+		Content:    "2026年最新的AI技术趋势是什么？",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -349,8 +349,8 @@ func TestSendMessage_SearchEnabled_UpfrontSearch(t *testing.T) {
 	svc := newInteractionTestService(t, server, searchProvider)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "Go 1.24有什么新特性？",
-		SearchEnabled: true,
+		Content:    "Go 1.24有什么新特性？",
+		SearchMode: "on",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -360,30 +360,39 @@ func TestSendMessage_SearchEnabled_UpfrontSearch(t *testing.T) {
 		t.Fatalf("expected 1 search call, got %d", len(searchProvider.calls))
 	}
 
-	var searchContextMsg *llm.ChatMessage
 	var originalUserMsg *llm.ChatMessage
+	var toolMsg *llm.ChatMessage
+	var hasSimulatedToolCall bool
 	for i := range receivedMessages {
 		if receivedMessages[i].Role == "user" {
-			content := receivedMessages[i].ContentString()
-			if strings.Contains(content, "[补充信息]") {
-				searchContextMsg = &receivedMessages[i]
-			} else {
-				originalUserMsg = &receivedMessages[i]
+			originalUserMsg = &receivedMessages[i]
+		}
+		if receivedMessages[i].Role == "tool" && receivedMessages[i].ToolCallID == "search_pre" {
+			toolMsg = &receivedMessages[i]
+		}
+		if receivedMessages[i].Role == "assistant" && len(receivedMessages[i].ToolCalls) > 0 {
+			for _, tc := range receivedMessages[i].ToolCalls {
+				if tc.ID == "search_pre" {
+					hasSimulatedToolCall = true
+				}
 			}
 		}
 	}
 
-	if searchContextMsg == nil {
-		t.Fatal("when SearchEnabled=true, search results should be injected as a context message containing [补充信息]")
+	if !hasSimulatedToolCall {
+		t.Error("should inject simulated assistant tool_call message for search")
 	}
-	if !strings.Contains(searchContextMsg.ContentString(), "Go 1.24 Release") {
-		t.Errorf("search context should contain 'Go 1.24 Release', got: %s", searchContextMsg.ContentString())
+	if toolMsg == nil {
+		t.Fatal("search results should be injected as a tool message (simulated tool call)")
 	}
-	if !strings.Contains(searchContextMsg.ContentString(), "内容:") {
-		t.Errorf("search context should contain '内容:', got: %s", searchContextMsg.ContentString())
+	if !strings.Contains(toolMsg.ContentString(), "<search_results>") {
+		t.Errorf("tool message should contain search results in XML format, got: %s", toolMsg.ContentString())
+	}
+	if !strings.Contains(toolMsg.ContentString(), "Go 1.24 Release") {
+		t.Errorf("tool message should contain 'Go 1.24 Release', got: %s", toolMsg.ContentString())
 	}
 
-	if originalUserMsg != nil && strings.Contains(originalUserMsg.ContentString(), "内容:") {
+	if originalUserMsg != nil && strings.Contains(originalUserMsg.ContentString(), "<search_results>") {
 		t.Error("original user message should NOT contain search results")
 	}
 	if originalUserMsg != nil && !strings.Contains(originalUserMsg.ContentString(), "Go 1.24有什么新特性？") {
@@ -413,8 +422,8 @@ func TestSendMessage_SearchEnabledFalse_ProvidesSearchTool(t *testing.T) {
 	svc := newInteractionTestService(t, server, nil)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "你好",
-		SearchEnabled: false,
+		Content:    "你好",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -455,8 +464,8 @@ func TestSendMessage_SearchEnabledTrue_WithTool(t *testing.T) {
 	svc := newInteractionTestService(t, server, searchProvider)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "你好",
-		SearchEnabled: true,
+		Content:    "你好",
+		SearchMode: "on",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -509,8 +518,8 @@ func TestSendMessage_ToolCallSearch_EmptyResults(t *testing.T) {
 	svc := newInteractionTestService(t, server, searchProvider)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "冷门话题",
-		SearchEnabled: false,
+		Content:    "冷门话题",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -581,8 +590,8 @@ func TestSendMessage_ToolCallSearch_InvalidArguments(t *testing.T) {
 	svc := newInteractionTestService(t, server, nil)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "测试无效参数",
-		SearchEnabled: false,
+		Content:    "测试无效参数",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage should not fail with invalid tool call args, got: %v", err)
@@ -615,8 +624,8 @@ func TestSendMessage_Timeliness_SystemPromptContainsDate(t *testing.T) {
 	svc := newInteractionTestService(t, server, nil)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "今天几号？",
-		SearchEnabled: false,
+		Content:    "今天几号？",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -689,8 +698,8 @@ func TestSendMessage_CodeRelatedSearch_UsesCodeCategory(t *testing.T) {
 	svc := chat.NewService(llmClient, chain, db, cfg, nil, "")
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "如何用python写一个web服务器？",
-		SearchEnabled: true,
+		Content:    "如何用python写一个web服务器？",
+		SearchMode: "on",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -734,8 +743,8 @@ func TestSendMessage_GeneralQuestion_UsesGeneralCategory(t *testing.T) {
 	svc := chat.NewService(llmClient, chain, db, cfg, nil, "")
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "今天北京天气怎么样？",
-		SearchEnabled: true,
+		Content:    "今天北京天气怎么样？",
+		SearchMode: "on",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -760,8 +769,8 @@ func TestSendMessage_ConversationTitleAutoGenerated(t *testing.T) {
 	svc := newInteractionTestService(t, server, nil)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "这是一个关于Go语言并发编程的问题",
-		SearchEnabled: false,
+		Content:    "这是一个关于Go语言并发编程的问题",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -798,8 +807,8 @@ func SKIP_TestSendMessage_LongTitleTruncated(t *testing.T) {
 	longMessage := strings.Repeat("这是一段很长的消息内容用于测试标题截断功能", 5)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       longMessage,
-		SearchEnabled: false,
+		Content:    longMessage,
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -869,8 +878,8 @@ func TestSendMessage_MultiRoundConversation(t *testing.T) {
 	var convID string
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "Go语言是谁开发的？",
-		SearchEnabled: false,
+		Content:    "Go语言是谁开发的？",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("first SendMessage failed: %v", err)
@@ -883,7 +892,7 @@ func TestSendMessage_MultiRoundConversation(t *testing.T) {
 
 	err = svc.SendMessage(context.Background(), chat.SendMessageParams{
 		Content:        "它有什么特点？",
-		SearchEnabled:  false,
+		SearchMode:     "off",
 		ConversationID: convID,
 	})
 	if err != nil {
@@ -946,40 +955,47 @@ func TestSendMessage_SearchResultFormat(t *testing.T) {
 	svc := newInteractionTestService(t, server, searchProvider)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "搜索测试",
-		SearchEnabled: true,
+		Content:    "搜索测试",
+		SearchMode: "on",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
 
-	lastMsg := receivedMessages[len(receivedMessages)-1]
-
-	var searchContext string
-	for _, m := range receivedMessages {
-		if m.Role == "user" && strings.Contains(m.ContentString(), "[补充信息]") {
-			searchContext = m.ContentString()
+	var toolMsg *llm.ChatMessage
+	var hasSimulatedToolCall bool
+	for i := range receivedMessages {
+		if receivedMessages[i].Role == "tool" && receivedMessages[i].ToolCallID == "search_pre" {
+			toolMsg = &receivedMessages[i]
+		}
+		if receivedMessages[i].Role == "assistant" && len(receivedMessages[i].ToolCalls) > 0 {
+			for _, tc := range receivedMessages[i].ToolCalls {
+				if tc.ID == "search_pre" {
+					hasSimulatedToolCall = true
+				}
+			}
 		}
 	}
 
-	if searchContext == "" {
-		t.Fatal("expected search context in a user message containing [补充信息]")
+	if !hasSimulatedToolCall {
+		t.Error("should inject simulated assistant tool_call message for search")
+	}
+	if toolMsg == nil {
+		t.Fatal("expected tool message with search results (simulated tool call)")
 	}
 
-	if !strings.Contains(searchContext, "内容:") {
-		t.Errorf("search context should contain '内容:', got: %s", searchContext)
+	if !strings.Contains(toolMsg.ContentString(), "<search_results>") {
+		t.Errorf("tool message should contain search results in XML format, got: %s", toolMsg.ContentString())
 	}
-	if !strings.Contains(searchContext, "结果1") || !strings.Contains(searchContext, "结果2") {
-		t.Errorf("search context should contain both results, got: %s", searchContext)
+	if !strings.Contains(toolMsg.ContentString(), "结果1") || !strings.Contains(toolMsg.ContentString(), "结果2") {
+		t.Errorf("tool message should contain both results, got: %s", toolMsg.ContentString())
 	}
-	if !strings.Contains(searchContext, "摘要1") {
-		t.Errorf("search context should contain snippet, got: %s", searchContext)
+	if !strings.Contains(toolMsg.ContentString(), "摘要1") {
+		t.Errorf("tool message should contain snippet, got: %s", toolMsg.ContentString())
 	}
-	if !strings.Contains(searchContext, "摘要2") {
-		t.Errorf("search context should contain all results, got: %s", searchContext)
+	if !strings.Contains(toolMsg.ContentString(), "摘要2") {
+		t.Errorf("tool message should contain all results, got: %s", toolMsg.ContentString())
 	}
-
-	_ = lastMsg
 }
 
 func TestSendMessage_ToolCallSearchResultFormat(t *testing.T) {
@@ -1019,8 +1035,8 @@ func TestSendMessage_ToolCallSearchResultFormat(t *testing.T) {
 			if toolMsg.ToolCallID != "call_1" {
 				t.Errorf("tool message ToolCallID should be 'call_1', got '%s'", toolMsg.ToolCallID)
 			}
-			if !strings.Contains(toolMsg.ContentString(), "内容:") {
-				t.Errorf("tool message should contain search result format '内容:', got: %s", toolMsg.ContentString())
+			if !strings.Contains(toolMsg.ContentString(), "<search_results>") {
+				t.Errorf("tool message should contain search results in XML format, got: %s", toolMsg.ContentString())
 			}
 			if !strings.Contains(toolMsg.ContentString(), "https://example.com") {
 				t.Errorf("tool message should contain 'https://example.com', got: %s", toolMsg.ContentString())
@@ -1060,8 +1076,8 @@ func TestSendMessage_ToolCallSearchResultFormat(t *testing.T) {
 	svc := newInteractionTestService(t, server, searchProvider)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "测试",
-		SearchEnabled: false,
+		Content:    "测试",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -1083,8 +1099,8 @@ func TestSendMessage_ThinkingAndContentBothPresent(t *testing.T) {
 	svc := newInteractionTestService(t, server, nil)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "生命的意义是什么？",
-		SearchEnabled: false,
+		Content:    "生命的意义是什么？",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -1125,8 +1141,8 @@ func TestSendMessage_OnlyThinkingNoContent(t *testing.T) {
 	svc := newInteractionTestService(t, server, nil)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "思考一下",
-		SearchEnabled: false,
+		Content:    "思考一下",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -1167,8 +1183,8 @@ func TestSendMessage_OnlyContentNoThinking(t *testing.T) {
 	svc := newInteractionTestService(t, server, nil)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "1+1等于几？",
-		SearchEnabled: false,
+		Content:    "1+1等于几？",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -1230,8 +1246,8 @@ func TestSendMessage_ChineseContentInToolCallArgs(t *testing.T) {
 	svc := newInteractionTestService(t, server, searchProvider)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "2026年中国GDP增长预测",
-		SearchEnabled: false,
+		Content:    "2026年中国GDP增长预测",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -1255,8 +1271,8 @@ func TestSendMessage_LLMError(t *testing.T) {
 	svc := newInteractionTestService(t, server, nil)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "测试",
-		SearchEnabled: false,
+		Content:    "测试",
+		SearchMode: "off",
 	})
 	if err == nil {
 		t.Fatal("expected error when LLM returns 500, got nil")
@@ -1354,8 +1370,8 @@ func TestSendMessage_SearchResultStoredInDB(t *testing.T) {
 	svc := newInteractionTestService(t, server, searchProvider)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "Rust和Go哪个好？",
-		SearchEnabled: false,
+		Content:    "Rust和Go哪个好？",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -1405,8 +1421,8 @@ func TestSendMessage_FinishReasonLength(t *testing.T) {
 	svc := newInteractionTestService(t, server, nil)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "写一篇很长的文章",
-		SearchEnabled: false,
+		Content:    "写一篇很长的文章",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -1467,8 +1483,8 @@ func TestSendMessage_AccumulatedToolCallArguments(t *testing.T) {
 	svc := newInteractionTestService(t, server, searchProvider)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "Go并发编程",
-		SearchEnabled: false,
+		Content:    "Go并发编程",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -1507,8 +1523,8 @@ func TestSendMessage_ProgrammingQuestionWithSearch(t *testing.T) {
 	svc := newInteractionTestService(t, server, searchProvider)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "Go 1.24的http包有什么新API？",
-		SearchEnabled: true,
+		Content:    "Go 1.24的http包有什么新API？",
+		SearchMode: "on",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -1557,8 +1573,8 @@ func TestSendMessage_TimelinessQuestionTriggersSearch(t *testing.T) {
 	svc := newInteractionTestService(t, server, searchProvider)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "最近有什么科技新闻？",
-		SearchEnabled: false,
+		Content:    "最近有什么科技新闻？",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -1608,8 +1624,8 @@ func TestSendMessage_MultipleToolCallsWithDifferentIndices(t *testing.T) {
 	svc := newInteractionTestService(t, server, searchProvider)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "Go并发编程",
-		SearchEnabled: false,
+		Content:    "Go并发编程",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -1675,8 +1691,8 @@ func TestSendMessage_ToolMessagesPersistedToDB(t *testing.T) {
 	svc := newInteractionTestService(t, server, searchProvider)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "Go并发编程",
-		SearchEnabled: false,
+		Content:    "Go并发编程",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -1707,8 +1723,8 @@ func TestSendMessage_ToolMessagesPersistedToDB(t *testing.T) {
 		if toolMsg.ToolCallID != "call_1" {
 			t.Errorf("expected tool message ToolCallID 'call_1', got '%s'", toolMsg.ToolCallID)
 		}
-		if !strings.Contains(toolMsg.Content, "内容:") {
-			t.Errorf("tool message should contain search results, got: %s", toolMsg.Content)
+		if !strings.Contains(toolMsg.Content, "<search_results>") {
+			t.Errorf("tool message should contain search results in XML format, got: %s", toolMsg.Content)
 		}
 	}
 }
@@ -1749,8 +1765,8 @@ func TestSendMessage_ToolMessagesRestoredInMultiRound(t *testing.T) {
 	svc := newInteractionTestService(t, server, searchProvider)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "Go并发编程",
-		SearchEnabled: false,
+		Content:    "Go并发编程",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("first SendMessage failed: %v", err)
@@ -1779,7 +1795,7 @@ func TestSendMessage_ToolMessagesRestoredInMultiRound(t *testing.T) {
 	err = svc.SendMessage(context.Background(), chat.SendMessageParams{
 		Content:        "继续讲",
 		ConversationID: convID,
-		SearchEnabled:  false,
+		SearchMode:     "off",
 	})
 	if err != nil {
 		t.Fatalf("second SendMessage failed: %v", err)
@@ -1825,8 +1841,8 @@ func TestSendMessage_SystemPromptContainsSearchGuidance(t *testing.T) {
 	svc := newInteractionTestService(t, server, nil)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "测试",
-		SearchEnabled: false,
+		Content:    "测试",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -1875,43 +1891,42 @@ func TestSendMessage_SearchEnabled_UsesSeparateContextBlock(t *testing.T) {
 	svc := newInteractionTestService(t, server, searchProvider)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "搜索测试",
-		SearchEnabled: true,
+		Content:    "搜索测试",
+		SearchMode: "on",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
 
 	var originalUserContent string
-	var searchContextContent string
+	var toolMsgContent string
+	var hasSimulatedToolCall bool
 	for _, m := range receivedMessages {
 		if m.Role == "user" {
-			content := m.ContentString()
-			if strings.Contains(content, "[补充信息]") {
-				searchContextContent = content
-			} else {
-				originalUserContent = content
+			originalUserContent = m.ContentString()
+		}
+		if m.Role == "tool" && m.ToolCallID == "search_pre" {
+			toolMsgContent = m.ContentString()
+		}
+		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+			for _, tc := range m.ToolCalls {
+				if tc.ID == "search_pre" {
+					hasSimulatedToolCall = true
+				}
 			}
 		}
 	}
-	if strings.Contains(originalUserContent, "内容:") {
+	if strings.Contains(originalUserContent, "<search_results>") {
 		t.Errorf("original user message should NOT contain search results, got: %s", originalUserContent)
 	}
-	if searchContextContent == "" {
-		t.Error("search results should be injected as a separate context message containing [补充信息]")
+	if !hasSimulatedToolCall {
+		t.Error("should inject simulated assistant tool_call message for search")
 	}
-	if !strings.Contains(searchContextContent, "内容:") {
-		t.Error("search context message should contain search result content")
+	if toolMsgContent == "" {
+		t.Error("search results should be injected as a tool message (simulated tool call)")
 	}
-
-	hasNoToolMessages := true
-	for _, m := range receivedMessages {
-		if m.Role == "tool" {
-			hasNoToolMessages = false
-		}
-	}
-	if !hasNoToolMessages {
-		t.Error("forced search should NOT use tool messages (should use context injection)")
+	if !strings.Contains(toolMsgContent, "<search_results>") {
+		t.Errorf("tool message should contain search results in XML format, got: %s", toolMsgContent)
 	}
 }
 
@@ -1949,8 +1964,8 @@ func TestSendMessage_ToolCallInvalidArgs_FeedbackToModel(t *testing.T) {
 	svc := newInteractionTestService(t, server, nil)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "测试无效参数",
-		SearchEnabled: false,
+		Content:    "测试无效参数",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage should not fail with invalid tool call args, got: %v", err)
@@ -2016,8 +2031,8 @@ func TestSendMessage_SecondLLMCallProvidesTools(t *testing.T) {
 	svc := newInteractionTestService(t, server, searchProvider)
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "test",
-		SearchEnabled: false,
+		Content:    "test",
+		SearchMode: "off",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
@@ -2048,7 +2063,9 @@ func TestSendMessage_ToolDefinitionHasRichDescription(t *testing.T) {
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/v1/models/") || r.URL.Path == "/props" {
-			json.NewEncoder(w).Encode(map[string]interface{}{})
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"chat_template_tool_use": "default",
+			})
 			return
 		}
 		var req llm.ChatCompletionRequest
@@ -2072,8 +2089,8 @@ func TestSendMessage_ToolDefinitionHasRichDescription(t *testing.T) {
 	}
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       "测试",
-		SearchEnabled: true,
+		Content:    "测试",
+		SearchMode: "on",
 	})
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)

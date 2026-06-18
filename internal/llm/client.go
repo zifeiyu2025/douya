@@ -15,13 +15,17 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"douya/internal/httputil"
+
 	"github.com/rs/zerolog/log"
 )
 
 const maxResponseBody = 50 * 1024 * 1024
 
+// readBody 读取 HTTP 响应体，限制最大 50MB 防止内存耗尽。
 func readBody(r io.Reader) ([]byte, error) {
-	return io.ReadAll(io.LimitReader(r, maxResponseBody))
+	return httputil.ReadBodyLimited(r, maxResponseBody)
 }
 
 type Client struct {
@@ -470,7 +474,8 @@ type ServerProps struct {
 		Audio  bool `json:"audio"`
 		Video  bool `json:"video"`
 	} `json:"modalities"`
-	ChatTemplateCaps map[string]bool `json:"chat_template_caps"`
+	ChatTemplateCaps    map[string]bool `json:"chat_template_caps"`
+	ChatTemplateToolUse string          `json:"chat_template_tool_use"`
 }
 
 func (c *Client) GetServerProps(ctx context.Context, modelName string) (*ServerProps, error) {

@@ -41,9 +41,12 @@ type SwitchResult struct {
 	RollbackSuccess bool                   `json:"rollback_success,omitempty"`
 }
 
+// SearchAPIKeys 用于前端展示搜索 API Key 的设置状态，不暴露实际密钥值
 type SearchAPIKeys struct {
-	OllamaAPIKey string `json:"ollama_api_key"`
-	TavilyAPIKey string `json:"tavily_api_key"`
+	OllamaAPIKey    string `json:"ollama_api_key"`
+	TavilyAPIKey    string `json:"tavily_api_key"`
+	OllamaAPIKeySet bool   `json:"ollama_api_key_set"`
+	TavilyAPIKeySet bool   `json:"tavily_api_key_set"`
 }
 
 type App struct {
@@ -235,9 +238,46 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		presetPath = ""
 	}
 
+	// GPU层数：用户设置优先，否则用智能参数
 	gpuLayers := "auto"
-	if sp.GPULayers > 0 {
+	if a.config.GPULayers > 0 {
+		gpuLayers = fmt.Sprintf("%d", a.config.GPULayers)
+	} else if sp.GPULayers > 0 {
 		gpuLayers = fmt.Sprintf("%d", sp.GPULayers)
+	}
+
+	// Flash Attention：用户设置优先
+	flashAttn := sp.FlashAttn
+	if a.config.FlashAttn != nil {
+		flashAttn = *a.config.FlashAttn
+	}
+
+	// Mlock：用户设置优先
+	mlock := sp.Mlock
+	if a.config.Mlock != nil {
+		mlock = *a.config.Mlock
+	}
+
+	// 线程数：用户设置优先
+	threads := sp.Threads
+	if a.config.Threads > 0 {
+		threads = a.config.Threads
+	}
+
+	// Batch Size：用户设置优先
+	batchSize := sp.BatchSize
+	if a.config.BatchSize > 0 {
+		batchSize = a.config.BatchSize
+	}
+	ubatchSize := sp.UBatchSize
+	if a.config.BatchSize > 0 {
+		ubatchSize = batchSize / 2
+	}
+
+	// 上下文长度：用户设置优先，否则用智能参数
+	contextSize := sp.ContextSize
+	if a.config.ContextSize > 0 {
+		contextSize = a.config.ContextSize
 	}
 
 	sleepIdle := a.config.SleepIdleSeconds
@@ -254,11 +294,11 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		ServerPath:             absServerPath,
 		Port:                   a.config.Port,
 		GPULayers:              gpuLayers,
-		Threads:                sp.Threads,
-		FlashAttn:              sp.FlashAttn,
+		Threads:                threads,
+		FlashAttn:              flashAttn,
 		CacheTypeK:             sp.CacheTypeK,
 		CacheTypeV:             sp.CacheTypeV,
-		Mlock:                  sp.Mlock,
+		Mlock:                  mlock,
 		MmprojAuto:             a.config.MmprojAuto,
 		MmprojOffload:          sp.MmprojOffload,
 		KVUnified:              a.config.KVUnified,
@@ -308,6 +348,19 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		SpecDraftModel:         a.config.SpecDraftModel,
 		Embedding:              true, // 启用 embedding API（RAG 知识库需要）
 		Pooling:                "mean", // 聊天模型 pooling=none 不兼容 OAI embedding API
+		ExposeServer:           a.config.ExposeServer,
+		SwaFull:              a.config.SwaFull,
+		CtxCheckpoints:       a.config.CtxCheckpoints,
+		CheckpointMinStep:    a.config.CheckpointMinStep,
+		Tools:                a.config.Tools,
+		PrefillAssistant:     a.config.PrefillAssistant,
+		SlotPromptSimilarity: a.config.SlotPromptSimilarity,
+		SkipChatParsing:      a.config.SkipChatParsing,
+		APIPrefix:            a.config.APIPrefix,
+		SimpleIO:             a.config.SimpleIO,
+		BatchSize:            batchSize,
+		UBatchSize:           ubatchSize,
+		ContextSize:          contextSize,
 	}
 
 	if a.config.CacheTypeK != "" {
@@ -1082,6 +1135,14 @@ func (a *App) GetActiveKnowledgeBase() string {
 func (a *App) SetRAGEnabled(enabled bool) {
 	a.config.RAGEnabled = enabled
 	a.service.SetRAGEnabled(enabled)
+	// RAG 开启时自动关闭联网搜索（两者互斥，RAG 优先级更高）
+	if enabled && a.config.SearchMode != "off" {
+		a.config.SearchMode = "off"
+		// 通知前端搜索已自动关闭
+		if a.ctx != nil {
+			runtime.EventsEmit(a.ctx, "search:autoDisabled", nil)
+		}
+	}
 	if err := config.Save(filepath.Join(appDir(), "config.json"), a.config); err != nil {
 		zlog.Error().Err(err).Msg("[rag] save config failed")
 	}
@@ -1219,8 +1280,13 @@ func (a *App) SelectImageFile() (string, error) {
 	return filePath, nil
 }
 
+// GetSearchAPIKeys 返回搜索 API Key 的设置状态，不暴露实际密钥值
 func (a *App) GetSearchAPIKeys() SearchAPIKeys {
-	return a.loadSearchAPIKeys()
+	keys := a.loadSearchAPIKeys()
+	return SearchAPIKeys{
+		OllamaAPIKeySet: keys.OllamaAPIKey != "",
+		TavilyAPIKeySet: keys.TavilyAPIKey != "",
+	}
 }
 
 func (a *App) SetSearchAPIKeys(keys SearchAPIKeys) error {
@@ -1278,7 +1344,7 @@ func (a *App) applyEnvOverrides(keys *SearchAPIKeys) {
 }
 
 // buildSearchChain 根据当前 API Key 配置构建搜索链
-// 搜索源优先级：Tavily（高质量） > Ollama > DuckDuckGo > Bing
+// 搜索源优先级：Tavily（高质量） > Ollama > 360搜索 > Bing
 func (a *App) buildSearchChain() *search.SearchChain {
 	var searchProviders []search.CategorizedProvider
 	keys := a.loadSearchAPIKeys()
@@ -1289,7 +1355,7 @@ func (a *App) buildSearchChain() *search.SearchChain {
 	if keys.OllamaAPIKey != "" {
 		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewOllamaProvider(keys.OllamaAPIKey), Categories: []string{"general", "code"}})
 	}
-	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewDuckDuckGoProvider(), Categories: []string{"general"}})
+	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewSo360Provider(), Categories: []string{"general"}})
 	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewBingProvider(), Categories: []string{"general"}})
 	return search.NewCategorizedSearchChain(searchProviders)
 }
@@ -1537,7 +1603,7 @@ func (a *App) DeleteMessage(id string) error {
 	return a.service.DeleteMessage(id)
 }
 
-func (a *App) RegenerateMessage(userMessageID string, searchEnabled bool) error {
+func (a *App) RegenerateMessage(userMessageID string, searchMode string) error {
 	if !a.ready.Load() {
 		return fmt.Errorf("应用未就绪。")
 	}
@@ -1558,7 +1624,7 @@ func (a *App) RegenerateMessage(userMessageID string, searchEnabled bool) error 
 				})
 			}
 		}()
-		if err := a.service.RegenerateMessage(userMessageID, searchEnabled); err != nil {
+		if err := a.service.RegenerateMessage(userMessageID, searchMode); err != nil {
 			zlog.Error().Err(err).Msg("RegenerateMessage error")
 			convID := a.service.CurrentConvID()
 			runtime.EventsEmit(a.ctx, "chat:stream", chat.StreamEvent{
@@ -1597,6 +1663,121 @@ func (a *App) GetModelCapabilities() llm.ModelCapabilities {
 		return llm.ModelCapabilities{TextInput: true}
 	}
 	return a.service.GetModelCapabilities()
+}
+
+// SmartParamsInfo 返回当前模型+硬件的智能参数推荐值和模型元数据
+type SmartParamsInfo struct {
+	Hardware struct {
+		CPUCores  int    `json:"cpu_cores"`
+		HasGPU    bool   `json:"has_gpu"`
+		GPUName   string `json:"gpu_name"`
+		GPUVRAMMB int64  `json:"gpu_vram_mb"`
+	} `json:"hardware"`
+
+	Model struct {
+		Architecture    string `json:"architecture"`
+		BlockCount      int    `json:"block_count"`
+		EmbeddingLength int    `json:"embedding_length"`
+		ContextLength   int    `json:"context_length"`
+		FileSizeMB      int64  `json:"file_size_mb"`
+		ExpertCount     int    `json:"expert_count"`
+		ExpertUsed      int    `json:"expert_used"`
+		HasMTP          bool   `json:"has_mtp"`
+		HasReasoning    bool   `json:"has_reasoning"`
+		NParams         int64  `json:"n_params"`
+		SizeLabel       string `json:"size_label"`
+	} `json:"model"`
+
+	Params struct {
+		GPULayers      int    `json:"gpu_layers"`
+		Threads        int    `json:"threads"`
+		BatchSize      int    `json:"batch_size"`
+		UBatchSize     int    `json:"ubatch_size"`
+		FlashAttn      bool   `json:"flash_attn"`
+		CacheTypeK     string `json:"cache_type_k"`
+		CacheTypeV     string `json:"cache_type_v"`
+		Mlock          bool   `json:"mlock"`
+		MmprojOffload  bool   `json:"mmproj_offload"`
+		ContextSize    int    `json:"context_size"`
+		SpecType       string `json:"spec_type"`
+		SpecDraftNMax  int    `json:"spec_draft_n_max"`
+		SpecDraftNMin  int    `json:"spec_draft_n_min"`
+		NgramModNMin   int    `json:"ngram_mod_n_min"`
+		NgramModNMax   int    `json:"ngram_mod_n_max"`
+		NgramModNMatch int    `json:"ngram_mod_n_match"`
+	} `json:"params"`
+
+	Overrides struct {
+		GPULayers   bool `json:"gpu_layers"`
+		FlashAttn   bool `json:"flash_attn"`
+		Mlock       bool `json:"mlock"`
+		Threads     bool `json:"threads"`
+		BatchSize   bool `json:"batch_size"`
+		ContextSize bool `json:"context_size"`
+		CacheTypeK  bool `json:"cache_type_k"`
+		CacheTypeV  bool `json:"cache_type_v"`
+		SpecType    bool `json:"spec_type"`
+	} `json:"overrides"`
+}
+
+func (a *App) GetSmartParams() *SmartParamsInfo {
+	info := &SmartParamsInfo{}
+
+	// 硬件信息
+	info.Hardware.CPUCores = a.hwInfo.CPUCores
+	info.Hardware.HasGPU = a.hwInfo.HasGPU
+	info.Hardware.GPUName = a.hwInfo.GPUName
+	info.Hardware.GPUVRAMMB = a.hwInfo.GPUVRAMMB
+
+	// 模型元数据
+	modelPath := resolvePath(a.config.ModelPath)
+	if modelPath != "" {
+		if meta, err := system.ParseGGUFMetadataCached(modelPath); err == nil && meta != nil {
+			info.Model.Architecture = meta.Architecture
+			info.Model.BlockCount = meta.BlockCount
+			info.Model.EmbeddingLength = meta.EmbeddingLength
+			info.Model.ContextLength = meta.ContextLength
+			info.Model.FileSizeMB = meta.FileSize / 1024 / 1024
+			info.Model.ExpertCount = meta.ExpertCount
+			info.Model.ExpertUsed = meta.ExpertUsed
+			info.Model.HasMTP = meta.HasMTP
+			info.Model.HasReasoning = meta.HasReasoning
+			info.Model.NParams = meta.NParams
+			info.Model.SizeLabel = meta.SizeLabel
+		}
+	}
+
+	// 智能参数
+	sp := system.CalculateSmartParams(a.hwInfo, modelPath)
+	info.Params.GPULayers = sp.GPULayers
+	info.Params.Threads = sp.Threads
+	info.Params.BatchSize = sp.BatchSize
+	info.Params.UBatchSize = sp.UBatchSize
+	info.Params.FlashAttn = sp.FlashAttn
+	info.Params.CacheTypeK = sp.CacheTypeK
+	info.Params.CacheTypeV = sp.CacheTypeV
+	info.Params.Mlock = sp.Mlock
+	info.Params.MmprojOffload = sp.MmprojOffload
+	info.Params.ContextSize = sp.ContextSize
+	info.Params.SpecType = sp.SpecType
+	info.Params.SpecDraftNMax = sp.SpecDraftNMax
+	info.Params.SpecDraftNMin = sp.SpecDraftNMin
+	info.Params.NgramModNMin = sp.NgramModNMin
+	info.Params.NgramModNMax = sp.NgramModNMax
+	info.Params.NgramModNMatch = sp.NgramModNMatch
+
+	// 用户覆盖状态
+	info.Overrides.GPULayers = a.config.GPULayers > 0
+	info.Overrides.FlashAttn = a.config.FlashAttn != nil
+	info.Overrides.Mlock = a.config.Mlock != nil
+	info.Overrides.Threads = a.config.Threads > 0
+	info.Overrides.BatchSize = a.config.BatchSize > 0
+	info.Overrides.ContextSize = a.config.ContextSize != 0
+	info.Overrides.CacheTypeK = a.config.CacheTypeK != ""
+	info.Overrides.CacheTypeV = a.config.CacheTypeV != ""
+	info.Overrides.SpecType = a.config.SpecType != ""
+
+	return info
 }
 
 func (a *App) generatePresetFile() error {

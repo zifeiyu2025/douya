@@ -65,7 +65,7 @@
             </template>
             <template v-else>
               <ThinkBlock v-if="thinkingContent" :content="thinkingContent" :default-expanded="true" :is-thinking="isThinking" :duration="thinkingDuration" />
-              <div v-if="streamingContent" class="markdown-body" v-html="renderedStreaming" />
+              <div v-if="streamingContent" class="markdown-body streaming" v-html="renderedStreaming" />
               <n-spin v-else-if="!thinkingContent && !isSearching" size="small" />
             </template>
             <SearchStatus v-if="isSearching" :searching="true" :results="''" :query="searchQuery" />
@@ -89,8 +89,9 @@ import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import { renderMarkdownStreaming } from '../utils/markdown'
 import { useMarkdownWorker } from '../composables/useMarkdownWorker'
+import { useScrollToBottom } from '../composables/useScrollToBottom'
 import { formatModelName } from '../utils/model'
-import { bindCodeCopyButtons } from '../utils/codeCopy'
+import { setupCodeCopyDelegation } from '../utils/codeCopy'
 import defaultAiAvatar from '../assets/images/appicon.png'
 
 const chatStore = useChatStore()
@@ -114,7 +115,7 @@ const tips = [
 ]
 
 function handleQuickAction(action: any) {
-  chatStore.sendMessage(action.prompt, settingsStore.searchEnabled)
+  chatStore.sendMessage(action.prompt, settingsStore.searchMode)
 }
 
 const messages = computed(() => chatStore.messages)
@@ -188,59 +189,39 @@ function getSwitchProgressText(): string {
 const { rendered: renderedStreaming, bind: bindMarkdown } = useMarkdownWorker()
 bindMarkdown(() => streamingContent.value)
 
-const messageListRef = ref<HTMLElement | null>(null)
+// 滚动控制：smooth 平滑滚动 + RAF 批处理 + 100ms 节流 + isProgrammaticScroll 防循环
+const {
+    containerRef: messageListRef,
+    isNearBottom,
+    scrollToBottom,
+    watchContentChange,
+    watchMessagesLength,
+    startObserver,
+} = useScrollToBottom()
 
 onMounted(() => {
     const el = messageListRef.value
-    if (el) bindCodeCopyButtons(el)
+    if (el) {
+        // 事件委托：只在容器绑定一次，动态新增按钮自动响应
+        setupCodeCopyDelegation(el)
+    }
+    startObserver()
 })
 
-const scrollToBottom = () => {
-  const el = messageListRef.value
-  if (el) {
-    el.scrollTop = el.scrollHeight
-  }
-}
+// 新消息时滚动到底部
+watchMessagesLength(() => chatStore.messages?.length || 0)
 
-const isNearBottom = () => {
-  const el = messageListRef.value
-  if (!el) return true
-  return el.scrollHeight - el.scrollTop - el.clientHeight < 100
-}
+// 流式内容变化时平滑滚动跟随
+watchContentChange(() => chatStore.streamingContent)
+// 思考内容变化时平滑滚动跟随
+watchContentChange(() => chatStore.thinkingContent)
 
-// 监听消息变化 - 新增消息时总是滚动到底部
-watch(() => chatStore.messages?.length, (newLen, oldLen) => {
-  if (newLen > oldLen) {
-    // 消息数量增加，说明有新消息，总是滚动到底部
-    nextTick(scrollToBottom)
-  } else if (isNearBottom()) {
-    // 其他情况下只有在底部时才滚动
-    nextTick(scrollToBottom)
-  }
-})
-
-// 监听消息内容变化（done 事件更新数据库消息后需要重新滚动）
+// done 事件更新消息后重新滚动
 watch(() => chatStore.messages, () => {
   if (isNearBottom()) {
     nextTick(scrollToBottom)
   }
 }, { deep: false })
-
-watch(() => chatStore.streamingContent, () => {
-  if (isNearBottom()) {
-    nextTick(() => {
-      scrollToBottom()
-      const el = messageListRef.value
-      if (el) bindCodeCopyButtons(el)
-    })
-  }
-})
-
-watch(() => chatStore.thinkingContent, () => {
-  if (isNearBottom()) {
-    nextTick(scrollToBottom)
-  }
-})
 
 watch(() => chatStore.lastError, (err) => {
     if (err) {
@@ -298,6 +279,11 @@ watch(() => chatStore.lastError, (err) => {
 .ai-bubble {
   width: 100%;
   border: 1px solid var(--border-color);
+}
+
+/* 流式内容容器：用 contain 限制重排范围，不用 content-visibility 避免高度突变 */
+.markdown-body.streaming {
+  contain: layout style;
 }
 
 .message-list-empty {
