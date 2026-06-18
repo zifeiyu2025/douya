@@ -17,8 +17,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.ContextSize != 8192 {
 		t.Fatalf("expected ContextSize=8192, got %d", cfg.ContextSize)
 	}
-	if cfg.Temperature != 0.8 {
-		t.Fatalf("expected Temperature=0.8, got %f", cfg.Temperature)
+	if cfg.Temperature != 0.6 {
+		t.Fatalf("expected Temperature=0.6, got %f", cfg.Temperature)
 	}
 	if cfg.TopP != 0.95 {
 		t.Fatalf("expected TopP=0.95, got %f", cfg.TopP)
@@ -82,6 +82,11 @@ func TestSaveAndLoad_Roundtrip(t *testing.T) {
 		TopK:            50,
 		RepeatPenalty:   1.2,
 		SystemPrompt:    "You are a helpful assistant.",
+		SearchMode:      "off",
+		RAGTopK:         3,
+		RAGMinScore:     0.3,
+		RAGChunkSize:    512,
+		RAGChunkOverlap: 64,
 	}
 
 	if err := config.Save(cfgPath, original); err != nil {
@@ -123,7 +128,9 @@ func TestSaveAndLoad_Roundtrip(t *testing.T) {
 }
 
 func TestLoad_FileNotExist(t *testing.T) {
-	cfg, err := config.Load("/nonexistent/path/config.json")
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		t.Fatalf("Load should not return error for missing file, got: %v", err)
 	}
@@ -153,8 +160,8 @@ func TestLoad_InvalidJSON(t *testing.T) {
 func TestDefaultConfig_AllFields(t *testing.T) {
 	cfg := config.DefaultConfig()
 
-	if cfg.ModelPath != "models/Gemma-4-E4B-U-Q4_K_M/Gemma-4-E4B-U-Q4_K_M.gguf" {
-		t.Errorf("expected default ModelPath, got '%s'", cfg.ModelPath)
+	if cfg.ModelPath != "" {
+		t.Errorf("expected default ModelPath='', got '%s'", cfg.ModelPath)
 	}
 	if cfg.LlamaServerPath != "runtime/llama-server.exe" {
 		t.Errorf("expected default LlamaServerPath, got '%s'", cfg.LlamaServerPath)
@@ -237,14 +244,26 @@ func TestSaveAndLoad_Overwrite(t *testing.T) {
 	cfgPath := filepath.Join(tmpDir, "config.json")
 
 	cfg1 := &config.Config{
-		Temperature: 0.5,
-		Port:        8080,
+		Temperature:     0.5,
+		Port:            8080,
+		ContextSize:     8192,
+		SearchMode:      "off",
+		RAGTopK:         3,
+		RAGMinScore:     0.3,
+		RAGChunkSize:    512,
+		RAGChunkOverlap: 64,
 	}
 	config.Save(cfgPath, cfg1)
 
 	cfg2 := &config.Config{
-		Temperature: 0.9,
-		Port:        9090,
+		Temperature:     0.9,
+		Port:            9090,
+		ContextSize:     8192,
+		SearchMode:      "off",
+		RAGTopK:         3,
+		RAGMinScore:     0.3,
+		RAGChunkSize:    512,
+		RAGChunkOverlap: 64,
 	}
 	config.Save(cfgPath, cfg2)
 
@@ -362,6 +381,11 @@ func TestSaveAndLoad_GenerationParams(t *testing.T) {
 		TopK:            20,
 		RepeatPenalty:   1.0,
 		SystemPrompt:    "You are Qwen.",
+		SearchMode:      "off",
+		RAGTopK:         3,
+		RAGMinScore:     0.3,
+		RAGChunkSize:    512,
+		RAGChunkOverlap: 64,
 	}
 
 	if err := config.Save(cfgPath, original); err != nil {
@@ -444,44 +468,64 @@ func TestSaveAndLoad_ModifiedGenerationParams(t *testing.T) {
 
 func TestValidate_GenerationParams(t *testing.T) {
 	cfg := &config.Config{
-		Port:          8080,
-		ContextSize:   4096,
-		Temperature:   0.5,
-		TopP:          0.9,
-		RepeatPenalty: 1.0,
+		Port:            8080,
+		ContextSize:     4096,
+		Temperature:     0.5,
+		TopP:            0.9,
+		RepeatPenalty:   1.0,
+		SearchMode:      "off",
+		RAGTopK:         3,
+		RAGMinScore:     0.3,
+		RAGChunkSize:    512,
+		RAGChunkOverlap: 64,
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("valid config should pass validation, got: %v", err)
 	}
 
 	invalidTemp := &config.Config{
-		Port:          8080,
-		ContextSize:   4096,
-		Temperature:   3.0,
-		TopP:          0.9,
-		RepeatPenalty: 1.0,
+		Port:            8080,
+		ContextSize:     4096,
+		Temperature:     3.0,
+		TopP:            0.9,
+		RepeatPenalty:   1.0,
+		SearchMode:      "off",
+		RAGTopK:         3,
+		RAGMinScore:     0.3,
+		RAGChunkSize:    512,
+		RAGChunkOverlap: 64,
 	}
 	if err := invalidTemp.Validate(); err == nil {
 		t.Error("Temperature=3.0 should fail validation")
 	}
 
 	invalidTopP := &config.Config{
-		Port:          8080,
-		ContextSize:   4096,
-		Temperature:   0.5,
-		TopP:          1.5,
-		RepeatPenalty: 1.0,
+		Port:            8080,
+		ContextSize:     4096,
+		Temperature:     0.5,
+		TopP:            1.5,
+		RepeatPenalty:   1.0,
+		SearchMode:      "off",
+		RAGTopK:         3,
+		RAGMinScore:     0.3,
+		RAGChunkSize:    512,
+		RAGChunkOverlap: 64,
 	}
 	if err := invalidTopP.Validate(); err == nil {
 		t.Error("TopP=1.5 should fail validation")
 	}
 
 	invalidCtx := &config.Config{
-		Port:          8080,
-		ContextSize:   -1,
-		Temperature:   0.5,
-		TopP:          0.9,
-		RepeatPenalty: 1.0,
+		Port:            8080,
+		ContextSize:     -1,
+		Temperature:     0.5,
+		TopP:            0.9,
+		RepeatPenalty:   1.0,
+		SearchMode:      "off",
+		RAGTopK:         3,
+		RAGMinScore:     0.3,
+		RAGChunkSize:    512,
+		RAGChunkOverlap: 64,
 	}
 	if err := invalidCtx.Validate(); err == nil {
 		t.Error("ContextSize=-1 should fail validation")
