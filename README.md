@@ -464,7 +464,7 @@ cd frontend && npm test
 
 - **当前平台**：仅支持 Windows 10 / 11
 - **运行时稳定性**：已优先保证，暂不考虑生态和自动更新
-- **对标项目**：[Ollama](https://ollama.com/) 等本地模型工具
+
 
 ---
 
