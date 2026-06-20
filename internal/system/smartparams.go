@@ -37,6 +37,9 @@ type SmartParams struct {
 	NgramModNMin     int
 	NgramModNMax     int
 	NgramModNMatch   int
+	// 推理模式自动推荐
+	ReasoningMode   string // "on"/"off"/"auto"，检测到推理模型时自动设置为 "auto"
+	ReasoningBudget int    // 推理 token 预算，-1=无限（默认），0=立即结束，N>0=预算
 }
 
 func DetectModelTier(resolvedModelPath string) (ModelTier, *GGUFMetadata) {
@@ -99,6 +102,14 @@ func CalculateSmartParams(hw *HardwareInfo, resolvedModelPath string) *SmartPara
 	p.ContextSize = calculateContextSize(hw, resolvedModelPath)
 	p.BatchSize = calculateBatchSizeFromRatio(hw, meta)
 	p.UBatchSize = p.BatchSize / 2
+
+	// 推理模式自动推荐：检测到推理模型时自动设置 reasoning=auto
+	// 生活类比：就像汽车检测到驾驶员系了安全带就自动启用辅助驾驶一样
+	if meta != nil && meta.HasReasoning {
+		p.ReasoningMode = "auto"
+		p.ReasoningBudget = -1 // 无限（由模型自行决定思考时长）
+		log.Info().Str("reasoning", p.ReasoningMode).Msg("[smart-params] reasoning model detected, auto-setting reasoning=auto")
+	}
 
 	if meta != nil && meta.HasMTP {
 		// 检查 VRAM 是否有足够余量支持 MTP（draft heads 额外消耗显存）

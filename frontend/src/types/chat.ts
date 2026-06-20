@@ -96,7 +96,9 @@ export interface Config {
     user_avatar: string
     ai_avatar: string
     search_mode: string
+    /** @deprecated 已由 reasoning 字段替代，保留向后兼容 */
     thinking_enabled: boolean
+    /** @deprecated 已由 reasoning 字段替代，保留向后兼容 */
     thinking_soft_switch: 'auto' | 'think' | 'no_think'
     sleep_idle_seconds: number
     models_max: number
@@ -155,6 +157,20 @@ export interface Config {
     threads: number
     batch_size: number
     close_action: string
+    // 推理配置（对应后端 Reasoning / ReasoningBudget / ReasoningBudgetMessage / ReasoningFormat）
+    reasoning: 'on' | 'off' | 'auto'
+    reasoning_budget: number
+    reasoning_budget_message: string
+    reasoning_format: string
+    // RAG 重排序配置
+    reranker_model_path: string
+    rerank_top_n: number
+    // KV 缓存持久化配置
+    slot_save_path: string
+    slot_save_enabled: boolean
+    // Draft 模型 GPU 配置
+    spec_draft_ngl: number
+    spec_draft_device: string
 }
 
 export interface SmartParamsInfo {
@@ -292,6 +308,16 @@ export const DEFAULT_CONFIG: Config = {
     threads: 0,
     batch_size: 0,
     close_action: 'ask',
+    reasoning: 'off',
+    reasoning_budget: 0,
+    reasoning_budget_message: '',
+    reasoning_format: '',
+    reranker_model_path: '',
+    rerank_top_n: 5,
+    slot_save_path: '',
+    slot_save_enabled: false,
+    spec_draft_ngl: 0,
+    spec_draft_device: '',
 }
 
 export interface ServerStatus {

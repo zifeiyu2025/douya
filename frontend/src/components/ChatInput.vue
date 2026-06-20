@@ -116,6 +116,23 @@
               <line x1="8" y1="23" x2="16" y2="23"></line>
             </svg>
           </button>
+          <button
+            v-if="settingsStore.config.slot_save_enabled"
+            class="kv-btn kv-save-btn"
+            :disabled="chatStore.isGenerating"
+            @click="handleSaveKV"
+            title="保存 KV 缓存"
+          >
+            <n-icon size="22"><CloudUploadOutline /></n-icon>
+          </button>
+          <button
+            v-if="settingsStore.config.slot_save_enabled"
+            class="kv-btn kv-restore-btn"
+            @click="handleRestoreKV"
+            title="恢复 KV 缓存"
+          >
+            <n-icon size="22"><CloudDownloadOutline /></n-icon>
+          </button>
         </div>
 
         <div class="the-input">
@@ -125,6 +142,7 @@
             placeholder="给DouYa发送消息....."
             @keydown="handleKeydown"
             @paste="handlePaste"
+            @contextmenu="handleContextMenu"
             rows="1"
             class="chat-textarea"
           />
@@ -145,13 +163,33 @@
         </div>
       </div>
     </div>
+    <div v-if="contextMenuVisible" class="ctx-menu" :style="{ left: contextMenuX + 'px', top: contextMenuY + 'px' }" @click.stop>
+      <button class="ctx-menu-item" :class="{ disabled: !canCut }" @click="ctxCut">
+        <n-icon size="14"><CutOutline /></n-icon>
+        <span>剪切</span>
+      </button>
+      <button class="ctx-menu-item" :class="{ disabled: !canCopy }" @click="ctxCopy">
+        <n-icon size="14"><CopyOutline /></n-icon>
+        <span>复制</span>
+      </button>
+      <button class="ctx-menu-item" @click="ctxPaste">
+        <n-icon size="14"><ClipboardOutline /></n-icon>
+        <span>粘贴</span>
+      </button>
+      <div class="ctx-menu-divider"></div>
+      <button class="ctx-menu-item" @click="ctxSelectAll">
+        <n-icon size="14"><TextOutline /></n-icon>
+        <span>全选</span>
+      </button>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { NIcon, useMessage } from 'naive-ui'
-import { GlobeOutline, AttachOutline, BulbOutline } from '@vicons/ionicons5'
+import { GlobeOutline, AttachOutline, BulbOutline, CloudUploadOutline, CloudDownloadOutline } from '@vicons/ionicons5'
+import { CutOutline, CopyOutline, ClipboardOutline, TextOutline } from '@vicons/ionicons5'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import { wails } from '../services/wails'
@@ -279,6 +317,29 @@ async function handleThinkClick() {
     }
 }
 
+async function handleSaveKV() {
+    if (chatStore.isGenerating) return
+    try {
+        await wails.saveSlot(0)
+        message.destroyAll()
+        message.success('KV 缓存已保存', { duration: 2000 })
+    } catch (e) {
+        message.destroyAll()
+        message.error(`保存 KV 缓存失败: ${e}`, { duration: 3000 })
+    }
+}
+
+async function handleRestoreKV() {
+    try {
+        await wails.restoreSlot(0)
+        message.destroyAll()
+        message.success('KV 缓存已恢复', { duration: 2000 })
+    } catch (e) {
+        message.destroyAll()
+        message.error(`恢复 KV 缓存失败: ${e}`, { duration: 3000 })
+    }
+}
+
 function adjustHeight() {
   if (textareaRef.value) {
     textareaRef.value.style.height = 'auto'
@@ -295,6 +356,97 @@ function handleKeydown(e: KeyboardEvent) {
     e.preventDefault()
     handleSend()
   }
+}
+
+const contextMenuVisible = ref(false)
+const contextMenuX = ref(0)
+const contextMenuY = ref(0)
+const canCut = ref(false)
+const canCopy = ref(false)
+
+function handleContextMenu(e: MouseEvent) {
+  e.preventDefault()
+  const ta = textareaRef.value
+  if (!ta) return
+  // 检查是否有选中文本
+  const start = ta.selectionStart
+  const end = ta.selectionEnd
+  canCut.value = start !== end
+  canCopy.value = start !== end
+  // 边界检测：确保菜单不超出视窗
+  const menuWidth = 160
+  const menuHeight = 180
+  let x = e.clientX
+  let y = e.clientY
+  if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 4
+  if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 4
+  contextMenuX.value = x
+  contextMenuY.value = y
+  contextMenuVisible.value = true
+}
+
+function closeContextMenu() {
+  contextMenuVisible.value = false
+}
+
+function ctxCut() {
+  if (!canCut.value) return
+  document.execCommand('cut')
+  closeContextMenu()
+}
+
+function ctxCopy() {
+  if (!canCopy.value) return
+  document.execCommand('copy')
+  closeContextMenu()
+}
+
+async function ctxPaste() {
+  closeContextMenu()
+  try {
+    // 优先尝试读取剪贴板文件
+    const clipboardItems = await navigator.clipboard.read()
+    for (const item of clipboardItems) {
+      for (const type of item.types) {
+        if (type.startsWith('image/') || type.startsWith('audio/') || type.startsWith('video/') || type === 'application/pdf') {
+          const blob = await item.getType(type)
+          const file = new File([blob], `pasted-${Date.now()}.${type.split('/')[1]}`, { type })
+          // 模拟 paste 事件处理
+          const fakeEvent = {
+            clipboardData: { items: [{ kind: 'file', type, getAsFile: () => file }] },
+            preventDefault: () => {}
+          } as unknown as ClipboardEvent
+          handlePaste(fakeEvent)
+          return
+        }
+      }
+    }
+    // 没有文件，读取文本
+    const text = await navigator.clipboard.readText()
+    if (text) {
+      const ta = textareaRef.value
+      if (ta) {
+        const start = ta.selectionStart
+        const end = ta.selectionEnd
+        inputText.value = inputText.value.slice(0, start) + text + inputText.value.slice(end)
+        nextTick(() => {
+          ta.selectionStart = ta.selectionEnd = start + text.length
+          ta.focus()
+        })
+      }
+    }
+  } catch {
+    message.warning('粘贴失败，请使用 Ctrl+V')
+  }
+}
+
+function ctxSelectAll() {
+  const ta = textareaRef.value
+  if (ta) {
+    ta.select()
+    ta.focus()
+  }
+  closeContextMenu()
 }
 
 function handlePaste(e: ClipboardEvent) {
@@ -736,6 +888,8 @@ function handleClickOutside(e: MouseEvent) {
 
 onMounted(() => {
   document.addEventListener('click', handleClickOutside)
+  document.addEventListener('click', closeContextMenu)
+  document.addEventListener('contextmenu', closeContextMenu, true)
   if (speechSupported.value) {
     initSpeechRecognition()
   }
@@ -743,6 +897,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
+  document.removeEventListener('click', closeContextMenu)
+  document.removeEventListener('contextmenu', closeContextMenu, true)
   if (recognition) {
     isListening.value = false
     recognition.abort()
@@ -966,7 +1122,7 @@ onUnmounted(() => {
   gap: 4px;
 }
 
-.search-btn, .think-btn, .attach-btn, .voice-btn {
+.search-btn, .think-btn, .attach-btn, .voice-btn, .kv-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -985,9 +1141,22 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 
-.search-btn:hover, .think-btn:hover, .attach-btn:hover:not(:disabled), .voice-btn:hover {
+.search-btn:hover, .think-btn:hover, .attach-btn:hover:not(:disabled), .voice-btn:hover, .kv-btn:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+.kv-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.kv-save-btn:hover:not(:disabled) {
+  color: var(--accent-primary);
+}
+
+.kv-restore-btn:hover:not(:disabled) {
+  color: var(--accent-warning);
 }
 
 .search-btn.active {
@@ -1075,6 +1244,52 @@ onUnmounted(() => {
 
 .attach-wrapper {
   position: relative;
+}
+
+.ctx-menu {
+  position: fixed;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 6px 0;
+  min-width: 140px;
+  z-index: 1000;
+  animation: ctxMenuIn 0.12s ease;
+}
+
+@keyframes ctxMenuIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.ctx-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: background 0.15s;
+}
+
+.ctx-menu-item:hover:not(.disabled) {
+  background: var(--bg-hover);
+}
+
+.ctx-menu-item.disabled {
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+}
+
+.ctx-menu-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 4px 0;
 }
 
 .attach-menu {

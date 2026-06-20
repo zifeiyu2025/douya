@@ -93,6 +93,12 @@ type ServerConfig struct {
 	BatchSize            int
 	UBatchSize           int
 	ContextSize          int
+	// KV 缓存持久化
+	SlotSavePath    string // 启用后传递 --slot-save-path
+	SlotSaveEnabled bool
+	// Draft 模型 GPU 配置（Eagle3 等场景）
+	SpecDraftNgl    int    // draft 模型 GPU 层数
+	SpecDraftDevice string // draft 模型设备（如 "cuda:0"）
 }
 
 type Server struct {
@@ -353,6 +359,19 @@ func (s *Server) Start() error {
 	}
 	if s.config.SimpleIO {
 		args = append(args, "--simple-io")
+	}
+
+	// KV 缓存持久化：启用后传递 --slot-save-path
+	if s.config.SlotSaveEnabled && s.config.SlotSavePath != "" {
+		args = append(args, "--slot-save-path", s.config.SlotSavePath)
+	}
+
+	// Draft 模型 GPU 配置（Eagle3 等场景）
+	if s.config.SpecDraftNgl > 0 && !s.mtpFallbackDisabled {
+		args = append(args, "--spec-draft-ngl", fmt.Sprintf("%d", s.config.SpecDraftNgl))
+	}
+	if s.config.SpecDraftDevice != "" && !s.mtpFallbackDisabled {
+		args = append(args, "--spec-draft-device", s.config.SpecDraftDevice)
 	}
 
 	s.cmd = exec.Command(s.config.ServerPath, args...)

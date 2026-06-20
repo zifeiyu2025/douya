@@ -146,6 +146,22 @@
           <n-input v-model:value="formConfig.system_prompt" type="textarea" placeholder="自定义提示词将追加在豆芽默认提示词后面，用于补充角色设定和行为指令..." :autosize="{ minRows: 6, maxRows: 20 }" class="rounded-textarea" style="width: 100%;" />
         </n-form-item>
 
+        <n-divider>推理配置</n-divider>
+        <n-form-item>
+          <template #label>推理模式 <HelpTip content="控制模型的推理（思考）行为。on=始终开启推理，off=关闭推理，auto=由模型自行决定是否推理" /></template>
+          <n-select v-model:value="formConfig.reasoning" :options="reasoningOptions" :disabled="!supportsReasoning" />
+        </n-form-item>
+        <n-text v-if="!supportsReasoning" depth="3" style="font-size: 12px; margin-top: -12px; display: block; margin-bottom: 8px;">
+          当前模型不支持推理
+        </n-text>
+        <n-form-item>
+          <template #label>推理预算 <HelpTip content="限制推理（思考）过程的 token 数量。-1=无限（由模型自行决定），0=立即结束推理，N>0=限制为 N 个 token" /></template>
+          <n-input-number v-model:value="formConfig.reasoning_budget" :min="-1" :step="1" placeholder="-1" style="width: 100%" :disabled="!supportsReasoning" />
+        </n-form-item>
+        <n-form-item v-if="formConfig.reasoning_budget > 0" label="预算耗尽消息">
+          <n-input v-model:value="formConfig.reasoning_budget_message" placeholder="推理预算耗尽时显示给用户的消息（留空使用默认提示）" @blur="autoSave" :disabled="!supportsReasoning" />
+        </n-form-item>
+
         <n-divider>生成参数</n-divider>
 
         <div v-if="currentModelRef" class="model-ref-card">
@@ -252,15 +268,46 @@
           <template #label>上下文移位 <HelpTip content="当对话超出上下文长度时，自动移除最早的内容腾出空间，而非直接报错。开启可支持更长的连续对话" /></template>
           <n-switch v-model:value="formConfig.context_shift" />
         </n-form-item>
+        <n-form-item label="GPU 设备">
+          <n-input v-model:value="formConfig.device" placeholder="留空自动选择，多卡如 0,1" />
+        </n-form-item>
+        <n-form-item label="并发槽位数">
+          <n-input-number v-model:value="formConfig.parallel" :min="0" placeholder="0 = 自动" style="width: 100%" />
+        </n-form-item>
+
+        <div class="gen-params-save-row">
+          <span class="gen-params-status" v-if="genParamsDirty">设置已修改，自动保存中...</span>
+          <span class="gen-params-status saved" v-else-if="formConfig.context_size > 0">✓ 已保存</span>
+        </div>
+
+        <n-divider>推测解码</n-divider>
         <n-form-item>
-          <template #label>推测解码 <HelpTip content="加速推理的推测解码技术。draft-mtp 需要模型内置 MTP 头（如 Qwen3.6-UD），draft-eagle3 需要 Eagle3 草稿模型，ngram 类型对所有模型可用。自动模式下检测到 MTP 头会自动启用 draft-mtp，否则启用 ngram-mod" /></template>
+          <template #label>推测类型 <HelpTip content="加速推理的推测解码技术。draft-mtp 需要模型内置 MTP 头（如 Qwen3.6-UD），draft-eagle3 需要 Eagle3 草稿模型，ngram 类型对所有模型可用。自动模式下检测到 MTP 头会自动启用 draft-mtp，否则启用 ngram-mod" /></template>
           <n-select v-model:value="formConfig.spec_type" :options="specTypeOptions" placeholder="自动检测" clearable />
         </n-form-item>
         <n-text v-if="!settingsStore.modelCapabilities.has_mtp" depth="3" style="font-size: 12px; margin-top: -12px; display: block; margin-bottom: 8px;">
           当前模型不支持 MTP，draft-mtp 选项已隐藏
         </n-text>
-        <n-form-item v-if="formConfig.spec_type === 'draft-mtp' || formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-simple'" label="推测预测数">
+        <template v-if="formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-simple'">
+          <n-text v-if="!formConfig.spec_draft_model" type="warning" style="font-size: 12px; display: block; margin-bottom: 8px;">
+            未配置 Draft 模型路径，推测解码将无法工作
+          </n-text>
+          <n-form-item label="Draft 模型路径">
+            <n-input v-model:value="formConfig.spec_draft_model" placeholder="Eagle3/Draft 草稿模型文件路径" @blur="autoSave" />
+          </n-form-item>
+          <n-form-item>
+            <template #label>Draft GPU 层数 <HelpTip content="草稿模型加载到 GPU 的层数。0=全部用 CPU，100=全部用 GPU。建议与主模型一致以保证加速效果" /></template>
+            <n-input-number v-model:value="formConfig.spec_draft_ngl" :min="0" :max="100" :step="1" placeholder="0" style="width: 100%" />
+          </n-form-item>
+          <n-form-item label="Draft 设备">
+            <n-input v-model:value="formConfig.spec_draft_device" placeholder="留空自动选择，如 cuda:0" @blur="autoSave" />
+          </n-form-item>
+        </template>
+        <n-form-item v-if="formConfig.spec_type === 'draft-mtp' || formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-simple'" label="最大 Draft Token 数">
           <n-input-number v-model:value="formConfig.spec_draft_n_max" :min="1" :max="4" :step="1" placeholder="3" @blur="autoSave" />
+        </n-form-item>
+        <n-form-item v-if="formConfig.spec_type === 'draft-mtp' || formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-simple'" label="最小 Draft Token 数">
+          <n-input-number v-model:value="formConfig.spec_draft_n_min" :min="0" :max="4" :step="1" placeholder="0" @blur="autoSave" />
         </n-form-item>
         <template v-if="formConfig.spec_type === 'ngram-mod'">
           <n-form-item label="N-Min">
@@ -314,22 +361,25 @@
             <n-input v-model:value="formConfig.lookup_cache_dynamic" placeholder="lookup-cache-dynamic 文件路径" @blur="autoSave" />
           </n-form-item>
         </template>
-        <template v-if="formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-simple'">
-          <n-form-item label="草稿模型路径">
-            <n-input v-model:value="formConfig.spec_draft_model" placeholder="Eagle3/Draft 草稿模型文件路径" @blur="autoSave" />
-          </n-form-item>
-        </template>
-        <n-form-item label="GPU 设备">
-          <n-input v-model:value="formConfig.device" placeholder="留空自动选择，多卡如 0,1" />
+
+        <n-divider>RAG 重排序配置</n-divider>
+        <n-form-item>
+          <template #label>Reranker 模型 <HelpTip content="RAG 检索结果重排序使用的模型路径（.gguf 文件）。留空则不启用重排序，使用向量检索的原始排序" /></template>
+          <n-input v-model:value="formConfig.reranker_model_path" placeholder="Reranker 模型文件路径（如 models/bge-reranker-v2-m3.gguf）" @blur="autoSave" />
         </n-form-item>
-        <n-form-item label="并发槽位数">
-          <n-input-number v-model:value="formConfig.parallel" :min="0" placeholder="0 = 自动" style="width: 100%" />
+        <n-form-item>
+          <template #label>重排序 Top N <HelpTip content="重排序后保留的文档数量。值越大召回越全但耗时越长，建议 3-5" /></template>
+          <n-input-number v-model:value="formConfig.rerank_top_n" :min="1" :max="20" :step="1" placeholder="5" style="width: 100%" />
         </n-form-item>
 
-        <div class="gen-params-save-row">
-          <span class="gen-params-status" v-if="genParamsDirty">设置已修改，自动保存中...</span>
-          <span class="gen-params-status saved" v-else-if="formConfig.context_size > 0">✓ 已保存</span>
-        </div>
+        <n-divider>KV 缓存持久化</n-divider>
+        <n-form-item>
+          <template #label>启用 KV 缓存持久化 <HelpTip content="开启后将对话的 KV 缓存保存到磁盘，下次加载相同上下文时可跳过预填充，加快首 token 响应速度" /></template>
+          <n-switch v-model:value="formConfig.slot_save_enabled" />
+        </n-form-item>
+        <n-form-item v-if="formConfig.slot_save_enabled" label="缓存保存路径">
+          <n-input v-model:value="formConfig.slot_save_path" placeholder="留空则使用默认路径（appDir/slots/）" @blur="autoSave" />
+        </n-form-item>
       </n-form>
     </div>
   </div>
@@ -366,6 +416,9 @@ const message = useMessage()
 const saving = ref(false)
 const genParamsDirty = ref(false)
 let genParamsSaveTimer: ReturnType<typeof setTimeout> | null = null
+
+// GPU 检测结果：默认 true（显示全部选项），onMounted 时通过 getSmartParams 更新
+const hasGPUInfo = ref(true)
 
 const contextSizeSteps = [2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144]
 const contextSizeMarks: Record<number, string> = {
@@ -414,30 +467,49 @@ function applyContextSizeRef() {
   formConfig.value.context_size = contextSizeSteps[idx]
 }
 
-const cacheTypeKOptions = [
-  { label: '自动', value: '' },
-  { label: 'f32 (32bit)', value: 'f32' },
-  { label: 'f16 (16bit)', value: 'f16' },
-  { label: 'bf16 (16bit)', value: 'bf16' },
-  { label: 'q8_0 (8bit)', value: 'q8_0' },
-  { label: 'q5_1 (5bit)', value: 'q5_1' },
-  { label: 'q5_0 (5bit)', value: 'q5_0' },
-  { label: 'q4_1 (4bit)', value: 'q4_1' },
-  { label: 'q4_0 (4bit)', value: 'q4_0' },
-  { label: 'iq4_nl (4bit)', value: 'iq4_nl' },
-]
+const cacheTypeKOptions = computed(() => {
+  const hasGPU = hasGPUInfo.value
+  const baseOptions = [
+    { label: '自动', value: '' },
+    { label: 'f32 (32bit)', value: 'f32' },
+    { label: 'f16 (16bit)', value: 'f16' },
+    { label: 'q8_0 (8bit)', value: 'q8_0' },
+    { label: 'q5_1 (5bit)', value: 'q5_1' },
+    { label: 'q5_0 (5bit)', value: 'q5_0' },
+    { label: 'q4_1 (4bit)', value: 'q4_1' },
+    { label: 'q4_0 (4bit)', value: 'q4_0' },
+  ]
+  if (hasGPU) {
+    // GPU 模式：在 f16 后插入 bf16，在 q4_0 后追加 iq4_nl
+    baseOptions.splice(3, 0, { label: 'bf16 (16bit)', value: 'bf16' })
+    baseOptions.push({ label: 'iq4_nl (4bit)', value: 'iq4_nl' })
+  }
+  return baseOptions
+})
 
-const cacheTypeVOptions = [
-  { label: '自动', value: '' },
-  { label: 'f32 (32bit)', value: 'f32' },
-  { label: 'f16 (16bit)', value: 'f16' },
-  { label: 'bf16 (16bit)', value: 'bf16' },
-  { label: 'q8_0 (8bit)', value: 'q8_0' },
-  { label: 'q5_1 (5bit)', value: 'q5_1' },
-  { label: 'q5_0 (5bit)', value: 'q5_0' },
-  { label: 'q4_1 (4bit)', value: 'q4_1' },
-  { label: 'q4_0 (4bit)', value: 'q4_0' },
-  { label: 'iq4_nl (4bit)', value: 'iq4_nl' },
+const cacheTypeVOptions = computed(() => {
+  const hasGPU = hasGPUInfo.value
+  const baseOptions = [
+    { label: '自动', value: '' },
+    { label: 'f32 (32bit)', value: 'f32' },
+    { label: 'f16 (16bit)', value: 'f16' },
+    { label: 'q8_0 (8bit)', value: 'q8_0' },
+    { label: 'q5_1 (5bit)', value: 'q5_1' },
+    { label: 'q5_0 (5bit)', value: 'q5_0' },
+    { label: 'q4_1 (4bit)', value: 'q4_1' },
+    { label: 'q4_0 (4bit)', value: 'q4_0' },
+  ]
+  if (hasGPU) {
+    baseOptions.splice(3, 0, { label: 'bf16 (16bit)', value: 'bf16' })
+    baseOptions.push({ label: 'iq4_nl (4bit)', value: 'iq4_nl' })
+  }
+  return baseOptions
+})
+
+const reasoningOptions = [
+  { label: '开启', value: 'on' },
+  { label: '关闭', value: 'off' },
+  { label: '自动', value: 'auto' },
 ]
 
 const specTypeOptions = computed(() => {
@@ -461,6 +533,8 @@ const specTypeOptions = computed(() => {
   )
   return options
 })
+
+const supportsReasoning = computed(() => settingsStore.modelCapabilities.reasoning)
 
 const formConfig = ref<Config>({
   model_path: '',
@@ -546,6 +620,20 @@ const formConfig = ref<Config>({
   threads: 0,
   batch_size: 0,
   close_action: 'ask',
+  // 推理配置
+  reasoning: 'off',
+  reasoning_budget: 0,
+  reasoning_budget_message: '',
+  reasoning_format: '',
+  // RAG 重排序配置
+  reranker_model_path: '',
+  rerank_top_n: 5,
+  // KV 缓存持久化配置
+  slot_save_path: '',
+  slot_save_enabled: false,
+  // Draft 模型 GPU 配置
+  spec_draft_ngl: 0,
+  spec_draft_device: '',
 })
 
 const backgroundImageUrl = computed(() => {
@@ -714,6 +802,13 @@ onMounted(async () => {
   await settingsStore.loadSearchAPIKeys()
   searchKeys.value = { ...settingsStore.searchAPIKeys }
   hasServerApiKey.value = await settingsStore.hasServerAPIKey()
+  // 获取硬件信息以判断是否有 GPU（影响 KV cache 类型可选项）
+  try {
+    const smartParams = await wails.getSmartParams()
+    hasGPUInfo.value = smartParams.hardware.has_gpu
+  } catch {
+    // 获取失败时保持默认值（true），显示全部选项
+  }
 })
 
 watch(() => settingsStore.currentModel, async () => {
@@ -727,6 +822,25 @@ watch(() => settingsStore.currentModel, async () => {
     // 如果当前 spec_type 为 draft-mtp 但模型不支持 MTP，自动重置为空（自动检测）
     if (formConfig.value.spec_type === 'draft-mtp' && !settingsStore.modelCapabilities.has_mtp) {
       formConfig.value.spec_type = ''
+    }
+    // 非推理模型：自动重置 reasoning 为 off
+    if (!settingsStore.modelCapabilities.reasoning && formConfig.value.reasoning !== 'off') {
+      formConfig.value.reasoning = 'off'
+      formConfig.value.reasoning_budget = -1
+    }
+  }
+})
+
+// GPU 状态变化时，自动重置不兼容的 KV cache 类型选中值（bf16/iq4_nl 仅 GPU 可用）
+watch(hasGPUInfo, (hasGPU) => {
+  if (!hasGPU) {
+    const kVal = formConfig.value.cache_type_k
+    const vVal = formConfig.value.cache_type_v
+    if (kVal === 'bf16' || kVal === 'iq4_nl') {
+      formConfig.value.cache_type_k = ''
+    }
+    if (vVal === 'bf16' || vVal === 'iq4_nl') {
+      formConfig.value.cache_type_v = ''
     }
   }
 })
@@ -753,6 +867,14 @@ const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'ctx_checkpoints', 'checkpoint_min_step', 'tools', 'prefill_assistant',
   'slot_prompt_similarity', 'skip_chat_parsing', 'api_prefix', 'simple_io',
   'gpu_layers', 'flash_attn', 'mlock', 'threads', 'batch_size',
+  // 推理配置
+  'reasoning', 'reasoning_budget', 'reasoning_budget_message', 'reasoning_format',
+  // RAG 重排序配置
+  'reranker_model_path', 'rerank_top_n',
+  // KV 缓存持久化配置
+  'slot_save_path', 'slot_save_enabled',
+  // Draft 模型 GPU 配置
+  'spec_draft_ngl', 'spec_draft_device',
 ]
 
 watch(
@@ -828,10 +950,46 @@ onUnmounted(() => {
 .settings-content {
   flex: 1;
   overflow-y: auto;
-  padding: 20px;
+  padding: 20px 20px 80px;
   max-width: 640px;
   width: 100%;
   margin: 0 auto;
+  /* 自定义滚动条，避免占用内容空间 */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
+}
+
+/* WebKit 滚动条优化 */
+.settings-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.settings-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.settings-content::-webkit-scrollbar-thumb {
+  background-color: var(--border-color);
+  border-radius: 3px;
+}
+
+.settings-content::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-tertiary, rgba(0, 0, 0, 0.3));
+}
+
+/* 分隔线间距优化，避免配置区域过于拥挤 */
+.settings-content :deep(.n-divider) {
+  margin-top: 24px;
+  margin-bottom: 16px;
+}
+
+.settings-content :deep(.n-divider:first-child) {
+  margin-top: 0;
+}
+
+/* 表单项间距优化 */
+.settings-content :deep(.n-form-item) {
+  margin-bottom: 16px;
 }
 
 .upload-wrapper {

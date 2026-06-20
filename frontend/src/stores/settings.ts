@@ -46,8 +46,13 @@ export const useSettingsStore = defineStore('settings', () => {
     // ----- 基础配置 -----
     const config = ref<Config>({ ...DEFAULT_CONFIG })
     const searchMode = ref<'off' | 'auto' | 'on'>('off')
-    const thinkingEnabled = ref(true)
-    const thinkingSoftSwitch = ref<'auto' | 'think' | 'no_think'>('auto')
+    const thinkingEnabled = computed(() => config.value?.reasoning !== 'off')
+    const thinkingSoftSwitch = computed<'auto' | 'think' | 'no_think'>(() => {
+        const r = config.value?.reasoning
+        if (r === 'on') return 'think'
+        if (r === 'off') return 'no_think'
+        return 'auto'
+    })
     const searchAPIKeys = ref<SearchAPIKeys>({
         ollama_api_key: '',
         tavily_api_key: '',
@@ -280,17 +285,20 @@ export const useSettingsStore = defineStore('settings', () => {
         }
     })
 
+    // 监听模型能力变化，仅当用户未手动设置 reasoning 时自动选择最优值
+    watch(modelCapabilities, (newCaps) => {
+        if (!config.value) return
+        if (!config.value.reasoning && newCaps.reasoning) {
+            config.value.reasoning = 'auto'
+        }
+    }, { deep: true })
+
     // ----- 业务函数 -----
 
     async function loadConfig() {
         try {
             config.value = await wails.getConfig()
             searchMode.value = (config.value.search_mode as 'off' | 'auto' | 'on') ?? 'off'
-            thinkingEnabled.value = config.value.thinking_enabled ?? true
-            thinkingSoftSwitch.value = config.value.thinking_soft_switch || 'auto'
-            if (!config.value.thinking_enabled && thinkingSoftSwitch.value === 'auto') {
-                thinkingSoftSwitch.value = 'no_think'
-            }
         } catch (e) {
             console.error('加载配置失败:', e)
         }
@@ -408,24 +416,19 @@ export const useSettingsStore = defineStore('settings', () => {
     }
 
     async function cycleThinkingMode() {
-        const next: Record<string, 'auto' | 'think' | 'no_think'> = {
-            'auto': 'think',
-            'think': 'no_think',
-            'no_think': 'auto',
+        const next: Record<string, 'auto' | 'on' | 'off'> = {
+            'auto': 'on',
+            'on': 'off',
+            'off': 'auto',
         }
-        const oldValue = thinkingSoftSwitch.value
+        const oldValue = config.value?.reasoning ?? 'off'
         const nextMode = next[oldValue] || 'auto'
-        thinkingSoftSwitch.value = nextMode
-        thinkingEnabled.value = nextMode !== 'no_think'
         try {
             const fullConfig = await wails.getConfig()
-            fullConfig.thinking_enabled = thinkingEnabled.value
-            fullConfig.thinking_soft_switch = nextMode
+            fullConfig.reasoning = nextMode
             await wails.updateConfig(fullConfig)
             config.value = fullConfig
         } catch (e) {
-            thinkingSoftSwitch.value = oldValue
-            thinkingEnabled.value = oldValue !== 'no_think'
             console.error('保存思考设置失败:', e)
         }
     }

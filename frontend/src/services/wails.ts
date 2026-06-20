@@ -42,6 +42,10 @@ import {
     HandleCloseRequest,
     SetCloseAction,
     GracefulExit,
+    StopThinking,
+    RerankEnabled,
+    SaveSlot,
+    RestoreSlot,
 } from '../../wailsjs/go/main/App'
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
 import { chat as ChatModel } from '../../wailsjs/go/models'
@@ -172,6 +176,18 @@ export const wails = {
     },
     gracefulExit: async (): Promise<void> => {
         await GracefulExit()
+    },
+    stopThinking: async (): Promise<void> => {
+        await StopThinking()
+    },
+    rerankEnabled: async (): Promise<boolean> => {
+        return await RerankEnabled()
+    },
+    saveSlot: async (slotID: number): Promise<void> => {
+        await SaveSlot(slotID)
+    },
+    restoreSlot: async (slotID: number): Promise<void> => {
+        await RestoreSlot(slotID)
     },
     getServerStatus: async (): Promise<ServerStatus> => {
         return (await GetServerStatus()) as ServerStatus

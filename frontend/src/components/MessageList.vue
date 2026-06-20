@@ -65,6 +65,16 @@
             </template>
             <template v-else>
               <ThinkBlock v-if="thinkingContent" :content="thinkingContent" :default-expanded="true" :is-thinking="isThinking" :duration="thinkingDuration" />
+              <div v-if="canStopThinking" class="stop-thinking-wrapper">
+                <n-button
+                  type="warning"
+                  size="small"
+                  :loading="isStoppingThinking"
+                  @click="handleStopThinking"
+                >
+                  停止思考
+                </n-button>
+              </div>
               <div v-if="streamingContent" class="markdown-body streaming" v-html="renderedStreaming" />
               <n-spin v-else-if="!thinkingContent && !isSearching" size="small" />
             </template>
@@ -93,13 +103,14 @@
 
 <script setup lang="ts">
 import { computed, watch, ref, nextTick, onMounted, onUnmounted } from 'vue'
-import { NSpin, useMessage } from 'naive-ui'
+import { NButton, NSpin, useMessage } from 'naive-ui'
 import MessageItem from './MessageItem.vue'
 import ThinkBlock from './ThinkBlock.vue'
 import SearchStatus from './SearchStatus.vue'
 import ContextTrimmed from './ContextTrimmed.vue'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
+import { wails } from '../services/wails'
 import { renderMarkdownStreaming } from '../utils/markdown'
 import { useMarkdownWorker } from '../composables/useMarkdownWorker'
 import { useScrollToBottom } from '../composables/useScrollToBottom'
@@ -151,6 +162,34 @@ const renderedThinkingAsContent = computed(() => {
   if (!thinkingAsContent.value || !thinkingContent.value) return ''
   return renderMarkdownStreaming(thinkingContent.value)
 })
+
+// ===== 停止思考功能 =====
+// isThinking 由 chat store 自动管理：
+//   - 流式开始时 clearConvState 重置为 false
+//   - 检测到思考内容（<think> / reasoning_content）时 handleThinking 设为 true
+//   - 收到正文 token（思考结束）时 handleToken 设为 false
+// 这里只补充"发送停止请求"的本地状态与按钮显隐判断
+const isStoppingThinking = ref(false)
+
+// 仅当模型支持推理（capabilities.reasoning）且当前正在思考时，才显示"停止思考"按钮
+const canStopThinking = computed(() =>
+  isThinking.value && settingsStore.modelCapabilities.reasoning
+)
+
+// 点击"停止思考"：调用后端 StopThinking，成功后 isThinking 会被 store 自动置 false，按钮随之隐藏
+async function handleStopThinking() {
+  if (isStoppingThinking.value) return
+  isStoppingThinking.value = true
+  try {
+    await wails.stopThinking()
+    // 成功后由 store 在收到后续正文 token 时将 isThinking 置 false，按钮自动隐藏
+  } catch (e) {
+    message.error('停止思考请求失败，请重试')
+    console.error('停止思考失败:', e)
+  } finally {
+    isStoppingThinking.value = false
+  }
+}
 
 const isSwitching = computed(() => settingsStore.isModelSwitching)
 const switchingToModel = computed(() => {
@@ -298,6 +337,13 @@ watch(() => chatStore.lastError, (err) => {
 /* 流式内容容器：用 contain 限制重排范围，不用 content-visibility 避免高度突变 */
 .markdown-body.streaming {
   contain: layout style;
+}
+
+/* 停止思考按钮容器：紧贴思考块下方，左对齐 */
+.stop-thinking-wrapper {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-start;
 }
 
 .message-list-empty {

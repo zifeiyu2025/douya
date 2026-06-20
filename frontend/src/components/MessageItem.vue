@@ -9,7 +9,16 @@
            class="default-avatar" />
     </div>
     <div class="message-bubble-wrapper">
-      <div class="message-bubble" :class="isUser ? 'user-bubble' : 'ai-bubble'" ref="rootRef">
+      <button
+        v-if="selectionBtnVisible"
+        class="selection-copy-btn"
+        :style="{ left: selectionBtnX + 'px', top: selectionBtnY + 'px' }"
+        @mousedown.prevent="handleCopySelection"
+      >
+        <AppIcon name="copy" :size="12" />
+        <span>复制</span>
+      </button>
+      <div class="message-bubble" :class="isUser ? 'user-bubble' : 'ai-bubble'" ref="rootRef" @mouseup="handleMouseUp">
         <template v-if="isUser">
           <div v-if="parsedImages.length > 0" class="message-images">
             <img v-for="(src, idx) in parsedImages" :key="idx" :src="src" class="message-image" @click="previewImage(src)" />
@@ -146,6 +155,8 @@ onMounted(() => {
     if (el) {
         bindCodeCopyButtons(el)
     }
+    document.addEventListener('mousedown', handleDocumentMouseDown)
+    document.addEventListener('scroll', hideSelectionBtn, true)
 })
 
 watch(renderedContent, async () => {
@@ -187,6 +198,87 @@ async function copyContent() {
   }
 }
 
+const selectionBtnVisible = ref(false)
+const selectionBtnX = ref(0)
+const selectionBtnY = ref(0)
+
+function handleMouseUp() {
+  if (isUser.value) {
+    selectionBtnVisible.value = false
+    return
+  }
+  if (chatStore.isGenerating) {
+    selectionBtnVisible.value = false
+    return
+  }
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0) {
+    selectionBtnVisible.value = false
+    return
+  }
+  const text = sel.toString().trim()
+  if (!text) {
+    selectionBtnVisible.value = false
+    return
+  }
+  const range = sel.getRangeAt(0)
+  const bubbleEl = rootRef.value
+  if (!bubbleEl || !bubbleEl.contains(range.commonAncestorContainer)) {
+    selectionBtnVisible.value = false
+    return
+  }
+  const rect = range.getBoundingClientRect()
+  const btnWidth = 70
+  const btnHeight = 32
+  let x = rect.left + rect.width / 2 - btnWidth / 2
+  let y = rect.top - btnHeight - 6
+  if (x < 4) x = 4
+  if (x + btnWidth > window.innerWidth - 4) x = window.innerWidth - btnWidth - 4
+  if (y < 4) y = rect.bottom + 6
+  selectionBtnX.value = x
+  selectionBtnY.value = y
+  selectionBtnVisible.value = true
+}
+
+async function handleCopySelection() {
+  const sel = window.getSelection()
+  if (!sel) return
+  const text = sel.toString()
+  if (!text) {
+    selectionBtnVisible.value = false
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(text)
+    messageApi.success('已复制')
+  } catch {
+    try {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+      messageApi.success('已复制')
+    } catch {
+      messageApi.error('复制失败')
+    }
+  }
+  selectionBtnVisible.value = false
+  sel.removeAllRanges()
+}
+
+function hideSelectionBtn() {
+  selectionBtnVisible.value = false
+}
+
+function handleDocumentMouseDown(e: MouseEvent) {
+  const target = e.target as HTMLElement
+  if (!target.closest('.selection-copy-btn')) {
+    selectionBtnVisible.value = false
+  }
+}
+
 // 组件级变量：跟踪当前打开的图片预览清理函数（用于组件卸载时清理，避免内存泄漏）
 let activePreviewCleanup: (() => void) | null = null
 
@@ -224,6 +316,8 @@ onUnmounted(() => {
     activePreviewCleanup()
     activePreviewCleanup = null
   }
+  document.removeEventListener('mousedown', handleDocumentMouseDown)
+  document.removeEventListener('scroll', hideSelectionBtn, true)
 })
 
 async function deleteMsg() {
@@ -614,6 +708,35 @@ function regenerate() {
   border-radius: var(--border-radius-md);
   margin: 14px 0;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.selection-copy-btn {
+  position: fixed;
+  z-index: 1000;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  box-shadow: var(--shadow-md);
+  color: var(--text-primary);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: all 0.15s;
+  animation: selectionBtnIn 0.12s ease;
+}
+
+@keyframes selectionBtnIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.selection-copy-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
 }
 </style>
 

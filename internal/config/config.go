@@ -40,7 +40,9 @@ type Config struct {
 	UserAvatar        string `json:"user_avatar"`
 	AiAvatar          string `json:"ai_avatar"`
 	SearchMode        string `json:"search_mode"` // "off", "auto", "on"
+	// Deprecated: 已迁移到 Reasoning 字段，保留仅为向后兼容
 	ThinkingEnabled     bool   `json:"thinking_enabled"`
+	// Deprecated: 已迁移到 Reasoning 字段，保留仅为向后兼容
 	ThinkingSoftSwitch  string `json:"thinking_soft_switch"`
 	SleepIdleSeconds  int    `json:"sleep_idle_seconds"`
 	ModelsMax         int    `json:"models_max"`
@@ -100,6 +102,15 @@ type Config struct {
 	Threads              int     `json:"threads"`    // 0=自动
 	BatchSize            int     `json:"batch_size"`  // 0=自动
 	CloseAction          string  `json:"close_action"` // "ask"(默认), "tray"(最小化到托盘), "exit"(直接退出)
+	// RAG 重排序配置
+	RerankerModelPath string `json:"reranker_model_path"` // reranker 模型路径（可选，为空则不启用重排序）
+	RerankTopN        int    `json:"rerank_top_n"`         // 重排序后返回的 top-N 结果数（默认5）
+	// KV 缓存持久化配置
+	SlotSavePath    string `json:"slot_save_path"`     // KV 缓存保存路径（为空则使用默认路径 appDir/slots/）
+	SlotSaveEnabled bool   `json:"slot_save_enabled"`  // 是否启用 KV 缓存持久化
+	// Draft 模型 GPU 配置（Eagle3 等需要独立 draft 模型的场景）
+	SpecDraftNgl    int    `json:"spec_draft_ngl"`     // draft 模型 GPU 层数（0=不传递）
+	SpecDraftDevice string `json:"spec_draft_device"`  // draft 模型设备（如 "cuda:0"，为空则不传递）
 }
 
 func DefaultConfig() *Config {
@@ -176,6 +187,12 @@ func DefaultConfig() *Config {
 		Threads:              0,
 		BatchSize:            0,
 		CloseAction:          "ask",
+		RerankerModelPath:    "",
+		RerankTopN:           5,
+		SlotSavePath:         "",
+		SlotSaveEnabled:      false,
+		SpecDraftNgl:         0,
+		SpecDraftDevice:      "",
 	}
 }
 
@@ -198,6 +215,7 @@ func Load(path string) (*Config, error) {
 			var inner string
 			if unquoteErr := json.Unmarshal(data, &inner); unquoteErr == nil {
 				if innerErr := json.Unmarshal([]byte(inner), cfg); innerErr == nil {
+					cfg.migrateLegacyThinking([]byte(inner))
 					_ = Save(path, cfg)
 					// 校验配置，若失败则回退到默认配置
 					if validateErr := cfg.Validate(); validateErr != nil {
@@ -211,12 +229,37 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("解析配置文件失败: %w", err)
 	}
 
+	cfg.migrateLegacyThinking(data)
+
 	// 校验配置，若失败则回退到默认配置
 	if validateErr := cfg.Validate(); validateErr != nil {
 		log.Printf("警告: 配置校验失败: %v，回退到默认配置", validateErr)
 		return DefaultConfig(), nil
 	}
 	return cfg, nil
+}
+
+// migrateLegacyThinking 将旧版 thinking 配置迁移到 Reasoning 字段。
+// 仅当原始配置数据中缺少 reasoning 字段时执行迁移，避免覆盖用户显式设置。
+func (c *Config) migrateLegacyThinking(data []byte) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err == nil {
+		if _, ok := raw["reasoning"]; ok {
+			return
+		}
+	}
+	if !c.ThinkingEnabled {
+		c.Reasoning = "off"
+		return
+	}
+	switch c.ThinkingSoftSwitch {
+	case "think":
+		c.Reasoning = "on"
+	case "no_think":
+		c.Reasoning = "off"
+	default: // "auto" 或空
+		c.Reasoning = "auto"
+	}
 }
 
 func LoadRaw(path string) (map[string]interface{}, error) {

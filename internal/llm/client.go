@@ -55,6 +55,11 @@ func (c *Client) setAuthHeader(req *http.Request) {
 	}
 }
 
+// SetAuthHeader 公开方法，供外部包（如 app.go）设置认证 header
+func (c *Client) SetAuthHeader(req *http.Request) {
+	c.setAuthHeader(req)
+}
+
 func (c *Client) StreamChat(ctx context.Context, req *ChatCompletionRequest, onToken func(chunk SSEChunk) error) error {
 	req.Stream = true
 	req.StreamOptions = &StreamOptions{IncludeUsage: true}
@@ -245,6 +250,87 @@ func (c *Client) HealthCheck(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// StopThinking 发送 POST /v1/chat/completions/control 请求，强制结束当前思考块。
+// 用于实时推理控制：用户在流式推理过程中点击"停止思考"按钮时调用。
+// 请求体为 {"reasoning_end": true}，llama-server 收到后会让模型立即结束思考，开始输出最终回答。
+func (c *Client) StopThinking(ctx context.Context) error {
+	body, err := json.Marshal(map[string]bool{"reasoning_end": true})
+	if err != nil {
+		return fmt.Errorf("failed to marshal stop thinking request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions/control", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create stop thinking request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	c.setAuthHeader(httpReq)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("stop thinking request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := readBody(resp.Body)
+		return fmt.Errorf("stop thinking returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	log.Info().Msg("[client] StopThinking: reasoning_end sent successfully")
+	return nil
+}
+
+// Rerank 调用 /v1/rerank 端点对文档进行重排序。
+// query: 查询文本；documents: 候选文档列表；topN: 返回的 top-N 结果数。
+// 返回重排序后的文档索引和相关性分数（按分数降序排列）。
+func (c *Client) Rerank(ctx context.Context, query string, documents []string, topN int) ([]RerankResult, error) {
+	if len(documents) == 0 {
+		return nil, nil
+	}
+
+	req := RerankRequest{
+		Query:     query,
+		Documents: documents,
+		TopN:      topN,
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal rerank request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/rerank", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rerank request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	c.setAuthHeader(httpReq)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("rerank request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := readBody(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read rerank response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("rerank returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result RerankResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal rerank response: %w", err)
+	}
+
+	log.Info().Int("results", len(result.Results)).Msg("[client] Rerank: success")
+	return result.Results, nil
 }
 
 type ModelInfo struct {

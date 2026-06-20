@@ -412,20 +412,21 @@ func (s *Service) GetModelCapabilities() llm.ModelCapabilities {
 	return s.modelCaps
 }
 
-// GetThinkingSoftSwitch 获取当前思考软开关状态
-// 当 ThinkingEnabled=false 时，等效于 "no_think"
+// GetThinkingSoftSwitch 获取当前思考软开关状态（前端兼容用）
+// 内部映射自 cfg.Reasoning：auto/空 → "auto"，on → "think"，off → "no_think"
 func (s *Service) GetThinkingSoftSwitch() string {
 	cfg := s.getConfigSnapshot()
 	if cfg == nil {
 		return "auto"
 	}
-	if !cfg.ThinkingEnabled {
+	switch cfg.Reasoning {
+	case "on":
+		return "think"
+	case "off":
 		return "no_think"
-	}
-	if cfg.ThinkingSoftSwitch == "" {
+	default:
 		return "auto"
 	}
-	return cfg.ThinkingSoftSwitch
 }
 
 func (s *Service) SetModelCapabilities(caps llm.ModelCapabilities) {
@@ -519,71 +520,22 @@ func (s *Service) detectToolCallFromGGUF() bool {
 func (s *Service) applyThinkingControl(req *llm.ChatCompletionRequest) {
 	s.modelCapsMu.RLock()
 	mode := s.modelCaps.ThinkingMode
-	softSwitchOK := s.modelCaps.SoftSwitchSupport
 	s.modelCapsMu.RUnlock()
 
 	if mode == llm.ThinkingModeNone {
 		return
 	}
 
-	softSwitch := s.GetThinkingSoftSwitch()
 	cfg := s.getConfigSnapshot()
 	budget := 0
 	if cfg != nil {
 		budget = cfg.ReasoningBudget
 	}
 
-	switch mode {
-	case llm.ThinkingModeTemplate:
-		switch softSwitch {
-		case "no_think":
-			// 快速回答：禁用思考
-			req.ChatTemplateKwargs = map[string]interface{}{"enable_thinking": false}
-			if softSwitchOK {
-				s.appendSoftSwitchTag(req, "/no_think")
-			}
-		case "think":
-			// 强制深度思考
-			req.ChatTemplateKwargs = map[string]interface{}{"enable_thinking": true}
-			if budget > 0 {
-				req.ReasoningBudget = budget
-			}
-			if softSwitchOK {
-				s.appendSoftSwitchTag(req, "/think")
-			}
-		default:
-			// 自动思考：启用思考，让模型自行决定
-			req.ChatTemplateKwargs = map[string]interface{}{"enable_thinking": true}
-			if budget > 0 {
-				req.ReasoningBudget = budget
-			}
-		}
-	case llm.ThinkingModeReasoning:
-		switch softSwitch {
-		case "no_think":
-			req.Reasoning = "off"
-			req.ReasoningBudget = 0
-		case "think":
-			if budget > 0 {
-				req.ReasoningBudget = budget
-			}
-		default:
-			if budget > 0 {
-				req.ReasoningBudget = budget
-			}
-		}
-	}
-}
-
-// appendSoftSwitchTag 在用户消息末尾追加软开关标签（如 /think 或 /no_think）
-func (s *Service) appendSoftSwitchTag(req *llm.ChatCompletionRequest, tag string) {
-	if len(req.Messages) == 0 {
-		return
-	}
-	lastMsg := req.Messages[len(req.Messages)-1]
-	if lastMsg.Role == "user" {
-		content := lastMsg.ContentString()
-		req.Messages[len(req.Messages)-1] = llm.NewTextMessage("user", content+" "+tag)
+	// enable_thinking 与请求级 Reasoning 状态均由 llama-server --reasoning 启动参数统一处理，
+	// 此处仅保留 ReasoningBudget 作为请求级预算控制。
+	if budget > 0 {
+		req.ReasoningBudget = budget
 	}
 }
 
@@ -1799,6 +1751,34 @@ func (s *Service) buildLLMMessages(ctx context.Context, convID string, dbMsgs []
 			// 混合检索：向量语义 + BM25 关键词，RRF 融合
 			hybridResults, err2 := ragVectorStore.HybridSearch(ragCollection, vecs[0], currentUserContent, topK, minScore)
 			if err2 == nil && len(hybridResults) > 0 {
+				// RAG rerank 重排序：当配置了 reranker 模型时，对 HybridSearch 结果进行重排序
+				if cfg != nil && cfg.RerankerModelPath != "" && s.llmClient != nil {
+					rerankTopN := cfg.RerankTopN
+					if rerankTopN <= 0 {
+						rerankTopN = 5
+					}
+					documents := make([]string, len(hybridResults))
+					for i, r := range hybridResults {
+						documents[i] = r.ChunkContent
+					}
+					rerankStart := time.Now()
+					rerankResults, rerankErr := s.llmClient.Rerank(ctxRag, currentUserContent, documents, rerankTopN)
+					rerankElapsed := time.Since(rerankStart)
+					if rerankErr != nil {
+						log.Warn().Err(rerankErr).Int("before", len(hybridResults)).Msg("[rag] rerank failed, fallback to hybrid results")
+					} else {
+						log.Info().Int("before", len(hybridResults)).Int("after", len(rerankResults)).Dur("elapsed", rerankElapsed).Msg("[rag] rerank success")
+						reranked := make([]rag.HybridSearchResult, 0, len(rerankResults))
+						for _, rr := range rerankResults {
+							if rr.Index >= 0 && rr.Index < len(hybridResults) {
+								reranked = append(reranked, hybridResults[rr.Index])
+							}
+						}
+						if len(reranked) > 0 {
+							hybridResults = reranked
+						}
+					}
+				}
 				ragContext = buildRAGContext(hybridResults)
 			}
 		}

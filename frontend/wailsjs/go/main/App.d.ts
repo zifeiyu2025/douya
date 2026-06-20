@@ -62,6 +62,12 @@ export function ReloadModels():Promise<void>;
 
 export function RenameConversation(arg1:string,arg2:string):Promise<void>;
 
+export function RerankEnabled():Promise<boolean>;
+
+export function RestoreSlot(arg1:number):Promise<void>;
+
+export function SaveSlot(arg1:number):Promise<void>;
+
 export function SearchMessages(arg1:string):Promise<Array<chat.Message>>;
 
 export function SelectImageFile():Promise<string>;
@@ -81,6 +87,8 @@ export function SetServerAPIKey(arg1:string):Promise<void>;
 export function ShowWindow():Promise<void>;
 
 export function StopGeneration():Promise<void>;
+
+export function StopThinking():Promise<void>;
 
 export function SwitchModel(arg1:string):Promise<main.SwitchResult>;
 

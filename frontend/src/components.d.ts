@@ -15,7 +15,6 @@ declare module 'vue' {
     ChatInput: typeof import('./components/ChatInput.vue')['default']
     ChatView: typeof import('./components/ChatView.vue')['default']
     ContextTrimmed: typeof import('./components/ContextTrimmed.vue')['default']
-    LoadingSpinner: typeof import('./components/ui/LoadingSpinner.vue')['default']
     MessageItem: typeof import('./components/MessageItem.vue')['default']
     MessageList: typeof import('./components/MessageList.vue')['default']
     NA: typeof import('naive-ui')['NA']

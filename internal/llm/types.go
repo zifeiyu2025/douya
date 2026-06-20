@@ -237,4 +237,31 @@ type Usage struct {
 	TotalTokens  int `json:"total_tokens"`
 }
 
+// RerankRequest 表示 /v1/rerank 端点的请求体
+type RerankRequest struct {
+	Model    string   `json:"model,omitempty"`     // 可选，指定 reranker 模型
+	Query    string   `json:"query"`               // 查询文本
+	Documents []string `json:"documents"`           // 候选文档列表
+	TopN     int      `json:"top_n,omitempty"`      // 返回的 top-N 结果数
+}
+
+// RerankResult 表示单个重排序结果
+type RerankResult struct {
+	Index          int     `json:"index"`            // 原始文档列表中的索引
+	RelevanceScore float64 `json:"relevance_score"`  // 相关性分数（越高越相关）
+	Document       struct {
+		Text string `json:"text"`                     // 文档文本
+	} `json:"document"`
+}
+
+// RerankResponse 表示 /v1/rerank 端点的响应体
+type RerankResponse struct {
+	Model   string         `json:"model"`
+	Results []RerankResult `json:"results"`
+	Usage   struct {
+		PromptTokens int `json:"prompt_tokens"`
+		TotalTokens  int `json:"total_tokens"`
+	} `json:"usage"`
+}
+
 

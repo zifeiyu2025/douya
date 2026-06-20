@@ -9,6 +9,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -377,6 +379,10 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		BatchSize:            batchSize,
 		UBatchSize:           ubatchSize,
 		ContextSize:          contextSize,
+		SlotSavePath:         cfg.SlotSavePath,
+		SlotSaveEnabled:      cfg.SlotSaveEnabled,
+		SpecDraftNgl:         cfg.SpecDraftNgl,
+		SpecDraftDevice:      cfg.SpecDraftDevice,
 	}
 
 	if cfg.CacheTypeK != "" {
@@ -410,6 +416,15 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		if serverCfg.SpecNgramModNMatch == 0 && sp.NgramModNMatch > 0 {
 			serverCfg.SpecNgramModNMatch = sp.NgramModNMatch
 		}
+	}
+
+	// 推理模式自动推荐：用户未设置时使用智能参数
+	// 生活类比：就像你没手动调空调温度时，汽车自动用舒适温度一样
+	if serverCfg.Reasoning == "" && sp.ReasoningMode != "" {
+		serverCfg.Reasoning = sp.ReasoningMode
+	}
+	if serverCfg.ReasoningBudget == 0 && sp.ReasoningBudget != 0 {
+		serverCfg.ReasoningBudget = sp.ReasoningBudget
 	}
 
 	if a.db != nil {
@@ -1193,6 +1208,86 @@ func (a *App) StopGeneration() {
 	if a.service != nil {
 		a.service.StopGeneration()
 	}
+}
+
+// StopThinking 发送推理控制请求，强制结束当前思考块。
+// 用户在流式推理过程中点击"停止思考"按钮时调用。
+// 生活类比：就像你在考试时监考老师说"思考时间到，开始答题"，模型会立即结束思考开始输出答案。
+func (a *App) StopThinking() error {
+	if a.client == nil {
+		return fmt.Errorf("客户端未初始化")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return a.client.StopThinking(ctx)
+}
+
+// RerankEnabled 返回是否配置了 reranker 模型（用于前端判断是否启用重排序功能）。
+func (a *App) RerankEnabled() bool {
+	cfg := a.getConfig()
+	return cfg.RerankerModelPath != ""
+}
+
+// SaveSlot 保存当前 slot 的 KV 缓存到磁盘。
+// 调用 llama-server 的 /slots/{id}/save 端点。
+func (a *App) SaveSlot(slotID int) error {
+	if a.client == nil {
+		return fmt.Errorf("客户端未初始化")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	url := fmt.Sprintf("%s/slots/%d/save", a.client.BaseURL(), slotID)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+	if err != nil {
+		return fmt.Errorf("创建保存 slot 请求失败: %w", err)
+	}
+	a.client.SetAuthHeader(req)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("保存 slot 请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("保存 slot 返回状态 %d: %s", resp.StatusCode, string(body))
+	}
+
+	zlog.Info().Int("slot_id", slotID).Msg("[app] SaveSlot: KV cache saved successfully")
+	return nil
+}
+
+// RestoreSlot 从磁盘恢复 slot 的 KV 缓存。
+// 调用 llama-server 的 /slots/{id}/restore 端点。
+func (a *App) RestoreSlot(slotID int) error {
+	if a.client == nil {
+		return fmt.Errorf("客户端未初始化")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	url := fmt.Sprintf("%s/slots/%d/restore", a.client.BaseURL(), slotID)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+	if err != nil {
+		return fmt.Errorf("创建恢复 slot 请求失败: %w", err)
+	}
+	a.client.SetAuthHeader(req)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("恢复 slot 请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("恢复 slot 返回状态 %d: %s", resp.StatusCode, string(body))
+	}
+
+	zlog.Info().Int("slot_id", slotID).Msg("[app] RestoreSlot: KV cache restored successfully")
+	return nil
 }
 
 func (a *App) GetConversations() ([]*chat.Conversation, error) {

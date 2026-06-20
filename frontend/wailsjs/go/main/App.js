@@ -114,6 +114,18 @@ export function RenameConversation(arg1, arg2) {
   return window['go']['main']['App']['RenameConversation'](arg1, arg2);
 }
 
+export function RerankEnabled() {
+  return window['go']['main']['App']['RerankEnabled']();
+}
+
+export function RestoreSlot(arg1) {
+  return window['go']['main']['App']['RestoreSlot'](arg1);
+}
+
+export function SaveSlot(arg1) {
+  return window['go']['main']['App']['SaveSlot'](arg1);
+}
+
 export function SearchMessages(arg1) {
   return window['go']['main']['App']['SearchMessages'](arg1);
 }
@@ -152,6 +164,10 @@ export function ShowWindow() {
 
 export function StopGeneration() {
   return window['go']['main']['App']['StopGeneration']();
+}
+
+export function StopThinking() {
+  return window['go']['main']['App']['StopThinking']();
 }
 
 export function SwitchModel(arg1) {
