@@ -1,19 +1,20 @@
 <template>
   <Transition name="trim-fade">
-    <div v-if="data" class="context-trimmed-notice" @click="expanded = !expanded">
+    <div
+      v-if="data && data.reason === 'exceed_context_size'"
+      class="context-trimmed-notice"
+      @click="expanded = !expanded"
+    >
       <div class="trimmed-header">
         <span class="trimmed-icon">✂️</span>
-        <span class="trimmed-text">{{ headerText }}</span>
+        <span class="trimmed-text">上下文已自动裁剪</span>
         <n-icon size="16" :class="{ rotated: expanded }">
           <ChevronForwardOutline />
         </n-icon>
       </div>
       <div v-if="expanded" class="trimmed-detail">
-        <span v-if="data.reason === 'exceed_context_size'">
+        <span>
           对话内容超出模型上下文长度（{{ data.promptTokens }} / {{ data.contextSize }} tokens），已自动裁剪早期对话以继续生成
-        </span>
-        <span v-else>
-          对话历史较长，已自动裁剪早期内容以确保当前对话正常进行
         </span>
       </div>
     </div>
@@ -21,7 +22,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { NIcon } from 'naive-ui'
 import { ChevronForwardOutline } from '@vicons/ionicons5'
 
@@ -32,19 +33,11 @@ interface TrimmedData {
   messagesAfter?: number
 }
 
-const props = defineProps<{
+defineProps<{
   data: TrimmedData | null
 }>()
 
 const expanded = ref(false)
-
-const headerText = computed(() => {
-  if (!props.data) return ''
-  if (props.data.reason === 'exceed_context_size') {
-    return '上下文已自动裁剪'
-  }
-  return '已裁剪早期对话'
-})
 </script>
 
 <style scoped>

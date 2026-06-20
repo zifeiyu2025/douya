@@ -278,8 +278,7 @@ func TestSearch_TopKLargerThanCollection(t *testing.T) {
 		t.Fatalf("AddVectors: %v", err)
 	}
 
-	// Request topK=100 on a collection with only 1 vector — should succeed and
-	// return all available vectors (capped at min(topK, len(vectors))).
+	// Request topK=100 on a collection with only 1 vector — should succeed.
 	results, err := vs.Search("small_col", []float64{1.0, 0.0, 0.0, 0.0}, 100)
 	if err != nil {
 		t.Fatalf("Search with large topK: %v", err)

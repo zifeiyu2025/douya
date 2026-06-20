@@ -228,7 +228,7 @@ func (s *Service) RegenerateMessage(msgID string, searchMode string) error {
 		return fmt.Errorf("reload messages: %w", err)
 	}
 
-	llmMessages, _, err := s.buildLLMMessages(cancelCtx, dbMsgs, userContent, userAttachments, searchMode, "")
+	llmMessages, _, err := s.buildLLMMessages(cancelCtx, convID, dbMsgs, userContent, userAttachments, searchMode, "")
 	if err != nil {
 		return err
 	}

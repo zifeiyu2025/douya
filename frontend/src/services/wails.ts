@@ -39,6 +39,9 @@ import {
     SetServerAPIKey,
     SelectImageFile,
     GetSmartParams,
+    HandleCloseRequest,
+    SetCloseAction,
+    GracefulExit,
 } from '../../wailsjs/go/main/App'
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
 import { chat as ChatModel } from '../../wailsjs/go/models'
@@ -161,6 +164,15 @@ export const wails = {
     updateConfig: async (cfg: Config): Promise<void> => {
         await UpdateConfig(cfg as unknown as Parameters<typeof UpdateConfig>[0])
     },
+    handleCloseRequest: async (): Promise<string> => {
+        return await HandleCloseRequest()
+    },
+    setCloseAction: async (action: string): Promise<void> => {
+        await SetCloseAction(action)
+    },
+    gracefulExit: async (): Promise<void> => {
+        await GracefulExit()
+    },
     getServerStatus: async (): Promise<ServerStatus> => {
         return (await GetServerStatus()) as ServerStatus
     },
@@ -196,6 +208,10 @@ export const wails = {
         EventsOn('server:switchProgress', callback)
     },
     offSwitchProgress: () => EventsOff('server:switchProgress'),
+    onMmprojUnavailable: (callback: () => void) => {
+        EventsOn('server:mmprojUnavailable', callback)
+    },
+    offMmprojUnavailable: () => EventsOff('server:mmprojUnavailable'),
     onShutdownProgress: (callback: (progress: ShutdownProgressEvent) => void) => {
         EventsOn('shutdown:progress', callback)
     },

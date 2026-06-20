@@ -36,6 +36,10 @@ var (
 
 func (p *BingProvider) Search(ctx context.Context, query string) (*SearchResponse, error) {
 	u := fmt.Sprintf("https://www.bing.com/search?q=%s", url.QueryEscape(query))
+	// 中文查询添加区域和语言参数，提升搜索结果质量
+	if containsCJK(query) {
+		u += "&cc=cn&setlang=zh-Hans"
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
@@ -106,6 +110,9 @@ func (p *BingProvider) Search(ctx context.Context, query string) (*SearchRespons
 			Score:   0.5,
 		})
 	}
+
+	// 去重和过滤无效结果
+	searchResp.Results = dedupAndFilterResults(searchResp.Results)
 
 	return searchResp, nil
 }

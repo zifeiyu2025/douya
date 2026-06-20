@@ -4,7 +4,7 @@ const QUANT_SUFFIX_IN_FILENAME_RE = /-(Q\d+(_[A-Z0-9]+)+|IQ\d+_[A-Z0-9]+|BF16|F1
 
 const MAX_DISPLAY_LENGTH = 20
 
-export function stripQuantSuffix(name: string): string {
+function stripQuantSuffix(name: string): string {
   return name.replace(QUANT_SUFFIX_RE, '')
 }
 
@@ -13,7 +13,7 @@ export function extractQuantSuffix(name: string): string {
   return match ? '-' + match[1] : ''
 }
 
-export function truncateModelName(name: string): string {
+function truncateModelName(name: string): string {
   if (name.length <= MAX_DISPLAY_LENGTH) return name
   const parts = name.split('-')
   if (parts.length > 2) {

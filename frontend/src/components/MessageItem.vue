@@ -50,7 +50,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onMounted } from 'vue'
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import ThinkBlock from './ThinkBlock.vue'
 import SearchStatus from './SearchStatus.vue'
@@ -187,6 +187,9 @@ async function copyContent() {
   }
 }
 
+// 组件级变量：跟踪当前打开的图片预览清理函数（用于组件卸载时清理，避免内存泄漏）
+let activePreviewCleanup: (() => void) | null = null
+
 function previewImage(src: string) {
   const overlay = document.createElement('div')
   overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out'
@@ -198,6 +201,7 @@ function previewImage(src: string) {
     overlay.remove()
     document.body.style.overflow = ''
     document.removeEventListener('keydown', onKey)
+    activePreviewCleanup = null
   }
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') close()
@@ -206,7 +210,21 @@ function previewImage(src: string) {
   document.addEventListener('keydown', onKey)
   document.body.style.overflow = 'hidden'
   document.body.appendChild(overlay)
+  // 记录清理函数，供 onUnmounted 调用
+  activePreviewCleanup = () => {
+    document.removeEventListener('keydown', onKey)
+    overlay.remove()
+    document.body.style.overflow = ''
+  }
 }
+
+// 组件卸载时清理可能残留的图片预览 overlay 和 keydown 监听器，避免内存泄漏
+onUnmounted(() => {
+  if (activePreviewCleanup) {
+    activePreviewCleanup()
+    activePreviewCleanup = null
+  }
+})
 
 async function deleteMsg() {
   await chatStore.deleteMessage(props.message.id)

@@ -52,6 +52,7 @@ type SearchAPIKeys struct {
 type App struct {
 	ctx              context.Context
 	config           *config.Config
+	configMu         sync.RWMutex
 	server           *llm.Server
 	serverMu         sync.Mutex
 	client           *llm.Client
@@ -82,6 +83,20 @@ type App struct {
 
 func NewApp() *App {
 	return &App{}
+}
+
+// getConfig 在读锁保护下获取 config 指针快照，调用方仅用于读取字段，不应修改返回值。
+func (a *App) getConfig() *config.Config {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+	return a.config
+}
+
+// setConfig 在写锁保护下整体替换 config 指针。
+func (a *App) setConfig(cfg *config.Config) {
+	a.configMu.Lock()
+	defer a.configMu.Unlock()
+	a.config = cfg
 }
 
 var cachedAppDir string
@@ -221,17 +236,18 @@ func resolvePath(p string) string {
 }
 
 func (a *App) buildServerConfig() *llm.ServerConfig {
-	absServerPath := resolvePath(a.config.LlamaServerPath)
+	cfg := a.getConfig()
+	absServerPath := resolvePath(cfg.LlamaServerPath)
 	modelsDir := filepath.Join(appDir(), "models")
 
-	sp := system.CalculateSmartParams(a.hwInfo, resolvePath(a.config.ModelPath))
+	sp := system.CalculateSmartParams(a.hwInfo, resolvePath(cfg.ModelPath))
 	zlog.Info().Str("models_dir", modelsDir).Int("gpu_layers", sp.GPULayers).Int("threads", sp.Threads).Bool("flash", sp.FlashAttn).Str("cache_k", sp.CacheTypeK).Str("cache_v", sp.CacheTypeV).Bool("mlock", sp.Mlock).Bool("mmproj_offload", sp.MmprojOffload).Msg("[smart-params] params")
 
 	// reasoning_format 不再硬编码设置：
 	// llama-server 默认值 COMMON_REASONING_FORMAT_DEEPSEEK 已能正确处理所有模型的思考内容分离
 	// （包括 DeepSeek-R1 的 </think>` 标签、Gemma 4 的 <|channel>thought 标签、Qwen3 的思考标签等）
 	// 仅在用户手动配置时才传值
-	reasoningFormat := a.config.ReasoningFormat
+	reasoningFormat := cfg.ReasoningFormat
 
 	presetPath := filepath.Join(appDir(), "router-preset.ini")
 	if _, err := os.Stat(presetPath); err != nil {
@@ -240,51 +256,51 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 
 	// GPU层数：用户设置优先，否则用智能参数
 	gpuLayers := "auto"
-	if a.config.GPULayers > 0 {
-		gpuLayers = fmt.Sprintf("%d", a.config.GPULayers)
+	if cfg.GPULayers > 0 {
+		gpuLayers = fmt.Sprintf("%d", cfg.GPULayers)
 	} else if sp.GPULayers > 0 {
 		gpuLayers = fmt.Sprintf("%d", sp.GPULayers)
 	}
 
 	// Flash Attention：用户设置优先
 	flashAttn := sp.FlashAttn
-	if a.config.FlashAttn != nil {
-		flashAttn = *a.config.FlashAttn
+	if cfg.FlashAttn != nil {
+		flashAttn = *cfg.FlashAttn
 	}
 
 	// Mlock：用户设置优先
 	mlock := sp.Mlock
-	if a.config.Mlock != nil {
-		mlock = *a.config.Mlock
+	if cfg.Mlock != nil {
+		mlock = *cfg.Mlock
 	}
 
 	// 线程数：用户设置优先
 	threads := sp.Threads
-	if a.config.Threads > 0 {
-		threads = a.config.Threads
+	if cfg.Threads > 0 {
+		threads = cfg.Threads
 	}
 
 	// Batch Size：用户设置优先
 	batchSize := sp.BatchSize
-	if a.config.BatchSize > 0 {
-		batchSize = a.config.BatchSize
+	if cfg.BatchSize > 0 {
+		batchSize = cfg.BatchSize
 	}
 	ubatchSize := sp.UBatchSize
-	if a.config.BatchSize > 0 {
+	if cfg.BatchSize > 0 {
 		ubatchSize = batchSize / 2
 	}
 
 	// 上下文长度：用户设置优先，否则用智能参数
 	contextSize := sp.ContextSize
-	if a.config.ContextSize > 0 {
-		contextSize = a.config.ContextSize
+	if cfg.ContextSize > 0 {
+		contextSize = cfg.ContextSize
 	}
 
-	sleepIdle := a.config.SleepIdleSeconds
+	sleepIdle := cfg.SleepIdleSeconds
 	if sleepIdle <= 0 {
 		sleepIdle = 120
 	}
-	modelsMax := a.config.ModelsMax
+	modelsMax := cfg.ModelsMax
 	if modelsMax <= 0 {
 		modelsMax = 1
 	}
@@ -292,90 +308,90 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 	serverCfg := &llm.ServerConfig{
 		ModelsDir:              modelsDir,
 		ServerPath:             absServerPath,
-		Port:                   a.config.Port,
+		Port:                   cfg.Port,
 		GPULayers:              gpuLayers,
 		Threads:                threads,
 		FlashAttn:              flashAttn,
 		CacheTypeK:             sp.CacheTypeK,
 		CacheTypeV:             sp.CacheTypeV,
 		Mlock:                  mlock,
-		MmprojAuto:             a.config.MmprojAuto,
+		MmprojAuto:             cfg.MmprojAuto,
 		MmprojOffload:          sp.MmprojOffload,
-		KVUnified:              a.config.KVUnified,
-		CacheIdleSlots:         a.config.CacheIdleSlots,
-		CacheRAM:               a.config.CacheRAM,
-		ImageMinTokens:         a.config.ImageMinTokens,
-		ImageMaxTokens:         a.config.ImageMaxTokens,
-		FitTarget:              a.config.FitTarget,
-		FitCtx:                 a.config.FitCtx,
-		Reasoning:              a.config.Reasoning,
-		ReasoningBudget:        a.config.ReasoningBudget,
+		KVUnified:              cfg.KVUnified,
+		CacheIdleSlots:         cfg.CacheIdleSlots,
+		CacheRAM:               cfg.CacheRAM,
+		ImageMinTokens:         cfg.ImageMinTokens,
+		ImageMaxTokens:         cfg.ImageMaxTokens,
+		FitTarget:              cfg.FitTarget,
+		FitCtx:                 cfg.FitCtx,
+		Reasoning:              cfg.Reasoning,
+		ReasoningBudget:        cfg.ReasoningBudget,
 		ReasoningFormat:        reasoningFormat,
-		ReasoningBudgetMessage: a.config.ReasoningBudgetMessage,
-		APIBase:                a.config.APIBase,
+		ReasoningBudgetMessage: cfg.ReasoningBudgetMessage,
+		APIBase:                cfg.APIBase,
 		AppDir:                 appDir(),
 		ModelsPreset:           presetPath,
 		ModelsMax:              modelsMax,
 		SleepIdleSeconds:       sleepIdle,
-		Mmap:                   a.config.Mmap,
-		KVOffload:              a.config.KVOffload,
-		ContextShift:           a.config.ContextShift,
-		MinP:                   a.config.MinP,
-		DryMultiplier:          a.config.DryMultiplier,
-		DryBase:                a.config.DryBase,
-		DryAllowedLength:       a.config.DryAllowedLength,
-		Device:                 a.config.Device,
-		Parallel:               a.config.Parallel,
-		SpecType:               a.config.SpecType,
-		SpecDraftNMax:          a.config.SpecDraftNMax,
-		SpecDraftNMin:          a.config.SpecDraftNMin,
-		CacheTypeKDraft:        a.config.CacheTypeKDraft,
-		CacheTypeVDraft:        a.config.CacheTypeVDraft,
-		SpecNgramModNMin:      a.config.SpecNgramModNMin,
-		SpecNgramModNMax:      a.config.SpecNgramModNMax,
-		SpecNgramModNMatch:    a.config.SpecNgramModNMatch,
-		SpecNgramSimpleSizeN:   a.config.SpecNgramSimpleSizeN,
-		SpecNgramSimpleSizeM:   a.config.SpecNgramSimpleSizeM,
-		SpecNgramSimpleMinHits: a.config.SpecNgramSimpleMinHits,
-		SpecNgramMapKSizeN:     a.config.SpecNgramMapKSizeN,
-		SpecNgramMapKSizeM:     a.config.SpecNgramMapKSizeM,
-		SpecNgramMapKMinHits:   a.config.SpecNgramMapKMinHits,
-		SpecNgramMapK4VSizeN:   a.config.SpecNgramMapK4VSizeN,
-		SpecNgramMapK4VSizeM:   a.config.SpecNgramMapK4VSizeM,
-		SpecNgramMapK4VMinHits: a.config.SpecNgramMapK4VMinHits,
-		LookupCacheStatic:     a.config.LookupCacheStatic,
-		LookupCacheDynamic:    a.config.LookupCacheDynamic,
-		SpecDraftModel:         a.config.SpecDraftModel,
+		Mmap:                   cfg.Mmap,
+		KVOffload:              cfg.KVOffload,
+		ContextShift:           cfg.ContextShift,
+		MinP:                   cfg.MinP,
+		DryMultiplier:          cfg.DryMultiplier,
+		DryBase:                cfg.DryBase,
+		DryAllowedLength:       cfg.DryAllowedLength,
+		Device:                 cfg.Device,
+		Parallel:               cfg.Parallel,
+		SpecType:               cfg.SpecType,
+		SpecDraftNMax:          cfg.SpecDraftNMax,
+		SpecDraftNMin:          cfg.SpecDraftNMin,
+		CacheTypeKDraft:        cfg.CacheTypeKDraft,
+		CacheTypeVDraft:        cfg.CacheTypeVDraft,
+		SpecNgramModNMin:      cfg.SpecNgramModNMin,
+		SpecNgramModNMax:      cfg.SpecNgramModNMax,
+		SpecNgramModNMatch:    cfg.SpecNgramModNMatch,
+		SpecNgramSimpleSizeN:   cfg.SpecNgramSimpleSizeN,
+		SpecNgramSimpleSizeM:   cfg.SpecNgramSimpleSizeM,
+		SpecNgramSimpleMinHits: cfg.SpecNgramSimpleMinHits,
+		SpecNgramMapKSizeN:     cfg.SpecNgramMapKSizeN,
+		SpecNgramMapKSizeM:     cfg.SpecNgramMapKSizeM,
+		SpecNgramMapKMinHits:   cfg.SpecNgramMapKMinHits,
+		SpecNgramMapK4VSizeN:   cfg.SpecNgramMapK4VSizeN,
+		SpecNgramMapK4VSizeM:   cfg.SpecNgramMapK4VSizeM,
+		SpecNgramMapK4VMinHits: cfg.SpecNgramMapK4VMinHits,
+		LookupCacheStatic:     cfg.LookupCacheStatic,
+		LookupCacheDynamic:    cfg.LookupCacheDynamic,
+		SpecDraftModel:         cfg.SpecDraftModel,
 		Embedding:              true, // 启用 embedding API（RAG 知识库需要）
 		Pooling:                "mean", // 聊天模型 pooling=none 不兼容 OAI embedding API
-		ExposeServer:           a.config.ExposeServer,
-		SwaFull:              a.config.SwaFull,
-		CtxCheckpoints:       a.config.CtxCheckpoints,
-		CheckpointMinStep:    a.config.CheckpointMinStep,
-		Tools:                a.config.Tools,
-		PrefillAssistant:     a.config.PrefillAssistant,
-		SlotPromptSimilarity: a.config.SlotPromptSimilarity,
-		SkipChatParsing:      a.config.SkipChatParsing,
-		APIPrefix:            a.config.APIPrefix,
-		SimpleIO:             a.config.SimpleIO,
+		ExposeServer:           cfg.ExposeServer,
+		SwaFull:              cfg.SwaFull,
+		CtxCheckpoints:       cfg.CtxCheckpoints,
+		CheckpointMinStep:    cfg.CheckpointMinStep,
+		Tools:                cfg.Tools,
+		PrefillAssistant:     cfg.PrefillAssistant,
+		SlotPromptSimilarity: cfg.SlotPromptSimilarity,
+		SkipChatParsing:      cfg.SkipChatParsing,
+		APIPrefix:            cfg.APIPrefix,
+		SimpleIO:             cfg.SimpleIO,
 		BatchSize:            batchSize,
 		UBatchSize:           ubatchSize,
 		ContextSize:          contextSize,
 	}
 
-	if a.config.CacheTypeK != "" {
-		serverCfg.CacheTypeK = a.config.CacheTypeK
+	if cfg.CacheTypeK != "" {
+		serverCfg.CacheTypeK = cfg.CacheTypeK
 	}
-	if a.config.CacheTypeV != "" {
-		serverCfg.CacheTypeV = a.config.CacheTypeV
+	if cfg.CacheTypeV != "" {
+		serverCfg.CacheTypeV = cfg.CacheTypeV
 	}
-	if a.config.CacheTypeKDraft != "" {
-		serverCfg.CacheTypeKDraft = a.config.CacheTypeKDraft
+	if cfg.CacheTypeKDraft != "" {
+		serverCfg.CacheTypeKDraft = cfg.CacheTypeKDraft
 	}
-	if a.config.CacheTypeVDraft != "" {
-		serverCfg.CacheTypeVDraft = a.config.CacheTypeVDraft
+	if cfg.CacheTypeVDraft != "" {
+		serverCfg.CacheTypeVDraft = cfg.CacheTypeVDraft
 	}
-	if a.config.SpecType == "" && sp.SpecType != "" {
+	if cfg.SpecType == "" && sp.SpecType != "" {
 		serverCfg.SpecType = sp.SpecType
 		serverCfg.SpecDraftNMax = sp.SpecDraftNMax
 		serverCfg.SpecDraftNMin = sp.SpecDraftNMin
@@ -535,6 +551,11 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 					// 重试也失败或不适用，启动后台 goroutine 继续等待
 					zlog.Warn().Err(err).Str("model", modelForDetect).Msg("[server] auto-load default model timed out, continuing to wait in background")
 					go func() {
+						defer func() {
+							if r := recover(); r != nil {
+								zlog.Error().Interface("panic", r).Str("model", modelForDetect).Msg("model load goroutine panic")
+							}
+						}()
 						// 后台继续等待，不设超时（依赖 WatchWithCallback 检测崩溃）
 						if bgErr := a.client.WaitForModelLoaded(ctx, modelForDetect, 600*time.Second, progressCallback); bgErr != nil {
 							zlog.Error().Err(bgErr).Str("model", modelForDetect).Msg("[server] auto-load default model background wait also failed")
@@ -580,7 +601,12 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 		curModel := a.currentModelName
 		a.currentModelMu.RUnlock()
 		if status.Running {
-			caps := a.service.GetModelCapabilities()
+			var caps llm.ModelCapabilities
+			if a.service != nil {
+				caps = a.service.GetModelCapabilities()
+			} else {
+				caps = llm.ModelCapabilities{TextInput: true}
+			}
 			status.Capabilities = &caps
 			status.CurrentModel = curModel
 		} else {
@@ -744,7 +770,8 @@ func (a *App) validatePaths() []string {
 	var missing []string
 	baseDir := appDir()
 
-	serverPath := resolvePath(a.config.LlamaServerPath)
+	cfg := a.getConfig()
+	serverPath := resolvePath(cfg.LlamaServerPath)
 	if _, err := os.Stat(serverPath); err != nil {
 		missing = append(missing, fmt.Sprintf("引擎程序: %s", serverPath))
 	}
@@ -772,7 +799,7 @@ func (a *App) startup(ctx context.Context) {
 	var err error
 
 	cfgPath := filepath.Join(appDir(), "config.json")
-	a.config, err = config.Load(cfgPath)
+	loadedCfg, err := config.Load(cfgPath)
 	if err != nil {
 		zlog.Error().Err(err).Msg("load config failed")
 		runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
@@ -782,6 +809,7 @@ func (a *App) startup(ctx context.Context) {
 		})
 		return
 	}
+	a.setConfig(loadedCfg)
 
 	if missingPaths := a.validatePaths(); len(missingPaths) > 0 {
 		msg := "以下关键文件或目录缺失：\n\n"
@@ -850,7 +878,7 @@ func (a *App) startup(ctx context.Context) {
 				}
 				if migrated {
 					zlog.Info().Msg("[startup] migrated search API keys from config.json to database")
-					config.Save(cfgPath, a.config)
+					config.Save(cfgPath, a.getConfig())
 				}
 			}
 		}
@@ -860,11 +888,12 @@ func (a *App) startup(ctx context.Context) {
 		zlog.Error().Err(err).Msg("[startup] generate preset file failed")
 	}
 
-	a.client = llm.NewClient(a.config.APIBase, a.getServerAPIKey())
+	cfg := a.getConfig()
+	a.client = llm.NewClient(cfg.APIBase, a.getServerAPIKey())
 
 	searchChain := a.buildSearchChain()
 
-	a.service = chat.NewService(a.client, searchChain, a.db, a.config, a.encKey, appDir())
+	a.service = chat.NewService(a.client, searchChain, a.db, cfg, a.encKey, appDir())
 	a.service.SetContext(ctx)
 
 	// Initialize RAG (Badger-backed vector store + LLM embedder)
@@ -876,7 +905,7 @@ func (a *App) startup(ctx context.Context) {
 		a.ragVS = ragVS
 		a.ragDS = rag.NewDocumentStore(ragVS.DB())
 		// 嵌入模型：优先使用专用嵌入模型，否则使用当前聊天模型
-		embedModel := a.config.EmbeddingModel
+		embedModel := cfg.EmbeddingModel
 		if embedModel == "" {
 			a.currentModelMu.RLock()
 			embedModel = a.currentModelName
@@ -891,12 +920,13 @@ func (a *App) startup(ctx context.Context) {
 			return a.currentModelName
 		})
 		a.ragEmbedder = embedder
-		collection := a.config.RAGActiveKB
+		collection := cfg.RAGActiveKB
 		if collection == "" {
 			collection = "default"
 		}
-		a.service.SetRAG(ragVS, a.ragDS, embedder, collection, a.config.RAGEnabled)
-		zlog.Info().Str("dir", ragDir).Str("collection", collection).Str("embed_model", embedModel).Bool("enabled", a.config.RAGEnabled).Msg("[startup] RAG initialized")
+		ragEnabled := cfg.RAGEnabled
+		a.service.SetRAG(ragVS, a.ragDS, embedder, collection, ragEnabled)
+		zlog.Info().Str("dir", ragDir).Str("collection", collection).Str("embed_model", embedModel).Bool("enabled", ragEnabled).Msg("[startup] RAG initialized")
 	}
 
 	a.serverMu.Lock()
@@ -1083,9 +1113,10 @@ func (a *App) UploadDocument(kbName string, fileName string, fileData string, mi
 	if embedder == nil {
 		return fmt.Errorf("知识库未初始化")
 	}
+	cfg := a.getConfig()
 	chunkCfg := rag.ChunkConfig{
-		ChunkSize:    a.config.RAGChunkSize,
-		ChunkOverlap: a.config.RAGChunkOverlap,
+		ChunkSize:    cfg.RAGChunkSize,
+		ChunkOverlap: cfg.RAGChunkOverlap,
 	}
 	if chunkCfg.ChunkSize <= 0 {
 		chunkCfg.ChunkSize = 512
@@ -1123,18 +1154,21 @@ func (a *App) SetActiveKnowledgeBase(kbName string) error {
 	if a.ragVS == nil {
 		return fmt.Errorf("知识库未初始化")
 	}
+	a.configMu.Lock()
 	a.config.RAGActiveKB = kbName
+	cfg := a.config
+	a.configMu.Unlock()
 	a.service.SetRAGCollection(kbName)
-	return config.Save(filepath.Join(appDir(), "config.json"), a.config)
+	return config.Save(filepath.Join(appDir(), "config.json"), cfg)
 }
 
 func (a *App) GetActiveKnowledgeBase() string {
-	return a.config.RAGActiveKB
+	return a.getConfig().RAGActiveKB
 }
 
 func (a *App) SetRAGEnabled(enabled bool) {
+	a.configMu.Lock()
 	a.config.RAGEnabled = enabled
-	a.service.SetRAGEnabled(enabled)
 	// RAG 开启时自动关闭联网搜索（两者互斥，RAG 优先级更高）
 	if enabled && a.config.SearchMode != "off" {
 		a.config.SearchMode = "off"
@@ -1143,13 +1177,16 @@ func (a *App) SetRAGEnabled(enabled bool) {
 			runtime.EventsEmit(a.ctx, "search:autoDisabled", nil)
 		}
 	}
-	if err := config.Save(filepath.Join(appDir(), "config.json"), a.config); err != nil {
+	cfg := a.config
+	a.configMu.Unlock()
+	a.service.SetRAGEnabled(enabled)
+	if err := config.Save(filepath.Join(appDir(), "config.json"), cfg); err != nil {
 		zlog.Error().Err(err).Msg("[rag] save config failed")
 	}
 }
 
 func (a *App) IsRAGEnabled() bool {
-	return a.config.RAGEnabled
+	return a.getConfig().RAGEnabled
 }
 
 func (a *App) StopGeneration() {
@@ -1355,8 +1392,8 @@ func (a *App) buildSearchChain() *search.SearchChain {
 	if keys.OllamaAPIKey != "" {
 		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewOllamaProvider(keys.OllamaAPIKey), Categories: []string{"general", "code"}})
 	}
-	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewSo360Provider(), Categories: []string{"general"}})
-	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewBingProvider(), Categories: []string{"general"}})
+	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewSo360Provider(), Categories: []string{"general", "code"}})
+	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewBingProvider(), Categories: []string{"general", "code"}})
 	return search.NewCategorizedSearchChain(searchProviders)
 }
 
@@ -1368,7 +1405,7 @@ func (a *App) HasServerAPIKey() bool {
 // getServerAPIKey 内部方法，获取实际的 API Key 值
 // 当 ServerAPIKeyEnabled 为 false 时返回空字符串，不发送 API Key
 func (a *App) getServerAPIKey() string {
-	if !a.config.ServerAPIKeyEnabled {
+	if !a.getConfig().ServerAPIKeyEnabled {
 		return ""
 	}
 	var value string
@@ -1393,6 +1430,8 @@ func (a *App) SetServerAPIKey(key string) error {
 }
 
 func (a *App) GetConfig() *config.Config {
+	a.configMu.Lock()
+	defer a.configMu.Unlock()
 	if a.config == nil {
 		cfgPath := filepath.Join(appDir(), "config.json")
 		cfg, err := config.Load(cfgPath)
@@ -1412,9 +1451,9 @@ func (a *App) UpdateConfig(cfg *config.Config) error {
 	if a.service != nil {
 		a.service.UpdateConfig(cfg)
 	}
-	a.config = cfg
+	a.setConfig(cfg)
 
-	a.client = llm.NewClient(a.config.APIBase, a.getServerAPIKey())
+	a.client = llm.NewClient(cfg.APIBase, a.getServerAPIKey())
 
 	searchChain := a.buildSearchChain()
 
@@ -1486,9 +1525,21 @@ func (a *App) beforeClose(ctx context.Context) bool {
 	if !a.shouldPreventClose() {
 		return false
 	}
-	runtime.WindowHide(ctx)
-	a.hidden.Store(true)
-	return true
+	// 根据 close_action 配置决定行为
+	cfg := a.getConfig()
+	switch cfg.CloseAction {
+	case "exit":
+		go a.GracefulExit()
+		return true // 阻止默认关闭，由 GracefulExit 处理
+	case "tray":
+		runtime.WindowHide(ctx)
+		a.hidden.Store(true)
+		return true
+	default: // "ask" 或未设置
+		runtime.WindowHide(ctx)
+		a.hidden.Store(true)
+		return true
+	}
 }
 
 func (a *App) ShowWindow() {
@@ -1496,6 +1547,27 @@ func (a *App) ShowWindow() {
 		runtime.WindowShow(a.ctx)
 		a.hidden.Store(false)
 	}
+}
+
+// HandleCloseRequest 处理前端关闭按钮点击，返回 "tray" 或 "exit" 表示应执行的操作
+func (a *App) HandleCloseRequest() string {
+	cfg := a.getConfig()
+	switch cfg.CloseAction {
+	case "exit":
+		return "exit"
+	case "tray":
+		return "tray"
+	default: // "ask" 或未设置
+		return "ask"
+	}
+}
+
+// SetCloseAction 设置关闭行为并持久化
+func (a *App) SetCloseAction(action string) {
+	cfg := a.getConfig()
+	cfg.CloseAction = action
+	a.setConfig(cfg)
+	_ = config.Save(filepath.Join(appDir(), "config.json"), cfg)
 }
 
 func (a *App) GracefulExit() {
@@ -1730,7 +1802,8 @@ func (a *App) GetSmartParams() *SmartParamsInfo {
 	info.Hardware.GPUVRAMMB = a.hwInfo.GPUVRAMMB
 
 	// 模型元数据
-	modelPath := resolvePath(a.config.ModelPath)
+	cfg := a.getConfig()
+	modelPath := resolvePath(cfg.ModelPath)
 	if modelPath != "" {
 		if meta, err := system.ParseGGUFMetadataCached(modelPath); err == nil && meta != nil {
 			info.Model.Architecture = meta.Architecture
@@ -1767,15 +1840,15 @@ func (a *App) GetSmartParams() *SmartParamsInfo {
 	info.Params.NgramModNMatch = sp.NgramModNMatch
 
 	// 用户覆盖状态
-	info.Overrides.GPULayers = a.config.GPULayers > 0
-	info.Overrides.FlashAttn = a.config.FlashAttn != nil
-	info.Overrides.Mlock = a.config.Mlock != nil
-	info.Overrides.Threads = a.config.Threads > 0
-	info.Overrides.BatchSize = a.config.BatchSize > 0
-	info.Overrides.ContextSize = a.config.ContextSize != 0
-	info.Overrides.CacheTypeK = a.config.CacheTypeK != ""
-	info.Overrides.CacheTypeV = a.config.CacheTypeV != ""
-	info.Overrides.SpecType = a.config.SpecType != ""
+	info.Overrides.GPULayers = cfg.GPULayers > 0
+	info.Overrides.FlashAttn = cfg.FlashAttn != nil
+	info.Overrides.Mlock = cfg.Mlock != nil
+	info.Overrides.Threads = cfg.Threads > 0
+	info.Overrides.BatchSize = cfg.BatchSize > 0
+	info.Overrides.ContextSize = cfg.ContextSize != 0
+	info.Overrides.CacheTypeK = cfg.CacheTypeK != ""
+	info.Overrides.CacheTypeV = cfg.CacheTypeV != ""
+	info.Overrides.SpecType = cfg.SpecType != ""
 
 	return info
 }
@@ -1791,7 +1864,7 @@ func (a *App) generatePresetFile() error {
 		return fmt.Errorf("no models found in %s", modelsDir)
 	}
 
-	defaultModelPath := a.config.ModelPath
+	defaultModelPath := a.getConfig().ModelPath
 	llm.SetDefaultAlias(presets, defaultModelPath)
 
 	presetRelPaths := make(map[string]string, len(presets))
@@ -2327,7 +2400,7 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 	a.currentModelMu.Unlock()
 
 	// 更新嵌入模型名（仅在未配置专用嵌入模型时跟随聊天模型切换）
-	if a.ragEmbedder != nil && a.config.EmbeddingModel == "" {
+	if a.ragEmbedder != nil && a.getConfig().EmbeddingModel == "" {
 		a.ragEmbedder.SetModel(modelName)
 	}
 
@@ -2336,8 +2409,11 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 	relPath, hasRelPath := a.presetRelPaths[modelName]
 	a.presetsMu.RUnlock()
 	if hasRelPath {
+		a.configMu.Lock()
 		a.config.ModelPath = relPath
-		if err := config.Save(filepath.Join(appDir(), "config.json"), a.config); err != nil {
+		cfg := a.config
+		a.configMu.Unlock()
+		if err := config.Save(filepath.Join(appDir(), "config.json"), cfg); err != nil {
 			zlog.Error().Err(err).Msg("[router] save config after model switch failed")
 			runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
 				Running:      true,

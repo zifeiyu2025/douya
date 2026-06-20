@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
+import { createDiscreteApi } from 'naive-ui'
 import {
     wails,
     type Config,
@@ -38,16 +39,10 @@ export function matchModelRef<T>(
     return null
 }
 
-export function shouldKeepSwitchingVisible(
-    switchStartedAt: number,
-    now: number,
-    minDurationMs: number
-): boolean {
-    if (switchStartedAt === 0) return true
-    return (now - switchStartedAt) < minDurationMs
-}
-
 export const useSettingsStore = defineStore('settings', () => {
+    // 用于在 store 中显示 naive-ui 消息（store 不在 NMessageProvider 内部，需用 discrete API）
+    const { message: discreteMessage } = createDiscreteApi(['message'])
+
     // ----- 基础配置 -----
     const config = ref<Config>({ ...DEFAULT_CONFIG })
     const searchMode = ref<'off' | 'auto' | 'on'>('off')
@@ -56,7 +51,6 @@ export const useSettingsStore = defineStore('settings', () => {
     const searchAPIKeys = ref<SearchAPIKeys>({
         ollama_api_key: '',
         tavily_api_key: '',
-        github_api_key: '',
         ollama_api_key_set: false,
         tavily_api_key_set: false,
     })
@@ -350,7 +344,6 @@ export const useSettingsStore = defineStore('settings', () => {
             const fullKeys: SearchAPIKeys = {
                 ollama_api_key: keys.ollama_api_key ?? '',
                 tavily_api_key: keys.tavily_api_key ?? '',
-                github_api_key: '',
                 ollama_api_key_set: false,
                 tavily_api_key_set: false,
             }
@@ -516,6 +509,16 @@ export const useSettingsStore = defineStore('settings', () => {
         wails.offSwitchProgress()
     }
 
+    function initMmprojUnavailableListener() {
+        wails.onMmprojUnavailable(() => {
+            discreteMessage.warning('多模态功能已降级为纯文本模式（mmproj 不兼容）', { duration: 5000 })
+        })
+    }
+
+    function cleanupMmprojUnavailableListener() {
+        wails.offMmprojUnavailable()
+    }
+
     function resetSwitchProgress() {
         clearAllTimers()
         reset()
@@ -559,6 +562,8 @@ export const useSettingsStore = defineStore('settings', () => {
         cleanupStatusListener,
         initSwitchProgressListener,
         cleanupSwitchProgressListener,
+        initMmprojUnavailableListener,
+        cleanupMmprojUnavailableListener,
         resetSwitchProgress,
         // 状态机内部 API（供测试 / 高级用例使用）
         switchState,

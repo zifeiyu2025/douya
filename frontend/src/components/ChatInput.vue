@@ -124,6 +124,7 @@
             v-model="inputText"
             placeholder="给DouYa发送消息....."
             @keydown="handleKeydown"
+            @paste="handlePaste"
             rows="1"
             class="chat-textarea"
           />
@@ -296,6 +297,95 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 
+function handlePaste(e: ClipboardEvent) {
+  const clipboardData = e.clipboardData
+  if (!clipboardData) return
+
+  const items = clipboardData.items
+  if (!items || items.length === 0) return
+
+  // 收集剪贴板中的文件
+  const files: File[] = []
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    if (item.kind === 'file') {
+      const file = item.getAsFile()
+      if (file) files.push(file)
+    }
+  }
+
+  if (files.length === 0) return
+
+  // 有文件时阻止默认行为（避免图片被插入 textarea）
+  e.preventDefault()
+
+  for (const file of files) {
+    const fileType = detectFileType(file)
+    if (!fileType) {
+      message.warning(`不支持的文件类型: ${file.name}`)
+      continue
+    }
+    if (!checkCapability(fileType)) continue
+    processFileByType(fileType, file)
+  }
+}
+
+function detectFileType(file: File): string | null {
+  // 优先按 MIME type 判断
+  if (file.type.startsWith('image/')) return 'image'
+  if (file.type.startsWith('audio/')) return 'audio'
+  if (file.type.startsWith('video/')) return 'video'
+  if (file.type === 'application/pdf') return 'pdf'
+
+  // 文本类型：按 MIME type 判断
+  const textMimes = ['text/plain', 'text/markdown', 'text/csv', 'application/json', 'text/html', 'text/css', 'text/javascript', 'application/xml']
+  if (textMimes.includes(file.type)) return 'text'
+
+  // 按扩展名兜底
+  const ext = file.name.split('.').pop()?.toLowerCase() || ''
+  if (IMAGE_ACCEPT.includes(`.${ext}`)) return 'image'
+  if (AUDIO_ACCEPT.includes(`.${ext}`)) return 'audio'
+  if (VIDEO_ACCEPT.includes(`.${ext}`)) return 'video'
+  if (ext === 'pdf') return 'pdf'
+  if (TEXT_ACCEPT.includes(`.${ext}`)) return 'text'
+
+  return null
+}
+
+function checkCapability(type: string): boolean {
+  if ((type === 'image' || type === 'audio' || type === 'video') && !capabilities.value.mmproj_loaded) {
+    message.warning('多模态投影未加载，无法处理此类型文件')
+    return false
+  }
+  if (type === 'image' && !capabilities.value.image_input) {
+    message.warning('当前模型不支持图片输入')
+    return false
+  }
+  if (type === 'audio' && !capabilities.value.audio_input) {
+    message.warning('当前模型不支持音频输入')
+    return false
+  }
+  if (type === 'video' && !capabilities.value.video_input) {
+    message.warning('当前模型不支持视频输入')
+    return false
+  }
+  if ((type === 'text' || type === 'pdf') && !capabilities.value.text_input) {
+    message.warning('当前模型不支持文本文件输入')
+    return false
+  }
+  return true
+}
+
+function processFileByType(type: string, file: File) {
+  switch (type) {
+    case 'image': processImageFile(file); break
+    case 'audio': processAudioFile(file); break
+    case 'pdf': processPdfFile(file); break
+    case 'video': processVideoFile(file); break
+    case 'text': processTextFile(file); break
+  }
+}
+
 function toggleAttachMenu() {
   showAttachMenu.value = !showAttachMenu.value
 }
@@ -321,6 +411,41 @@ const TEXT_ACCEPT = '.txt,.md,.csv,.json,.xml,.html,.css,.js,.ts,.py,.go,.java,.
 const PDF_ACCEPT = '.pdf'
 const VIDEO_ACCEPT = '.mp4,.webm,.avi,.mov,.mkv,.wmv,.flv'
 
+// 文件大小限制（单位：MB）
+const MAX_IMAGE_SIZE = 20
+const MAX_AUDIO_SIZE = 50
+const MAX_VIDEO_SIZE = 100
+const MAX_PDF_SIZE = 50
+const MAX_TEXT_SIZE = 10
+
+function checkFileSize(file: File, maxSizeMB: number, label: string): boolean {
+  const sizeMB = file.size / (1024 * 1024)
+  if (sizeMB > maxSizeMB) {
+    message.error(`${label}文件大小不能超过 ${maxSizeMB}MB（当前 ${sizeMB.toFixed(1)}MB）`)
+    return false
+  }
+  return true
+}
+
+function readFileWithErrorHandling(
+  file: File,
+  readFn: (reader: FileReader) => void,
+  onSuccess: (result: string) => void,
+  label: string
+) {
+  const reader = new FileReader()
+  reader.onload = () => {
+    onSuccess(reader.result as string)
+  }
+  reader.onerror = () => {
+    message.error(`${label}文件读取失败，请重试`)
+  }
+  reader.onabort = () => {
+    message.warning(`${label}文件读取已取消`)
+  }
+  readFn(reader)
+}
+
 function getAcceptForType(type: string): string {
   switch (type) {
     case 'image': return IMAGE_ACCEPT
@@ -333,12 +458,7 @@ function getAcceptForType(type: string): string {
 }
 
 function triggerFileUpload(type: string) {
-  // 图片/音频/视频需要 mmproj 已加载才可用
-  if ((type === 'image' || type === 'audio' || type === 'video') && !capabilities.value.mmproj_loaded) return
-  if (type === 'image' && !capabilities.value.image_input) return
-  if (type === 'audio' && !capabilities.value.audio_input) return
-  if (type === 'video' && !capabilities.value.video_input) return
-  if ((type === 'text' || type === 'pdf') && !capabilities.value.text_input) return
+  if (!checkCapability(type)) return
 
   pendingUploadType.value = type
   if (fileInputRef.value) {
@@ -375,77 +495,101 @@ function handleFileSelect(e: Event) {
 }
 
 function processImageFile(file: File) {
-  if (!file.type.startsWith('image/')) return
-  if (attachments.value.filter(a => a.type === 'image').length >= 4) return
-  const reader = new FileReader()
-  reader.onload = () => {
-    const dataUrl = reader.result as string
-    attachments.value.push({
-      type: 'image',
-      name: file.name,
-      mime_type: file.type,
-      data: dataUrl,
-    })
+  if (!file.type.startsWith('image/')) {
+    message.error('请选择图片文件')
+    return
   }
-  reader.readAsDataURL(file)
+  if (attachments.value.filter(a => a.type === 'image').length >= 4) {
+    message.warning('最多上传 4 张图片')
+    return
+  }
+  if (!checkFileSize(file, MAX_IMAGE_SIZE, '图片')) return
+  readFileWithErrorHandling(
+    file,
+    (reader) => reader.readAsDataURL(file),
+    (result) => {
+      attachments.value.push({
+        type: 'image',
+        name: file.name,
+        mime_type: file.type,
+        data: result,
+      })
+    },
+    '图片'
+  )
 }
 
 function processAudioFile(file: File) {
+  if (!checkFileSize(file, MAX_AUDIO_SIZE, '音频')) return
   const ext = file.name.split('.').pop()?.toLowerCase() || 'wav'
-  const reader = new FileReader()
-  reader.onload = () => {
-    const base64 = (reader.result as string).split(',')[1]
-    attachments.value.push({
-      type: 'audio',
-      name: file.name,
-      mime_type: file.type || `audio/${ext}`,
-      data: base64,
-      format: ext,
-    })
-  }
-  reader.readAsDataURL(file)
+  readFileWithErrorHandling(
+    file,
+    (reader) => reader.readAsDataURL(file),
+    (result) => {
+      const base64 = result.split(',')[1]
+      attachments.value.push({
+        type: 'audio',
+        name: file.name,
+        mime_type: file.type || `audio/${ext}`,
+        data: base64,
+        format: ext,
+      })
+    },
+    '音频'
+  )
 }
 
 function processPdfFile(file: File) {
-  const reader = new FileReader()
-  reader.onload = () => {
-    const base64 = (reader.result as string).split(',')[1]
-    attachments.value.push({
-      type: 'pdf',
-      name: file.name,
-      mime_type: 'application/pdf',
-      data: base64,
-    })
-  }
-  reader.readAsDataURL(file)
+  if (!checkFileSize(file, MAX_PDF_SIZE, 'PDF')) return
+  readFileWithErrorHandling(
+    file,
+    (reader) => reader.readAsDataURL(file),
+    (result) => {
+      const base64 = result.split(',')[1]
+      attachments.value.push({
+        type: 'pdf',
+        name: file.name,
+        mime_type: 'application/pdf',
+        data: base64,
+      })
+    },
+    'PDF'
+  )
 }
 
 function processVideoFile(file: File) {
-  const reader = new FileReader()
-  reader.onload = () => {
-    const base64 = (reader.result as string).split(',')[1]
-    attachments.value.push({
-      type: 'video',
-      name: file.name,
-      mime_type: file.type || 'video/mp4',
-      data: base64,
-    })
-  }
-  reader.readAsDataURL(file)
+  if (!checkFileSize(file, MAX_VIDEO_SIZE, '视频')) return
+  readFileWithErrorHandling(
+    file,
+    (reader) => reader.readAsDataURL(file),
+    (result) => {
+      const base64 = result.split(',')[1]
+      attachments.value.push({
+        type: 'video',
+        name: file.name,
+        mime_type: file.type || 'video/mp4',
+        data: base64,
+      })
+    },
+    '视频'
+  )
 }
 
 function processTextFile(file: File) {
-  const reader = new FileReader()
-  reader.onload = () => {
-    const text = reader.result as string
-    attachments.value.push({
-      type: 'text',
-      name: file.name,
-      mime_type: file.type || 'text/plain',
-      data: text,
-    })
-  }
-  reader.readAsText(file)
+  if (!checkFileSize(file, MAX_TEXT_SIZE, '文本')) return
+  readFileWithErrorHandling(
+    file,
+    (reader) => reader.readAsText(file),
+    (result) => {
+      attachments.value.push({
+        type: 'text',
+        name: file.name,
+        mime_type: file.type || 'text/plain',
+        data: result,
+      })
+    },
+    '文本'
+  )
 }
 
 function removeAttachment(idx: number) {

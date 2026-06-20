@@ -75,6 +75,19 @@
         </div>
       </div>
     </template>
+    <!-- 回到底部按钮：用户向上滚动后显示 -->
+    <Transition name="scroll-bottom-fade">
+      <button
+        v-if="!isAutoScrollEnabled && messages && messages.length > 0"
+        class="scroll-to-bottom-btn"
+        @click="scrollToBottom('smooth'); isAutoScrollEnabled = true"
+        title="回到底部"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5v14M19 12l-7 7-7-7" />
+        </svg>
+      </button>
+    </Transition>
   </div>
 </template>
 
@@ -189,9 +202,10 @@ function getSwitchProgressText(): string {
 const { rendered: renderedStreaming, bind: bindMarkdown } = useMarkdownWorker()
 bindMarkdown(() => streamingContent.value)
 
-// 滚动控制：smooth 平滑滚动 + RAF 批处理 + 100ms 节流 + isProgrammaticScroll 防循环
+// 滚动控制：流式期间即时滚动 + 用户滚动检测 + 回到底部按钮
 const {
     containerRef: messageListRef,
+    isAutoScrollEnabled,
     isNearBottom,
     scrollToBottom,
     watchContentChange,
@@ -556,6 +570,50 @@ watch(() => chatStore.lastError, (err) => {
   to {
     transform: rotate(360deg);
   }
+}
+
+.scroll-to-bottom-btn {
+  position: sticky;
+  bottom: 20px;
+  align-self: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-md);
+  z-index: 10;
+  transition: all var(--transition-fast);
+}
+
+.scroll-to-bottom-btn:hover {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: #ffffff;
+  transform: scale(1.08);
+  box-shadow: var(--shadow-lg);
+}
+
+.scroll-to-bottom-btn:active {
+  transform: scale(0.95);
+}
+
+.scroll-bottom-fade-enter-active,
+.scroll-bottom-fade-leave-active {
+  transition: opacity 0.25s var(--transition-normal), transform 0.25s var(--transition-normal);
+}
+
+.scroll-bottom-fade-enter-from,
+.scroll-bottom-fade-leave-to {
+  opacity: 0;
+  transform: translateY(12px) scale(0.9);
 }
 </style>
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -159,14 +160,10 @@ func (idx *BM25Index) Search(query string, topK int) []BM25Result {
 		results = append(results, BM25Result{ID: id, Score: score})
 	}
 
-	// 简单排序（结果集通常不大）
-	for i := 0; i < len(results); i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[j].Score > results[i].Score {
-				results[i], results[j] = results[j], results[i]
-			}
-		}
-	}
+	// 按分数降序排序
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
+	})
 
 	if len(results) > topK {
 		results = results[:topK]
@@ -202,6 +199,19 @@ func (vs *VectorStore) HybridSearch(collection string, query []float64, queryTex
 
 	// 2. BM25 检索
 	bm25Results := vs.bm25Index.Search(queryText, topK*2)
+
+	// 2.1 BM25 相对阈值过滤：只保留得分 >= 最高得分 10% 的结果
+	if len(bm25Results) > 0 {
+		maxBM25Score := bm25Results[0].Score // 已排序，第一个最高
+		threshold := maxBM25Score * 0.1
+		var filtered []BM25Result
+		for _, r := range bm25Results {
+			if r.Score >= threshold {
+				filtered = append(filtered, r)
+			}
+		}
+		bm25Results = filtered
+	}
 
 	// 3. RRF 融合
 	const rrfK = 60.0 // RRF 常数，通常取 60
@@ -260,6 +270,16 @@ func (vs *VectorStore) HybridSearch(collection string, query []float64, queryTex
 			}
 		}
 	}
+
+	// 最终过滤：只保留在向量或 BM25 中有有意义得分的结果
+	// 向量得分 >= minScore 或 BM25 得分 > 0 的结果保留
+	var filteredResults []HybridSearchResult
+	for _, r := range results {
+		if r.VectorScore >= minScore || r.BM25Score > 0 {
+			filteredResults = append(filteredResults, r)
+		}
+	}
+	results = filteredResults
 
 	// 去重：合并同一文档的相邻 chunk（chunk_idx 连续）
 	results = mergeAdjacentChunks(results)

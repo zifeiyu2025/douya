@@ -142,6 +142,12 @@ type ChatCompletionRequest struct {
 	ReasoningBudget int            `json:"reasoning_budget,omitempty"`
 	Tools         []ToolDefinition       `json:"tools,omitempty"`
 	ChatTemplateKwargs map[string]interface{} `json:"chat_template_kwargs,omitempty"`
+	StreamOptions *StreamOptions          `json:"stream_options,omitempty"`
+}
+
+// StreamOptions 控制 SSE 流式响应的附加选项
+type StreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type ChatCompletionResponse struct {
@@ -158,6 +164,13 @@ type Choice struct {
 type SSEChunk struct {
 	ID      string      `json:"id"`
 	Choices []SSEChoice `json:"choices"`
+	Usage   *SSEUsage   `json:"usage,omitempty"`
+}
+
+type SSEUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
 }
 
 type SSEChoice struct {

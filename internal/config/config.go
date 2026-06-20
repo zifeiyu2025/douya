@@ -99,6 +99,7 @@ type Config struct {
 	Mlock                *bool   `json:"mlock"`       // nil=自动
 	Threads              int     `json:"threads"`    // 0=自动
 	BatchSize            int     `json:"batch_size"`  // 0=自动
+	CloseAction          string  `json:"close_action"` // "ask"(默认), "tray"(最小化到托盘), "exit"(直接退出)
 }
 
 func DefaultConfig() *Config {
@@ -174,6 +175,7 @@ func DefaultConfig() *Config {
 		Mlock:                nil,
 		Threads:              0,
 		BatchSize:            0,
+		CloseAction:          "ask",
 	}
 }
 

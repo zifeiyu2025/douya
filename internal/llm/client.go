@@ -57,6 +57,7 @@ func (c *Client) setAuthHeader(req *http.Request) {
 
 func (c *Client) StreamChat(ctx context.Context, req *ChatCompletionRequest, onToken func(chunk SSEChunk) error) error {
 	req.Stream = true
+	req.StreamOptions = &StreamOptions{IncludeUsage: true}
 
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -781,8 +782,8 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 			continue
 		}
 
+		defer resp.Body.Close()
 		body, readErr := readBody(resp.Body)
-		resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK || readErr != nil {
 			time.Sleep(300 * time.Millisecond)

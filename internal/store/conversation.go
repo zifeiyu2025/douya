@@ -16,6 +16,7 @@ import (
 type Conversation struct {
 	ID        string    `json:"id"`
 	Title     string    `json:"title"`
+	Summary   string    `json:"summary,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -48,15 +49,19 @@ func CreateConversation(db *sql.DB, conv *Conversation, encKey []byte) error {
 
 func GetConversation(db *sql.DB, id string, encKey []byte) (*Conversation, error) {
 	conv := &Conversation{}
+	var summary sql.NullString
 	err := db.QueryRow(
-		"SELECT id, title, created_at, updated_at FROM conversations WHERE id = ?",
+		"SELECT id, title, summary, created_at, updated_at FROM conversations WHERE id = ?",
 		id,
-	).Scan(&conv.ID, &conv.Title, &conv.CreatedAt, &conv.UpdatedAt)
+	).Scan(&conv.ID, &conv.Title, &summary, &conv.CreatedAt, &conv.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("get conversation: %w", err)
 	}
 	// 解密标题
 	conv.Title = decryptField(conv.Title, encKey)
+	if summary.Valid {
+		conv.Summary = summary.String
+	}
 	return conv, nil
 }
 
@@ -182,4 +187,31 @@ func CleanupAbnormalConversations(db *sql.DB, encKey []byte) ([]*AbnormalConvers
 	}
 
 	return removed, nil
+}
+
+// UpdateConversationSummary 只更新对话的摘要字段
+func UpdateConversationSummary(db *sql.DB, id string, summary string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := db.ExecContext(ctx,
+		"UPDATE conversations SET summary = ? WHERE id = ?",
+		summary, id,
+	)
+	if err != nil {
+		return fmt.Errorf("update conversation summary: %w", err)
+	}
+	return nil
+}
+
+// GetConversationSummary 只获取对话的摘要字段
+func GetConversationSummary(db *sql.DB, id string) (string, error) {
+	var summary sql.NullString
+	err := db.QueryRow("SELECT summary FROM conversations WHERE id = ?", id).Scan(&summary)
+	if err != nil {
+		return "", fmt.Errorf("get conversation summary: %w", err)
+	}
+	if summary.Valid {
+		return summary.String, nil
+	}
+	return "", nil
 }

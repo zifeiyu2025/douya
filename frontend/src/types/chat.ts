@@ -67,7 +67,6 @@ export interface ModelCapabilities {
 export interface SearchAPIKeys {
     ollama_api_key: string
     tavily_api_key: string
-    github_api_key: string
     ollama_api_key_set: boolean
     tavily_api_key_set: boolean
 }
@@ -155,6 +154,7 @@ export interface Config {
     mlock: boolean | null
     threads: number
     batch_size: number
+    close_action: string
 }
 
 export interface SmartParamsInfo {
@@ -291,6 +291,7 @@ export const DEFAULT_CONFIG: Config = {
     mlock: null,
     threads: 0,
     batch_size: 0,
+    close_action: 'ask',
 }
 
 export interface ServerStatus {

@@ -110,7 +110,7 @@ func TestBuildLLMMessages_ContextCancellation(t *testing.T) {
 	start := time.Now()
 	// 调用 buildLLMMessages，传入可取消的 ctx
 	// 修复前：此行无法编译（buildLLMMessages 不接收 ctx 参数）
-	_, _, _ = s.buildLLMMessages(ctx, nil, "测试查询内容", nil, "off", "")
+	_, _, _ = s.buildLLMMessages(ctx, "", nil, "测试查询内容", nil, "off", "")
 	elapsed := time.Since(start)
 
 	// 验证：context 取消后应立即返回，不应等待 5 秒超时

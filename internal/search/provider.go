@@ -396,12 +396,18 @@ func parseGenericSearchResults(html string) []SearchResult {
 	linkMatches := reLink.FindAllStringSubmatch(html, -1)
 
 	var results []SearchResult
+	seen := make(map[string]bool)
 
 	for _, match := range linkMatches {
 		if len(match) < 2 {
 			continue
 		}
 		link := match[1]
+
+		// 跳过搜索引擎自身链接和无效链接
+		if isSearchEngineSelfLink(link) || seen[link] {
+			continue
+		}
 
 		title := ""
 		h3Matches := reH3.FindAllStringSubmatch(html, -1)
@@ -426,13 +432,90 @@ func parseGenericSearchResults(html string) []SearchResult {
 			}
 		}
 
+		// 提取链接附近的文本作为 snippet
+		snippet := extractSnippetNearLink(html, link)
+
+		seen[link] = true
 		results = append(results, SearchResult{
 			Title:   title,
 			URL:     link,
-			Snippet: "搜索结果内容",
+			Snippet: snippet,
 			Score:   0.5,
 		})
 	}
 
 	return results
+}
+
+// isSearchEngineSelfLink 判断是否为搜索引擎自身的链接
+func isSearchEngineSelfLink(link string) bool {
+	lower := strings.ToLower(link)
+	selfDomains := []string{"www.so.com", "www.bing.com", "www.google.com", "duckduckgo.com", "search.yahoo.com"}
+	for _, d := range selfDomains {
+		if strings.Contains(lower, d) {
+			return true
+		}
+	}
+	return false
+}
+
+// extractSnippetNearLink 尝试从链接附近提取文本摘要
+func extractSnippetNearLink(html, link string) string {
+	// 查找链接在 HTML 中的位置
+	linkIdx := strings.Index(html, link)
+	if linkIdx < 0 {
+		return ""
+	}
+	// 从链接位置向后搜索 2000 字符范围内的 <p> 标签内容
+	searchEnd := linkIdx + 2000
+	if searchEnd > len(html) {
+		searchEnd = len(html)
+	}
+	region := html[linkIdx:searchEnd]
+
+	// 尝试匹配 <p> 标签内容
+	pRe := regexp.MustCompile(`<p[^>]*>(.*?)</p>`)
+	pMatches := pRe.FindAllStringSubmatch(region, -1)
+	for _, m := range pMatches {
+		if len(m) >= 2 {
+			text := stripHTML(m[1])
+			if len(text) > 20 { // 忽略太短的文本
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+// containsCJK 检查字符串是否包含中日韩文字
+func containsCJK(s string) bool {
+	for _, r := range s {
+		if (r >= 0x4e00 && r <= 0x9fff) || (r >= 0x3400 && r <= 0x4dbf) || (r >= 0x3040 && r <= 0x30ff) {
+			return true
+		}
+	}
+	return false
+}
+
+// dedupAndFilterResults 对搜索结果去重和过滤
+func dedupAndFilterResults(results []SearchResult) []SearchResult {
+	seen := make(map[string]bool)
+	var filtered []SearchResult
+	for _, r := range results {
+		// 跳过空标题或空链接
+		if r.Title == "" || r.URL == "" {
+			continue
+		}
+		// 跳过搜索引擎自身链接
+		if isSearchEngineSelfLink(r.URL) {
+			continue
+		}
+		// 去重
+		if seen[r.URL] {
+			continue
+		}
+		seen[r.URL] = true
+		filtered = append(filtered, r)
+	}
+	return filtered
 }

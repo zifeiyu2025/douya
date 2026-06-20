@@ -71,6 +71,10 @@ type Service struct {
 	ragEmbedder    rag.Embedder
 	ragCollection  string
 	ragEnabled     bool
+	// prompt_tokens 反馈校准
+	lastPromptTokens   int // 最近一次实际 prompt_tokens（来自 llama-server usage）
+	lastEstimatedTokens int // 对应的估算值
+	tokenCalibMu       sync.RWMutex
 }
 
 func NewService(llmClient *llm.Client, searchChain *search.SearchChain, db *sql.DB, cfg *config.Config, encKey []byte, appDir string) *Service {
@@ -716,6 +720,7 @@ type StreamAccumulator struct {
 	ThinkingDone               bool
 	FirstRoundThinking         string
 	FirstRoundThinkingDuration float64
+	PromptTokens               int // 来自 SSE 流式响应的 usage 字段
 }
 
 // 流式响应缓冲区最大大小（10MB）
@@ -732,6 +737,11 @@ func NewStreamAccumulator(convID string, emitFn func(string, interface{}), emitF
 
 func (a *StreamAccumulator) callback() func(llm.SSEChunk) error {
 	return func(chunk llm.SSEChunk) error {
+		// 提取 usage 信息（llama-server 在流结束时返回）
+		if chunk.Usage != nil && chunk.Usage.PromptTokens > 0 {
+			a.PromptTokens = chunk.Usage.PromptTokens
+		}
+
 		if len(chunk.Choices) == 0 {
 			return nil
 		}
@@ -958,11 +968,11 @@ func TruncateSearchContext(searchContext string, ctxSize int) string { // Export
 func StoreMsgToChat(m *store.Message) *Message { return storeMsgToChat(m) }    // Exported for testing
 func IsCodeRelated(query string) bool          { return isCodeRelated(query) } // Exported for testing
 func BuildLLMMessages(s *Service, dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment) ([]llm.ChatMessage, error) {
-	msgs, _, err := s.buildLLMMessages(context.Background(), dbMsgs, currentUserContent, currentAttachments, "off", "")
+	msgs, _, err := s.buildLLMMessages(context.Background(), "", dbMsgs, currentUserContent, currentAttachments, "off", "")
 	return msgs, err
 }
 func BuildLLMMessagesWithSearch(s *Service, dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment, searchMode string) ([]llm.ChatMessage, error) {
-	msgs, _, err := s.buildLLMMessages(context.Background(), dbMsgs, currentUserContent, currentAttachments, searchMode, "")
+	msgs, _, err := s.buildLLMMessages(context.Background(), "", dbMsgs, currentUserContent, currentAttachments, searchMode, "")
 	return msgs, err
 }
 
@@ -1081,9 +1091,15 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 						sj, _ := json.Marshal(searchResp.Results)
 						result.searchJSON = string(sj)
 						lang := detectLanguage(args.Query)
-						result.toolContent = formatSearchResultsWithLang(searchResp.Results, lang) + searchResultInstruction(lang)
+						toolContent := formatSearchResultsWithLang(searchResp.Results, lang) + searchResultInstruction(lang)
+						// 截断搜索结果，防止上下文膨胀
+						ctxSize := 0
+						if cfg := s.getConfigSnapshot(); cfg != nil {
+							ctxSize = cfg.ContextSize
+						}
+						result.toolContent = truncateSearchContext(toolContent, ctxSize)
 					} else {
-						result.toolContent = fmt.Sprintf("No search results found for \"%s\". Please use your own knowledge to answer the user's question.", args.Query)
+						result.toolContent = "No results found. Use your own knowledge."
 					}
 				}
 
@@ -1133,18 +1149,44 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 			})
 		}
 
+		// 预防性裁剪：tool call 多轮累积可能导致上下文溢出
+		estimatedTotal := estimateMessagesTokens(llmMessages) + 250 // +250 for tool schema
+		contextLimit := cfg.ContextSize
+		if contextLimit <= 0 {
+			contextLimit = 4096
+		}
+		if estimatedTotal > contextLimit*80/100 {
+			// 调用 CompressContext 进行统一压缩
+			// tool call 路径中的消息是 llm.ChatMessage 格式，没有对应的 store.Message
+			// 传 nil 给 trimmedStoreMsgs，此时不会生成新摘要但会保留已有摘要
+			existingSummary := ""
+			if convID != "" {
+				existingSummary, _ = store.GetConversationSummary(s.db, convID)
+			}
+			result := CompressContext(llmMessages, contextLimit, existingSummary, nil, client, convID, s.db)
+			llmMessages = result.Messages
+			log.Info().Int("estimated", estimatedTotal).Int("context_size", contextLimit).Int("messages_after", len(llmMessages)).Msg("[chat] tool call preventive trim")
+
+			s.emitForConv(convID, "context_trimmed", map[string]interface{}{
+				"reason":         "tool_call_preventive_trim",
+				"estimated":      estimatedTotal,
+				"context_size":   contextLimit,
+				"messages_after": len(llmMessages),
+			})
+		}
+
 		req := &llm.ChatCompletionRequest{
-		Model:         s.modelNameForRequest(),
-		Messages:      llmMessages,
-		MaxTokens:     s.calcMaxTokens(estimateMessagesTokens(llmMessages)),
-		Temperature:   cfg.Temperature,
-		TopP:          cfg.TopP,
-		TopK:          cfg.TopK,
-		RepeatPenalty: cfg.RepeatPenalty,
-	}
-	if !hitMaxRounds {
-		req.Tools = []llm.ToolDefinition{searchToolDef}
-	}
+			Model:         s.modelNameForRequest(),
+			Messages:      llmMessages,
+			MaxTokens:     s.calcMaxTokens(estimateMessagesTokens(llmMessages) + 250), // +250 for tool schema
+			Temperature:   cfg.Temperature,
+			TopP:          cfg.TopP,
+			TopK:          cfg.TopK,
+			RepeatPenalty: cfg.RepeatPenalty,
+		}
+		if !hitMaxRounds {
+			req.Tools = []llm.ToolDefinition{searchToolDef}
+		}
 
 		s.applyThinkingControl(req)
 
@@ -1179,6 +1221,13 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 
 				log.Info().Int("prompt_tokens", exceedInfo.PromptTokens).Int("context_size", actualCtx).Int("messages_after_trim", len(trimmed)).Msg("[chat] tool call context exceeded, trimming and retrying")
 
+				s.emitForConv(convID, "context_trimmed", map[string]interface{}{
+					"reason":         "exceed_context_size",
+					"prompt_tokens":  exceedInfo.PromptTokens,
+					"context_size":   actualCtx,
+					"messages_after": len(trimmed),
+				})
+
 				retryCtx, retryCancel := context.WithTimeout(cancelCtx, 300*time.Second)
 				defer retryCancel()
 				retryErr := client.StreamChat(retryCtx, req, acc.callback())
@@ -1188,7 +1237,7 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 						s.emitForConv(convID, "stopped", nil)
 						return nil
 					}
-					s.emitForConv(convID, "error", retryErr.Error())
+					s.emitForConv(convID, "error", "上下文过长，裁剪后仍无法生成，请尝试缩短对话或新建对话")
 					return fmt.Errorf("tool call stream (retry after context trim): %w", retryErr)
 				}
 			} else {
@@ -1338,7 +1387,7 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 		}
 	}
 
-	llmMessages, trimmed, err := s.buildLLMMessages(cancelCtx, dbMsgs, userContent, params.Attachments, params.SearchMode, searchContext)
+	llmMessages, trimmed, err := s.buildLLMMessages(cancelCtx, convID, dbMsgs, userContent, params.Attachments, params.SearchMode, searchContext)
 	if err != nil {
 		s.emitForConv(convID, "error", err.Error())
 		return err
@@ -1377,6 +1426,8 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 	// 支持 tool call 的模型，在 "auto" 和 "on" 模式下提供工具
 	if (searchMode == "auto" || searchMode == "on") && caps.ToolCallSupport {
 		req.Tools = []llm.ToolDefinition{searchToolDef}
+		// tool schema 定义约占 250 tokens，需计入上下文估算
+		req.MaxTokens = s.calcMaxTokens(estimateMessagesTokens(llmMessages) + 250)
 	}
 
 	req.Messages = llmMessages
@@ -1431,7 +1482,7 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 					s.emitForConv(convID, "stopped", nil)
 					return nil
 				}
-				s.emitForConv(convID, "error", retryErr.Error())
+				s.emitForConv(convID, "error", "上下文过长，裁剪后仍无法生成，请尝试缩短对话或新建对话")
 				return fmt.Errorf("stream chat (retry after context trim): %w", retryErr)
 			}
 		} else {
@@ -1445,6 +1496,16 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 			return err
 		}
 	} else {
+		// 记录 prompt_tokens 反馈校准数据
+		if acc.PromptTokens > 0 {
+			estimated := estimateMessagesTokens(llmMessages)
+			s.tokenCalibMu.Lock()
+			s.lastPromptTokens = acc.PromptTokens
+			s.lastEstimatedTokens = estimated
+			s.tokenCalibMu.Unlock()
+			log.Debug().Int("actual", acc.PromptTokens).Int("estimated", estimated).Float64("ratio", float64(acc.PromptTokens)/float64(max(estimated, 1))).Msg("[chat] token estimation calibration")
+		}
+
 		aiMsg := &store.Message{
 			ConversationID:   convID,
 			Role:             "assistant",
@@ -1487,6 +1548,10 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 	return nil
 }
 
+// maxAttachmentTextRunes 限制单个文本/PDF 附件注入 prompt 的最大字符数，
+// 避免超大文件直接撑爆上下文。约 24000 字符 ≈ 12000-16000 token。
+const maxAttachmentTextRunes = 24000
+
 func buildMessageFromAttachments(role, content string, attachments []Attachment) llm.ChatMessage {
 	var imageUrls []string
 	var audios []llm.InputAudio
@@ -1501,11 +1566,12 @@ func buildMessageFromAttachments(role, content string, attachments []Attachment)
 		case "video":
 			imageUrls = append(imageUrls, att.Data)
 		case "pdf":
-			// Phase2: Use existing extractPDFText (defined in pdf.go)
 			pdfText := extractPDFText([]byte(att.Data))
+			pdfText = truncateAttachmentText(pdfText, att.Name)
 			textParts = append(textParts, fmt.Sprintf("--- 附件: %s (%s) ---\n%s\n--- 附件结束 ---", att.Name, att.MimeType, pdfText))
 		case "text":
-			textParts = append(textParts, fmt.Sprintf("--- 附件: %s (%s) ---\n%s\n--- 附件结束 ---", att.Name, att.MimeType, att.Data))
+			truncated := truncateAttachmentText(att.Data, att.Name)
+			textParts = append(textParts, fmt.Sprintf("--- 附件: %s (%s) ---\n%s\n--- 附件结束 ---", att.Name, att.MimeType, truncated))
 		}
 	}
 
@@ -1535,6 +1601,17 @@ func buildMessageFromAttachments(role, content string, attachments []Attachment)
 		return llm.NewAudioMessage(role, fullContent, audios)
 	}
 	return llm.NewTextMessage(role, fullContent)
+}
+
+// truncateAttachmentText 截断过长的附件文本，保留开头和结尾部分。
+func truncateAttachmentText(text, name string) string {
+	runes := []rune(text)
+	if len(runes) <= maxAttachmentTextRunes {
+		return text
+	}
+	head := maxAttachmentTextRunes * 2 / 3
+	tail := maxAttachmentTextRunes / 3
+	return string(runes[:head]) + fmt.Sprintf("\n\n[... %s 内容过长，已截断 %d 字符 ...]\n\n", name, len(runes)-maxAttachmentTextRunes) + string(runes[len(runes)-tail:])
 }
 
 // buildBaseSystemPrompt 构建系统提示词的基础部分（可缓存）。
@@ -1633,7 +1710,7 @@ func applyDynamicSystemPrompt(base, searchMode string, caps llm.ModelCapabilitie
 	return systemContent
 }
 
-func (s *Service) buildLLMMessages(ctx context.Context, dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment, searchMode string, searchContext string) ([]llm.ChatMessage, bool, error) {
+func (s *Service) buildLLMMessages(ctx context.Context, convID string, dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment, searchMode string, searchContext string) ([]llm.ChatMessage, bool, error) {
 	// 在函数入口获取配置快照，避免数据竞争
 	cfg := s.getConfigSnapshot()
 	maxContext := 0
@@ -1727,9 +1804,27 @@ func (s *Service) buildLLMMessages(ctx context.Context, dbMsgs []*store.Message,
 		}
 	}
 
-	estimatedTokens := len([]rune(systemContent)) * 3
+	estimatedTokens := estimateTokensByLang(systemContent, detectLanguage(systemContent)) + 10 // +10 for chat template overhead
 	if ragContext != "" {
-		estimatedTokens += len([]rune(ragContext)) * 3
+		estimatedTokens += estimateTokensByLang(ragContext, detectLanguage(ragContext)) + 10
+	}
+
+	// 利用历史 prompt_tokens 反馈校准估算系数
+	s.tokenCalibMu.RLock()
+	calibActual := s.lastPromptTokens
+	calibEstimated := s.lastEstimatedTokens
+	s.tokenCalibMu.RUnlock()
+	calibRatio := 1.0
+	if calibEstimated > 0 && calibActual > 0 {
+		calibRatio = float64(calibActual) / float64(calibEstimated)
+		// 限制校准系数在合理范围 [1.0, 3.0]，避免极端值
+		if calibRatio < 1.0 {
+			calibRatio = 1.0
+		} else if calibRatio > 3.0 {
+			calibRatio = 3.0
+		}
+		// 应用校准：估算值 * 校准系数
+		estimatedTokens = int(float64(estimatedTokens) * calibRatio)
 	}
 
 	reserve := maxContext / 10
@@ -1747,35 +1842,59 @@ func (s *Service) buildLLMMessages(ctx context.Context, dbMsgs []*store.Message,
 		}
 		if len(currentAttachments) > 0 {
 			for _, att := range currentAttachments {
-				currentMsgTokens += EstimateAttachmentTokens(att.Type)
+				currentMsgTokens += EstimateAttachmentTokensWithData(att.Type, att.Data)
 			}
 		}
 	}
 
 	if estimatedTokens+currentMsgTokens > effectiveMax {
-		var messages []llm.ChatMessage
-		messages = append(messages, llm.ChatMessage{
-			Role:    "system",
-			Content: systemContent,
-		})
+		// 降级路径：上下文严重超限，调用 CompressContext 进行统一压缩
+		// 摘要作为独立 system 消息插入（不拼到 system prompt 末尾）
+		var lastMsg llm.ChatMessage
+		hasLastMsg := false
 		if len(dbMsgs) > 0 {
-			lastMsg := dbMsgs[len(dbMsgs)-1]
+			dbLastMsg := dbMsgs[len(dbMsgs)-1]
 			content := currentUserContent
-			if content == "" && (lastMsg.Images != "" || lastMsg.Attachments != "") {
+			if content == "" && (dbLastMsg.Images != "" || dbLastMsg.Attachments != "") {
 				content = "请描述这张图片"
 			}
-			var msg llm.ChatMessage
 			if len(currentAttachments) > 0 {
-				msg = buildMessageFromAttachments(lastMsg.Role, content, currentAttachments)
+				lastMsg = buildMessageFromAttachments(dbLastMsg.Role, content, currentAttachments)
 			} else {
-				msg = llm.NewTextMessage(lastMsg.Role, content)
+				lastMsg = llm.NewTextMessage(dbLastMsg.Role, content)
 			}
-			messages = append(messages, msg)
+			hasLastMsg = true
 		}
+
+		baseMessages := []llm.ChatMessage{
+			{Role: "system", Content: systemContent},
+		}
+		if hasLastMsg {
+			baseMessages = append(baseMessages, lastMsg)
+		}
+
+		existingSummary := ""
+		if convID != "" {
+			existingSummary, _ = store.GetConversationSummary(s.db, convID)
+		}
+		client := s.getClientSnapshot()
+		result := CompressContext(baseMessages, maxContext, existingSummary, dbMsgs, client, convID, s.db)
+		messages := result.Messages
+
+		// 如果 CompressContext 返回的消息仍然超限（极端情况），fallback 到只保留 system + 最后一条消息
+		if estimateMessagesTokens(messages) > effectiveMax {
+			messages = baseMessages
+			log.Warn().Int("effective_max", effectiveMax).Msg("[buildLLMMessages] 降级路径压缩后仍超限，fallback 到最小消息")
+		}
+
+		log.Info().Int("trimmed_count", result.TrimmedCount).Bool("summary_inserted", result.SummaryInserted).Str("convID", convID).Msg("[buildLLMMessages] 降级路径上下文已压缩")
 		return messages, true, nil
 	}
 
 	var history []llm.ChatMessage
+
+	// 记录被裁剪的消息索引（用于摘要生成）
+	var trimmedMsgs []*store.Message
 
 	for i := len(dbMsgs) - 1; i >= 0; i-- {
 		m := dbMsgs[i]
@@ -1786,10 +1905,12 @@ func (s *Service) buildLLMMessages(ctx context.Context, dbMsgs []*store.Message,
 		}
 		if m.ID == dbMsgs[len(dbMsgs)-1].ID && len(currentAttachments) > 0 {
 			for _, att := range currentAttachments {
-				estimated += EstimateAttachmentTokens(att.Type)
+				estimated += EstimateAttachmentTokensWithData(att.Type, att.Data)
 			}
 		}
 		if estimatedTokens+estimated > effectiveMax {
+			// 收集被裁剪的消息（索引 0 到 i，即更早的消息）
+			trimmedMsgs = dbMsgs[:i+1]
 			break
 		}
 		estimatedTokens += estimated
@@ -1928,19 +2049,38 @@ func (s *Service) buildLLMMessages(ctx context.Context, dbMsgs []*store.Message,
 	}
 	history = cleaned
 
-	var messages []llm.ChatMessage
-	messages = append(messages, llm.ChatMessage{
-		Role:    "system",
-		Content: systemContent,
-	})
-	// 将 RAG 参考资料作为独立的 system 上下文消息，与主系统提示词解耦
-	if ragContext != "" {
-		messages = append(messages, llm.ChatMessage{
-			Role:    "system",
-			Content: ragContext,
-		})
+	// 构建基础消息列表（system + history）
+	baseMessages := []llm.ChatMessage{
+		{Role: "system", Content: systemContent},
 	}
-	messages = append(messages, history...)
+	baseMessages = append(baseMessages, history...)
+
+	// 如果有消息被裁剪，调用 CompressContext 进行统一压缩（滑动窗口裁剪 + 异步摘要）
+	var messages []llm.ChatMessage
+	if len(trimmedMsgs) > 0 && convID != "" {
+		existingSummary, _ := store.GetConversationSummary(s.db, convID)
+		client := s.getClientSnapshot()
+		result := CompressContext(baseMessages, maxContext, existingSummary, trimmedMsgs, client, convID, s.db)
+		messages = result.Messages
+		log.Info().Int("trimmed_count", result.TrimmedCount).Bool("summary_inserted", result.SummaryInserted).Str("convID", convID).Msg("[buildLLMMessages] 上下文已压缩")
+	} else {
+		messages = baseMessages
+	}
+
+	// 将 RAG 参考资料作为独立的 system 上下文消息，与主系统提示词解耦
+	// 插入位置：在所有 system 消息（system + 摘要）之后、history 之前
+	if ragContext != "" {
+		insertIdx := 0
+		for i, m := range messages {
+			if m.Role != "system" {
+				insertIdx = i
+				break
+			}
+			insertIdx = i + 1
+		}
+		ragMsg := llm.ChatMessage{Role: "system", Content: ragContext}
+		messages = append(messages[:insertIdx], append([]llm.ChatMessage{ragMsg}, messages[insertIdx:]...)...)
+	}
 
 	if searchContext != "" {
 		// 模拟方案A：插入 assistant(tool_call) + tool(搜索结果) 消息

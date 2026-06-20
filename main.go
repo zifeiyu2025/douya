@@ -128,9 +128,10 @@ func main() {
 		return
 	}
 
-	// 初始化日志系统
-	logger.Init()
-	log.Info().Msg("豆芽启动中...")
+	// 初始化日志系统（同时输出到控制台和文件）
+	logDir := filepath.Join(appDir(), "data", "logs")
+	logger.Init(logDir)
+	log.Info().Str("logDir", logDir).Msg("豆芽启动中...")
 
 	mutexHandle, isFirst := tryAcquireMutex()
 	if !isFirst {

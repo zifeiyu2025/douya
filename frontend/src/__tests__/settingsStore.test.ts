@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import {
   shouldReloadConfigOnModelChange,
   matchModelRef,
-  shouldKeepSwitchingVisible,
 } from '../stores/settings'
 
 describe('shouldReloadConfigOnModelChange', () => {
@@ -61,21 +60,5 @@ describe('matchModelRef', () => {
     const result = matchModelRef('models/Qwen3.5-9B-U-Q4_K_M/Qwen3.5U-9B-Q4_K_M.gguf', refs)
     expect(result).not.toBeNull()
     expect(result!.name).toBe('Qwen3.5U-9B')
-  })
-})
-
-describe('shouldKeepSwitchingVisible', () => {
-  it('returns true when switch just started', () => {
-    const now = Date.now()
-    expect(shouldKeepSwitchingVisible(now, now + 100, 800)).toBe(true)
-  })
-
-  it('returns false when enough time has passed', () => {
-    const now = Date.now()
-    expect(shouldKeepSwitchingVisible(now, now + 1000, 800)).toBe(false)
-  })
-
-  it('returns true when switchStartedAt is 0', () => {
-    expect(shouldKeepSwitchingVisible(0, Date.now(), 800)).toBe(true)
   })
 })

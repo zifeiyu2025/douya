@@ -455,7 +455,7 @@ func (s *Server) WaitForReady(timeout time.Duration) error {
 	for time.Now().Before(deadline) {
 		resp, err := client.Get(url)
 		if err == nil {
-			resp.Body.Close()
+			defer resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				return nil
 			}
@@ -494,7 +494,7 @@ func (s *Server) GracefulStop(timeout time.Duration) error {
 	if err != nil {
 		log.Error().Err(err).Msg("graceful shutdown request failed (will force stop)")
 	} else {
-		resp.Body.Close()
+		defer resp.Body.Close()
 		log.Info().Msg("graceful shutdown request sent, waiting for server to exit...")
 	}
 

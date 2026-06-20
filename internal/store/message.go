@@ -13,7 +13,13 @@ import (
 	"douya/internal/secrets"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 )
+
+// searchMaxScanRows 限制 SearchMessages 最多扫描的消息数量，避免全表扫描导致性能问题。
+// 由于消息内容是加密的，无法在 SQL 层面做 LIKE 匹配，只能加载后解密再匹配，
+// 因此该限制是在解密前截断，可能漏掉较旧的匹配结果，但对于搜索场景，最近的记录通常足够。
+const searchMaxScanRows = 500
 
 type Message struct {
 	ID               string    `json:"id"`
@@ -108,7 +114,9 @@ func CreateMessage(db *sql.DB, msg *Message, encKey []byte) error {
 }
 
 func GetMessagesByConversation(db *sql.DB, convID string, encKey []byte) ([]*Message, error) {
-	rows, err := db.Query(
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	rows, err := db.QueryContext(ctx,
 		"SELECT id, conversation_id, role, content, thinking_content, thinking_duration, search_results, images, attachments, tool_calls, tool_call_id, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC",
 		convID,
 	)
@@ -133,11 +141,16 @@ func GetMessagesByConversation(db *sql.DB, convID string, encKey []byte) ([]*Mes
 }
 
 // SearchMessages 在内存中搜索消息（支持加密内容）
-// 加密后 FTS5 无法使用，改为加载所有消息解密后在内存中匹配
+// 加密后 FTS5 无法使用，改为加载最近 searchMaxScanRows 条消息解密后在内存中匹配。
+// 由于消息内容是加密的，无法在 SQL 层面做 LIKE 匹配，只能加载后解密再匹配，
+// 因此通过 LIMIT 限制扫描数量，避免对消息量大的应用造成性能瓶颈。
 func SearchMessages(db *sql.DB, query string, encKey []byte) ([]*Message, error) {
-	// 加载所有消息
-	rows, err := db.Query(
-		`SELECT id, conversation_id, role, content, thinking_content, thinking_duration, search_results, images, attachments, tool_calls, tool_call_id, created_at FROM messages ORDER BY created_at DESC`,
+	// 加载最近的消息（限制扫描数量，避免全表扫描）
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, conversation_id, role, content, thinking_content, thinking_duration, search_results, images, attachments, tool_calls, tool_call_id, created_at FROM messages ORDER BY created_at DESC LIMIT ?`,
+		searchMaxScanRows,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("search messages: %w", err)
@@ -146,7 +159,9 @@ func SearchMessages(db *sql.DB, query string, encKey []byte) ([]*Message, error)
 
 	lowerQuery := strings.ToLower(query)
 	var msgs []*Message
+	scanned := 0
 	for rows.Next() {
+		scanned++
 		msg := &Message{}
 		if err := rows.Scan(&msg.ID, &msg.ConversationID, &msg.Role, &msg.Content, &msg.ThinkingContent, &msg.ThinkingDuration, &msg.SearchResults, &msg.Images, &msg.Attachments, &msg.ToolCalls, &msg.ToolCallID, &msg.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
@@ -161,12 +176,18 @@ func SearchMessages(db *sql.DB, query string, encKey []byte) ([]*Message, error)
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate messages: %w", err)
 	}
+	// 如果扫描的行数达到上限，说明可能还有更早的匹配结果被截断，提示用户缩小搜索范围
+	if scanned >= searchMaxScanRows {
+		log.Warn().Int("scanned", scanned).Int("limit", searchMaxScanRows).Str("query", query).Msg("[store] SearchMessages reached scan limit, older matches may be truncated")
+	}
 	return msgs, nil
 }
 
 func GetMessage(db *sql.DB, id string, encKey []byte) (*Message, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	var msg Message
-	err := db.QueryRow(
+	err := db.QueryRowContext(ctx,
 		"SELECT id, conversation_id, role, content, thinking_content, thinking_duration, search_results, images, attachments, tool_calls, tool_call_id, created_at FROM messages WHERE id = ?",
 		id,
 	).Scan(&msg.ID, &msg.ConversationID, &msg.Role, &msg.Content, &msg.ThinkingContent, &msg.ThinkingDuration, &msg.SearchResults, &msg.Images, &msg.Attachments, &msg.ToolCalls, &msg.ToolCallID, &msg.CreatedAt)

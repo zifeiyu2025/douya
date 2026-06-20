@@ -34,6 +34,8 @@ export function useMarkdownWorker() {
     // 稳定块缓存：stable 命中时只渲染 unstable
     let lastStable = ''
     let lastStableHtml = ''
+    // pending Promise 的 reject 函数列表：worker error/terminate 时拒绝所有挂起的 Promise，避免永久挂起
+    const pendingRejects: Array<(error: Error) => void> = []
 
     function ensureWorker(): Worker | null {
         if (workerFailed) return null
@@ -44,6 +46,12 @@ export function useMarkdownWorker() {
                 console.error('[markdown-worker] error:', e)
                 workerFailed = true
                 isRendering = false
+                // reject 所有 pending Promise，避免永久挂起
+                const err = new Error(`Markdown worker error: ${e.message}`)
+                while (pendingRejects.length > 0) {
+                    const reject = pendingRejects.shift()!
+                    reject(err)
+                }
             })
             return worker
         } catch (e) {
@@ -58,12 +66,17 @@ export function useMarkdownWorker() {
      * 返回渲染后的 HTML，自动处理过期任务
      */
     function renderWithWorker(w: Worker, content: string): Promise<string> {
-        return new Promise((resolve) => {
+        return new Promise<string>((resolve, reject) => {
             currentId++
             const id = currentId
+            // 将 reject 存入列表，用于 worker error/terminate 时拒绝
+            pendingRejects.push(reject)
             const handler = (e: MessageEvent) => {
                 if (e.data.id !== id) return
                 w.removeEventListener('message', handler)
+                // 渲染完成，从列表中移除该 reject
+                const idx = pendingRejects.indexOf(reject)
+                if (idx >= 0) pendingRejects.splice(idx, 1)
                 if (e.data.error) {
                     console.warn('[markdown-worker] render error:', e.data.error)
                 }
@@ -99,7 +112,13 @@ export function useMarkdownWorker() {
             stableHtml = lastStableHtml
         } else if (stable) {
             // stable 不命中：渲染 stable 并缓存
-            stableHtml = await renderWithWorker(w, stable)
+            try {
+                stableHtml = await renderWithWorker(w, stable)
+            } catch (err) {
+                // 降级：主线程渲染
+                console.warn('[markdown-worker] stable render failed, fallback:', err)
+                stableHtml = await renderMarkdownStreaming(stable)
+            }
             lastStable = stable
             lastStableHtml = stableHtml
         } else {
@@ -110,7 +129,16 @@ export function useMarkdownWorker() {
         }
 
         // 渲染 unstable（可能为空）
-        const unstableHtml = unstable ? await renderWithWorker(w, unstable) : ''
+        let unstableHtml = ''
+        if (unstable) {
+            try {
+                unstableHtml = await renderWithWorker(w, unstable)
+            } catch (err) {
+                // 降级：主线程渲染
+                console.warn('[markdown-worker] unstable render failed, fallback:', err)
+                unstableHtml = await renderMarkdownStreaming(unstable)
+            }
+        }
         // Worker 中使用的是轻量级 lightSanitize，主线程再用 DOMPurify 进行二次消毒
         rendered.value = sanitizeHtml(stableHtml + unstableHtml)
         lastRenderTime = Date.now()
@@ -168,6 +196,12 @@ export function useMarkdownWorker() {
 
     onScopeDispose(() => {
         if (renderTimer) clearTimeout(renderTimer)
+        // 先 reject 所有 pending Promise，避免 terminate 后 Promise 永久挂起
+        const err = new Error('Markdown worker disposed')
+        while (pendingRejects.length > 0) {
+            const reject = pendingRejects.shift()!
+            reject(err)
+        }
         if (worker) {
             worker.terminate()
             worker = null

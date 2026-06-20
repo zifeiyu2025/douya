@@ -2,16 +2,20 @@
   <Transition name="splash" @after-leave="$emit('complete')">
     <div v-if="visible" class="splash-screen">
       <div class="splash-content">
-        <!-- Logo + 无限旋转弧线 -->
-        <div class="splash-logo">
+        <!-- Logo + 旋转弧线 -->
+        <div class="splash-logo" :class="{ 'is-done': stage === 'done', 'is-failed': stage === 'failed' }">
           <svg width="72" height="72" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
             <!-- 底层静态淡圈 -->
             <circle cx="36" cy="36" r="34" stroke="currentColor" stroke-width="2" opacity="0.12" />
-            <!-- 旋转弧线 -->
-            <circle cx="36" cy="36" r="34" stroke="currentColor" stroke-width="2.5"
+            <!-- 旋转弧线（加载中） -->
+            <circle v-if="stage !== 'done' && stage !== 'failed'" cx="36" cy="36" r="34" stroke="currentColor" stroke-width="2.5"
               stroke-linecap="round"
               stroke-dasharray="78 136"
               class="logo-spinner-ring" />
+            <!-- 完成圆环 -->
+            <circle v-else cx="36" cy="36" r="34" stroke="currentColor" stroke-width="2.5"
+              stroke-linecap="round"
+              class="logo-complete-ring" />
             <!-- Logo 图标 -->
             <image x="10" y="10" width="52" height="52" :href="appLogo" />
           </svg>
@@ -25,7 +29,7 @@
 
         <!-- 状态文字 -->
         <div class="splash-status">
-          <span class="status-text">{{ stageText }}</span>
+          <span class="status-text" :class="{ 'status-done': stage === 'done', 'status-failed': stage === 'failed' }">{{ stageText }}</span>
           <span v-if="modelName && stage !== 'done' && stage !== 'failed'" class="status-model">{{ modelName }}</span>
         </div>
       </div>
@@ -60,9 +64,11 @@ const stageText = computed(() => {
     loading: '加载模型中...',
     waiting: '初始化模型...',
     detecting: '检测模型能力...',
-    done: '就绪',
+    done: '加载完成',
     failed: '加载失败',
     rolling_back: '回滚中...',
+    'vram-warning': 'VRAM 不足警告，可能影响性能...',
+    'spec-warning': '推测解码兼容性警告...',
   }
   return map[props.stage] || '加载中...'
 })
@@ -86,14 +92,51 @@ const stageText = computed(() => {
   gap: 28px;
 }
 
-/* Logo 旋转弧线 */
+/* Logo 区域 */
 .splash-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--accent-primary);
+  transition: color var(--transition-normal);
+  animation: logo-enter 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.splash-logo.is-done {
+  color: var(--accent-success);
+}
+
+.splash-logo.is-failed {
+  color: var(--accent-danger);
+}
+
+@keyframes logo-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .logo-spinner-ring {
   transform-origin: 36px 36px;
   animation: spin 1.4s linear infinite;
+}
+
+/* 完成圆环动画 */
+.logo-complete-ring {
+  stroke-dasharray: 214;
+  stroke-dashoffset: 214;
+  animation: draw-circle 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes draw-circle {
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 
 @keyframes spin {
@@ -108,6 +151,18 @@ const stageText = computed(() => {
   flex-direction: column;
   align-items: center;
   gap: 6px;
+  animation: brand-enter 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.15s both;
+}
+
+@keyframes brand-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .splash-title {
@@ -115,7 +170,6 @@ const stageText = computed(() => {
   font-weight: 700;
   color: var(--accent-primary);
   letter-spacing: 6px;
-  /* 标题左侧补偿字距，视觉居中 */
   padding-left: 6px;
 }
 
@@ -133,11 +187,32 @@ const stageText = computed(() => {
   align-items: center;
   gap: 3px;
   min-height: 34px;
+  animation: status-enter 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.3s both;
+}
+
+@keyframes status-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .status-text {
   font-size: 13px;
   color: var(--text-secondary);
+  transition: color var(--transition-normal);
+}
+
+.status-done {
+  color: var(--accent-success);
+  font-weight: 600;
+}
+
+.status-failed {
+  color: var(--accent-danger);
+  font-weight: 600;
 }
 
 .status-model {

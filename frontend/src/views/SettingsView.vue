@@ -545,6 +545,7 @@ const formConfig = ref<Config>({
   mlock: null,
   threads: 0,
   batch_size: 0,
+  close_action: 'ask',
 })
 
 const backgroundImageUrl = computed(() => {
@@ -558,7 +559,6 @@ const backgroundImageUrl = computed(() => {
 const searchKeys = ref<SearchAPIKeys>({
     ollama_api_key: '',
     tavily_api_key: '',
-    github_api_key: '',
     ollama_api_key_set: false,
     tavily_api_key_set: false,
 })
@@ -794,6 +794,12 @@ async function autoSave() {
   }
 }
 
+onUnmounted(() => {
+  if (genParamsSaveTimer) {
+    clearTimeout(genParamsSaveTimer)
+    genParamsSaveTimer = null
+  }
+})
 
 </script>
 

@@ -540,10 +540,10 @@ func TestSendMessage_ToolCallSearch_EmptyResults(t *testing.T) {
 	if toolMsg == nil {
 		t.Fatal("expected tool message in second LLM call")
 	}
-	if !strings.Contains(toolMsg.ContentString(), "No search results found") {
+	if !strings.Contains(toolMsg.ContentString(), "No results found") {
 		t.Errorf("tool message should indicate no results, got: %s", toolMsg.ContentString())
 	}
-	if !strings.Contains(toolMsg.ContentString(), "use your own knowledge") {
+	if !strings.Contains(strings.ToLower(toolMsg.ContentString()), "use your own knowledge") {
 		t.Errorf("tool message should instruct model to use its own knowledge, got: %s", toolMsg.ContentString())
 	}
 

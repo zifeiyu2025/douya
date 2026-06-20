@@ -111,11 +111,12 @@ import { fixUtf8 } from './utils/utf8'
 import { useSettingsStore } from './stores/settings'
 import { useThemeStore } from './stores/theme'
 import { formatModelName, formatModelNameFromPath, extractQuantSuffix } from './utils/model'
+import { classifyError } from './utils/errorGuidance'
 import type { Conversation, ModelOption } from './services/wails'
 import { wails } from './services/wails'
 import { WindowMinimise, WindowToggleMaximise, WindowIsMaximised, WindowHide } from '../wailsjs/runtime/runtime'
 
-const { message: discreteMessage } = createDiscreteApi(['message'])
+const { message: discreteMessage, dialog: discreteDialog } = createDiscreteApi(['message', 'dialog'])
 
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
@@ -181,6 +182,8 @@ const switchStageText = computed(() => {
     'waiting': '初始化模型...',
     'detecting': '检测模型能力...',
     'done': '加载完成',
+    'vram-warning': 'VRAM 不足警告，可能影响性能...',
+    'spec-warning': '推测解码兼容性警告...',
   }
   return texts[stage] || '加载中...'
 })
@@ -370,7 +373,20 @@ watch(() => settingsStore.isModelSwitching, (newVal, oldVal) => {
         discreteMessage.success(`${formatModelName(result.current_model).display}${featureText} 已就绪`, { duration: 3000 })
         loadAvailableModels()
       } else {
-        discreteMessage.error(result.error || '模型加载失败', { duration: 5000 })
+        const errorText = result.error || '模型加载失败'
+        const guidance = classifyError(errorText)
+        if (guidance) {
+          // 有修复指引的错误使用 dialog 展示详细信息
+          const suggestions = guidance.suggestions.map((s, i) => `${i + 1}. ${s}`).join('\n')
+          discreteDialog.error({
+            title: guidance.title,
+            content: `${guidance.description}\n\n修复建议：\n${suggestions}`,
+            positiveText: '知道了',
+            style: { whiteSpace: 'pre-wrap' },
+          })
+        } else {
+          discreteMessage.error(errorText, { duration: 5000 })
+        }
       }
     }, 300)
   }
@@ -401,7 +417,19 @@ async function handleModelChange(value: string) {
   } catch (e) {
     console.error('Failed to switch model:', e)
     selectedModel.value = previousModel
-    discreteMessage.error(`切换模型失败: ${e}`, { duration: 5000 })
+    const errorText = `切换模型失败: ${e}`
+    const guidance = classifyError(String(e))
+    if (guidance) {
+      const suggestions = guidance.suggestions.map((s, i) => `${i + 1}. ${s}`).join('\n')
+      discreteDialog.error({
+        title: guidance.title,
+        content: `${guidance.description}\n\n修复建议：\n${suggestions}`,
+        positiveText: '知道了',
+        style: { whiteSpace: 'pre-wrap' },
+      })
+    } else {
+      discreteMessage.error(errorText, { duration: 5000 })
+    }
   }
 }
 
@@ -414,8 +442,31 @@ function handleToggleMaximize() {
   updateMaximizedState()
 }
 
-function handleClose() {
-  WindowHide()
+async function handleClose() {
+  const action = await wails.handleCloseRequest()
+  if (action === 'exit') {
+    wails.gracefulExit()
+    return
+  }
+  if (action === 'tray') {
+    WindowHide()
+    return
+  }
+  // action === 'ask'：首次关闭时询问
+  discreteDialog.warning({
+    title: '关闭窗口',
+    content: '你希望将豆芽最小化到系统托盘后台运行，还是直接退出程序？',
+    positiveText: '最小化到托盘',
+    negativeText: '直接退出',
+    onPositiveClick: async () => {
+      await wails.setCloseAction('tray')
+      WindowHide()
+    },
+    onNegativeClick: async () => {
+      await wails.setCloseAction('exit')
+      wails.gracefulExit()
+    },
+  })
 }
 
 async function updateMaximizedState() {
@@ -430,6 +481,7 @@ onMounted(async () => {
   chatStore.initStreamListener()
   settingsStore.initStatusListener()
   settingsStore.initSwitchProgressListener()
+  settingsStore.initMmprojUnavailableListener()
   chatStore.loadConversations()
   await settingsStore.loadConfig()
 
@@ -458,8 +510,7 @@ onMounted(async () => {
     console.error('检查清理结果失败:', e)
   }
 
-  loadAvailableModels()
-  updateMaximizedState()
+  await Promise.all([loadAvailableModels(), updateMaximizedState()])
 
   wails.onShutdownProgress((progress: { stage: string, message: string }) => {
     isExiting.value = true
@@ -473,6 +524,7 @@ onUnmounted(() => {
   chatStore.cleanupStreamListener()
   settingsStore.cleanupStatusListener()
   settingsStore.cleanupSwitchProgressListener()
+  settingsStore.cleanupMmprojUnavailableListener()
   wails.offAbnormalCleanup()
   wails.offSwitchProgress()
   wails.offShutdownProgress()

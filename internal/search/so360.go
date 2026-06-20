@@ -116,6 +116,9 @@ func (p *So360Provider) Search(ctx context.Context, query string) (*SearchRespon
 		searchResp.Results = parseGenericSearchResults(html)
 	}
 
+	// 去重和过滤无效结果
+	searchResp.Results = dedupAndFilterResults(searchResp.Results)
+
 	if len(searchResp.Results) == 0 {
 		return nil, fmt.Errorf("360: no results parsed for query: %s", query)
 	}

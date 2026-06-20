@@ -70,6 +70,10 @@ export function GetSearchAPIKeys() {
   return window['go']['main']['App']['GetSearchAPIKeys']();
 }
 
+export function HandleCloseRequest() {
+  return window['go']['main']['App']['HandleCloseRequest']();
+}
+
 export function HasServerAPIKey() {
   return window['go']['main']['App']['HasServerAPIKey']();
 }
@@ -124,6 +128,10 @@ export function SendMessage(arg1) {
 
 export function SetActiveKnowledgeBase(arg1) {
   return window['go']['main']['App']['SetActiveKnowledgeBase'](arg1);
+}
+
+export function SetCloseAction(arg1) {
+  return window['go']['main']['App']['SetCloseAction'](arg1);
 }
 
 export function SetRAGEnabled(arg1) {

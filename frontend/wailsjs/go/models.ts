@@ -137,7 +137,7 @@ export namespace chat {
 	        this.images = source["images"];
 	        this.attachments = this.convertValues(source["attachments"], Attachment);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -156,7 +156,6 @@ export namespace chat {
 		    return a;
 		}
 	}
-
 }
 
 export namespace config {
@@ -358,7 +357,6 @@ export namespace main {
 	export class SearchAPIKeys {
 	    ollama_api_key: string;
 	    tavily_api_key: string;
-	    github_api_key: string;
 
 	    static createFrom(source: any = {}) {
 	        return new SearchAPIKeys(source);
@@ -368,7 +366,6 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ollama_api_key = source["ollama_api_key"];
 	        this.tavily_api_key = source["tavily_api_key"];
-	        this.github_api_key = source["github_api_key"];
 	    }
 	}
 	export class SwitchResult {

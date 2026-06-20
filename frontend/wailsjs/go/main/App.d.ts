@@ -40,6 +40,8 @@ export function GetSmartParams():Promise<main.SmartParamsInfo>;
 
 export function GetSearchAPIKeys():Promise<main.SearchAPIKeys>;
 
+export function HandleCloseRequest():Promise<string>;
+
 export function HasServerAPIKey():Promise<boolean>;
 
 export function GetServerStatus():Promise<llm.ServerStatus>;
@@ -67,6 +69,8 @@ export function SelectImageFile():Promise<string>;
 export function SendMessage(arg1:chat.SendMessageParams):Promise<void>;
 
 export function SetActiveKnowledgeBase(arg1:string):Promise<void>;
+
+export function SetCloseAction(arg1:string):Promise<void>;
 
 export function SetRAGEnabled(arg1:boolean):Promise<void>;
 

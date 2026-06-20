@@ -84,6 +84,7 @@ func Migrate(db *sql.DB, encKey []byte) error {
 }
 
 func migrateAddColumns(db *sql.DB) error {
+	// messages 表列迁移
 	existingColumns, err := GetTableColumns(db, "messages")
 	if err != nil {
 		return err
@@ -103,6 +104,28 @@ func migrateAddColumns(db *sql.DB) error {
 	for _, col := range addCols {
 		if !existingColumns[col.name] {
 			_, err := db.Exec("ALTER TABLE messages ADD COLUMN " + col.name + " " + col.typ)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// conversations 表列迁移
+	convColumns, err := GetTableColumns(db, "conversations")
+	if err != nil {
+		return err
+	}
+
+	convAddCols := []struct {
+		name string
+		typ  string
+	}{
+		{"summary", "TEXT"},
+	}
+
+	for _, col := range convAddCols {
+		if !convColumns[col.name] {
+			_, err := db.Exec("ALTER TABLE conversations ADD COLUMN " + col.name + " " + col.typ)
 			if err != nil {
 				return err
 			}

@@ -40,7 +40,10 @@ func ParseGGUFMetadataCached(path string) (*GGUFMetadata, error) {
 
 // InvalidateGGUFCache 清除所有 GGUF 元数据缓存（模型重载时调用）
 func InvalidateGGUFCache() {
-	ggufCache = sync.Map{}
+	ggufCache.Range(func(k, v interface{}) bool {
+		ggufCache.Delete(k)
+		return true
+	})
 }
 
 const (

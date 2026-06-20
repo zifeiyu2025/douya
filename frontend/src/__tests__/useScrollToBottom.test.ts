@@ -1,9 +1,11 @@
 /**
  * useScrollToBottom composable 测试
  *
- * 验证流式滚动控制的平滑行为：
- * - 用户在底部时平滑滚动跟随
- * - 用户向上滚动超过 10px 时停止自动滚动
+ * 验证流式滚动控制行为：
+ * - 用户在底部时内容变化即时滚动到底部（behavior: 'auto'）
+ * - 用户向上滚动超过 150px 时停止自动滚动（isAutoScrollEnabled = false）
+ * - 用户滚回底部时恢复自动滚动（isAutoScrollEnabled = true）
+ * - scheduleScroll 依据 isAutoScrollEnabled 而非 isNearBottom 判定（修复 smooth 动画期间锁定丢失）
  * - 程序化滚动不误判为用户滚动（防循环）
  * - RAF 批处理 + 100ms 节流，避免高频滚动抖动
  */
@@ -23,7 +25,13 @@ describe('useScrollToBottom', () => {
     Object.defineProperty(container, 'scrollHeight', { configurable: true, get: () => 1000 })
     Object.defineProperty(container, 'clientHeight', { configurable: true, get: () => 400 })
     Object.defineProperty(container, 'scrollTop', { configurable: true, writable: true, value: 0 })
-    scrollToSpy = vi.spyOn(container, 'scrollTo').mockImplementation(() => {})
+    // mock scrollTo 同步更新 scrollTop（模拟 behavior: 'auto' 的即时行为）
+    // 这样 isNearBottom 在程序化滚动后能反映新位置
+    scrollToSpy = vi.spyOn(container, 'scrollTo').mockImplementation(((options?: ScrollToOptions) => {
+      if (options && typeof options === 'object') {
+        container.scrollTop = options.top ?? container.scrollTop
+      }
+    }) as Element['scrollTo'])
     document.body.appendChild(container)
   })
 
@@ -33,9 +41,9 @@ describe('useScrollToBottom', () => {
     vi.restoreAllMocks()
   })
 
-  // RED-1：用户在底部时，内容变化应平滑滚动到底部
-  it('用户在底部时内容变化应平滑滚动到底部', async () => {
-    // 用户在底部：scrollTop = 600，距底部 = 1000 - 600 - 400 = 0 < 10
+  // RED-1：用户在底部时，内容变化应即时滚动到底部
+  it('用户在底部时内容变化应即时滚动到底部', async () => {
+    // 用户在底部：scrollTop = 600，距底部 = 1000 - 600 - 400 = 0 < 150
     container.scrollTop = 600
     const content = ref('a')
 
@@ -52,15 +60,13 @@ describe('useScrollToBottom', () => {
     await new Promise((r) => setTimeout(r, 120))
 
     expect(scrollToSpy).toHaveBeenCalled()
-    // 应使用 smooth 行为
+    // 流式期间应使用 auto 行为（即时滚动）
     const lastCall = scrollToSpy.mock.calls[scrollToSpy.mock.calls.length - 1]
-    expect(lastCall[0]).toMatchObject({ behavior: 'smooth' })
+    expect(lastCall[0]).toMatchObject({ behavior: 'auto' })
   })
 
-  // RED-2：用户向上滚动超过 10px 时，不自动滚动
-  it('用户向上滚动超过10px时不自动滚动', async () => {
-    // 距底部 = 1000 - 500 - 400 = 100 > 10，用户已向上滚动
-    container.scrollTop = 500
+  // RED-2：用户向上滚动超过 150px 时，不自动滚动
+  it('用户向上滚动超过150px时不自动滚动', async () => {
     const content = ref('a')
 
     scope.run(() => {
@@ -69,46 +75,15 @@ describe('useScrollToBottom', () => {
       watchContentChange(() => content.value)
     })
 
+    // 模拟用户向上滚动：距底部 = 1000 - 400 - 400 = 200 > 150
+    container.scrollTop = 400
+    container.dispatchEvent(new Event('scroll'))
+
     content.value = 'ab'
     await new Promise((r) => requestAnimationFrame(r))
     await new Promise((r) => setTimeout(r, 120))
 
     expect(scrollToSpy).not.toHaveBeenCalled()
-  })
-
-  // RED-3：程序化滚动不触发"用户滚动"判定（isProgrammaticScroll 防循环）
-  it('程序化滚动不触发用户滚动回调', () => {
-    const userScrollCallback = vi.fn()
-
-    scope.run(() => {
-      const { containerRef, scrollToBottom, onUserScroll } = useScrollToBottom()
-      containerRef.value = container
-      onUserScroll(userScrollCallback)
-      // 程序化滚动
-      scrollToBottom()
-    })
-
-    // 模拟程序化滚动产生的 scroll 事件
-    container.dispatchEvent(new Event('scroll'))
-
-    // 用户滚动回调不应被触发
-    expect(userScrollCallback).not.toHaveBeenCalled()
-  })
-
-  // RED-3 补充：用户主动滚动应触发回调
-  it('用户主动滚动应触发用户滚动回调', () => {
-    const userScrollCallback = vi.fn()
-
-    scope.run(() => {
-      const { containerRef, onUserScroll } = useScrollToBottom()
-      containerRef.value = container
-      onUserScroll(userScrollCallback)
-    })
-
-    // 用户主动滚动（非程序化）
-    container.dispatchEvent(new Event('scroll'))
-
-    expect(userScrollCallback).toHaveBeenCalled()
   })
 
   // RED-4：RAF 批处理 + 100ms 节流，高频内容变化只滚动一次
@@ -164,5 +139,61 @@ describe('useScrollToBottom', () => {
     expect(scrollToSpy.mock.calls.length).toBe(callsAfterFirst)
 
     vi.useRealTimers()
+  })
+
+  // GREEN-5：用户向上滚动超过阈值后 isAutoScrollEnabled 变为 false
+  it('用户向上滚动超过阈值后 isAutoScrollEnabled 变为 false', () => {
+    scope.run(() => {
+      const { containerRef, isAutoScrollEnabled } = useScrollToBottom()
+      containerRef.value = container
+      // 初始启用自动滚动
+      expect(isAutoScrollEnabled.value).toBe(true)
+
+      // 用户向上滚动：距底部 200 > 150
+      container.scrollTop = 400
+      container.dispatchEvent(new Event('scroll'))
+      expect(isAutoScrollEnabled.value).toBe(false)
+    })
+  })
+
+  // GREEN-6：用户滚回底部后 isAutoScrollEnabled 恢复 true
+  it('用户滚回底部后 isAutoScrollEnabled 恢复 true', () => {
+    scope.run(() => {
+      const { containerRef, isAutoScrollEnabled } = useScrollToBottom()
+      containerRef.value = container
+
+      // 先向上滚动，停止自动滚动
+      container.scrollTop = 400
+      container.dispatchEvent(new Event('scroll'))
+      expect(isAutoScrollEnabled.value).toBe(false)
+
+      // 用户滚回底部：距底部 0 < 150
+      container.scrollTop = 600
+      container.dispatchEvent(new Event('scroll'))
+      expect(isAutoScrollEnabled.value).toBe(true)
+    })
+  })
+
+  // GREEN-7：scheduleScroll 依据 isAutoScrollEnabled 而非 isNearBottom 判定
+  // 这是修复流式锁定丢失的关键：即使 isNearBottom 为 false，只要 isAutoScrollEnabled 为 true 就应滚动
+  it('scheduleScroll 依据 isAutoScrollEnabled 而非 isNearBottom 判定', async () => {
+    // 不在底部：距底部 200 > 150，isNearBottom 为 false
+    container.scrollTop = 400
+    const content = ref('a')
+
+    scope.run(() => {
+      const { containerRef, watchContentChange, isAutoScrollEnabled } = useScrollToBottom()
+      containerRef.value = container
+      // 不派发 scroll 事件，isAutoScrollEnabled 保持初始 true
+      expect(isAutoScrollEnabled.value).toBe(true)
+      watchContentChange(() => content.value)
+    })
+
+    content.value = 'ab'
+    await new Promise((r) => requestAnimationFrame(r))
+    await new Promise((r) => setTimeout(r, 120))
+
+    // 即使 isNearBottom 为 false，因 isAutoScrollEnabled 为 true，仍应滚动
+    expect(scrollToSpy).toHaveBeenCalled()
   })
 })

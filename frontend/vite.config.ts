@@ -49,7 +49,7 @@ export default defineConfig({
                     if (id.includes('@vue/') || id.includes('pinia') || id.includes('vue-router') || id.includes('vue@')) {
                         return 'lib-vue'
                     }
-                    if (id.includes('@vicons/') || id.includes('@iconify') || id.includes('@iconfu')) {
+                    if (id.includes('@vicons/') || id.includes('@iconify')) {
                         return 'lib-icons'
                     }
                     return 'lib-vendor'

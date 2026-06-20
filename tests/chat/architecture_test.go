@@ -89,8 +89,9 @@ func TestEstimateMessageTokens_AllFieldsCombined(t *testing.T) {
 func TestEstimateMessageTokens_ZeroReturnsOne(t *testing.T) {
 	msg := &store.Message{Role: "user"}
 	tokens := chat.EstimateMessageTokens(msg)
-	if tokens != 1 {
-		t.Errorf("empty message should estimate 1 token, got %d", tokens)
+	// 空消息返回最小值 11（10 chat template 开销 + 最小值保护）
+	if tokens != 11 {
+		t.Errorf("empty message should estimate 11 tokens (chat template overhead + min), got %d", tokens)
 	}
 }
 
