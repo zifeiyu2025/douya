@@ -17,7 +17,7 @@ interface ErrorPattern {
 
 const errorPatterns: ErrorPattern[] = [
   {
-    pattern: /out of memory|OOM|CUDA out of memory|VRAM|gpu.*memory/i,
+    pattern: /显存不足|out of memory|OOM|CUDA out of memory|CUDA error|VRAM|gpu.*memory|failed to allocate cuda/i,
     guidance: {
       category: 'VRAM不足',
       title: 'GPU 显存不足',
@@ -27,6 +27,20 @@ const errorPatterns: ErrorPattern[] = [
         '使用更小量化的模型版本（如 Q4_0 代替 Q8_0）',
         '关闭其他占用 GPU 的程序',
         '减小上下文窗口大小（context_size）',
+      ],
+    },
+  },
+  {
+    pattern: /内存不足|bad allocation|cannot allocate memory|mmap failed|std::bad_alloc|memory allocation failed/i,
+    guidance: {
+      category: '内存不足',
+      title: '系统内存不足',
+      description: '系统物理内存不足以加载模型，可能是内存不足或交换空间不够。',
+      suggestions: [
+        '关闭其他占用内存的程序',
+        '增加系统虚拟内存（交换空间）',
+        '使用更小量化的模型版本',
+        '在设置中启用 --mmap（内存映射加载）',
       ],
     },
   },

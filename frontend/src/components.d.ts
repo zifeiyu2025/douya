@@ -15,6 +15,7 @@ declare module 'vue' {
     ChatInput: typeof import('./components/ChatInput.vue')['default']
     ChatView: typeof import('./components/ChatView.vue')['default']
     ContextTrimmed: typeof import('./components/ContextTrimmed.vue')['default']
+    LoraManager: typeof import('./components/LoraManager.vue')['default']
     MessageItem: typeof import('./components/MessageItem.vue')['default']
     MessageList: typeof import('./components/MessageList.vue')['default']
     NA: typeof import('naive-ui')['NA']
@@ -23,8 +24,11 @@ declare module 'vue' {
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SearchStatus: typeof import('./components/SearchStatus.vue')['default']
+    ServerConsole: typeof import('./components/ServerConsole.vue')['default']
     Sidebar: typeof import('./components/Sidebar.vue')['default']
+    SlotStatus: typeof import('./components/SlotStatus.vue')['default']
     SplashScreen: typeof import('./components/ui/SplashScreen.vue')['default']
     ThinkBlock: typeof import('./components/ThinkBlock.vue')['default']
+    TokenCounter: typeof import('./components/TokenCounter.vue')['default']
   }
 }

@@ -46,6 +46,15 @@ import {
     RerankEnabled,
     SaveSlot,
     RestoreSlot,
+    DeleteModel,
+    CountTokens,
+    GetLoraAdapters,
+    SetLoraAdapters,
+    GetSlots,
+    Tokenize,
+    ApplyTemplate,
+    GetServerLogs,
+    SelectLoraFile,
 } from '../../wailsjs/go/main/App'
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
 import { chat as ChatModel } from '../../wailsjs/go/models'
@@ -115,6 +124,33 @@ export interface CleanupResult {
 
 /** 导出格式 */
 export type ExportFormat = 'markdown' | 'json' | 'txt' | 'csv'
+
+/** LoRA 适配器信息 */
+export interface LoraAdapter {
+    id: number
+    path: string
+    scale: number
+}
+
+/** Slot 状态信息 */
+export interface SlotInfo {
+    id: number
+    task: string
+    n_prompt: number
+    n_predicted: number
+    n_gpu_layers: number
+    model: string
+    n_cache_tokens: number
+    cache_shift: boolean
+}
+
+/** 聊天消息（用于 token 计数和模板应用） */
+export interface ChatMessage {
+    role: string
+    content: string | any
+    reasoning_content?: string
+    tool_call_id?: string
+}
 
 /**
  * 适配 wails 生成的 binding 类型。
@@ -189,6 +225,33 @@ export const wails = {
     restoreSlot: async (slotID: number): Promise<void> => {
         await RestoreSlot(slotID)
     },
+    deleteModel: async (modelName: string): Promise<void> => {
+        await DeleteModel(modelName)
+    },
+    countTokens: async (messages: ChatMessage[]): Promise<number> => {
+        return await CountTokens(messages as any)
+    },
+    getLoraAdapters: async (): Promise<LoraAdapter[]> => {
+        return (await GetLoraAdapters()) as LoraAdapter[]
+    },
+    setLoraAdapters: async (adapters: LoraAdapter[]): Promise<void> => {
+        await SetLoraAdapters(adapters as any)
+    },
+    selectLoraFile: async (): Promise<string> => {
+        return await SelectLoraFile()
+    },
+    getSlots: async (): Promise<SlotInfo[]> => {
+        return (await GetSlots()) as SlotInfo[]
+    },
+    tokenize: async (text: string): Promise<number[]> => {
+        return await Tokenize(text)
+    },
+    applyTemplate: async (messages: ChatMessage[]): Promise<string> => {
+        return await ApplyTemplate(messages as any)
+    },
+    getServerLogs: async (): Promise<string> => {
+        return await GetServerLogs()
+    },
     getServerStatus: async (): Promise<ServerStatus> => {
         return (await GetServerStatus()) as ServerStatus
     },
@@ -232,6 +295,10 @@ export const wails = {
         EventsOn('shutdown:progress', callback)
     },
     offShutdownProgress: () => EventsOff('shutdown:progress'),
+    onServerLog: (callback: (line: string) => void) => {
+        EventsOn('server:log', callback)
+    },
+    offServerLog: () => EventsOff('server:log'),
     listKnowledgeBases: async (): Promise<CollectionInfo[]> => {
         return (await ListKnowledgeBases()) as CollectionInfo[]
     },

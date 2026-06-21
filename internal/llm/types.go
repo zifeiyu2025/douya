@@ -140,6 +140,7 @@ type ChatCompletionRequest struct {
 	RepeatPenalty float64          `json:"repeat_penalty,omitempty"`
 	Reasoning     string           `json:"reasoning,omitempty"`
 	ReasoningBudget int            `json:"reasoning_budget,omitempty"`
+	ReasoningControl bool           `json:"reasoning_control,omitempty"`
 	Tools         []ToolDefinition       `json:"tools,omitempty"`
 	ChatTemplateKwargs map[string]interface{} `json:"chat_template_kwargs,omitempty"`
 	StreamOptions *StreamOptions          `json:"stream_options,omitempty"`
@@ -262,6 +263,25 @@ type RerankResponse struct {
 		PromptTokens int `json:"prompt_tokens"`
 		TotalTokens  int `json:"total_tokens"`
 	} `json:"usage"`
+}
+
+// LoraAdapter LoRA 适配器信息（用于 /lora-adapters 端点）
+type LoraAdapter struct {
+	ID    int     `json:"id"`
+	Path  string  `json:"path"`
+	Scale float64 `json:"scale"`
+}
+
+// SlotInfo slot 状态信息（用于 /slots 端点）
+type SlotInfo struct {
+	ID          int    `json:"id"`
+	Task        string `json:"task"`
+	NPrompt     int    `json:"n_prompt"`
+	NPredicted  int    `json:"n_predicted"`
+	NGpuLayers  int    `json:"n_gpu_layers"`
+	Model       string `json:"model"`
+	NCacheTokens int   `json:"n_cache_tokens"`
+	CacheShift  bool   `json:"cache_shift"`
 }
 
 

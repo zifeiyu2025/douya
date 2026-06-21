@@ -24,6 +24,10 @@ export function useScrollToBottom(threshold = 150) {
     let scrollHandler: (() => void) | null = null
     // 当前已绑定 scroll 监听器的元素，用于 containerRef 变化或销毁时正确解绑
     let boundElement: HTMLElement | null = null
+    // 增量滚动：记录上次滚动高度，只滚动差值部分
+    let lastScrollHeight = 0
+    // 是否处于流式模式（内容持续增长）
+    let isStreamingMode = false
 
     function isNearBottom(): boolean {
         const el = containerRef.value
@@ -44,6 +48,25 @@ export function useScrollToBottom(threshold = 150) {
             }, 500)
         } else {
             // auto 滚动是同步的，下一帧重置即可
+            requestAnimationFrame(() => {
+                isProgrammaticScroll = false
+            })
+        }
+    }
+
+    /**
+     * 流式期间增量滚动：只滚动新增内容的高度差
+     * 比 scrollTo(scrollHeight) 更平滑，避免整页跳跃
+     */
+    function scrollByDelta() {
+        const el = containerRef.value
+        if (!el) return
+        const newHeight = el.scrollHeight
+        const delta = newHeight - lastScrollHeight
+        lastScrollHeight = newHeight
+        if (delta > 0) {
+            isProgrammaticScroll = true
+            el.scrollBy({ top: delta, behavior: 'auto' })
             requestAnimationFrame(() => {
                 isProgrammaticScroll = false
             })
@@ -79,8 +102,7 @@ export function useScrollToBottom(threshold = 150) {
 
     /**
      * 调度滚动：RAF 批处理 + 100ms 节流
-     * 关键改进：检查 isAutoScrollEnabled 而非 isNearBottom
-     * 这避免了 smooth 动画期间 isNearBottom 返回 false 导致的锁定丢失
+     * 流式模式下使用增量滚动（scrollByDelta），非流式使用绝对滚动
      */
     function scheduleScroll() {
         if (!isAutoScrollEnabled.value) return
@@ -92,12 +114,22 @@ export function useScrollToBottom(threshold = 150) {
             const elapsed = now - lastScrollTime
             if (elapsed >= 100) {
                 lastScrollTime = now
-                scrollToBottom('auto')
+                if (isStreamingMode) {
+                    scrollByDelta()
+                } else {
+                    scrollToBottom('auto')
+                }
             } else if (scrollTimer === null) {
                 scrollTimer = setTimeout(() => {
                     scrollTimer = null
                     lastScrollTime = Date.now()
-                    if (isAutoScrollEnabled.value) scrollToBottom('auto')
+                    if (isAutoScrollEnabled.value) {
+                        if (isStreamingMode) {
+                            scrollByDelta()
+                        } else {
+                            scrollToBottom('auto')
+                        }
+                    }
                 }, 100 - elapsed)
             }
         })
@@ -107,6 +139,19 @@ export function useScrollToBottom(threshold = 150) {
         watch(getContent, () => {
             scheduleScroll()
         })
+    }
+
+    /**
+     * 设置流式模式：流式期间使用增量滚动，更平滑
+     * 开始流式时传入 true，结束时传入 false
+     */
+    function setStreamingMode(streaming: boolean) {
+        isStreamingMode = streaming
+        if (streaming) {
+            // 进入流式模式时记录当前高度作为基准
+            const el = containerRef.value
+            if (el) lastScrollHeight = el.scrollHeight
+        }
     }
 
     function watchMessagesLength(getLength: () => number) {
@@ -166,6 +211,7 @@ export function useScrollToBottom(threshold = 150) {
         scrollToBottom,
         watchContentChange,
         watchMessagesLength,
+        setStreamingMode,
         startObserver,
         stopObserver,
     }

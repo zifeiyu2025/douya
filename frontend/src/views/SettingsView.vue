@@ -113,7 +113,8 @@
         </n-form-item>
 
         <n-divider>服务 API KEY</n-divider>
-        <n-form-item label="本机服务地址">
+        <n-form-item>
+          <template #label>本机服务地址 <HelpTip content="llama-server 的 HTTP 服务地址。默认 http://127.0.0.1:8080，修改后需重启应用生效" /></template>
           <n-input
             v-model:value="formConfig.api_base"
             placeholder="http://127.0.0.1:8080"
@@ -124,7 +125,8 @@
           <n-switch v-model:value="formConfig.expose_server" @update:value="onExposeServerToggle" />
           <span class="setting-hint">开启后局域网设备可通过本机 IP 访问（需重启服务生效）</span>
         </n-form-item>
-        <n-form-item label="启用 API Key 验证" label-width="140" label-placement="left">
+        <n-form-item label-width="140" label-placement="left">
+          <template #label>启用 API Key 验证 <HelpTip content="开启后所有 API 请求需携带 API Key，防止未授权访问。暴露到局域网时强烈建议开启" /></template>
           <n-switch v-model:value="formConfig.server_api_key_enabled" @update:value="onServerAPIKeyToggle" />
         </n-form-item>
         <n-form-item v-if="formConfig.server_api_key_enabled" label="API Key" label-width="80">
@@ -143,6 +145,7 @@
 
         <n-divider>系统提示词</n-divider>
         <n-form-item>
+          <template #label>系统提示词 <HelpTip content="追加在豆芽默认提示词后面的自定义指令，用于补充角色设定和行为约束。留空则仅使用默认提示词" /></template>
           <n-input v-model:value="formConfig.system_prompt" type="textarea" placeholder="自定义提示词将追加在豆芽默认提示词后面，用于补充角色设定和行为指令..." :autosize="{ minRows: 6, maxRows: 20 }" class="rounded-textarea" style="width: 100%;" />
         </n-form-item>
 
@@ -158,7 +161,8 @@
           <template #label>推理预算 <HelpTip content="限制推理（思考）过程的 token 数量。-1=无限（由模型自行决定），0=立即结束推理，N>0=限制为 N 个 token" /></template>
           <n-input-number v-model:value="formConfig.reasoning_budget" :min="-1" :step="1" placeholder="-1" style="width: 100%" :disabled="!supportsReasoning" />
         </n-form-item>
-        <n-form-item v-if="formConfig.reasoning_budget > 0" label="预算耗尽消息">
+        <n-form-item v-if="formConfig.reasoning_budget > 0">
+          <template #label>预算耗尽消息 <HelpTip content="推理预算耗尽时显示给用户的消息。留空则使用默认提示" /></template>
           <n-input v-model:value="formConfig.reasoning_budget_message" placeholder="推理预算耗尽时显示给用户的消息（留空使用默认提示）" @blur="autoSave" :disabled="!supportsReasoning" />
         </n-form-item>
 
@@ -220,7 +224,8 @@
           <span class="slider-value">{{ formConfig.top_k }}</span>
           <n-button v-if="currentModelRef" quaternary size="tiny" class="reset-btn" @click="formConfig.top_k = activeModelRefRaw.top_k">{{ activeModelRefRaw.top_k }}</n-button>
         </n-form-item>
-        <n-form-item label="上下文长度">
+        <n-form-item>
+          <template #label>上下文长度 <HelpTip content="模型能记住的对话历史 token 数。值越大记忆越长但占用显存越多，超过模型支持的最大值会被自动截断" /></template>
           <n-slider v-model:value="contextSizeIndex" :min="0" :max="contextSizeSteps.length - 1" :step="1" :marks="contextSizeMarks" />
           <span class="slider-value">{{ formatContextSize(formConfig.context_size) }}</span>
           <n-button v-if="currentModelRef" quaternary size="tiny" class="reset-btn" @click="applyContextSizeRef">{{ formatContextSize(activeModelRefRaw.context_size) }}</n-button>
@@ -240,11 +245,13 @@
           <n-slider v-model:value="formConfig.dry_multiplier" :min="0" :max="5" :step="0.01" />
           <span class="slider-value">{{ formConfig.dry_multiplier }}</span>
         </n-form-item>
-        <n-form-item label="DRY 基准值" v-if="formConfig.dry_multiplier > 0">
+        <n-form-item v-if="formConfig.dry_multiplier > 0">
+          <template #label>DRY 基准值 <HelpTip content="DRY 采样的基础惩罚倍数。值越大对重复句式的惩罚越强，通常 1.0-2.0" /></template>
           <n-slider v-model:value="formConfig.dry_base" :min="1" :max="3" :step="0.01" />
           <span class="slider-value">{{ formConfig.dry_base }}</span>
         </n-form-item>
-        <n-form-item label="DRY 允许长度" v-if="formConfig.dry_multiplier > 0">
+        <n-form-item v-if="formConfig.dry_multiplier > 0">
+          <template #label>DRY 允许长度 <HelpTip content="允许重复的 token 序列长度。短于此长度的重复不会被惩罚，值越小越严格" /></template>
           <n-slider v-model:value="formConfig.dry_allowed_length" :min="1" :max="10" :step="1" />
           <span class="slider-value">{{ formConfig.dry_allowed_length }}</span>
         </n-form-item>
@@ -261,17 +268,20 @@
           <template #label>KV 缓存 V 类型 <HelpTip content="Value 缓存的量化精度。V 是实际内容，可以更激进压缩。选「自动」由系统智能选择" /></template>
           <n-select v-model:value="formConfig.cache_type_v" :options="cacheTypeVOptions" placeholder="自动（q4_0）" clearable />
         </n-form-item>
-        <n-form-item label="KV 缓存卸载">
+        <n-form-item>
+          <template #label>KV 缓存卸载 <HelpTip content="开启后允许将 KV 缓存卸载到 CPU 内存，节省显存但会降低速度。显存不足时可开启" /></template>
           <n-switch v-model:value="formConfig.kv_offload" />
         </n-form-item>
         <n-form-item>
           <template #label>上下文移位 <HelpTip content="当对话超出上下文长度时，自动移除最早的内容腾出空间，而非直接报错。开启可支持更长的连续对话" /></template>
           <n-switch v-model:value="formConfig.context_shift" />
         </n-form-item>
-        <n-form-item label="GPU 设备">
+        <n-form-item>
+          <template #label>GPU 设备 <HelpTip content="指定使用的 GPU 设备。留空自动选择，多卡场景用逗号分隔（如 0,1）" /></template>
           <n-input v-model:value="formConfig.device" placeholder="留空自动选择，多卡如 0,1" />
         </n-form-item>
-        <n-form-item label="并发槽位数">
+        <n-form-item>
+          <template #label>并发槽位数 <HelpTip content="同时处理的请求数。0=自动（通常为 1），增大可支持多用户并发但会按比例增加显存占用" /></template>
           <n-input-number v-model:value="formConfig.parallel" :min="0" placeholder="0 = 自动" style="width: 100%" />
         </n-form-item>
 
@@ -292,72 +302,90 @@
           <n-text v-if="!formConfig.spec_draft_model" type="warning" style="font-size: 12px; display: block; margin-bottom: 8px;">
             未配置 Draft 模型路径，推测解码将无法工作
           </n-text>
-          <n-form-item label="Draft 模型路径">
+          <n-form-item>
+            <template #label>Draft 模型路径 <HelpTip content="Eagle3 或 Draft 草稿模型的 .gguf 文件路径。仅 draft-eagle3/draft-simple 模式需要" /></template>
             <n-input v-model:value="formConfig.spec_draft_model" placeholder="Eagle3/Draft 草稿模型文件路径" @blur="autoSave" />
           </n-form-item>
           <n-form-item>
             <template #label>Draft GPU 层数 <HelpTip content="草稿模型加载到 GPU 的层数。0=全部用 CPU，100=全部用 GPU。建议与主模型一致以保证加速效果" /></template>
             <n-input-number v-model:value="formConfig.spec_draft_ngl" :min="0" :max="100" :step="1" placeholder="0" style="width: 100%" />
           </n-form-item>
-          <n-form-item label="Draft 设备">
+          <n-form-item>
+            <template #label>Draft 设备 <HelpTip content="草稿模型使用的 GPU 设备。留空自动选择，多卡场景可指定如 cuda:0" /></template>
             <n-input v-model:value="formConfig.spec_draft_device" placeholder="留空自动选择，如 cuda:0" @blur="autoSave" />
           </n-form-item>
         </template>
-        <n-form-item v-if="formConfig.spec_type === 'draft-mtp' || formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-simple'" label="最大 Draft Token 数">
+        <n-form-item v-if="formConfig.spec_type === 'draft-mtp' || formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-simple'">
+          <template #label>最大 Draft Token 数 <HelpTip content="每次推测最多生成的 token 数。值越大潜在加速越快但准确率下降，建议 3-4" /></template>
           <n-input-number v-model:value="formConfig.spec_draft_n_max" :min="1" :max="4" :step="1" placeholder="3" @blur="autoSave" />
         </n-form-item>
-        <n-form-item v-if="formConfig.spec_type === 'draft-mtp' || formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-simple'" label="最小 Draft Token 数">
+        <n-form-item v-if="formConfig.spec_type === 'draft-mtp' || formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-simple'">
+          <template #label>最小 Draft Token 数 <HelpTip content="每次推测最少生成的 token 数。0=不限制，设置后即使准确率低也会生成此数量的 token" /></template>
           <n-input-number v-model:value="formConfig.spec_draft_n_min" :min="0" :max="4" :step="1" placeholder="0" @blur="autoSave" />
         </n-form-item>
         <template v-if="formConfig.spec_type === 'ngram-mod'">
-          <n-form-item label="N-Min">
+          <n-form-item>
+            <template #label>N-Min <HelpTip content="ngram-mod 推测的最小 n-gram 长度。值越小匹配越宽松，建议 48" /></template>
             <n-input-number v-model:value="formConfig.spec_ngram_mod_n_min" :min="1" :max="256" :step="1" placeholder="48" @blur="autoSave" />
           </n-form-item>
-          <n-form-item label="N-Max">
+          <n-form-item>
+            <template #label>N-Max <HelpTip content="ngram-mod 推测的最大 n-gram 长度。值越大覆盖范围越广，建议 64" /></template>
             <n-input-number v-model:value="formConfig.spec_ngram_mod_n_max" :min="1" :max="256" :step="1" placeholder="64" @blur="autoSave" />
           </n-form-item>
-          <n-form-item label="N-Match">
+          <n-form-item>
+            <template #label>N-Match <HelpTip content="ngram-mod 触发推测所需的最小匹配数。值越大越保守，建议 24" /></template>
             <n-input-number v-model:value="formConfig.spec_ngram_mod_n_match" :min="1" :max="256" :step="1" placeholder="24" @blur="autoSave" />
           </n-form-item>
         </template>
         <template v-if="formConfig.spec_type === 'ngram-simple'">
-          <n-form-item label="Size-N">
+          <n-form-item>
+            <template #label>Size-N <HelpTip content="ngram-simple 的 n-gram 长度。控制匹配窗口大小，建议 64" /></template>
             <n-input-number v-model:value="formConfig.spec_ngram_simple_size_n" :min="1" :max="256" :step="1" placeholder="64" @blur="autoSave" />
           </n-form-item>
-          <n-form-item label="Size-M">
+          <n-form-item>
+            <template #label>Size-M <HelpTip content="ngram-simple 的 m-gram 长度。控制预测窗口大小，建议 64" /></template>
             <n-input-number v-model:value="formConfig.spec_ngram_simple_size_m" :min="1" :max="256" :step="1" placeholder="64" @blur="autoSave" />
           </n-form-item>
-          <n-form-item label="Min-Hits">
+          <n-form-item>
+            <template #label>Min-Hits <HelpTip content="ngram-simple 触发推测所需的最小命中次数。值越大越保守，建议 1" /></template>
             <n-input-number v-model:value="formConfig.spec_ngram_simple_min_hits" :min="1" :max="256" :step="1" placeholder="1" @blur="autoSave" />
           </n-form-item>
         </template>
         <template v-if="formConfig.spec_type === 'ngram-map-k'">
-          <n-form-item label="Size-N">
+          <n-form-item>
+            <template #label>Size-N <HelpTip content="ngram-map-k 的 n-gram 长度。控制匹配窗口大小，建议 64" /></template>
             <n-input-number v-model:value="formConfig.spec_ngram_map_k_size_n" :min="1" :max="256" :step="1" placeholder="64" @blur="autoSave" />
           </n-form-item>
-          <n-form-item label="Size-M">
+          <n-form-item>
+            <template #label>Size-M <HelpTip content="ngram-map-k 的 m-gram 长度。控制预测窗口大小，建议 64" /></template>
             <n-input-number v-model:value="formConfig.spec_ngram_map_k_size_m" :min="1" :max="256" :step="1" placeholder="64" @blur="autoSave" />
           </n-form-item>
-          <n-form-item label="Min-Hits">
+          <n-form-item>
+            <template #label>Min-Hits <HelpTip content="ngram-map-k 触发推测所需的最小命中次数。值越大越保守，建议 1" /></template>
             <n-input-number v-model:value="formConfig.spec_ngram_map_k_min_hits" :min="1" :max="256" :step="1" placeholder="1" @blur="autoSave" />
           </n-form-item>
         </template>
         <template v-if="formConfig.spec_type === 'ngram-map-k4v'">
-          <n-form-item label="Size-N">
+          <n-form-item>
+            <template #label>Size-N <HelpTip content="ngram-map-k4v 的 n-gram 长度。控制匹配窗口大小，建议 64" /></template>
             <n-input-number v-model:value="formConfig.spec_ngram_map_k4v_size_n" :min="1" :max="256" :step="1" placeholder="64" @blur="autoSave" />
           </n-form-item>
-          <n-form-item label="Size-M">
+          <n-form-item>
+            <template #label>Size-M <HelpTip content="ngram-map-k4v 的 m-gram 长度。控制预测窗口大小，建议 64" /></template>
             <n-input-number v-model:value="formConfig.spec_ngram_map_k4v_size_m" :min="1" :max="256" :step="1" placeholder="64" @blur="autoSave" />
           </n-form-item>
-          <n-form-item label="Min-Hits">
+          <n-form-item>
+            <template #label>Min-Hits <HelpTip content="ngram-map-k4v 触发推测所需的最小命中次数。值越大越保守，建议 1" /></template>
             <n-input-number v-model:value="formConfig.spec_ngram_map_k4v_min_hits" :min="1" :max="256" :step="1" placeholder="1" @blur="autoSave" />
           </n-form-item>
         </template>
         <template v-if="formConfig.spec_type === 'ngram-cache'">
-          <n-form-item label="静态缓存路径">
+          <n-form-item>
+            <template #label>静态缓存路径 <HelpTip content="预构建的静态 lookup 缓存文件路径。可显著加速推测解码，通常由训练工具生成" /></template>
             <n-input v-model:value="formConfig.lookup_cache_static" placeholder="lookup-cache-static 文件路径" @blur="autoSave" />
           </n-form-item>
-          <n-form-item label="动态缓存路径">
+          <n-form-item>
+            <template #label>动态缓存路径 <HelpTip content="运行时生成的动态 lookup 缓存文件路径。会在推理过程中自动更新，加速后续请求" /></template>
             <n-input v-model:value="formConfig.lookup_cache_dynamic" placeholder="lookup-cache-dynamic 文件路径" @blur="autoSave" />
           </n-form-item>
         </template>
@@ -377,9 +405,23 @@
           <template #label>启用 KV 缓存持久化 <HelpTip content="开启后将对话的 KV 缓存保存到磁盘，下次加载相同上下文时可跳过预填充，加快首 token 响应速度" /></template>
           <n-switch v-model:value="formConfig.slot_save_enabled" />
         </n-form-item>
-        <n-form-item v-if="formConfig.slot_save_enabled" label="缓存保存路径">
+        <n-form-item v-if="formConfig.slot_save_enabled">
+          <template #label>缓存保存路径 <HelpTip content="KV 缓存保存到磁盘的目录路径。留空则使用默认路径（appDir/slots/）" /></template>
           <n-input v-model:value="formConfig.slot_save_path" placeholder="留空则使用默认路径（appDir/slots/）" @blur="autoSave" />
         </n-form-item>
+
+        <n-divider>Agent 与 MCP</n-divider>
+        <n-form-item>
+          <template #label>Agent 模式 <HelpTip content="一键启用 CORS 代理和所有内置工具（文件读写、shell 命令等）。实验性功能，不建议在不可信环境启用" /></template>
+          <n-switch v-model:value="formConfig.agent" :disabled="formConfig.ui_mcp_proxy" @update:value="handleAgentChange" />
+        </n-form-item>
+        <n-form-item>
+          <template #label>MCP CORS 代理 <HelpTip content="仅为 Web UI 的 MCP 功能启用 CORS 代理。Agent 模式已包含此项" /></template>
+          <n-switch v-model:value="formConfig.ui_mcp_proxy" :disabled="formConfig.agent" @update:value="autoSave" />
+        </n-form-item>
+
+        <n-divider>LoRA 适配器管理</n-divider>
+        <LoraManager v-model:loraPaths="formConfig.lora_paths" @update:loraPaths="autoSave" />
       </n-form>
     </div>
   </div>
@@ -400,6 +442,7 @@ import { type Config, type SearchAPIKeys } from '../services/wails'
 import { wails } from '../services/wails'
 import defaultUserAvatar from '../assets/images/user-avatar.svg'
 import defaultAiAvatar from '../assets/images/appicon.png'
+import LoraManager from '../components/LoraManager.vue'
 
 const HelpTip = defineComponent({
   props: { content: String },
@@ -614,6 +657,9 @@ const formConfig = ref<Config>({
   skip_chat_parsing: false,
   api_prefix: '',
   simple_io: false,
+  agent: false,
+  ui_mcp_proxy: false,
+  lora_paths: '',
   gpu_layers: 0,
   flash_attn: null,
   mlock: null,
@@ -866,6 +912,7 @@ const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'server_api_key_enabled', 'expose_server', 'swa_full',
   'ctx_checkpoints', 'checkpoint_min_step', 'tools', 'prefill_assistant',
   'slot_prompt_similarity', 'skip_chat_parsing', 'api_prefix', 'simple_io',
+  'agent', 'ui_mcp_proxy',
   'gpu_layers', 'flash_attn', 'mlock', 'threads', 'batch_size',
   // 推理配置
   'reasoning', 'reasoning_budget', 'reasoning_budget_message', 'reasoning_format',
@@ -896,6 +943,14 @@ function scheduleAutoSave() {
   genParamsSaveTimer = setTimeout(() => {
     autoSave()
   }, 1500)
+}
+
+// Agent 模式切换处理：启用 Agent 时自动关闭 UIMcpProxy（互斥）
+function handleAgentChange() {
+  if (formConfig.value.agent) {
+    formConfig.value.ui_mcp_proxy = false
+  }
+  autoSave()
 }
 
 async function autoSave() {

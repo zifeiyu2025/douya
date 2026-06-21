@@ -48,6 +48,11 @@
                   </div>
                 </div>
                 <div class="window-controls" style="--wails-draggable:no-drag">
+                  <button class="win-btn" @click="toggleConsole" title="服务器控制台">
+                    <n-icon size="16">
+                      <TerminalOutline />
+                    </n-icon>
+                  </button>
                   <button class="win-btn theme-btn" @click="themeStore.toggleTheme()" :title="isDark ? '切换亮色模式' : '切换暗色模式'">
                     <n-icon size="16">
                       <SunnyOutline v-if="isDark" />
@@ -93,6 +98,7 @@
       :model-name="splashModelName"
       :progress="splashProgress"
     />
+    <ServerConsole ref="consoleRef" />
       </n-dialog-provider>
     </n-message-provider>
   </n-config-provider>
@@ -102,10 +108,11 @@
 import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
 import { darkTheme, zhCN, dateZhCN, createDiscreteApi } from 'naive-ui'
 import { NConfigProvider, NMessageProvider, NDialogProvider, NButton, NIcon, NSelect, NTooltip } from 'naive-ui'
-import { MenuOutline, SunnyOutline, MoonOutline } from '@vicons/ionicons5'
+import { MenuOutline, SunnyOutline, MoonOutline, TerminalOutline, TrashOutline } from '@vicons/ionicons5'
 import Sidebar from './components/Sidebar.vue'
 import AppIcon from './components/ui/AppIcon.vue'
 import SplashScreen from './components/ui/SplashScreen.vue'
+import ServerConsole from './components/ServerConsole.vue'
 import { useChatStore } from './stores/chat'
 import { fixUtf8 } from './utils/utf8'
 import { useSettingsStore } from './stores/settings'
@@ -197,6 +204,12 @@ const overlayModelName = computed(() => {
 const isMaximized = ref(false)
 const isExiting = ref(false)
 const exitMessage = ref('')
+
+// 服务器控制台
+const consoleRef = ref()
+const toggleConsole = () => {
+  consoleRef.value?.toggle()
+}
 
 // SplashScreen 逻辑
 const showSplash = computed(() => {
@@ -316,7 +329,25 @@ function renderModelLabel(option: { label: string; value: string; fullName?: str
       style: 'color: var(--accent-primary); margin-left: 6px; font-size: 10px;'
     }, '●'))
   }
-  const content = h('span', { style: 'display: inline-flex; align-items: center' }, children)
+  // 删除按钮：点击时阻止冒泡，避免触发模型切换
+  const deleteBtn = h(NButton, {
+    type: 'error',
+    size: 'small',
+    quaternary: true,
+    style: 'margin-left: 8px; flex-shrink: 0;',
+    onClick: (e: Event) => {
+      e.stopPropagation()
+      confirmDeleteModel(option.value, option.label)
+    }
+  }, {
+    icon: () => h(NIcon, { size: 14 }, { default: () => h(TrashOutline) })
+  })
+  const content = h('span', {
+    style: 'display: inline-flex; align-items: center; width: 100%; justify-content: space-between'
+  }, [
+    h('span', { style: 'display: inline-flex; align-items: center; min-width: 0; overflow: hidden' }, children),
+    deleteBtn
+  ])
   return h(NTooltip, { placement: 'right', delay: 300 }, {
     trigger: () => content,
     default: () => option.fullName || option.value,
@@ -352,45 +383,57 @@ async function loadAvailableModels() {
   }
 }
 
-// 保存模型切换结果，等动效结束后再显示提示
-let pendingModelSwitchResult: any = null
-
-// 监听模型切换状态变化，当切换结束时显示提示
-watch(() => settingsStore.isModelSwitching, (newVal, oldVal) => {
-  if (oldVal && !newVal && pendingModelSwitchResult) {
-    // 动效结束了，现在显示提示消息
-    const result = pendingModelSwitchResult
-    pendingModelSwitchResult = null
-    // 等待 0.3s 过渡动画完全结束
-    setTimeout(() => {
-      if (result.success) {
-        const caps = result.capabilities || settingsStore.modelCapabilities
-        const features: string[] = []
-        if (caps.image_input) features.push('图片')
-        if (caps.audio_input) features.push('音频')
-        if (caps.reasoning) features.push('推理')
-        const featureText = features.length > 0 ? ` · 支持${features.join('、')}` : ' · 仅文本'
-        discreteMessage.success(`${formatModelName(result.current_model).display}${featureText} 已就绪`, { duration: 3000 })
-        loadAvailableModels()
-      } else {
-        const errorText = result.error || '模型加载失败'
-        const guidance = classifyError(errorText)
-        if (guidance) {
-          // 有修复指引的错误使用 dialog 展示详细信息
-          const suggestions = guidance.suggestions.map((s, i) => `${i + 1}. ${s}`).join('\n')
-          discreteDialog.error({
-            title: guidance.title,
-            content: `${guidance.description}\n\n修复建议：\n${suggestions}`,
-            positiveText: '知道了',
-            style: { whiteSpace: 'pre-wrap' },
-          })
-        } else {
-          discreteMessage.error(errorText, { duration: 5000 })
-        }
+// 确认删除模型：当前使用模型需二次确认
+function confirmDeleteModel(modelName: string, displayLabel: string) {
+  const isCurrentModel = modelName === selectedModel.value
+  if (isCurrentModel) {
+    // 删除当前使用的模型：先显示额外警告，再二次确认
+    discreteDialog.warning({
+      title: '警告：删除当前模型',
+      content: '您正在删除当前使用的模型，删除后将切换到默认模型。确定要继续吗？',
+      positiveText: '继续',
+      negativeText: '取消',
+      onPositiveClick: () => {
+        // 二次确认
+        discreteDialog.warning({
+          title: '再次确认',
+          content: `请再次确认要删除模型 "${displayLabel}"。此操作不可撤销。`,
+          positiveText: '确认删除',
+          negativeText: '取消',
+          onPositiveClick: async () => {
+            await doDeleteModel(modelName)
+          }
+        })
       }
-    }, 300)
+    })
+  } else {
+    // 删除非当前模型：单次确认
+    discreteDialog.warning({
+      title: '删除模型',
+      content: `确认删除模型 "${displayLabel}" 吗？`,
+      positiveText: '确认删除',
+      negativeText: '取消',
+      onPositiveClick: async () => {
+        await doDeleteModel(modelName)
+      }
+    })
   }
-})
+}
+
+// 执行删除模型：调用后端删除并刷新列表
+async function doDeleteModel(modelName: string) {
+  try {
+    await wails.deleteModel(modelName)
+    await wails.reloadModels()
+    await loadAvailableModels()
+    discreteMessage.success('模型删除成功')
+  } catch (e) {
+    console.error('删除模型失败:', e)
+    discreteMessage.error(`删除模型失败: ${e}`, { duration: 5000 })
+  }
+}
+
+// 模型切换结果提示（在 handleModelChange 中 await 返回后直接处理，避免 watch 微任务竞态）
 
 async function handleModelChange(value: string) {
   if (isModelSwitching.value) return
@@ -406,13 +449,41 @@ async function handleModelChange(value: string) {
 
   try {
     const result = await settingsStore.switchModel(value, previousModel)
-    pendingModelSwitchResult = result
+    // 直接处理结果，不再依赖 watch，避免微任务调度竞态导致提示延迟
     if (result.success) {
       selectedModel.value = result.current_model || value
+      // 等待 0.3s 过渡动画完全结束后显示成功提示
+      setTimeout(() => {
+        const caps = result.capabilities || settingsStore.modelCapabilities
+        const features: string[] = []
+        if (caps.image_input) features.push('图片')
+        if (caps.audio_input) features.push('音频')
+        if (caps.reasoning) features.push('推理')
+        const featureText = features.length > 0 ? ` · 支持${features.join('、')}` : ' · 仅文本'
+        discreteMessage.success(`${formatModelName(result.current_model || value).display}${featureText} 已就绪`, { duration: 3000 })
+        loadAvailableModels()
+      }, 300)
     } else {
       selectedModel.value = result.rolled_back
         ? (result.current_model || previousModel)
         : previousModel
+      // 等待 0.3s 过渡动画完全结束后显示失败提示
+      setTimeout(() => {
+        const errorText = result.error || '模型加载失败'
+        const guidance = classifyError(errorText)
+        if (guidance) {
+          // 有修复指引的错误使用 dialog 展示详细信息
+          const suggestions = guidance.suggestions.map((s, i) => `${i + 1}. ${s}`).join('\n')
+          discreteDialog.error({
+            title: guidance.title,
+            content: `${guidance.description}\n\n修复建议：\n${suggestions}`,
+            positiveText: '知道了',
+            style: { whiteSpace: 'pre-wrap' },
+          })
+        } else {
+          discreteMessage.error(errorText, { duration: 5000 })
+        }
+      }, 300)
     }
   } catch (e) {
     console.error('Failed to switch model:', e)

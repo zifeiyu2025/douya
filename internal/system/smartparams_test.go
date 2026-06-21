@@ -1,0 +1,436 @@
+// Copyright zifeiyu. All rights reserved.
+// 豆芽本地AI
+
+package system
+
+import (
+	"testing"
+)
+
+// TestCalculateCacheTypes 测试 cache-type 推荐逻辑
+// 根据模型占用显存的比例推荐不同的 KV cache 量化类型
+func TestCalculateCacheTypes(t *testing.T) {
+	// 计算 ratio 时使用：ratio = modelBytes / vramBytes
+	// vramBytes = GPUVRAMMB * 1024 * 1024
+	// 为简化，使用 GPUVRAMMB=10000（约 9.77GB），通过 FileSize 控制比例
+	const vramMB = 10000
+	vramBytes := float64(vramMB) * 1024 * 1024
+
+	tests := []struct {
+		name     string
+		hw       *HardwareInfo
+		meta     *GGUFMetadata
+		wantK    string
+		wantV    string
+	}{
+		{
+			name:  "ratio ≤ 0.5 显存充裕",
+			hw:    &HardwareInfo{HasGPU: true, GPUVRAMMB: vramMB},
+			meta:  &GGUFMetadata{FileSize: int64(0.3 * vramBytes)}, // ratio ≈ 0.3
+			wantK: "q8_0",
+			wantV: "q8_0",
+		},
+		{
+			name:  "ratio 0.5-0.7 显存较充裕",
+			hw:    &HardwareInfo{HasGPU: true, GPUVRAMMB: vramMB},
+			meta:  &GGUFMetadata{FileSize: int64(0.6 * vramBytes)}, // ratio ≈ 0.6
+			wantK: "q8_0",
+			wantV: "q4_0",
+		},
+		{
+			name:  "ratio 0.7-0.85 显存紧张",
+			hw:    &HardwareInfo{HasGPU: true, GPUVRAMMB: vramMB},
+			meta:  &GGUFMetadata{FileSize: int64(0.8 * vramBytes)}, // ratio ≈ 0.8
+			wantK: "q4_0",
+			wantV: "q4_0",
+		},
+		{
+			name:  "ratio > 0.85 显存很紧张",
+			hw:    &HardwareInfo{HasGPU: true, GPUVRAMMB: vramMB},
+			meta:  &GGUFMetadata{FileSize: int64(0.9 * vramBytes)}, // ratio ≈ 0.9
+			wantK: "q4_1",
+			wantV: "iq4_nl",
+		},
+		{
+			name:  "无 GPU 返回 q4_0",
+			hw:    &HardwareInfo{HasGPU: false, GPUVRAMMB: 0},
+			meta:  &GGUFMetadata{FileSize: int64(0.3 * vramBytes)},
+			wantK: "q4_0",
+			wantV: "q4_0",
+		},
+		{
+			name:  "有 GPU 但 GPUVRAMMB 为 0",
+			hw:    &HardwareInfo{HasGPU: true, GPUVRAMMB: 0},
+			meta:  &GGUFMetadata{FileSize: int64(0.3 * vramBytes)},
+			wantK: "q4_0",
+			wantV: "q4_0",
+		},
+		{
+			name:  "有 GPU 但 meta 为 nil",
+			hw:    &HardwareInfo{HasGPU: true, GPUVRAMMB: vramMB},
+			meta:  nil,
+			wantK: "q8_0",
+			wantV: "q4_0",
+		},
+		{
+			name:  "有 GPU 但 FileSize 为 0",
+			hw:    &HardwareInfo{HasGPU: true, GPUVRAMMB: vramMB},
+			meta:  &GGUFMetadata{FileSize: 0},
+			wantK: "q8_0",
+			wantV: "q4_0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotK, gotV := calculateCacheTypes(tt.hw, tt.meta)
+			if gotK != tt.wantK {
+				t.Errorf("CacheTypeK 期望 %s，实际 %s", tt.wantK, gotK)
+			}
+			if gotV != tt.wantV {
+				t.Errorf("CacheTypeV 期望 %s，实际 %s", tt.wantV, gotV)
+			}
+		})
+	}
+}
+
+// TestCalculateCacheTypes_MoE 测试 MoE 模型的 cache-type 推荐
+// MoE 模型按激活参数折算模型权重占用
+func TestCalculateCacheTypes_MoE(t *testing.T) {
+	const vramMB = 10000
+	vramBytes := float64(vramMB) * 1024 * 1024
+
+	// MoE 模型：FileSize 很大，但激活参数只占一小部分
+	// ExpertCount=60, ExpertUsed=4，折算比例为 4/60 ≈ 0.067
+	// 原始 ratio = 0.9，折算后 ratio ≈ 0.06，应落入 ratio ≤ 0.5 区间
+	meta := &GGUFMetadata{
+		FileSize:    int64(0.9 * vramBytes),
+		ExpertCount: 60,
+		ExpertUsed:  4,
+	}
+	hw := &HardwareInfo{HasGPU: true, GPUVRAMMB: vramMB}
+
+	gotK, gotV := calculateCacheTypes(hw, meta)
+	if gotK != "q8_0" || gotV != "q8_0" {
+		t.Errorf("MoE 折算后 ratio ≤ 0.5，期望 (q8_0, q8_0)，实际 (%s, %s)", gotK, gotV)
+	}
+}
+
+// TestEstimateModelTier 测试模型层级估算
+// score = blockCount * embeddingLength / 1000
+func TestEstimateModelTier(t *testing.T) {
+	tests := []struct {
+		name            string
+		blockCount      int
+		embeddingLength int
+		wantTier        ModelTier
+	}{
+		// score < 80: ModelTierTiny
+		{"score=10 Tiny", 10, 1000, ModelTierTiny},
+		{"score=50 Tiny", 25, 2000, ModelTierTiny}, // 25*2000/1000=50
+		// score 80-160: ModelTierSmall
+		{"score=80 Small", 80, 1000, ModelTierSmall},   // 80*1000/1000=80
+		{"score=120 Small", 120, 1000, ModelTierSmall}, // 120*1000/1000=120
+		// score 160-300: ModelTierMedium
+		{"score=160 Medium", 160, 1000, ModelTierMedium}, // 160*1000/1000=160
+		{"score=250 Medium", 250, 1000, ModelTierMedium}, // 250*1000/1000=250
+		// score 300-500: ModelTierLarge
+		{"score=300 Large", 300, 1000, ModelTierLarge}, // 300*1000/1000=300
+		{"score=450 Large", 450, 1000, ModelTierLarge}, // 450*1000/1000=450
+		// score >= 500: ModelTierXL
+		{"score=500 XL", 500, 1000, ModelTierXL}, // 500*1000/1000=500
+		{"score=1000 XL", 1000, 1000, ModelTierXL},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := estimateModelTier(tt.blockCount, tt.embeddingLength)
+			if got != tt.wantTier {
+				t.Errorf("estimateModelTier(%d, %d) 期望 %v，实际 %v",
+					tt.blockCount, tt.embeddingLength, tt.wantTier, got)
+			}
+		})
+	}
+}
+
+// TestCalculateBatchSizeFromRatio 测试 batch size 计算
+// 根据模型占用显存比例推荐不同的 batch size
+func TestCalculateBatchSizeFromRatio(t *testing.T) {
+	const vramMB = 10000
+	vramBytes := float64(vramMB) * 1024 * 1024
+
+	tests := []struct {
+		name       string
+		hw         *HardwareInfo
+		meta       *GGUFMetadata
+		wantBatch  int
+	}{
+		{
+			name:      "ratio ≤ 0.5 返回 1024",
+			hw:        &HardwareInfo{HasGPU: true, GPUVRAMMB: vramMB},
+			meta:      &GGUFMetadata{FileSize: int64(0.3 * vramBytes)},
+			wantBatch: 1024,
+		},
+		{
+			name:      "ratio 0.5-0.7 返回 512",
+			hw:        &HardwareInfo{HasGPU: true, GPUVRAMMB: vramMB},
+			meta:      &GGUFMetadata{FileSize: int64(0.6 * vramBytes)},
+			wantBatch: 512,
+		},
+		{
+			name:      "ratio 0.7-0.85 返回 256",
+			hw:        &HardwareInfo{HasGPU: true, GPUVRAMMB: vramMB},
+			meta:      &GGUFMetadata{FileSize: int64(0.8 * vramBytes)},
+			wantBatch: 256,
+		},
+		{
+			name:      "ratio > 0.85 返回 128",
+			hw:        &HardwareInfo{HasGPU: true, GPUVRAMMB: vramMB},
+			meta:      &GGUFMetadata{FileSize: int64(0.9 * vramBytes)},
+			wantBatch: 128,
+		},
+		{
+			name:      "无 GPU 返回 64",
+			hw:        &HardwareInfo{HasGPU: false, GPUVRAMMB: 0},
+			meta:      &GGUFMetadata{FileSize: int64(0.3 * vramBytes)},
+			wantBatch: 64,
+		},
+		{
+			name:      "有 GPU 但 GPUVRAMMB 为 0 返回 64",
+			hw:        &HardwareInfo{HasGPU: true, GPUVRAMMB: 0},
+			meta:      &GGUFMetadata{FileSize: int64(0.3 * vramBytes)},
+			wantBatch: 64,
+		},
+		{
+			name:      "meta 为 nil 回退到 VRAM 计算",
+			hw:        &HardwareInfo{HasGPU: true, GPUVRAMMB: 16384}, // 16GB → 1024
+			meta:      nil,
+			wantBatch: 1024,
+		},
+		{
+			name:      "FileSize 为 0 回退到 VRAM 计算",
+			hw:        &HardwareInfo{HasGPU: true, GPUVRAMMB: 16384},
+			meta:      &GGUFMetadata{FileSize: 0},
+			wantBatch: 1024,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := calculateBatchSizeFromRatio(tt.hw, tt.meta)
+			if got != tt.wantBatch {
+				t.Errorf("calculateBatchSizeFromRatio 期望 %d，实际 %d", tt.wantBatch, got)
+			}
+		})
+	}
+}
+
+// TestCalculateBatchSizeFromRatio_MoE 测试 MoE 模型的 batch size 计算
+func TestCalculateBatchSizeFromRatio_MoE(t *testing.T) {
+	const vramMB = 10000
+	vramBytes := float64(vramMB) * 1024 * 1024
+
+	// MoE 模型：FileSize 很大，但激活参数只占一小部分
+	// 原始 ratio = 0.9，折算后 ratio ≈ 0.06，应返回 1024
+	meta := &GGUFMetadata{
+		FileSize:    int64(0.9 * vramBytes),
+		ExpertCount: 60,
+		ExpertUsed:  4,
+	}
+	hw := &HardwareInfo{HasGPU: true, GPUVRAMMB: vramMB}
+
+	got := calculateBatchSizeFromRatio(hw, meta)
+	if got != 1024 {
+		t.Errorf("MoE 折算后 ratio ≤ 0.5，期望 1024，实际 %d", got)
+	}
+}
+
+// TestCacheTypeSize 测试 cache type size 函数
+// 返回每种量化类型每个元素占用的字节数
+func TestCacheTypeSize(t *testing.T) {
+	tests := []struct {
+		name     string
+		ct       string
+		wantSize float64
+	}{
+		{"f32", "f32", 4.0},
+		{"f16", "f16", 2.0},
+		{"bf16", "bf16", 2.0},
+		{"q8_0", "q8_0", 1.0},
+		{"q5_1", "q5_1", 0.75},
+		{"q5_0", "q5_0", 0.6875},
+		{"q4_1", "q4_1", 0.625},
+		{"q4_0", "q4_0", 0.5625},
+		{"iq4_nl", "iq4_nl", 0.5},
+		{"未知类型默认 q4_0", "unknown", 0.5625},
+		{"空字符串默认 q4_0", "", 0.5625},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cacheTypeSize(tt.ct)
+			if got != tt.wantSize {
+				t.Errorf("cacheTypeSize(%q) 期望 %f，实际 %f", tt.ct, tt.wantSize, got)
+			}
+		})
+	}
+}
+
+// TestEstimateKVCostPerToken 测试 KV cache 每token显存消耗估算
+func TestEstimateKVCostPerToken(t *testing.T) {
+	tests := []struct {
+		name          string
+		meta          *GGUFMetadata
+		cacheTypeK    string
+		cacheTypeV    string
+		wantMinCost   int64 // 期望最小值（验证非零）
+		wantExactCost int64 // 期望精确值（0 表示只验证非零）
+	}{
+		{
+			name: "基本估算 f32",
+			meta: &GGUFMetadata{
+				BlockCount:      28,
+				EmbeddingLength: 1024,
+				HeadDimKV:       128,
+				KVHeadCount:     8,
+			},
+			cacheTypeK:    "f32",
+			cacheTypeV:    "f32",
+			wantExactCost: int64(28 * 128 * 8 * 4.0 * 2), // 2 = K+V
+		},
+		{
+			name: "q8_0 量化",
+			meta: &GGUFMetadata{
+				BlockCount:      28,
+				EmbeddingLength: 1024,
+				HeadDimKV:       128,
+				KVHeadCount:     8,
+			},
+			cacheTypeK:    "q8_0",
+			cacheTypeV:    "q8_0",
+			wantExactCost: int64(28 * 128 * 8 * 1.0 * 2),
+		},
+		{
+			name: "meta 为 nil 返回 0",
+			meta: nil,
+			cacheTypeK: "f32",
+			cacheTypeV: "f32",
+			wantExactCost: 0,
+		},
+		{
+			name: "BlockCount 为 0 返回 0",
+			meta: &GGUFMetadata{
+				BlockCount:      0,
+				EmbeddingLength: 1024,
+				HeadDimKV:       128,
+				KVHeadCount:     8,
+			},
+			cacheTypeK: "f32",
+			cacheTypeV: "f32",
+			wantExactCost: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := estimateKVCostPerToken(tt.meta, tt.cacheTypeK, tt.cacheTypeV)
+			if tt.wantExactCost != 0 || tt.meta == nil || tt.meta.BlockCount <= 0 {
+				if got != tt.wantExactCost {
+					t.Errorf("estimateKVCostPerToken 期望 %d，实际 %d", tt.wantExactCost, got)
+				}
+			} else if got <= 0 {
+				t.Errorf("estimateKVCostPerToken 期望大于 0，实际 %d", got)
+			}
+		})
+	}
+}
+
+// TestEstimateKVCostPerToken_HeadDimFallback 测试 HeadDimKV 缺失时的回退逻辑
+func TestEstimateKVCostPerToken_HeadDimFallback(t *testing.T) {
+	// HeadDimKV 为 0，应使用 EmbeddingLength 作为回退
+	meta := &GGUFMetadata{
+		BlockCount:      28,
+		EmbeddingLength: 128, // 小于 256，直接使用
+		HeadDimKV:       0,
+		KVHeadCount:     8,
+	}
+	cost := estimateKVCostPerToken(meta, "f32", "f32")
+	if cost <= 0 {
+		t.Errorf("HeadDim 回退后应返回非零值，实际 %d", cost)
+	}
+	// 期望：28 * 128 * 8 * 4.0 * 2
+	expected := int64(28 * 128 * 8 * 4.0 * 2)
+	if cost != expected {
+		t.Errorf("HeadDim 回退估算 期望 %d，实际 %d", expected, cost)
+	}
+}
+
+// TestEstimateKVCostPerToken_KVHeadsFallback 测试 KVHeadCount 缺失时的回退逻辑
+func TestEstimateKVCostPerToken_KVHeadsFallback(t *testing.T) {
+	// KVHeadCount 为 0，应使用 EmbeddingLength / headDim 作为回退
+	meta := &GGUFMetadata{
+		BlockCount:      28,
+		EmbeddingLength: 1024,
+		HeadDimKV:       128,
+		KVHeadCount:     0,
+	}
+	cost := estimateKVCostPerToken(meta, "f32", "f32")
+	if cost <= 0 {
+		t.Errorf("KVHead 回退后应返回非零值，实际 %d", cost)
+	}
+	// 期望：kvHeads = 1024 / 128 = 8
+	// cost = 28 * 128 * 8 * 4.0 * 2
+	expected := int64(28 * 128 * 8 * 4.0 * 2)
+	if cost != expected {
+		t.Errorf("KVHead 回退估算 期望 %d，实际 %d", expected, cost)
+	}
+}
+
+// TestCalculateBatchSize 测试基于 VRAM 的 batch size 计算（回退方案）
+func TestCalculateBatchSize(t *testing.T) {
+	tests := []struct {
+		name      string
+		hw        *HardwareInfo
+		wantBatch int
+	}{
+		{"无 GPU 返回 64", &HardwareInfo{HasGPU: false, GPUVRAMMB: 0}, 64},
+		{"VRAM 16GB 返回 1024", &HardwareInfo{HasGPU: true, GPUVRAMMB: 16384}, 1024},
+		{"VRAM 12GB 返回 512", &HardwareInfo{HasGPU: true, GPUVRAMMB: 12288}, 512},
+		{"VRAM 8GB 返回 512", &HardwareInfo{HasGPU: true, GPUVRAMMB: 8192}, 512},
+		{"VRAM 6GB 返回 256", &HardwareInfo{HasGPU: true, GPUVRAMMB: 6144}, 256},
+		{"VRAM 4GB 返回 128", &HardwareInfo{HasGPU: true, GPUVRAMMB: 4096}, 128},
+		{"VRAM 2GB 返回 64", &HardwareInfo{HasGPU: true, GPUVRAMMB: 2048}, 64},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := calculateBatchSize(tt.hw)
+			if got != tt.wantBatch {
+				t.Errorf("calculateBatchSize 期望 %d，实际 %d", tt.wantBatch, got)
+			}
+		})
+	}
+}
+
+// TestModelTierConstants 测试 ModelTier 常量值
+// 确保枚举值符合预期顺序
+func TestModelTierConstants(t *testing.T) {
+	if ModelTierTiny != 0 {
+		t.Errorf("ModelTierTiny 期望 0，实际 %d", ModelTierTiny)
+	}
+	if ModelTierSmall != 1 {
+		t.Errorf("ModelTierSmall 期望 1，实际 %d", ModelTierSmall)
+	}
+	if ModelTierMedium != 2 {
+		t.Errorf("ModelTierMedium 期望 2，实际 %d", ModelTierMedium)
+	}
+	if ModelTierLarge != 3 {
+		t.Errorf("ModelTierLarge 期望 3，实际 %d", ModelTierLarge)
+	}
+	if ModelTierXL != 4 {
+		t.Errorf("ModelTierXL 期望 4，实际 %d", ModelTierXL)
+	}
+	if ModelTierUnknown != 5 {
+		t.Errorf("ModelTierUnknown 期望 5，实际 %d", ModelTierUnknown)
+	}
+}

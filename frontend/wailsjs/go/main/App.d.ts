@@ -10,6 +10,8 @@ export function CreateConversation():Promise<chat.Conversation>;
 
 export function CreateKnowledgeBase(arg1:string):Promise<void>;
 
+export function CountTokens(arg1:Array<llm.ChatMessage>):Promise<number>;
+
 export function DeleteConversation(arg1:string):Promise<void>;
 
 export function DeleteDocument(arg1:string,arg2:string):Promise<void>;
@@ -17,6 +19,8 @@ export function DeleteDocument(arg1:string,arg2:string):Promise<void>;
 export function DeleteKnowledgeBase(arg1:string):Promise<void>;
 
 export function DeleteMessage(arg1:string):Promise<void>;
+
+export function DeleteModel(arg1:string):Promise<void>;
 
 export function ExportConversation(arg1:string,arg2:string):Promise<string>;
 
@@ -32,9 +36,15 @@ export function GetConfig():Promise<config.Config>;
 
 export function GetConversations():Promise<Array<chat.Conversation>>;
 
+export function GetLoraAdapters():Promise<Array<llm.LoraAdapter>>;
+
 export function GetMessages(arg1:string):Promise<Array<chat.Message>>;
 
 export function GetModelCapabilities():Promise<llm.ModelCapabilities>;
+
+export function GetServerLogs():Promise<string>;
+
+export function GetSlots():Promise<Array<llm.SlotInfo>>;
 
 export function GetSmartParams():Promise<main.SmartParamsInfo>;
 
@@ -72,11 +82,15 @@ export function SearchMessages(arg1:string):Promise<Array<chat.Message>>;
 
 export function SelectImageFile():Promise<string>;
 
+export function SelectLoraFile():Promise<string>;
+
 export function SendMessage(arg1:chat.SendMessageParams):Promise<void>;
 
 export function SetActiveKnowledgeBase(arg1:string):Promise<void>;
 
 export function SetCloseAction(arg1:string):Promise<void>;
+
+export function SetLoraAdapters(arg1:Array<llm.LoraAdapter>):Promise<void>;
 
 export function SetRAGEnabled(arg1:boolean):Promise<void>;
 
@@ -91,6 +105,10 @@ export function StopGeneration():Promise<void>;
 export function StopThinking():Promise<void>;
 
 export function SwitchModel(arg1:string):Promise<main.SwitchResult>;
+
+export function Tokenize(arg1:string):Promise<Array<number>>;
+
+export function ApplyTemplate(arg1:Array<llm.ChatMessage>):Promise<string>;
 
 export function UpdateConfig(arg1:config.Config):Promise<void>;
 

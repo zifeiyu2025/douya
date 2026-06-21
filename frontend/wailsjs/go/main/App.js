@@ -10,6 +10,10 @@ export function CreateKnowledgeBase(arg1) {
   return window['go']['main']['App']['CreateKnowledgeBase'](arg1);
 }
 
+export function CountTokens(arg1) {
+  return window['go']['main']['App']['CountTokens'](arg1);
+}
+
 export function DeleteConversation(arg1) {
   return window['go']['main']['App']['DeleteConversation'](arg1);
 }
@@ -24,6 +28,10 @@ export function DeleteKnowledgeBase(arg1) {
 
 export function DeleteMessage(arg1) {
   return window['go']['main']['App']['DeleteMessage'](arg1);
+}
+
+export function DeleteModel(arg1) {
+  return window['go']['main']['App']['DeleteModel'](arg1);
 }
 
 export function ExportConversation(arg1, arg2) {
@@ -54,12 +62,24 @@ export function GetConversations() {
   return window['go']['main']['App']['GetConversations']();
 }
 
+export function GetLoraAdapters() {
+  return window['go']['main']['App']['GetLoraAdapters']();
+}
+
 export function GetMessages(arg1) {
   return window['go']['main']['App']['GetMessages'](arg1);
 }
 
 export function GetModelCapabilities() {
   return window['go']['main']['App']['GetModelCapabilities']();
+}
+
+export function GetServerLogs() {
+  return window['go']['main']['App']['GetServerLogs']();
+}
+
+export function GetSlots() {
+  return window['go']['main']['App']['GetSlots']();
 }
 
 export function GetSmartParams() {
@@ -134,6 +154,10 @@ export function SelectImageFile() {
   return window['go']['main']['App']['SelectImageFile']();
 }
 
+export function SelectLoraFile() {
+  return window['go']['main']['App']['SelectLoraFile']();
+}
+
 export function SendMessage(arg1) {
   return window['go']['main']['App']['SendMessage'](arg1);
 }
@@ -144,6 +168,10 @@ export function SetActiveKnowledgeBase(arg1) {
 
 export function SetCloseAction(arg1) {
   return window['go']['main']['App']['SetCloseAction'](arg1);
+}
+
+export function SetLoraAdapters(arg1) {
+  return window['go']['main']['App']['SetLoraAdapters'](arg1);
 }
 
 export function SetRAGEnabled(arg1) {
@@ -172,6 +200,14 @@ export function StopThinking() {
 
 export function SwitchModel(arg1) {
   return window['go']['main']['App']['SwitchModel'](arg1);
+}
+
+export function Tokenize(arg1) {
+  return window['go']['main']['App']['Tokenize'](arg1);
+}
+
+export function ApplyTemplate(arg1) {
+  return window['go']['main']['App']['ApplyTemplate'](arg1);
 }
 
 export function UpdateConfig(arg1) {

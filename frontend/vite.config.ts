@@ -20,11 +20,13 @@ export default defineConfig({
         },
     },
     build: {
-        chunkSizeWarningLimit: 800,
+        chunkSizeWarningLimit: 1500,
         cssCodeSplit: true,
         sourcemap: false,
         rollupOptions: {
             output: {
+                // Rolldown 代码分割优化：按模块级别拆分，减少单个 chunk 体积
+                codeSplitting: 'advanced',
                 // 第三方库显式分块：让浏览器并行下载,且按需加载
                 manualChunks(id) {
                     if (!id.includes('node_modules')) return undefined

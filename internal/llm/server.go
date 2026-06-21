@@ -99,6 +99,11 @@ type ServerConfig struct {
 	// Draft 模型 GPU 配置（Eagle3 等场景）
 	SpecDraftNgl    int    // draft 模型 GPU 层数
 	SpecDraftDevice string // draft 模型设备（如 "cuda:0"）
+	// Agent 模式与 MCP CORS 代理
+	Agent      bool // 一键启用 CORS 代理 + 所有内置工具
+	UIMcpProxy bool // 仅启用 MCP CORS 代理
+	// LoRA 适配器路径（逗号分隔，启动时通过 --lora 加载，配合 --lora-init-without-apply 默认不应用）
+	LoraPaths string
 }
 
 type Server struct {
@@ -112,12 +117,24 @@ type Server struct {
 	stderrBuf            *RingBuffer
 	mtpFallbackDisabled  bool
 	lastStartTime        time.Time
+	onLog                func(line string) // 日志行回调（用于实时推送到前端）
 }
 
 func NewServer(cfg *ServerConfig) *Server {
 	return &Server{
 		config: cfg,
 		status: ServerStatus{Running: false},
+	}
+}
+
+// SetOnLog 设置日志行回调，llama-server 每输出一行日志都会触发
+// 用于将控制台输出实时推送到前端 GUI
+func (s *Server) SetOnLog(cb func(line string)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onLog = cb
+	if s.stderrBuf != nil {
+		s.stderrBuf.SetOnChange(cb)
 	}
 }
 
@@ -361,6 +378,25 @@ func (s *Server) Start() error {
 		args = append(args, "--simple-io")
 	}
 
+	// Agent 模式：一键启用 CORS 代理 + 所有内置工具
+	// 与 UIMcpProxy 互斥（Agent 已包含 MCP CORS 代理）
+	if s.config.Agent {
+		args = append(args, "--agent")
+	} else if s.config.UIMcpProxy {
+		args = append(args, "--ui-mcp-proxy")
+	}
+
+	// LoRA 适配器：启动时加载但默认不应用（scale=0），用户可通过设置界面热切换
+	if s.config.LoraPaths != "" {
+		for _, p := range strings.Split(s.config.LoraPaths, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				args = append(args, "--lora", p)
+			}
+		}
+		args = append(args, "--lora-init-without-apply")
+	}
+
 	// KV 缓存持久化：启用后传递 --slot-save-path
 	if s.config.SlotSaveEnabled && s.config.SlotSavePath != "" {
 		args = append(args, "--slot-save-path", s.config.SlotSavePath)
@@ -379,7 +415,10 @@ func (s *Server) Start() error {
 	runtimeDir := filepath.Dir(s.config.ServerPath)
 	s.cmd.Dir = runtimeDir
 
-	s.stderrBuf = NewRingBuffer(20)
+	s.stderrBuf = NewRingBuffer(500) // 增大缓冲区到 500 行，便于控制台查看历史
+	if s.onLog != nil {
+		s.stderrBuf.SetOnChange(s.onLog)
+	}
 	s.cmd.Stdout = s.stderrBuf.TeeWriter(os.Stderr)
 	s.cmd.Stderr = s.stderrBuf.TeeWriter(os.Stderr)
 

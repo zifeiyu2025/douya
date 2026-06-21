@@ -161,6 +161,8 @@
             </svg>
           </button>
         </div>
+        <!-- Token 计数器：显示在输入框右下角 -->
+        <TokenCounter :text="inputText" :context-size="settingsStore.config.context_size" />
       </div>
     </div>
     <div v-if="contextMenuVisible" class="ctx-menu" :style="{ left: contextMenuX + 'px', top: contextMenuY + 'px' }" @click.stop>
@@ -194,6 +196,7 @@ import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import { wails } from '../services/wails'
 import type { Attachment } from '../services/wails'
+import TokenCounter from './TokenCounter.vue'
 
 interface SpeechRecognitionEvent {
   results: SpeechRecognitionResultList
@@ -1109,6 +1112,7 @@ onUnmounted(() => {
   width: 100%;
   box-sizing: border-box;
   transition: border-color 0.2s, box-shadow 0.2s;
+  position: relative;
 }
 
 .chat-input-container:focus-within {

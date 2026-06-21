@@ -111,6 +111,11 @@ type Config struct {
 	// Draft 模型 GPU 配置（Eagle3 等需要独立 draft 模型的场景）
 	SpecDraftNgl    int    `json:"spec_draft_ngl"`     // draft 模型 GPU 层数（0=不传递）
 	SpecDraftDevice string `json:"spec_draft_device"`  // draft 模型设备（如 "cuda:0"，为空则不传递）
+	// Agent 模式与 MCP CORS 代理（llama.cpp 新特性）
+	Agent      bool `json:"agent"`        // 一键启用 CORS 代理 + 所有内置工具
+	UIMcpProxy bool `json:"ui_mcp_proxy"` // 仅启用 MCP CORS 代理（Agent 已包含此项）
+	// LoRA 适配器路径（逗号分隔，启动时通过 --lora 加载，配合 --lora-init-without-apply 默认不应用）
+	LoraPaths string `json:"lora_paths"`
 }
 
 func DefaultConfig() *Config {

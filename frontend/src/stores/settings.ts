@@ -283,6 +283,14 @@ export const useSettingsStore = defineStore('settings', () => {
                 }
             }, SWITCH_TIMING.SERVER_POLL_TIMEOUT_MS))
         }
+        // switching 阶段超时保护，避免后端卡死导致前端无限等待
+        if (newState.phase === 'switching') {
+            pendingTransitions.push(setTimeout(() => {
+                if (switchState.value.phase === 'switching') {
+                    finishTimeout()
+                }
+            }, SWITCH_TIMING.SERVER_POLL_TIMEOUT_MS))
+        }
     })
 
     // 监听模型能力变化，仅当用户未手动设置 reasoning 时自动选择最优值

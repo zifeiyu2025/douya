@@ -66,14 +66,19 @@
             <template v-else>
               <ThinkBlock v-if="thinkingContent" :content="thinkingContent" :default-expanded="true" :is-thinking="isThinking" :duration="thinkingDuration" />
               <div v-if="canStopThinking" class="stop-thinking-wrapper">
-                <n-button
-                  type="warning"
-                  size="small"
-                  :loading="isStoppingThinking"
+                <button
+                  class="stop-thinking-btn"
+                  :class="{ loading: isStoppingThinking }"
                   @click="handleStopThinking"
+                  :disabled="isStoppingThinking"
                 >
-                  停止思考
-                </n-button>
+                  <svg v-if="!isStoppingThinking" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 12h14" />
+                    <path d="M12 5l7 7-7 7" />
+                  </svg>
+                  <span class="stop-thinking-spinner" v-else></span>
+                  直接回答
+                </button>
               </div>
               <div v-if="streamingContent" class="markdown-body streaming" v-html="renderedStreaming" />
               <n-spin v-else-if="!thinkingContent && !isSearching" size="small" />
@@ -103,7 +108,7 @@
 
 <script setup lang="ts">
 import { computed, watch, ref, nextTick, onMounted, onUnmounted } from 'vue'
-import { NButton, NSpin, useMessage } from 'naive-ui'
+import { NSpin, useMessage } from 'naive-ui'
 import MessageItem from './MessageItem.vue'
 import ThinkBlock from './ThinkBlock.vue'
 import SearchStatus from './SearchStatus.vue'
@@ -184,7 +189,7 @@ async function handleStopThinking() {
     await wails.stopThinking()
     // 成功后由 store 在收到后续正文 token 时将 isThinking 置 false，按钮自动隐藏
   } catch (e) {
-    message.error('停止思考请求失败，请重试')
+    message.error('直接回答请求失败，请重试')
     console.error('停止思考失败:', e)
   } finally {
     isStoppingThinking.value = false
@@ -249,6 +254,7 @@ const {
     scrollToBottom,
     watchContentChange,
     watchMessagesLength,
+    setStreamingMode,
     startObserver,
 } = useScrollToBottom()
 
@@ -268,6 +274,11 @@ watchMessagesLength(() => chatStore.messages?.length || 0)
 watchContentChange(() => chatStore.streamingContent)
 // 思考内容变化时平滑滚动跟随
 watchContentChange(() => chatStore.thinkingContent)
+
+// 流式生成状态切换：启用/禁用增量滚动模式
+watch(() => chatStore.isGenerating, (generating) => {
+    setStreamingMode(generating)
+})
 
 // done 事件更新消息后重新滚动
 watch(() => chatStore.messages, () => {
@@ -334,9 +345,12 @@ watch(() => chatStore.lastError, (err) => {
   border: 1px solid var(--border-color);
 }
 
-/* 流式内容容器：用 contain 限制重排范围，不用 content-visibility 避免高度突变 */
+/* 流式内容容器：仅用 contain: style 隔离样式重算
+ * 不用 contain: layout（高度增长时强制重排导致跳跃）
+ * 不用 content-visibility: auto（流式场景下切换渲染状态导致高度突变）
+ */
 .markdown-body.streaming {
-  contain: layout style;
+  contain: style;
 }
 
 /* 停止思考按钮容器：紧贴思考块下方，左对齐 */
@@ -344,6 +358,58 @@ watch(() => chatStore.lastError, (err) => {
   margin-top: 8px;
   display: flex;
   justify-content: flex-start;
+}
+
+/* "直接回答"按钮：与 ThinkBlock 风格统一，pill 形状，accent-warning 色调 */
+.stop-thinking-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border: 1px solid var(--accent-warning);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--accent-warning);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.stop-thinking-btn:hover:not(:disabled) {
+  background: var(--accent-warning);
+  color: var(--bg-primary);
+  box-shadow: 0 2px 8px rgba(255, 195, 0, 0.25);
+}
+
+.stop-thinking-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.stop-thinking-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.stop-thinking-btn svg {
+  flex-shrink: 0;
+}
+
+/* 加载旋转动画 */
+.stop-thinking-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: stopThinkingSpin 0.6s linear infinite;
+}
+
+@keyframes stopThinkingSpin {
+  to { transform: rotate(360deg); }
 }
 
 .message-list-empty {

@@ -23,6 +23,19 @@ func (s *Service) StopGeneration() {
 	}
 }
 
+// GetCurrentCompletionID 返回当前流式聊天的 completion ID（用于 /v1/chat/completions/control）。
+func (s *Service) GetCurrentCompletionID() string {
+	s.completionIDMu.RLock()
+	defer s.completionIDMu.RUnlock()
+	return s.currentCompletionID
+}
+
+func (s *Service) setCurrentCompletionID(id string) {
+	s.completionIDMu.Lock()
+	defer s.completionIDMu.Unlock()
+	s.currentCompletionID = id
+}
+
 // GetConversations returns all conversations.
 func (s *Service) GetConversations() ([]*Conversation, error) {
 	convs, err := store.ListConversations(s.db, s.encKey)

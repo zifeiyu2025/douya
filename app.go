@@ -383,6 +383,9 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		SlotSaveEnabled:      cfg.SlotSaveEnabled,
 		SpecDraftNgl:         cfg.SpecDraftNgl,
 		SpecDraftDevice:      cfg.SpecDraftDevice,
+		Agent:                cfg.Agent,
+		UIMcpProxy:           cfg.UIMcpProxy,
+		LoraPaths:            cfg.LoraPaths,
 	}
 
 	if cfg.CacheTypeK != "" {
@@ -484,6 +487,9 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 			a.currentModelMu.Lock()
 			a.currentModelName = p.Name
 			a.currentModelMu.Unlock()
+			if a.client != nil {
+				a.client.SetCurrentModel(p.Name)
+			}
 			foundDefault = true
 			break
 		}
@@ -492,6 +498,9 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 		a.currentModelMu.Lock()
 		a.currentModelName = presetsSnapshot[0].Name
 		a.currentModelMu.Unlock()
+		if a.client != nil {
+			a.client.SetCurrentModel(presetsSnapshot[0].Name)
+		}
 		a.currentModelMu.RLock()
 		zlog.Info().Str("model", a.currentModelName).Msg("[server] no default preset found, using first model")
 		a.currentModelMu.RUnlock()
@@ -946,6 +955,15 @@ func (a *App) startup(ctx context.Context) {
 
 	a.serverMu.Lock()
 	a.server = llm.NewServer(a.buildServerConfig())
+	// 设置 llama-server 日志实时推送到前端控制台
+	a.server.SetOnLog(func(line string) {
+		// 异步推送，避免阻塞 llama-server 输出
+		go func(l string) {
+			if a.ctx != nil {
+				runtime.EventsEmit(a.ctx, "server:log", l)
+			}
+		}(line)
+	})
 	a.serverMu.Unlock()
 
 	a.ready.Store(true)
@@ -1211,15 +1229,22 @@ func (a *App) StopGeneration() {
 }
 
 // StopThinking 发送推理控制请求，强制结束当前思考块。
-// 用户在流式推理过程中点击"停止思考"按钮时调用。
+// 用户在流式推理过程中点击"直接回答"按钮时调用。
 // 生活类比：就像你在考试时监考老师说"思考时间到，开始答题"，模型会立即结束思考开始输出答案。
 func (a *App) StopThinking() error {
 	if a.client == nil {
 		return fmt.Errorf("客户端未初始化")
 	}
+	if a.service == nil {
+		return fmt.Errorf("服务未初始化")
+	}
+	completionID := a.service.GetCurrentCompletionID()
+	if completionID == "" {
+		return fmt.Errorf("当前没有正在进行的推理")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return a.client.StopThinking(ctx)
+	return a.client.StopThinking(ctx, completionID)
 }
 
 // RerankEnabled 返回是否配置了 reranker 模型（用于前端判断是否启用重排序功能）。
@@ -1288,6 +1313,84 @@ func (a *App) RestoreSlot(slotID int) error {
 
 	zlog.Info().Int("slot_id", slotID).Msg("[app] RestoreSlot: KV cache restored successfully")
 	return nil
+}
+
+// DeleteModel 删除模型（从 llama-server 的模型列表中移除并卸载）
+func (a *App) DeleteModel(modelName string) error {
+	if a.client == nil {
+		return fmt.Errorf("客户端未初始化")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return a.client.DeleteModel(ctx, modelName)
+}
+
+// CountTokens 估算消息列表的 token 数量
+func (a *App) CountTokens(messages []llm.ChatMessage) (int, error) {
+	if a.client == nil {
+		return 0, fmt.Errorf("客户端未初始化")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return a.client.CountTokens(ctx, messages)
+}
+
+// GetLoraAdapters 获取当前加载的 LoRA 适配器列表
+func (a *App) GetLoraAdapters() ([]llm.LoraAdapter, error) {
+	if a.client == nil {
+		return nil, fmt.Errorf("客户端未初始化")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return a.client.GetLoraAdapters(ctx)
+}
+
+// SetLoraAdapters 设置 LoRA 适配器（运行时热切换）
+func (a *App) SetLoraAdapters(adapters []llm.LoraAdapter) error {
+	if a.client == nil {
+		return fmt.Errorf("客户端未初始化")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return a.client.SetLoraAdapters(ctx, adapters)
+}
+
+// GetSlots 获取所有 slot 的状态信息
+func (a *App) GetSlots() ([]llm.SlotInfo, error) {
+	if a.client == nil {
+		return nil, fmt.Errorf("客户端未初始化")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return a.client.GetSlots(ctx)
+}
+
+// Tokenize 对文本进行分词，返回 token ID 列表
+func (a *App) Tokenize(text string) ([]int, error) {
+	if a.client == nil {
+		return nil, fmt.Errorf("客户端未初始化")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return a.client.Tokenize(ctx, text)
+}
+
+// ApplyTemplate 对消息列表应用聊天模板，返回格式化后的字符串
+func (a *App) ApplyTemplate(messages []llm.ChatMessage) (string, error) {
+	if a.client == nil {
+		return "", fmt.Errorf("客户端未初始化")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return a.client.ApplyTemplate(ctx, messages)
+}
+
+// GetServerLogs 获取 llama-server 控制台的最近日志
+func (a *App) GetServerLogs() string {
+	if a.server == nil {
+		return ""
+	}
+	return a.server.LastOutput()
 }
 
 func (a *App) GetConversations() ([]*chat.Conversation, error) {
@@ -1403,6 +1506,27 @@ func (a *App) SelectImageFile() (string, error) {
 			{
 				DisplayName: "图片文件",
 				Pattern:     "*.jpg;*.jpeg;*.png;*.gif;*.webp;*.bmp;*.svg",
+			},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("选择文件失败: %w", err)
+	}
+	return filePath, nil
+}
+
+// SelectLoraFile 打开文件对话框选择 LoRA 适配器文件
+func (a *App) SelectLoraFile() (string, error) {
+	filePath, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "选择 LoRA 适配器",
+		Filters: []runtime.FileFilter{
+			{
+				DisplayName: "LoRA 适配器文件",
+				Pattern:     "*.gguf;*.bin;*.safetensors",
+			},
+			{
+				DisplayName: "所有文件",
+				Pattern:     "*.*",
 			},
 		},
 	})
@@ -2380,15 +2504,35 @@ func (a *App) switchPrepare(modelName string) string {
 
 // switchLoadModel 加载模型，返回 (是否已运行, 错误消息)
 func (a *App) switchLoadModel(modelName string) (bool, string) {
+	loadTimeout := a.calculateLoadTimeout(modelName)
+	zlog.Info().Str("model", modelName).Dur("timeout", loadTimeout).Msg("[router] switch model with dynamic timeout")
+
 	loadErr := a.client.LoadModel(a.ctx, modelName)
 	if loadErr == nil {
 		// LoadModel 返回 200 仅表示开始加载，需要等待模型真正就绪
 		a.emitSwitchProgress("waiting", modelName)
-		if waitErr := a.client.WaitForModelLoaded(a.ctx, modelName, 120*time.Second); waitErr != nil {
-			// 从 server stderr 获取详细错误信息
+		if waitErr := a.client.WaitForModelLoaded(a.ctx, modelName, loadTimeout); waitErr != nil {
+			// 优先检测 OOM/显存/内存不足，返回明确提示
+			if oomMsg := a.detectOOMError(); oomMsg != "" {
+				return false, oomMsg
+			}
+			waitErrStr := waitErr.Error()
 			stderrHint := a.getServerStderrHint()
+			// 根据错误内容分类：崩溃 vs 超时
+			isCrash := strings.Contains(waitErrStr, "failed to load") ||
+			strings.Contains(waitErrStr, "crashed") ||
+			strings.Contains(waitErrStr, "exit_code") ||
+			strings.Contains(waitErrStr, "VRAM released") ||
+			strings.Contains(waitErrStr, "disappeared from model list")
+			if isCrash {
+				if stderrHint != "" {
+					return false, fmt.Sprintf("模型加载失败: %v\n\n详细信息: %s", waitErr, stderrHint)
+				}
+				return false, fmt.Sprintf("模型加载失败: %v", waitErr)
+			}
+			// 真正的超时
 			if stderrHint != "" {
-				return false, fmt.Sprintf("模型加载失败: %v\n\n详细信息: %s", waitErr, stderrHint)
+				return false, fmt.Sprintf("模型加载超时: %v\n\n详细信息: %s", waitErr, stderrHint)
 			}
 			return false, fmt.Sprintf("模型加载超时: %v", waitErr)
 		}
@@ -2399,16 +2543,35 @@ func (a *App) switchLoadModel(modelName string) (bool, string) {
 		// 模型可能还在 LOADING 状态，必须等待状态变为 loaded
 		zlog.Info().Str("model", modelName).Msg("[router] model is already running/loading, waiting for loaded state")
 		a.emitSwitchProgress("waiting", modelName)
-		if waitErr := a.client.WaitForModelLoaded(a.ctx, modelName, 120*time.Second); waitErr != nil {
+		if waitErr := a.client.WaitForModelLoaded(a.ctx, modelName, loadTimeout); waitErr != nil {
+			if oomMsg := a.detectOOMError(); oomMsg != "" {
+				return false, oomMsg
+			}
+			waitErrStr := waitErr.Error()
 			stderrHint := a.getServerStderrHint()
+			isCrash := strings.Contains(waitErrStr, "failed to load") ||
+			strings.Contains(waitErrStr, "crashed") ||
+			strings.Contains(waitErrStr, "exit_code") ||
+			strings.Contains(waitErrStr, "VRAM released") ||
+			strings.Contains(waitErrStr, "disappeared from model list")
+			if isCrash {
+				if stderrHint != "" {
+					return false, fmt.Sprintf("模型加载失败: %v\n\n详细信息: %s", waitErr, stderrHint)
+				}
+				return false, fmt.Sprintf("模型加载失败: %v", waitErr)
+			}
 			if stderrHint != "" {
-				return false, fmt.Sprintf("模型加载失败: %v\n\n详细信息: %s", waitErr, stderrHint)
+				return false, fmt.Sprintf("模型加载超时: %v\n\n详细信息: %s", waitErr, stderrHint)
 			}
 			return false, fmt.Sprintf("模型加载超时: %v", waitErr)
 		}
 		return true, ""
 	}
 
+	// LoadModel 本身失败，也检测 OOM
+	if oomMsg := a.detectOOMError(); oomMsg != "" {
+		return false, oomMsg
+	}
 	// 从 server stderr 获取详细错误信息
 	stderrHint := a.getServerStderrHint()
 	if stderrHint != "" {
@@ -2447,6 +2610,83 @@ func (a *App) getServerStderrHint() string {
 		hints = hints[len(hints)-3:]
 	}
 	return strings.Join(hints, "\n")
+}
+
+// detectOOMError 检测 stderr 中是否包含 OOM/显存/内存不足错误
+// 返回明确的中文错误提示，若非 OOM 则返回空字符串
+func (a *App) detectOOMError() string {
+	if a.server == nil {
+		return ""
+	}
+	stderr := a.server.LastOutput()
+	if stderr == "" {
+		return ""
+	}
+	lower := strings.ToLower(stderr)
+
+	// CUDA 显存不足模式
+	cudaOOMPatterns := []string{
+		"cuda error", "cuda_error_out_of_memory", "out of memory",
+		"failed to allocate cuda", "failed to allocate gpu",
+		"gpu memory", "vram", "not enough gpu memory",
+	}
+	for _, p := range cudaOOMPatterns {
+		if strings.Contains(lower, p) {
+			hint := a.getServerStderrHint()
+			return fmt.Sprintf("显存不足：模型加载需要的显存超过了 GPU 可用显存。\n详细信息: %s", hint)
+		}
+	}
+
+	// 系统内存不足模式
+	ramOOMPatterns := []string{
+		"bad allocation", "cannot allocate memory", "mmap failed",
+		"std::bad_alloc", "memory allocation failed",
+	}
+	for _, p := range ramOOMPatterns {
+		if strings.Contains(lower, p) {
+			hint := a.getServerStderrHint()
+			return fmt.Sprintf("内存不足：系统内存不足以加载模型，可能是物理内存不足或交换空间不够。\n详细信息: %s", hint)
+		}
+	}
+
+	return ""
+}
+
+// calculateLoadTimeout 根据模型文件大小动态计算加载超时
+// 基础 180 秒 + 每GB 30秒，上限 600 秒（10分钟）
+func (a *App) calculateLoadTimeout(modelName string) time.Duration {
+	const (
+		baseTimeout = 180 * time.Second
+		perGB       = 30 * time.Second
+		maxTimeout  = 600 * time.Second // 10分钟上限，避免前端长时间卡死
+	)
+
+	fileSize := a.getModelFileSize(modelName)
+	if fileSize <= 0 {
+		// 无法获取大小时，使用保守的 300 秒（与首次加载一致）
+		return 300 * time.Second
+	}
+
+	fileSizeGB := float64(fileSize) / (1024 * 1024 * 1024)
+	timeout := baseTimeout + time.Duration(fileSizeGB*float64(perGB))
+	if timeout > maxTimeout {
+		timeout = maxTimeout
+	}
+	return timeout
+}
+
+// getModelFileSize 获取模型文件大小（字节）
+func (a *App) getModelFileSize(modelName string) int64 {
+	a.presetsMu.RLock()
+	defer a.presetsMu.RUnlock()
+	for _, p := range a.presets {
+		if p.Name == modelName {
+			if info, err := os.Stat(p.ModelPath); err == nil {
+				return info.Size()
+			}
+		}
+	}
+	return 0
 }
 
 // switchWaitReady 等待模型就绪（含 mmproj 回退检测）
@@ -2493,6 +2733,10 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 	a.currentModelMu.Lock()
 	a.currentModelName = modelName
 	a.currentModelMu.Unlock()
+	// 同步更新 client 的当前模型（v9744+ API 需要）
+	if a.client != nil {
+		a.client.SetCurrentModel(modelName)
+	}
 
 	// 更新嵌入模型名（仅在未配置专用嵌入模型时跟随聊天模型切换）
 	if a.ragEmbedder != nil && a.getConfig().EmbeddingModel == "" {
@@ -2529,6 +2773,24 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 			CurrentModel: modelName,
 			Error:        fmt.Sprintf("模型架构检测失败: %v", err),
 		})
+	}
+
+	// 模型切换后重置 LoRA 适配器为未应用状态（scale=0）
+	// 用户可在设置界面重新启用需要的适配器
+	if a.client != nil {
+		loraCtx, loraCancel := context.WithTimeout(a.ctx, 5*time.Second)
+		if adapters, err := a.client.GetLoraAdapters(loraCtx); err == nil && len(adapters) > 0 {
+			// 将所有适配器的 scale 设为 0（保留列表，不删除）
+			for i := range adapters {
+				adapters[i].Scale = 0
+			}
+			if err := a.client.SetLoraAdapters(loraCtx, adapters); err != nil {
+				zlog.Warn().Err(err).Msg("[router] failed to reset lora adapters after model switch")
+			} else {
+				zlog.Info().Int("count", len(adapters)).Msg("[router] lora adapters reset to scale=0 after model switch")
+			}
+		}
+		loraCancel()
 	}
 
 	// 发射完成事件

@@ -154,7 +154,8 @@ export function useMarkdownWorker() {
 
     /**
      * 动态节流：内容越长，渲染间隔越大
-     * 短内容（<2KB）50ms，长内容（>10KB）200ms
+     * 短内容（<2KB）80ms，中等内容（2-10KB）120ms，长内容（>10KB）200ms
+     * 间隔过短会导致 v-html 频繁替换 DOM，造成视觉抖动
      */
     function scheduleRender(content: string) {
         if (isRendering) {
@@ -162,7 +163,7 @@ export function useMarkdownWorker() {
             return
         }
         const len = content.length
-        const interval = len > 10000 ? 200 : len > 2000 ? 100 : 50
+        const interval = len > 10000 ? 200 : len > 2000 ? 120 : 80
         const elapsed = Date.now() - lastRenderTime
         const remaining = interval - elapsed
         if (remaining <= 0) {

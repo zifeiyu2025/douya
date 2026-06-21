@@ -549,6 +549,8 @@ html, body, #app {
   box-sizing: border-box;
   position: relative;
   z-index: 1;
+  /* 滚动锚定：内容增长时浏览器自动调整滚动位置，减少布局偏移导致的抖动 */
+  overflow-anchor: auto;
 }
 
 .message-list > * {

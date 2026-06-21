@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -29,14 +30,30 @@ func readBody(r io.Reader) ([]byte, error) {
 }
 
 type Client struct {
-	baseURL        string
-	apiKey         string
-	httpClient     *http.Client
-	streamClient   *http.Client
+	baseURL       string
+	apiKey        string
+	httpClient    *http.Client
+	streamClient  *http.Client
+	currentModel  string
+	modelMu       sync.RWMutex
 }
 
 func (c *Client) BaseURL() string {
 	return c.baseURL
+}
+
+// SetCurrentModel 设置当前加载的模型名称（v9744+ API 要求在请求中包含 model 字段）
+func (c *Client) SetCurrentModel(modelName string) {
+	c.modelMu.Lock()
+	defer c.modelMu.Unlock()
+	c.currentModel = modelName
+}
+
+// GetCurrentModel 获取当前加载的模型名称
+func (c *Client) GetCurrentModel() string {
+	c.modelMu.RLock()
+	defer c.modelMu.RUnlock()
+	return c.currentModel
 }
 
 func NewClient(baseURL string, apiKey string) *Client {
@@ -253,10 +270,15 @@ func (c *Client) HealthCheck(ctx context.Context) error {
 }
 
 // StopThinking 发送 POST /v1/chat/completions/control 请求，强制结束当前思考块。
-// 用于实时推理控制：用户在流式推理过程中点击"停止思考"按钮时调用。
-// 请求体为 {"reasoning_end": true}，llama-server 收到后会让模型立即结束思考，开始输出最终回答。
-func (c *Client) StopThinking(ctx context.Context) error {
-	body, err := json.Marshal(map[string]bool{"reasoning_end": true})
+// 用于实时推理控制：用户在流式推理过程中点击"直接回答"按钮时调用。
+// 请求体格式（v9744+）：{"id": "chatcmpl-xxx", "action": "reasoning_end", "model": "xxx"}
+// 前提：原始聊天请求必须带 reasoning_control: true，否则此端点无效。
+func (c *Client) StopThinking(ctx context.Context, completionID string) error {
+	body, err := json.Marshal(map[string]interface{}{
+		"id":     completionID,
+		"action": "reasoning_end",
+		"model":  c.GetCurrentModel(),
+	})
 	if err != nil {
 		return fmt.Errorf("failed to marshal stop thinking request: %w", err)
 	}
@@ -279,7 +301,7 @@ func (c *Client) StopThinking(ctx context.Context) error {
 		return fmt.Errorf("stop thinking returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	log.Info().Msg("[client] StopThinking: reasoning_end sent successfully")
+	log.Info().Str("completion_id", completionID).Msg("[client] StopThinking: reasoning_end sent successfully")
 	return nil
 }
 
@@ -375,12 +397,12 @@ func DetectCapabilities(info ModelInfo) ModelCapabilities {
 }
 
 type ModelMeta struct {
-	VocabType   int     `json:"vocab_type"`
-	NVocab      int     `json:"n_vocab"`
-	NCtxTrain   int     `json:"n_ctx_train"`
-	NEmbd       int     `json:"n_embd"`
-	NParams     float64 `json:"n_params"`
-	Size        int64   `json:"size"`
+	VocabType int     `json:"vocab_type"`
+	NVocab    int     `json:"n_vocab"`
+	NCtxTrain int     `json:"n_ctx_train"`
+	NEmbd     int     `json:"n_embd"`
+	NParams   float64 `json:"n_params"`
+	Size      int64   `json:"size"`
 }
 
 func (c *Client) GetModelInfo(ctx context.Context) (*ModelInfo, error) {
@@ -713,7 +735,7 @@ func (c *Client) GetModelsList(ctx context.Context) ([]ListedModel, error) {
 
 	var raw struct {
 		Data []struct {
-			ID           string `json:"id"`
+			ID           string   `json:"id"`
 			Capabilities []string `json:"capabilities"`
 			Status       struct {
 				Value string `json:"value"`
@@ -758,11 +780,278 @@ func (c *Client) ReloadModels(ctx context.Context) error {
 	return nil
 }
 
+// DeleteModel 调用 DELETE /models 删除模型（从列表中移除并卸载）
+func (c *Client) DeleteModel(ctx context.Context, modelName string) error {
+	body, err := json.Marshal(map[string]string{"model": modelName})
+	if err != nil {
+		return fmt.Errorf("failed to marshal delete model request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+"/models", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create delete model request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	c.setAuthHeader(httpReq)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("delete model request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := readBody(resp.Body)
+		return fmt.Errorf("delete model returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	log.Info().Str("model", modelName).Msg("[client] DeleteModel: model deleted")
+	return nil
+}
+
+// CountTokens 调用 /v1/chat/completions/input_tokens 估算消息的 token 数量
+func (c *Client) CountTokens(ctx context.Context, messages []ChatMessage) (int, error) {
+	// v9744+ 要求在请求体中包含 model 字段
+	reqBody := map[string]interface{}{
+		"messages": messages,
+		"model":    c.GetCurrentModel(),
+	}
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return 0, fmt.Errorf("failed to marshal count tokens request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions/input_tokens", bytes.NewReader(body))
+	if err != nil {
+		return 0, fmt.Errorf("failed to create count tokens request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	c.setAuthHeader(httpReq)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return 0, fmt.Errorf("count tokens request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := readBody(resp.Body)
+		return 0, fmt.Errorf("count tokens returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	respBody, err := readBody(resp.Body)
+	if err != nil {
+		return 0, err
+	}
+
+	var result struct {
+		InputTokens int `json:"input_tokens"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return 0, fmt.Errorf("failed to parse count tokens response: %w", err)
+	}
+
+	return result.InputTokens, nil
+}
+
+// GetLoraAdapters 调用 GET /lora-adapters 获取 LoRA 适配器列表
+func (c *Client) GetLoraAdapters(ctx context.Context) ([]LoraAdapter, error) {
+	// v9744+ 要求在查询参数中包含 model 字段
+	reqURL := c.baseURL + "/lora-adapters"
+	if model := c.GetCurrentModel(); model != "" {
+		reqURL += "?model=" + url.QueryEscape(model)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create get lora adapters request: %w", err)
+	}
+	c.setAuthHeader(httpReq)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("get lora adapters request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := readBody(resp.Body)
+		return nil, fmt.Errorf("get lora adapters returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := readBody(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var adapters []LoraAdapter
+	if err := json.Unmarshal(body, &adapters); err != nil {
+		return nil, fmt.Errorf("failed to parse lora adapters response: %w", err)
+	}
+
+	return adapters, nil
+}
+
+// SetLoraAdapters 调用 POST /lora-adapters 设置 LoRA 适配器（运行时热切换）
+func (c *Client) SetLoraAdapters(ctx context.Context, adapters []LoraAdapter) error {
+	body, err := json.Marshal(adapters)
+	if err != nil {
+		return fmt.Errorf("failed to marshal set lora adapters request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/lora-adapters", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create set lora adapters request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	c.setAuthHeader(httpReq)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("set lora adapters request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := readBody(resp.Body)
+		return fmt.Errorf("set lora adapters returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	log.Info().Int("adapters", len(adapters)).Msg("[client] SetLoraAdapters: lora adapters updated")
+	return nil
+}
+
+// GetSlots 调用 GET /slots 获取所有 slot 的状态信息
+func (c *Client) GetSlots(ctx context.Context) ([]SlotInfo, error) {
+	// v9744+ 要求在查询参数中包含 model 字段
+	reqURL := c.baseURL + "/slots"
+	if model := c.GetCurrentModel(); model != "" {
+		reqURL += "?model=" + url.QueryEscape(model)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create get slots request: %w", err)
+	}
+	c.setAuthHeader(httpReq)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("get slots request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := readBody(resp.Body)
+		return nil, fmt.Errorf("get slots returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := readBody(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var slots []SlotInfo
+	if err := json.Unmarshal(body, &slots); err != nil {
+		return nil, fmt.Errorf("failed to parse slots response: %w", err)
+	}
+
+	return slots, nil
+}
+
+// Tokenize 调用 /tokenize 对文本进行分词，返回 token ID 列表
+func (c *Client) Tokenize(ctx context.Context, text string) ([]int, error) {
+	// v9744+ 要求在请求体中包含 model 字段
+	reqBody := map[string]interface{}{
+		"content": text,
+		"model":   c.GetCurrentModel(),
+	}
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal tokenize request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/tokenize", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create tokenize request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	c.setAuthHeader(httpReq)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("tokenize request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := readBody(resp.Body)
+		return nil, fmt.Errorf("tokenize returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	respBody, err := readBody(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		Tokens []int `json:"tokens"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse tokenize response: %w", err)
+	}
+
+	return result.Tokens, nil
+}
+
+// ApplyTemplate 调用 /apply-template 应用聊天模板，返回格式化后的 prompt
+func (c *Client) ApplyTemplate(ctx context.Context, messages []ChatMessage) (string, error) {
+	// v9744+ 要求在请求体中包含 model 字段
+	reqBody := map[string]interface{}{
+		"messages": messages,
+		"model":    c.GetCurrentModel(),
+	}
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal apply template request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/apply-template", bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("failed to create apply template request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	c.setAuthHeader(httpReq)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("apply template request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := readBody(resp.Body)
+		return "", fmt.Errorf("apply template returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	respBody, err := readBody(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	var result struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("failed to parse apply template response: %w", err)
+	}
+
+	return result.Prompt, nil
+}
+
 type ModelStatus struct {
-	Name    string `json:"name"`
-	Status  string `json:"status"`
-	Failed  bool   `json:"failed,omitempty"`
-	ExitCode int   `json:"exit_code,omitempty"`
+	Name     string `json:"name"`
+	Status   string `json:"status"`
+	Failed   bool   `json:"failed,omitempty"`
+	ExitCode int    `json:"exit_code,omitempty"`
 }
 
 func (c *Client) GetModelStatus(ctx context.Context, modelName string) (*ModelStatus, error) {
@@ -849,6 +1138,14 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 	lastDetailedLogTime := startTime
 	const detailedLogInterval = 30 * time.Second
 
+	// 子进程崩溃检测状态
+	// VRAM 释放监控：检测子进程崩溃后 VRAM 被操作系统回收
+	vramSeenOccupied := false      // 是否曾经检测到 VRAM 被占用
+	vramReleaseCount := 0          // VRAM 释放确认计数（避免单次抖动误判）
+	const vramReleaseThreshold = 3 // 连续 3 次检测到 VRAM 释放才确认崩溃（约 1 秒）
+	// 模型消失快速失败：检测模型从列表中消失
+	modelSeenBefore := false // 模型是否曾经在 /v1/models 列表中
+
 	for time.Now().Before(deadline) {
 		select {
 		case <-ctx.Done():
@@ -927,9 +1224,11 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 			}
 		}
 		found := false
+		modelLoaded := false
 		for _, d := range raw.Data {
 			if d.ID == modelName || FuzzyMatchModelID(d.ID, modelName) {
 				found = true
+				modelSeenBefore = true
 				// 检测 failed 字段：子进程崩溃后路由器可能将状态设为 unloaded+failed
 				// 也可能卡在 loading 状态但 failed 已被设置
 				if d.Status.Failed {
@@ -943,6 +1242,7 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 				case "loaded", "sleeping":
 					// loaded = 模型已加载就绪
 					// sleeping = 模型已加载但处于休眠状态（仍在 VRAM 中，新请求会自动唤醒）
+					modelLoaded = true
 					stableCount++
 					if stableCount >= requiredStablePolls {
 						log.Info().Str("model", modelName).Str("status", d.Status.Value).Int("polls", pollCount).Msg("[client] WaitForModelLoaded: model is stable")
@@ -968,13 +1268,9 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 					time.Sleep(300 * time.Millisecond)
 				default:
 					// loading 等其他状态，继续等待
-					// 但如果 loading 状态持续太久（90秒），可能是子进程崩溃但路由器未更新状态
-					// 这种情况发生在子进程因 mmproj 不兼容等原因崩溃，但路由器的监控线程卡住
-					elapsed := time.Since(startTime)
-					if d.Status.Value == "loading" && elapsed > 90*time.Second {
-						log.Warn().Str("model", modelName).Dur("elapsed", elapsed).Msg("[client] WaitForModelLoaded: model stuck in loading state, likely child process crashed")
-						return fmt.Errorf("model %s appears stuck in loading state after %v (child process may have crashed)", modelName, elapsed.Round(time.Second))
-					}
+					// 注意：不再提前终止 loading 状态，只依赖总超时保护
+					// 子进程崩溃会通过 status=failed 或 status=unloaded+exit_code≠0 检测
+					// 或通过下方的 VRAM 释放监控检测
 					if stableCount > 0 {
 						log.Debug().Str("model", modelName).Str("status", d.Status.Value).Int("previous_stable", stableCount).Msg("[client] WaitForModelLoaded: model left loaded state, resetting stability")
 						stableCount = 0
@@ -985,7 +1281,35 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 			}
 		}
 
+		// VRAM 释放检测：子进程崩溃后 VRAM 会被操作系统回收
+		// 只在模型未 loaded 时检测，避免正常加载后误判
+		if !modelLoaded {
+			vramFree, vramErr := checkVRAMFree()
+			if vramErr == nil {
+				if !vramFree {
+					// VRAM 被占用，子进程在运行
+					if !vramSeenOccupied {
+						log.Debug().Str("model", modelName).Msg("[client] WaitForModelLoaded: VRAM occupied detected")
+					}
+					vramSeenOccupied = true
+					vramReleaseCount = 0
+				} else if vramSeenOccupied {
+					// VRAM 从占用变为空闲，可能子进程崩溃
+					vramReleaseCount++
+					log.Warn().Str("model", modelName).Int("release_count", vramReleaseCount).Int("threshold", vramReleaseThreshold).Msg("[client] WaitForModelLoaded: VRAM released after being occupied (possible crash)")
+					if vramReleaseCount >= vramReleaseThreshold {
+						return fmt.Errorf("model %s crashed during loading (VRAM released after being occupied)", modelName)
+					}
+				}
+			}
+		}
+
 		if !found {
+			// 模型曾经在列表中，现在消失了，子进程崩溃
+			if modelSeenBefore {
+				log.Warn().Str("model", modelName).Msg("[client] WaitForModelLoaded: model disappeared from list (process crashed)")
+				return fmt.Errorf("model %s disappeared from model list (process crashed)", modelName)
+			}
 			// 模型名称未匹配，记录日志帮助调试
 			if pollCount <= 5 {
 				ids := make([]string, 0, len(raw.Data))

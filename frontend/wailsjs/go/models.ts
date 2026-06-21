@@ -242,7 +242,67 @@ export namespace config {
 }
 
 export namespace llm {
-	
+
+	export class ChatMessage {
+	    role: string;
+	    content: any;
+	    reasoning_content?: string;
+	    tool_call_id?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ChatMessage(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.role = source["role"];
+	        this.content = source["content"];
+	        this.reasoning_content = source["reasoning_content"];
+	        this.tool_call_id = source["tool_call_id"];
+	    }
+	}
+	export class LoraAdapter {
+	    id: number;
+	    path: string;
+	    scale: number;
+
+	    static createFrom(source: any = {}) {
+	        return new LoraAdapter(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.path = source["path"];
+	        this.scale = source["scale"];
+	    }
+	}
+	export class SlotInfo {
+	    id: number;
+	    task: string;
+	    n_prompt: number;
+	    n_predicted: number;
+	    n_gpu_layers: number;
+	    model: string;
+	    n_cache_tokens: number;
+	    cache_shift: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new SlotInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.task = source["task"];
+	        this.n_prompt = source["n_prompt"];
+	        this.n_predicted = source["n_predicted"];
+	        this.n_gpu_layers = source["n_gpu_layers"];
+	        this.model = source["model"];
+	        this.n_cache_tokens = source["n_cache_tokens"];
+	        this.cache_shift = source["cache_shift"];
+	    }
+	}
 	export class ModelCapabilities {
 	    image_input: boolean;
 	    audio_input: boolean;

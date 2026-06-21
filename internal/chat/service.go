@@ -75,6 +75,9 @@ type Service struct {
 	lastPromptTokens   int // 最近一次实际 prompt_tokens（来自 llama-server usage）
 	lastEstimatedTokens int // 对应的估算值
 	tokenCalibMu       sync.RWMutex
+	// 当前流式聊天的 completion ID，用于 /v1/chat/completions/control 实时控制
+	currentCompletionID string
+	completionIDMu      sync.RWMutex
 }
 
 func NewService(llmClient *llm.Client, searchChain *search.SearchChain, db *sql.DB, cfg *config.Config, encKey []byte, appDir string) *Service {
@@ -532,6 +535,9 @@ func (s *Service) applyThinkingControl(req *llm.ChatCompletionRequest) {
 		budget = cfg.ReasoningBudget
 	}
 
+	// 推理模型启用 reasoning_control，允许通过 /v1/chat/completions/control 实时结束思考
+	req.ReasoningControl = true
+
 	// enable_thinking 与请求级 Reasoning 状态均由 llama-server --reasoning 启动参数统一处理，
 	// 此处仅保留 ReasoningBudget 作为请求级预算控制。
 	if budget > 0 {
@@ -672,7 +678,8 @@ type StreamAccumulator struct {
 	ThinkingDone               bool
 	FirstRoundThinking         string
 	FirstRoundThinkingDuration float64
-	PromptTokens               int // 来自 SSE 流式响应的 usage 字段
+	PromptTokens               int    // 来自 SSE 流式响应的 usage 字段
+	CompletionID               string // 来自 SSE 流式响应的 id 字段，用于 /v1/chat/completions/control
 }
 
 // 流式响应缓冲区最大大小（10MB）
@@ -692,6 +699,11 @@ func (a *StreamAccumulator) callback() func(llm.SSEChunk) error {
 		// 提取 usage 信息（llama-server 在流结束时返回）
 		if chunk.Usage != nil && chunk.Usage.PromptTokens > 0 {
 			a.PromptTokens = chunk.Usage.PromptTokens
+		}
+
+		// 追踪 completion ID（用于 /v1/chat/completions/control 实时控制）
+		if chunk.ID != "" && a.CompletionID == "" {
+			a.CompletionID = chunk.ID
 		}
 
 		if len(chunk.Choices) == 0 {
@@ -974,14 +986,15 @@ func EstimateMessageTokens(m *store.Message) int         { return estimateMessag
 // 如果还没录到任何内容（空内容），就不保存，避免产生空录音。
 func (s *Service) savePartialContentIfAny(convID string, acc *StreamAccumulator) {
 	content := acc.FullContent.String()
-	if content == "" {
+	thinkingContent := acc.FullThinking.String()
+	if content == "" && thinkingContent == "" {
 		return
 	}
 	aiMsg := &store.Message{
 		ConversationID:   convID,
 		Role:             "assistant",
 		Content:          content,
-		ThinkingContent:  acc.FullThinking.String(),
+		ThinkingContent:  thinkingContent,
 		ThinkingDuration: clampDuration(acc.ThinkingDuration),
 	}
 	if aiMsg.ThinkingContent != "" && aiMsg.ThinkingDuration == 0 && acc.FirstRoundThinkingDuration > 0 {
@@ -1388,8 +1401,18 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 
 	streamCtx, streamCancel := context.WithTimeout(cancelCtx, 300*time.Second)
 	defer streamCancel()
+	defer s.setCurrentCompletionID("") // 流结束后清除 completion ID
 
-	err := client.StreamChat(streamCtx, req, acc.callback())
+	// 包装 callback，在收到 completion ID 时同步到 Service（供 StopThinking 使用）
+	innerCallback := acc.callback()
+	wrappedCallback := func(chunk llm.SSEChunk) error {
+		if chunk.ID != "" && acc.CompletionID != "" {
+			s.setCurrentCompletionID(acc.CompletionID)
+		}
+		return innerCallback(chunk)
+	}
+
+	err := client.StreamChat(streamCtx, req, wrappedCallback)
 
 	if err != nil {
 		if cancelCtx.Err() == context.Canceled {

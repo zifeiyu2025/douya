@@ -151,6 +151,9 @@ export interface Config {
     skip_chat_parsing: boolean
     api_prefix: string
     simple_io: boolean
+    agent: boolean
+    ui_mcp_proxy: boolean
+    lora_paths: string
     gpu_layers: number
     flash_attn: boolean | null
     mlock: boolean | null
@@ -302,6 +305,9 @@ export const DEFAULT_CONFIG: Config = {
     skip_chat_parsing: false,
     api_prefix: '',
     simple_io: false,
+    agent: false,
+    ui_mcp_proxy: false,
+    lora_paths: '',
     gpu_layers: 0,
     flash_attn: null,
     mlock: null,
