@@ -8,6 +8,7 @@ type ContentPart struct {
 	Text       string      `json:"text"`
 	ImageURL   *ImageURL   `json:"image_url,omitempty"`
 	InputAudio *InputAudio `json:"input_audio,omitempty"`
+	InputVideo *InputVideo `json:"input_video,omitempty"`
 }
 
 type ImageURL struct {
@@ -17,6 +18,16 @@ type ImageURL struct {
 type InputAudio struct {
 	Data   string `json:"data"`
 	Format string `json:"format"`
+}
+
+// InputVideo 视频输入（llama.cpp 新增独立类型，替代之前用 image_url 传递视频的方式）
+// 支持两种格式：
+//  1. URL 格式（data URL 或文件路径）：仅设置 URL 字段
+//  2. 分离格式：设置 Data（base64）和 Format（如 "mp4"）
+type InputVideo struct {
+	URL    string `json:"url,omitempty"`
+	Data   string `json:"data,omitempty"`
+	Format string `json:"format,omitempty"`
 }
 
 type ChatMessage struct {
@@ -85,8 +96,25 @@ func NewAudioMessage(role, text string, audios []InputAudio) ChatMessage {
 	return ChatMessage{Role: role, Content: parts}
 }
 
-func NewMultimodalMessage(role, text string, imageURLs []string, audios []InputAudio) ChatMessage {
-	parts := make([]ContentPart, 0, len(imageURLs)+len(audios)+1)
+// NewVideoMessage 构造仅含视频输入的消息（llama.cpp 新增 input_video 独立类型）
+func NewVideoMessage(role, text string, videos []InputVideo) ChatMessage {
+	parts := make([]ContentPart, 0, len(videos)+1)
+	if text == "" {
+		text = "."
+	}
+	parts = append(parts, ContentPart{Type: "text", Text: text})
+	for _, video := range videos {
+		parts = append(parts, ContentPart{
+			Type:       "input_video",
+			InputVideo: &InputVideo{URL: video.URL, Data: video.Data, Format: video.Format},
+		})
+	}
+	return ChatMessage{Role: role, Content: parts}
+}
+
+// NewMultimodalMessage 构造包含图像、音频、视频的多模态消息
+func NewMultimodalMessage(role, text string, imageURLs []string, audios []InputAudio, videos []InputVideo) ChatMessage {
+	parts := make([]ContentPart, 0, len(imageURLs)+len(audios)+len(videos)+1)
 	if text == "" {
 		text = "."
 	}
@@ -101,6 +129,12 @@ func NewMultimodalMessage(role, text string, imageURLs []string, audios []InputA
 		parts = append(parts, ContentPart{
 			Type:       "input_audio",
 			InputAudio: &InputAudio{Data: audio.Data, Format: audio.Format},
+		})
+	}
+	for _, video := range videos {
+		parts = append(parts, ContentPart{
+			Type:       "input_video",
+			InputVideo: &InputVideo{URL: video.URL, Data: video.Data, Format: video.Format},
 		})
 	}
 	return ChatMessage{Role: role, Content: parts}
@@ -313,10 +347,11 @@ type LoraAdapter struct {
 }
 
 // ModelLoadEvent 解析 /models/sse 端点返回的模型加载进度事件
-// 实际 SSE 数据格式：
+// 实际 SSE 数据格式（新版 llama.cpp 统一事件名为 model_status）：
 //
-//	{"model":"xxx", "event":"status_change", "data":{"status":"loading", "progress":{"stages":[...], "current":"text_model", "value":0.35}}}
+//	{"model":"xxx", "event":"model_status", "data":{"status":"loading", "progress":{"stages":[...], "current":"text_model", "value":0.35}}}
 //
+// 旧版事件名 status_change / download_finished 仍兼容解析
 // value 范围 0-1，需乘以 100 转为百分比
 type ModelLoadEvent struct {
 	Model  string              `json:"model"`

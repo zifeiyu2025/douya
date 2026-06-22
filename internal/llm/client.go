@@ -681,6 +681,9 @@ func (c *Client) LoadModel(ctx context.Context, modelName string) error {
 
 // WatchModelLoadProgress 通过 /models/sse 端点实时监听模型加载进度
 // 当模型状态变为 "loaded" 或上下文被取消时返回
+//
+// llama.cpp 最新版本将事件名统一为 "model_status"（之前为 "status_change"/"download_finished"）
+// 本方法兼容新旧两种事件名，确保跨版本稳定性
 func (c *Client) WatchModelLoadProgress(ctx context.Context, modelName string, onProgress func(event ModelLoadEvent)) error {
 	url := fmt.Sprintf("%s/models/sse", c.baseURL)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -732,7 +735,9 @@ func (c *Client) WatchModelLoadProgress(ctx context.Context, modelName string, o
 		}
 
 		// 从嵌套的 data 字段推导 status 和 progress
-		// SSE 格式: {"model":"xxx", "event":"status_change", "data":{"status":"loading", "progress":{"value":0.35}}}
+		// 新版 SSE 格式: {"model":"xxx", "event":"model_status", "data":{"status":"loading", "progress":{"stages":[...], "current":"text_model", "value":0.35}}}
+		// 旧版 SSE 格式: {"model":"xxx", "event":"status_change", "data":{"status":"loading", "progress":{"value":0.35}}}
+		// 兼容处理：无论事件名是 model_status、status_change 还是 download_finished，都统一解析 data 字段
 		if event.Data.Status != "" {
 			event.Status = event.Data.Status
 		}
@@ -905,6 +910,36 @@ func (c *Client) DeleteModel(ctx context.Context, modelName string) error {
 	}
 
 	log.Info().Str("model", modelName).Msg("[client] DeleteModel: model deleted")
+	return nil
+}
+
+// DownloadModel 触发模型下载（非阻塞，进度通过 /models/sse 跟踪）
+// 模型名格式：HF 仓库格式，如 "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M"
+func (c *Client) DownloadModel(ctx context.Context, modelName string) error {
+	body, err := json.Marshal(map[string]string{"model": modelName})
+	if err != nil {
+		return fmt.Errorf("failed to marshal download model request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/models", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create download model request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	c.setAuthHeader(httpReq)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("download model request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := readBody(resp.Body)
+		return fmt.Errorf("download model returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	log.Info().Str("model", modelName).Msg("[client] DownloadModel: download started")
 	return nil
 }
 

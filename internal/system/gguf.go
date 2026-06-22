@@ -72,6 +72,7 @@ type GGUFMetadata struct {
 	ExpertUsed           int
 	HasMTP               bool
 	HasReasoning         bool
+	SupportsEagle3       bool // 模型是否支持 Eagle3 推测解码（如 Qwen3.5/3.6）
 	SizeLabel            string
 	NParams              int64
 	ChatTemplate         string
@@ -231,6 +232,34 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 				break
 			}
 		}
+	}
+
+	// Eagle3 推测解码支持检测（llama.cpp 最新更新：Eagle3 支持 Qwen3.5/3.6）
+	// Eagle3 需要独立的 draft 模型，用户需配置 spec_draft_model 才能启用
+	// 这里仅标记模型支持 Eagle3，实际启用在 smartparams.go 中根据用户配置决定
+	if meta.Architecture != "" {
+		lowerArch := strings.ToLower(meta.Architecture)
+		eagle3ArchKeywords := []string{"qwen3.5", "qwen3.6", "qwen35", "qwen36"}
+		for _, kw := range eagle3ArchKeywords {
+			if strings.Contains(lowerArch, kw) {
+				meta.SupportsEagle3 = true
+				break
+			}
+		}
+	}
+	// 兜底：通过文件名检测 Qwen3.5/3.6
+	if !meta.SupportsEagle3 {
+		lowerName := strings.ToLower(path)
+		eagle3NameKeywords := []string{"qwen3.5", "qwen3.6", "qwen35", "qwen36"}
+		for _, kw := range eagle3NameKeywords {
+			if strings.Contains(lowerName, kw) {
+				meta.SupportsEagle3 = true
+				break
+			}
+		}
+	}
+	if meta.SupportsEagle3 {
+		log.Info().Str("architecture", meta.Architecture).Msg("[gguf] Eagle3 speculative decoding supported (Qwen3.5/3.6 detected)")
 	}
 
 	return meta, nil

@@ -100,6 +100,23 @@ type ServerConfig struct {
 	// Draft 模型 GPU 配置（Eagle3 等场景）
 	SpecDraftNgl    int    // draft 模型 GPU 层数
 	SpecDraftDevice string // draft 模型设备（如 "cuda:0"）
+	// Draft 模型推测解码参数
+	SpecDraftPSplit     float64 // 推测解码 split 概率（默认 0.10）
+	SpecDraftPMin       float64 // 最小推测解码概率（默认 0.00）
+	SpecDraftBackendSampling *bool // draft 模型后端采样（nil=默认启用）
+	// 多模态批处理
+	MtmdBatchMaxTokens int // 图像编码每个 batch 的最大 token 数（默认 1024）
+	// 自适应采样（llama.cpp 新增，动态调整采样参数）
+	AdaptiveTarget float64 // 自适应采样目标概率（0-1，默认 0.0=禁用）
+	AdaptiveDecay  float64 // 自适应采样衰减率（0-1，默认 0.5）
+	// 模型标签（逗号分隔，用于 /v1/models 返回的 tags 字段）
+	Tags string
+	// 媒体路径（多模态模型额外媒体文件目录）
+	MediaPath string
+	// 离线模式（禁用所有网络请求，如模型下载等）
+	Offline bool
+	// 模型重打包（启动时重新打包模型权重，用于优化加载速度）
+	Repack bool
 	// Agent 模式与 MCP CORS 代理
 	Agent      bool // 一键启用 CORS 代理 + 所有内置工具
 	UIMcpProxy bool // 仅启用 MCP CORS 代理
@@ -421,6 +438,47 @@ func (s *Server) Start() error {
 	}
 	if s.config.SpecDraftDevice != "" && !s.mtpFallbackDisabled {
 		args = append(args, "--spec-draft-device", s.config.SpecDraftDevice)
+	}
+	// Draft 模型推测解码参数
+	if s.config.SpecDraftPSplit > 0 && !s.mtpFallbackDisabled {
+		args = append(args, "--spec-draft-p-split", fmt.Sprintf("%.2f", s.config.SpecDraftPSplit))
+	}
+	if s.config.SpecDraftPMin > 0 && !s.mtpFallbackDisabled {
+		args = append(args, "--spec-draft-p-min", fmt.Sprintf("%.2f", s.config.SpecDraftPMin))
+	}
+	if s.config.SpecDraftBackendSampling != nil && !s.mtpFallbackDisabled {
+		if *s.config.SpecDraftBackendSampling {
+			args = append(args, "--spec-draft-backend-sampling")
+		} else {
+			args = append(args, "--no-spec-draft-backend-sampling")
+		}
+	}
+	// 多模态批处理
+	if s.config.MtmdBatchMaxTokens > 0 {
+		args = append(args, "--mtmd-batch-max-tokens", fmt.Sprintf("%d", s.config.MtmdBatchMaxTokens))
+	}
+	// 自适应采样（llama.cpp 新增）
+	if s.config.AdaptiveTarget > 0 {
+		args = append(args, "--adaptive-target", fmt.Sprintf("%.4f", s.config.AdaptiveTarget))
+	}
+	if s.config.AdaptiveDecay > 0 {
+		args = append(args, "--adaptive-decay", fmt.Sprintf("%.4f", s.config.AdaptiveDecay))
+	}
+	// 模型标签
+	if s.config.Tags != "" {
+		args = append(args, "--tags", s.config.Tags)
+	}
+	// 媒体路径（多模态模型额外媒体文件目录）
+	if s.config.MediaPath != "" {
+		args = append(args, "--media-path", s.config.MediaPath)
+	}
+	// 离线模式（禁用所有网络请求）
+	if s.config.Offline {
+		args = append(args, "--offline")
+	}
+	// 模型重打包（启动时重新打包模型权重）
+	if s.config.Repack {
+		args = append(args, "--repack")
 	}
 
 	s.cmd = exec.Command(s.config.ServerPath, args...)

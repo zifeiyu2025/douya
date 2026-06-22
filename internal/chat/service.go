@@ -1596,6 +1596,7 @@ const maxAttachmentTextRunes = 24000
 func buildMessageFromAttachments(role, content string, attachments []Attachment) llm.ChatMessage {
 	var imageUrls []string
 	var audios []llm.InputAudio
+	var videos []llm.InputVideo
 	var textParts []string
 
 	for _, att := range attachments {
@@ -1605,7 +1606,8 @@ func buildMessageFromAttachments(role, content string, attachments []Attachment)
 		case "audio":
 			audios = append(audios, llm.InputAudio{Data: att.Data, Format: att.Format})
 		case "video":
-			imageUrls = append(imageUrls, att.Data)
+			// llama.cpp 新增 input_video 独立类型，不再混入 image_url
+			videos = append(videos, llm.InputVideo{URL: att.Data, Format: att.Format})
 		case "pdf":
 			pdfText := extractPDFText([]byte(att.Data))
 			pdfText = truncateAttachmentText(pdfText, att.Name)
@@ -1631,15 +1633,30 @@ func buildMessageFromAttachments(role, content string, attachments []Attachment)
 			fullContent = "请描述这张图片"
 		} else if len(audios) > 0 {
 			fullContent = "请转录这段音频"
+		} else if len(videos) > 0 {
+			fullContent = "请描述这段视频"
 		}
 	}
 
-	if len(imageUrls) > 0 && len(audios) > 0 {
-		return llm.NewMultimodalMessage(role, fullContent, imageUrls, audios)
-	} else if len(imageUrls) > 0 {
+	// 多模态组合优先级：图像+音频+视频 → 图像+音频 → 图像+视频 → 音频+视频 → 单一类型
+	hasImages := len(imageUrls) > 0
+	hasAudios := len(audios) > 0
+	hasVideos := len(videos) > 0
+
+	if hasImages && hasAudios && hasVideos {
+		return llm.NewMultimodalMessage(role, fullContent, imageUrls, audios, videos)
+	} else if hasImages && hasAudios {
+		return llm.NewMultimodalMessage(role, fullContent, imageUrls, audios, nil)
+	} else if hasImages && hasVideos {
+		return llm.NewMultimodalMessage(role, fullContent, imageUrls, nil, videos)
+	} else if hasAudios && hasVideos {
+		return llm.NewMultimodalMessage(role, fullContent, nil, audios, videos)
+	} else if hasImages {
 		return llm.NewVisionMessage(role, fullContent, imageUrls)
-	} else if len(audios) > 0 {
+	} else if hasAudios {
 		return llm.NewAudioMessage(role, fullContent, audios)
+	} else if hasVideos {
+		return llm.NewVideoMessage(role, fullContent, videos)
 	}
 	return llm.NewTextMessage(role, fullContent)
 }

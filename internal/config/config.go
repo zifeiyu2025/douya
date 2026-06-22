@@ -112,6 +112,23 @@ type Config struct {
 	// Draft 模型 GPU 配置（Eagle3 等需要独立 draft 模型的场景）
 	SpecDraftNgl    int    `json:"spec_draft_ngl"`     // draft 模型 GPU 层数（0=不传递）
 	SpecDraftDevice string `json:"spec_draft_device"`  // draft 模型设备（如 "cuda:0"，为空则不传递）
+	// Draft 模型推测解码参数
+	SpecDraftPSplit         float64 `json:"spec_draft_p_split"`          // 推测解码 split 概率（0=默认 0.10）
+	SpecDraftPMin           float64 `json:"spec_draft_p_min"`            // 最小推测解码概率（0=默认 0.00）
+	SpecDraftBackendSampling *bool  `json:"spec_draft_backend_sampling"` // draft 后端采样（nil=默认）
+	// 多模态批处理
+	MtmdBatchMaxTokens int `json:"mtmd_batch_max_tokens"` // 图像编码 batch 最大 token 数（0=默认 1024）
+	// 自适应采样（llama.cpp 新增，动态调整采样参数）
+	AdaptiveTarget float64 `json:"adaptive_target"` // 自适应采样目标概率（0=禁用，0-1）
+	AdaptiveDecay  float64 `json:"adaptive_decay"`  // 自适应采样衰减率（0=默认 0.5，0-1）
+	// 模型标签（逗号分隔，用于 /v1/models 返回的 tags 字段）
+	Tags string `json:"tags"`
+	// 媒体路径（多模态模型额外媒体文件目录）
+	MediaPath string `json:"media_path"`
+	// 离线模式（禁用所有网络请求，如模型下载等）
+	Offline bool `json:"offline"`
+	// 模型重打包（启动时重新打包模型权重，用于优化加载速度）
+	Repack bool `json:"repack"`
 	// Agent 模式与 MCP CORS 代理（llama.cpp 新特性）
 	Agent      bool `json:"agent"`        // 一键启用 CORS 代理 + 所有内置工具
 	UIMcpProxy bool `json:"ui_mcp_proxy"` // 仅启用 MCP CORS 代理（Agent 已包含此项）
@@ -201,6 +218,16 @@ func DefaultConfig() *Config {
 		SlotSaveEnabled:      false,
 		SpecDraftNgl:         0,
 		SpecDraftDevice:      "",
+		SpecDraftPSplit:         0,
+		SpecDraftPMin:           0,
+		SpecDraftBackendSampling: nil,
+		MtmdBatchMaxTokens:   0,
+		AdaptiveTarget:       0,
+		AdaptiveDecay:        0,
+		Tags:                 "",
+		MediaPath:            "",
+		Offline:              false,
+		Repack:               false,
 		EmbeddingModel:       "",
 		SpecNgramModNMin:      0,
 		SpecNgramModNMax:      0,

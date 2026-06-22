@@ -47,6 +47,7 @@ import {
     SaveSlot,
     RestoreSlot,
     DeleteModel,
+    DownloadModel,
     CountTokens,
     GetLoraAdapters,
     SetLoraAdapters,
@@ -234,6 +235,9 @@ export const wails = {
     },
     deleteModel: async (modelName: string): Promise<void> => {
         await DeleteModel(modelName)
+    },
+    downloadModel: async (modelName: string): Promise<void> => {
+        await DownloadModel(modelName)
     },
     countTokens: async (messages: ChatMessage[]): Promise<number> => {
         return await CountTokens(messages as any)

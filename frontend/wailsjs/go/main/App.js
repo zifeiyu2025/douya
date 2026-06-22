@@ -34,6 +34,10 @@ export function DeleteModel(arg1) {
   return window['go']['main']['App']['DeleteModel'](arg1);
 }
 
+export function DownloadModel(arg1) {
+  return window['go']['main']['App']['DownloadModel'](arg1);
+}
+
 export function ExportConversation(arg1, arg2) {
   return window['go']['main']['App']['ExportConversation'](arg1, arg2);
 }

@@ -22,6 +22,8 @@ export function DeleteMessage(arg1:string):Promise<void>;
 
 export function DeleteModel(arg1:string):Promise<void>;
 
+export function DownloadModel(arg1:string):Promise<void>;
+
 export function ExportConversation(arg1:string,arg2:string):Promise<string>;
 
 export function ExportConversationWithDialog(arg1:string,arg2:string):Promise<boolean>;

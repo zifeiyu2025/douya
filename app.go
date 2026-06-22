@@ -391,6 +391,16 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		CacheReuse:           cfg.CacheReuse,
 		SpecDraftNgl:         cfg.SpecDraftNgl,
 		SpecDraftDevice:      cfg.SpecDraftDevice,
+		SpecDraftPSplit:      cfg.SpecDraftPSplit,
+		SpecDraftPMin:        cfg.SpecDraftPMin,
+		SpecDraftBackendSampling: cfg.SpecDraftBackendSampling,
+		MtmdBatchMaxTokens:   cfg.MtmdBatchMaxTokens,
+		AdaptiveTarget:       cfg.AdaptiveTarget,
+		AdaptiveDecay:        cfg.AdaptiveDecay,
+		Tags:                 cfg.Tags,
+		MediaPath:            cfg.MediaPath,
+		Offline:              cfg.Offline,
+		Repack:               cfg.Repack,
 		Agent:                cfg.Agent,
 		UIMcpProxy:           cfg.UIMcpProxy,
 		BackendSampling:      cfg.BackendSampling,
@@ -428,6 +438,14 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		if serverCfg.SpecNgramModNMatch == 0 && sp.NgramModNMatch > 0 {
 			serverCfg.SpecNgramModNMatch = sp.NgramModNMatch
 		}
+	}
+
+	// Eagle3 自动启用：模型支持 Eagle3（Qwen3.5/3.6）且用户配置了 draft 模型，
+	// 但未显式设置 SpecType 时，自动启用 draft-eagle3
+	// 生活类比：就像检测到你插了耳机就自动切换音频输出到耳机一样
+	if serverCfg.SpecType == "" && sp.SupportsEagle3 && cfg.SpecDraftModel != "" {
+		serverCfg.SpecType = "draft-eagle3"
+		zlog.Info().Str("draft_model", cfg.SpecDraftModel).Msg("[smart-params] Eagle3 supported and draft model configured, auto-enabling draft-eagle3")
 	}
 
 	// 推理模式自动推荐：用户未设置时使用智能参数
@@ -1337,6 +1355,16 @@ func (a *App) DeleteModel(modelName string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	return a.client.DeleteModel(ctx, modelName)
+}
+
+// DownloadModel 触发模型下载（非阻塞，进度通过 /models/sse 跟踪）
+func (a *App) DownloadModel(modelName string) error {
+	if a.client == nil {
+		return fmt.Errorf("客户端未初始化")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return a.client.DownloadModel(ctx, modelName)
 }
 
 // CountTokens 估算消息列表的 token 数量
