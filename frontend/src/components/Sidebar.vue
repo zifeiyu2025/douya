@@ -158,8 +158,8 @@ function formatTime(dateStr: string): string {
   return `${d.getMonth() + 1}/${d.getDate()}`
 }
 
-async function handleCreate() {
-  await chatStore.createConversation()
+function handleCreate() {
+  chatStore.createConversation()
 }
 
 function handleSelect(id: string) {

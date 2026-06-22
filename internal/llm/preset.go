@@ -26,7 +26,7 @@ type ModelPreset struct {
 	BatchSize       int
 	UBatchSize      int
 	Threads         int
-	FlashAttn       bool
+	FlashAttn       string // "on"/"off"/"auto"
 	CacheTypeK      string
 	CacheTypeV      string
 	Mlock           bool
@@ -99,8 +99,8 @@ func GeneratePreset(presets []ModelPreset, globalDefaults map[string]string) str
 			sb.WriteString(fmt.Sprintf("threads = %d\n", p.Threads))
 		}
 
-		if p.FlashAttn {
-			sb.WriteString("flash-attn = on\n")
+		if p.FlashAttn != "" {
+			sb.WriteString(fmt.Sprintf("flash-attn = %s\n", p.FlashAttn))
 		}
 
 		if p.CacheTypeK != "" {

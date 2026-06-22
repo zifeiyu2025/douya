@@ -1,6 +1,8 @@
 <template>
   <div class="input-area">
     <div class="input-wrapper">
+      <!-- Token 计数器：显示在输入框上方 -->
+      <TokenCounter :text="inputText" :context-size="settingsStore.config.context_size" />
       <div v-if="attachments.length > 0" class="attachment-preview-bar">
         <div
           v-for="(att, idx) in attachments"
@@ -161,8 +163,6 @@
             </svg>
           </button>
         </div>
-        <!-- Token 计数器：显示在输入框右下角 -->
-        <TokenCounter :text="inputText" :context-size="settingsStore.config.context_size" />
       </div>
     </div>
     <div v-if="contextMenuVisible" class="ctx-menu" :style="{ left: contextMenuX + 'px', top: contextMenuY + 'px' }" @click.stop>

@@ -34,10 +34,6 @@
         <template v-else>
           <ThinkBlock v-if="message.thinking_content" :content="message.thinking_content" :duration="message.thinking_duration" />
           <div class="markdown-body" v-html="renderedContent" />
-          <div v-if="!isUser && showPromptProgress" class="prompt-progress">
-            正在处理提示词 {{ promptProgressPercent }}%
-            <span v-if="promptProgressEta">(ETA: {{ promptProgressEta }}s)</span>
-          </div>
           <SearchStatus v-if="hasSearchResults" :searching="false" :results="message.search_results" :default-expanded="false" />
         </template>
       </div>
@@ -111,35 +107,6 @@ const tokensPerSecond = computed(() => {
     const tps = props.message.tokens_per_second
     if (!tps || tps <= 0) return 0
     return Math.round(tps * 10) / 10
-})
-
-const showPromptProgress = computed(() => {
-    if (isUser.value) return false
-    const pp = chatStore.promptProgress
-    if (!pp || !chatStore.isGenerating) return false
-    // 只在实际处理量 > 0 且处理时间 > 1秒时显示（避免闪烁）
-    const actualProcessed = pp.processed - pp.cache
-    const actualTotal = pp.total - pp.cache
-    return actualProcessed > 0 && actualTotal > 0 && actualProcessed < actualTotal && pp.timeMs > 1000
-})
-
-const promptProgressPercent = computed(() => {
-    const pp = chatStore.promptProgress
-    if (!pp) return 0
-    const actualProcessed = pp.processed - pp.cache
-    const actualTotal = pp.total - pp.cache
-    if (actualTotal <= 0) return 0
-    return Math.round((actualProcessed / actualTotal) * 100)
-})
-
-const promptProgressEta = computed(() => {
-    const pp = chatStore.promptProgress
-    if (!pp) return 0
-    const actualProcessed = pp.processed - pp.cache
-    const actualTotal = pp.total - pp.cache
-    if (actualProcessed <= 0 || pp.timeMs <= 0) return 0
-    const elapsedSecs = pp.timeMs / 1000
-    return Math.ceil(elapsedSecs * (actualTotal / actualProcessed - 1))
 })
 
 const hasSearchResults = computed(() => {
@@ -584,18 +551,6 @@ function regenerate() {
   padding: 6px 8px;
   white-space: nowrap;
   user-select: none;
-}
-
-.prompt-progress {
-  font-size: 12px;
-  color: var(--text-muted);
-  padding: 4px 0;
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
 }
 
 :deep(.citation-link) {

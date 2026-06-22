@@ -115,6 +115,8 @@ type Config struct {
 	// Agent 模式与 MCP CORS 代理（llama.cpp 新特性）
 	Agent      bool `json:"agent"`        // 一键启用 CORS 代理 + 所有内置工具
 	UIMcpProxy bool `json:"ui_mcp_proxy"` // 仅启用 MCP CORS 代理（Agent 已包含此项）
+	// 后端采样（实验性，将采样逻辑移到 GPU 执行，不兼容 grammar 和 reasoning budget）
+	BackendSampling bool `json:"backend_sampling"`
 	// LoRA 适配器路径（逗号分隔，启动时通过 --lora 加载，配合 --lora-init-without-apply 默认不应用）
 	LoraPaths string `json:"lora_paths"`
 }
@@ -199,6 +201,27 @@ func DefaultConfig() *Config {
 		SlotSaveEnabled:      false,
 		SpecDraftNgl:         0,
 		SpecDraftDevice:      "",
+		EmbeddingModel:       "",
+		SpecNgramModNMin:      0,
+		SpecNgramModNMax:      0,
+		SpecNgramModNMatch:    0,
+		SpecNgramSimpleSizeN:   0,
+		SpecNgramSimpleSizeM:   0,
+		SpecNgramSimpleMinHits: 0,
+		SpecNgramMapKSizeN:     0,
+		SpecNgramMapKSizeM:     0,
+		SpecNgramMapKMinHits:   0,
+		SpecNgramMapK4VSizeN:   0,
+		SpecNgramMapK4VSizeM:   0,
+		SpecNgramMapK4VMinHits: 0,
+		LookupCacheStatic:     "",
+		LookupCacheDynamic:    "",
+		SpecDraftModel:        "",
+		CacheReuse:            0,
+		Agent:                 false,
+		UIMcpProxy:            false,
+		BackendSampling:       false,
+		LoraPaths:             "",
 	}
 }
 

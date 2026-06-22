@@ -264,10 +264,17 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		gpuLayers = fmt.Sprintf("%d", sp.GPULayers)
 	}
 
-	// Flash Attention：用户设置优先
-	flashAttn := sp.FlashAttn
+	// Flash Attention：用户设置优先，支持 on/off/auto 三值
+	flashAttn := ""
+	if sp.FlashAttn {
+		flashAttn = "on" // 智能参数默认
+	}
 	if cfg.FlashAttn != nil {
-		flashAttn = *cfg.FlashAttn
+		if *cfg.FlashAttn {
+			flashAttn = "on"
+		} else {
+			flashAttn = "off"
+		}
 	}
 
 	// Mlock：用户设置优先
@@ -386,6 +393,7 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		SpecDraftDevice:      cfg.SpecDraftDevice,
 		Agent:                cfg.Agent,
 		UIMcpProxy:           cfg.UIMcpProxy,
+		BackendSampling:      cfg.BackendSampling,
 		LoraPaths:            cfg.LoraPaths,
 	}
 

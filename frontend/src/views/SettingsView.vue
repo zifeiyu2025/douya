@@ -431,6 +431,10 @@
           <template #label>MCP CORS 代理 <HelpTip content="仅为 Web UI 的 MCP 功能启用 CORS 代理。Agent 模式已包含此项" /></template>
           <n-switch v-model:value="formConfig.ui_mcp_proxy" :disabled="formConfig.agent" @update:value="autoSave" />
         </n-form-item>
+        <n-form-item>
+          <template #label>后端采样 <HelpTip content="实验性功能，将采样逻辑移到 GPU 执行以提升性能。不兼容 Grammar 和 Reasoning Budget" /></template>
+          <n-switch v-model:value="formConfig.backend_sampling" @update:value="autoSave" />
+        </n-form-item>
 
         <n-divider>LoRA 适配器管理</n-divider>
         <LoraManager v-model:loraPaths="formConfig.lora_paths" @update:loraPaths="autoSave" />
@@ -665,13 +669,14 @@ const formConfig = ref<Config>({
   ctx_checkpoints: 0,
   checkpoint_min_step: 0,
   tools: '',
-  prefill_assistant: false,
-  slot_prompt_similarity: 0.8,
+  prefill_assistant: true,
+  slot_prompt_similarity: 0.0,
   skip_chat_parsing: false,
   api_prefix: '',
   simple_io: false,
   agent: false,
   ui_mcp_proxy: false,
+  backend_sampling: false,
   lora_paths: '',
   gpu_layers: 0,
   flash_attn: null,
@@ -925,7 +930,7 @@ const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'server_api_key_enabled', 'expose_server', 'swa_full',
   'ctx_checkpoints', 'checkpoint_min_step', 'tools', 'prefill_assistant',
   'slot_prompt_similarity', 'skip_chat_parsing', 'api_prefix', 'simple_io',
-  'agent', 'ui_mcp_proxy',
+  'agent', 'ui_mcp_proxy', 'backend_sampling',
   'gpu_layers', 'flash_attn', 'mlock', 'threads', 'batch_size',
   // 推理配置
   'reasoning', 'reasoning_budget', 'reasoning_budget_message', 'reasoning_format',

@@ -266,6 +266,74 @@ func ParseExceedContextError(err error) *ExceedContextInfo {
 	return info
 }
 
+// enhanceErrorWithHint 为运行时错误添加设置调整建议
+// 如果错误可以通过设置界面调整解决，追加提示；否则直接说明原因
+func enhanceErrorWithHint(errMsg string) string {
+	lower := strings.ToLower(errMsg)
+
+	// 上下文溢出相关
+	if strings.Contains(lower, "exceed") && (strings.Contains(lower, "context") || strings.Contains(lower, "ctx")) {
+		return errMsg + "\n💡 可尝试：设置 → 增大上下文长度，或缩短对话/新建对话"
+	}
+	if strings.Contains(lower, "context length") || strings.Contains(lower, "context_size") {
+		return errMsg + "\n💡 可尝试：设置 → 增大上下文长度，或缩短对话/新建对话"
+	}
+
+	// 模型加载/内存不足相关
+	if strings.Contains(lower, "out of memory") || strings.Contains(lower, "oom") || strings.Contains(lower, "cuda") && strings.Contains(lower, "alloc") {
+		return errMsg + "\n💡 可尝试：设置 → 减少 GPU 层数，或开启 Flash Attention，或使用更小的模型"
+	}
+	if strings.Contains(lower, "not enough memory") || strings.Contains(lower, "memory allocation") {
+		return errMsg + "\n💡 可尝试：设置 → 减少 GPU 层数，或使用更小的模型"
+	}
+	if strings.Contains(lower, "mmproj") && (strings.Contains(lower, "failed") || strings.Contains(lower, "error") || strings.Contains(lower, "load")) {
+		return errMsg + "\n💡 可尝试：设置 → 关闭「视觉投影卸载到 GPU」，或检查视觉模型文件是否完整"
+	}
+
+	// 连接/服务相关
+	if strings.Contains(lower, "connection refused") || strings.Contains(lower, "connect: connection refused") {
+		return "AI 服务未启动或已停止，请等待服务启动完成"
+	}
+	if strings.Contains(lower, "connection reset") || strings.Contains(lower, "broken pipe") {
+		return "与服务器的连接中断，模型可能正在切换或服务已重启"
+	}
+
+	// 模型/参数不兼容
+	if strings.Contains(lower, "flash_attn") && strings.Contains(lower, "not supported") {
+		return errMsg + "\n💡 可尝试：设置 → 关闭 Flash Attention"
+	}
+	if strings.Contains(lower, "cache_type") && (strings.Contains(lower, "not supported") || strings.Contains(lower, "unknown")) {
+		return errMsg + "\n💡 可尝试：设置 → 将 KV 缓存类型改为默认值（q8_0）"
+	}
+	if strings.Contains(lower, "grammar") && strings.Contains(lower, "reasoning") {
+		return errMsg + "\n💡 可尝试：设置 → 关闭推理模式，或移除语法约束"
+	}
+	if strings.Contains(lower, "backend sampling") && strings.Contains(lower, "not compatible") {
+		return errMsg + "\n💡 可尝试：设置 → 关闭「后端采样」"
+	}
+	if strings.Contains(lower, "speculative") || strings.Contains(lower, "draft") && strings.Contains(lower, "failed") {
+		return errMsg + "\n💡 可尝试：设置 → 关闭推测解码（MTP），或检查模型是否支持"
+	}
+
+	// 请求格式相关
+	if strings.Contains(lower, "invalid type") && strings.Contains(lower, "enable_thinking") {
+		return errMsg + "\n💡 模型不支持 enable_thinking 参数，可尝试：设置 → 将推理模式设为「关闭」"
+	}
+	if strings.Contains(lower, "tool_call") && strings.Contains(lower, "not supported") {
+		return errMsg + "\n💡 当前模型不支持工具调用，联网搜索将使用预搜索模式"
+	}
+
+	// 搜索 API 相关
+	if strings.Contains(lower, "tavily") && (strings.Contains(lower, "401") || strings.Contains(lower, "unauthorized") || strings.Contains(lower, "api key")) {
+		return "Tavily 搜索 API Key 无效或已过期\n💡 可尝试：设置 → 重新填写 Tavily API Key"
+	}
+	if strings.Contains(lower, "bing") && (strings.Contains(lower, "401") || strings.Contains(lower, "403")) {
+		return "Bing 搜索 API 认证失败\n💡 可尝试：设置 → 检查 Bing API Key"
+	}
+
+	return errMsg
+}
+
 func estimateChatMessageTokens(msg llm.ChatMessage) int {
 	total := 0
 	contentStr := msg.ContentString()

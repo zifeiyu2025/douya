@@ -1041,7 +1041,7 @@ func TestGetServerProps_ModalitiesAndReasoning(t *testing.T) {
 			t.Errorf("expected GET method, got %s", r.Method)
 		}
 
-		resp := `{"modalities":{"vision":true,"audio":true},"chat_template_caps":{"supports_preserve_reasoning":true}}`
+		resp := `{"modalities":{"vision":true,"audio":true},"chat_template_caps":{"supports_preserve_reasoning":true,"supports_tools":true}}`
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, resp)
 	}))
@@ -1058,8 +1058,11 @@ func TestGetServerProps_ModalitiesAndReasoning(t *testing.T) {
 	if !props.Modalities.Audio {
 		t.Error("expected Modalities.Audio=true")
 	}
-	if props.ChatTemplateCaps == nil || !props.ChatTemplateCaps["supports_preserve_reasoning"] {
-		t.Error("expected ChatTemplateCaps['supports_preserve_reasoning']=true")
+	if !props.ChatTemplateCaps.SupportsPreserveReasoning {
+		t.Error("expected ChatTemplateCaps.SupportsPreserveReasoning=true")
+	}
+	if !props.ChatTemplateCaps.SupportsTools {
+		t.Error("expected ChatTemplateCaps.SupportsTools=true")
 	}
 }
 
@@ -1105,7 +1108,7 @@ func TestGetServerProps_WithModelNameQueryParam(t *testing.T) {
 		if r.URL.Query().Get("model") != "Qwen3-VL-7B" {
 			t.Errorf("expected model=Qwen3-VL-7B query param, got %s", r.URL.Query().Get("model"))
 		}
-		resp := `{"modalities":{"vision":true,"audio":false},"chat_template_caps":{"supports_preserve_reasoning":false}}`
+		resp := `{"modalities":{"vision":true,"audio":false},"chat_template_caps":{"supports_preserve_reasoning":false,"supports_tools":false}}`
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, resp)
 	}))

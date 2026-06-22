@@ -26,24 +26,16 @@
     </Transition>
     <div v-if="(!messages || messages.length === 0) && !isGenerating" class="message-list-empty">
       <div class="welcome-container">
-        <div class="welcome-title">欢迎使用 Douya</div>
-        <div class="welcome-subtitle">智能对话助手 · 本地部署 · 隐私优先</div>
-        
-        <div class="quick-actions">
-          <div v-for="action in quickActions" :key="action.id" class="action-card" @click="handleQuickAction(action)">
-            <div class="action-icon">{{ action.icon }}</div>
-            <div class="action-content">
-              <div class="action-title">{{ action.title }}</div>
-              <div class="action-desc">{{ action.desc }}</div>
-            </div>
-          </div>
+        <div class="welcome-brand">
+          <span class="welcome-dou">豆</span><span class="welcome-ya">芽</span>
         </div>
-        
-        <div class="tips-section">
-          <div class="tips-title">💡 提示</div>
-          <div class="tips-grid">
-            <div v-for="tip in tips" :key="tip.id" class="tip-item">{{ tip.text }}</div>
-          </div>
+        <div class="welcome-model" v-if="currentModelDisplay">{{ currentModelDisplay }}</div>
+        <div class="welcome-hint">输入消息开始对话，或选择一个话题</div>
+        <div class="quick-actions">
+          <button v-for="action in quickActions" :key="action.id" class="action-chip" @click="handleQuickAction(action)">
+            <span class="chip-icon">{{ action.icon }}</span>
+            <span class="chip-text">{{ action.title }}</span>
+          </button>
         </div>
       </div>
     </div>
@@ -98,8 +90,8 @@
         @click="scrollToBottom('smooth'); isAutoScrollEnabled = true"
         title="回到底部"
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 5v14M19 12l-7 7-7-7" />
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M8 11.5a.75.75 0 0 1-.53-.22l-4-4a.75.75 0 0 1 1.06-1.06L8 9.69l3.47-3.47a.75.75 0 1 1 1.06 1.06l-4 4A.75.75 0 0 1 8 11.5z" />
         </svg>
       </button>
     </Transition>
@@ -128,20 +120,17 @@ const settingsStore = useSettingsStore()
 const message = useMessage()
 
 const quickActions = [
-  { id: 1, icon: '✍️', title: '写点什么', desc: '帮我写一段代码', prompt: '帮我写一段示例代码' },
-  { id: 2, icon: '💡', title: '头脑风暴', desc: '创意灵感激发', prompt: '帮我做一些头脑风暴，探索新想法' },
-  { id: 3, icon: '📚', title: '知识问答', desc: '探索任何话题', prompt: '我想了解一些有趣的知识' },
-  { id: 4, icon: '🎨', title: '创意写作', desc: '故事、诗歌、文案', prompt: '帮我创作一些有趣的内容' },
-  { id: 5, icon: '🔧', title: '问题解决', desc: '分析和解决问题', prompt: '我有一个问题需要解决' },
-  { id: 6, icon: '🤖', title: '自由对话', desc: '随便聊聊什么', prompt: '你好，我们来随便聊聊吧' }
+  { id: 1, icon: '✍️', title: '帮我写代码', prompt: '帮我写一段示例代码' },
+  { id: 2, icon: '💡', title: '头脑风暴', prompt: '帮我做一些头脑风暴，探索新想法' },
+  { id: 3, icon: '📚', title: '知识问答', prompt: '我想了解一些有趣的知识' },
+  { id: 4, icon: '🔧', title: '解决问题', prompt: '我有一个问题需要分析和解决' },
 ]
 
-const tips = [
-  { id: 1, text: '你可以发送图片进行视觉对话' },
-  { id: 2, text: '支持语音输入和音频理解' },
-  { id: 3, text: '长按消息可以复制或引用' },
-  { id: 4, text: '在设置中可以自定义背景图片' }
-]
+const currentModelDisplay = computed(() => {
+  const model = settingsStore.currentModel
+  if (!model) return ''
+  return formatModelName(model).display
+})
 
 function handleQuickAction(action: any) {
   chatStore.sendMessage(action.prompt, settingsStore.searchMode)
@@ -425,139 +414,93 @@ watch(() => chatStore.lastError, (err) => {
 }
 
 .welcome-container {
-  width: 100%;
-  max-width: 800px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 24px;
+  gap: 20px;
+  animation: welcomeFadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.welcome-title {
-  font-size: 32px;
-  font-weight: 700;
+@keyframes welcomeFadeIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.welcome-brand {
+  font-size: 56px;
+  font-weight: 800;
+  letter-spacing: 4px;
+  line-height: 1;
+  user-select: none;
+}
+
+.welcome-dou {
   color: var(--text-primary);
-  letter-spacing: -0.5px;
-  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
 }
 
-.welcome-subtitle {
+.welcome-ya {
+  color: var(--accent-primary);
+}
+
+.welcome-model {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  padding: 4px 16px;
+  border-radius: 20px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.welcome-hint {
   font-size: 15px;
   color: var(--text-secondary);
-  letter-spacing: 0.3px;
+  letter-spacing: 0.2px;
 }
 
 .quick-actions {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-  width: 100%;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
   margin-top: 8px;
 }
 
-.action-card {
-  display: flex;
+.action-chip {
+  display: inline-flex;
   align-items: center;
-  gap: 14px;
-  padding: 18px 20px;
+  gap: 8px;
+  padding: 10px 20px;
   background: var(--bg-primary);
-  border-radius: var(--border-radius-lg);
   border: 1px solid var(--border-color);
+  border-radius: 24px;
   cursor: pointer;
-  transition: all 0.25s ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  transition: all 0.2s ease;
+  font-family: inherit;
+  line-height: 1;
 }
 
-.action-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+.action-chip:hover {
   border-color: var(--accent-primary);
-}
-
-.action-card:active {
+  background: var(--accent-tertiary);
   transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
 }
 
-.action-icon {
-  font-size: 28px;
+.action-chip:active {
+  transform: translateY(0);
+}
+
+.chip-icon {
+  font-size: 16px;
   flex-shrink: 0;
 }
 
-.action-content {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.action-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.action-desc {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.tips-section {
-  width: 100%;
-  margin-top: 8px;
-}
-
-.tips-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 12px;
-  text-align: center;
-}
-
-.tips-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-}
-
-.tip-item {
-  font-size: 13px;
-  color: var(--text-secondary);
-  padding: 12px 16px;
-  background: var(--bg-secondary);
-  border-radius: var(--border-radius-md);
-  text-align: center;
-  border: 1px solid var(--border-color);
-  transition: all 0.2s ease;
-}
-
-.tip-item:hover {
-  border-color: var(--accent-primary);
-  background: var(--bg-primary);
-}
-
-/* 响应式适配 */
-@media (max-width: 700px) {
-  .quick-actions {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  
-  .tips-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .welcome-title {
-    font-size: 26px;
-  }
-}
-
-@media (max-width: 480px) {
-  .quick-actions {
-    grid-template-columns: 1fr;
-  }
+.chip-text {
+  white-space: nowrap;
 }
 
 .message-list-empty-text {
@@ -688,33 +631,30 @@ watch(() => chatStore.lastError, (err) => {
   position: sticky;
   bottom: 20px;
   align-self: center;
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  border: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
-  backdrop-filter: blur(12px) saturate(180%);
-  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  border: none;
+  background: var(--bg-primary);
   color: var(--text-secondary);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.06);
   z-index: 10;
-  transition: all var(--transition-fast);
+  transition: all 0.2s ease;
 }
 
 .scroll-to-bottom-btn:hover {
   background: var(--accent-primary);
-  border-color: var(--accent-primary);
   color: #ffffff;
-  transform: scale(1.08);
-  box-shadow: var(--shadow-lg);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.06);
 }
 
 .scroll-to-bottom-btn:active {
-  transform: scale(0.95);
+  transform: translateY(0) scale(0.92);
 }
 
 .scroll-bottom-fade-enter-active,
@@ -732,83 +672,50 @@ watch(() => chatStore.lastError, (err) => {
 <style>
 /* ===== 欢迎界面：背景图模式毛玻璃 ===== */
 
-.has-background .action-card {
+.has-background .action-chip {
   background: color-mix(in srgb, var(--bg-primary) 76%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
 }
 
-.has-background .action-card:hover {
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-  border-color: var(--accent-primary);
+.has-background .action-chip:hover {
+  background: color-mix(in srgb, var(--accent-tertiary) 80%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
-.has-background .tip-item {
+.has-background .welcome-model {
   background: color-mix(in srgb, var(--bg-secondary) 74%, transparent);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
 
-.has-background .tip-item:hover {
-  background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
-}
-
-.has-background .welcome-subtitle {
-  color: var(--text-secondary);
-}
-
-/* 暗色模式 + 背景图：更透的玻璃效果 */
-.dark .has-background .action-card {
+/* 暗色模式 + 背景图 */
+.dark .has-background .action-chip {
   background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.03);
 }
 
-.dark .has-background .action-card:hover {
+.dark .has-background .action-chip:hover {
+  background: color-mix(in srgb, var(--accent-tertiary) 72%, transparent);
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--accent-primary);
-}
-
-.dark .has-background .tip-item {
-  background: color-mix(in srgb, var(--bg-secondary) 68%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-.dark .has-background .tip-item:hover {
-  background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
 }
 
 /* ===== 欢迎界面：暗色模式基础适配 ===== */
 
-.dark .action-card {
-  background: var(--bg-tertiary);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.04);
-  border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
-}
-
-.dark .action-card:hover {
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06);
-  border-color: var(--accent-primary);
-  transform: translateY(-2px);
-}
-
-.dark .action-card:active {
-  transform: translateY(-1px);
-}
-
-.dark .tip-item {
+.dark .action-chip {
   background: var(--bg-tertiary);
   border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
 }
 
-.dark .tip-item:hover {
-  background: var(--bg-active);
+.dark .action-chip:hover {
   border-color: var(--accent-primary);
+  background: var(--accent-tertiary);
 }
 
-.dark .welcome-subtitle {
-  color: var(--text-secondary);
+.dark .welcome-model {
+  background: var(--bg-tertiary);
+  border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
 }
 </style>

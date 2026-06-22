@@ -92,6 +92,7 @@ export const useChatStore = defineStore('chat', () => {
     const searchQuery = computed(() => currentConvState.value.searchQuery)
     const contextTrimmed = computed(() => currentConvState.value.contextTrimmed)
     const tokensPerSecond = computed(() => currentConvState.value.tokensPerSecond)
+    const predictedN = computed(() => currentConvState.value.predictedN)
     const promptProgress = computed(() => currentConvState.value.promptProgress)
 
     const lastAIMessageId = computed(() => {
@@ -116,7 +117,7 @@ export const useChatStore = defineStore('chat', () => {
                     waitingFirstToken.value = false
                     lastError.value = ''
                     nextTick(() => {
-                        lastError.value = '生成超时，请重试'
+                        lastError.value = '生成超时，请重试\n💡 如果频繁超时，可尝试：设置 → 减小上下文长度，或使用更小的模型'
                     })
                 }
             }
@@ -135,7 +136,7 @@ export const useChatStore = defineStore('chat', () => {
                     waitingFirstToken.value = false
                     lastError.value = ''
                     nextTick(() => {
-                        lastError.value = 'AI 服务响应超时，请检查服务是否正常运行'
+                        lastError.value = 'AI 服务响应超时，请检查服务是否正常运行\n💡 可尝试：等待模型加载完成，或重启应用'
                     })
                 }
             }
@@ -357,7 +358,7 @@ export const useChatStore = defineStore('chat', () => {
         if (isCurrentConv || !convId) {
             lastError.value = ''
             nextTick(() => {
-                lastError.value = String(content || '生成过程中发生错误')
+                lastError.value = String(content || '生成过程中发生错误，请查看日志了解详情')
             })
         }
     }
@@ -584,7 +585,7 @@ export const useChatStore = defineStore('chat', () => {
             messages.value = messages.value.filter((m: Message) => !m.id.startsWith('temp-'))
             lastError.value = ''
             nextTick(() => {
-                lastError.value = String(e || '发送消息失败')
+                lastError.value = String(e || '发送消息失败') + '\n💡 如果服务未启动，请等待模型加载完成后再试'
             })
             console.error('发送消息失败:', e)
         }
@@ -608,15 +609,14 @@ export const useChatStore = defineStore('chat', () => {
         }, 5000)
     }
 
-    async function createConversation() {
-        try {
-            const conv = await wails.createConversation()
-            conv.title = fixUtf8(conv.title)
-            conversations.value.unshift(conv)
-            await selectConversation(conv.id)
-        } catch (e) {
-            console.error('创建会话失败:', e)
-        }
+    // 新建对话：懒创建模式，只清空当前会话状态
+    // 实际会话在首条消息发送时由后端自动创建（handleConvCreated 回调处理）
+    function createConversation() {
+        currentConversationId.value = ''
+        messages.value = []
+        convStreamingStates.delete('')
+        generatingConvId.value = ''
+        lastError.value = ''
     }
 
     async function renameConversation(id: string, title: string) {
@@ -698,6 +698,7 @@ export const useChatStore = defineStore('chat', () => {
         searchQuery,
         contextTrimmed,
         tokensPerSecond,
+        predictedN,
         promptProgress,
         lastError,
         generatingConvId,

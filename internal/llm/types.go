@@ -146,11 +146,28 @@ type ChatCompletionRequest struct {
 	Tools         []ToolDefinition       `json:"tools,omitempty"`
 	ChatTemplateKwargs map[string]interface{} `json:"chat_template_kwargs,omitempty"`
 	StreamOptions *StreamOptions          `json:"stream_options,omitempty"`
+	// llama.cpp 新增请求参数
+	NCacheReuse         int                    `json:"n_cache_reuse,omitempty"`          // 请求级 KV 缓存复用块大小
+	TMaxPredictMs       int                    `json:"t_max_predict_ms,omitempty"`       // 预测时间限制（毫秒）
+	Echo                bool                   `json:"echo,omitempty"`                   // 是否回显输入
+	ParseToolCalls      bool                   `json:"parse_tool_calls,omitempty"`       // 是否解析工具调用
+	GrammarLazy         bool                   `json:"grammar_lazy,omitempty"`           // 懒惰语法（仅在需要时应用 grammar）
+	GrammarTriggers     []GrammarTrigger       `json:"grammar_triggers,omitempty"`       // 语法触发器
+	ContinueFinalMessage bool                  `json:"continue_final_message,omitempty"` // 继续最终消息
+	GenerationPrompt    string                 `json:"generation_prompt,omitempty"`       // 生成提示
+	PostSamplingProbs   bool                   `json:"post_sampling_probs,omitempty"`    // 后采样概率
 }
 
 // StreamOptions 控制 SSE 流式响应的附加选项
 type StreamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
+}
+
+// GrammarTrigger 语法触发器，用于 grammar_lazy 模式下按条件激活 grammar
+type GrammarTrigger struct {
+	Type  string `json:"type"`            // 触发类型（如 "word_start"）
+	Value string `json:"value,omitempty"` // 触发值
+	Token int    `json:"token,omitempty"` // 触发 token ID
 }
 
 type ChatCompletionResponse struct {

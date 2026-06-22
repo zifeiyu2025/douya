@@ -588,8 +588,24 @@ type ServerProps struct {
 		Audio  bool `json:"audio"`
 		Video  bool `json:"video"`
 	} `json:"modalities"`
-	ChatTemplateCaps    map[string]bool `json:"chat_template_caps"`
+	ChatTemplateCaps    ChatTemplateCaps `json:"chat_template_caps"`
 	ChatTemplateToolUse string          `json:"chat_template_tool_use"`
+	BuildInfo           string          `json:"build_info,omitempty"`
+	IsSleeping          bool            `json:"is_sleeping,omitempty"`
+	CorsProxyEnabled    bool            `json:"cors_proxy_enabled,omitempty"`
+}
+
+// ChatTemplateCaps 对应 llama.cpp 最新版 /props 返回的 chat_template_caps 字段
+// 包含模型模板能力声明，用于判断工具调用、推理保留等能力
+type ChatTemplateCaps struct {
+	SupportsTools              bool `json:"supports_tools"`
+	SupportsToolCalls          bool `json:"supports_tool_calls"`
+	SupportsSystemRole         bool `json:"supports_system_role"`
+	SupportsParallelToolCalls  bool `json:"supports_parallel_tool_calls"`
+	SupportsPreserveReasoning  bool `json:"supports_preserve_reasoning"`
+	SupportsStringContent      bool `json:"supports_string_content"`
+	SupportsTypedContent       bool `json:"supports_typed_content"`
+	SupportsObjectArguments    bool `json:"supports_object_arguments"`
 }
 
 func (c *Client) GetServerProps(ctx context.Context, modelName string) (*ServerProps, error) {
@@ -664,7 +680,7 @@ func (c *Client) LoadModel(ctx context.Context, modelName string) error {
 }
 
 // WatchModelLoadProgress 通过 /models/sse 端点实时监听模型加载进度
-// 当模型状态变为 "running" 或上下文被取消时返回
+// 当模型状态变为 "loaded" 或上下文被取消时返回
 func (c *Client) WatchModelLoadProgress(ctx context.Context, modelName string, onProgress func(event ModelLoadEvent)) error {
 	url := fmt.Sprintf("%s/models/sse", c.baseURL)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -728,8 +744,8 @@ func (c *Client) WatchModelLoadProgress(ctx context.Context, modelName string, o
 			onProgress(event)
 		}
 
-		// 模型加载完成
-		if event.Status == "running" {
+		// 模型加载完成（llama.cpp 最新版状态名称：loaded，旧版为 running）
+		if event.Status == "loaded" || event.Status == "running" {
 			return nil
 		}
 	}

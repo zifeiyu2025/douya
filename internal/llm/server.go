@@ -28,7 +28,7 @@ type ServerConfig struct {
 	Port             int
 	GPULayers        string
 	Threads          int
-	FlashAttn        bool
+	FlashAttn        string // "on"/"off"/"auto"，对应 llama.cpp --flash-attn 参数
 	CacheTypeK       string
 	CacheTypeV       string
 	Mlock            bool
@@ -103,6 +103,8 @@ type ServerConfig struct {
 	// Agent 模式与 MCP CORS 代理
 	Agent      bool // 一键启用 CORS 代理 + 所有内置工具
 	UIMcpProxy bool // 仅启用 MCP CORS 代理
+	// 后端采样（实验性，将采样逻辑移到 GPU 执行，不兼容 grammar 和 reasoning budget）
+	BackendSampling bool
 	// LoRA 适配器路径（逗号分隔，启动时通过 --lora 加载，配合 --lora-init-without-apply 默认不应用）
 	LoraPaths string
 }
@@ -181,8 +183,8 @@ func (s *Server) Start() error {
 	if s.config.GPULayers != "" {
 		args = append(args, "--gpu-layers", s.config.GPULayers)
 	}
-	if s.config.FlashAttn {
-		args = append(args, "--flash-attn", "on")
+	if s.config.FlashAttn != "" {
+		args = append(args, "--flash-attn", s.config.FlashAttn)
 	}
 	if s.config.CacheTypeK != "" {
 		args = append(args, "--cache-type-k", s.config.CacheTypeK)
@@ -385,6 +387,11 @@ func (s *Server) Start() error {
 		args = append(args, "--agent")
 	} else if s.config.UIMcpProxy {
 		args = append(args, "--ui-mcp-proxy")
+	}
+
+	// 后端采样（实验性，将采样逻辑移到 GPU 执行）
+	if s.config.BackendSampling {
+		args = append(args, "--backend-sampling")
 	}
 
 	// LoRA 适配器：启动时加载但默认不应用（scale=0），用户可通过设置界面热切换

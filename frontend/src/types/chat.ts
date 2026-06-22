@@ -177,6 +177,8 @@ export interface Config {
     // Draft 模型 GPU 配置
     spec_draft_ngl: number
     spec_draft_device: string
+    // 后端采样（实验性）
+    backend_sampling: boolean
 }
 
 export interface SmartParamsInfo {
@@ -328,6 +330,7 @@ export const DEFAULT_CONFIG: Config = {
     slot_save_enabled: false,
     spec_draft_ngl: 0,
     spec_draft_device: '',
+    backend_sampling: false,
 }
 
 export interface ServerStatus {
