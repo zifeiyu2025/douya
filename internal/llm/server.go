@@ -96,6 +96,7 @@ type ServerConfig struct {
 	// KV 缓存持久化
 	SlotSavePath    string // 启用后传递 --slot-save-path
 	SlotSaveEnabled bool
+	CacheReuse      int    // KV 缓存复用块大小（0=禁用）
 	// Draft 模型 GPU 配置（Eagle3 等场景）
 	SpecDraftNgl    int    // draft 模型 GPU 层数
 	SpecDraftDevice string // draft 模型设备（如 "cuda:0"）
@@ -400,6 +401,11 @@ func (s *Server) Start() error {
 	// KV 缓存持久化：启用后传递 --slot-save-path
 	if s.config.SlotSaveEnabled && s.config.SlotSavePath != "" {
 		args = append(args, "--slot-save-path", s.config.SlotSavePath)
+	}
+
+	// KV 缓存复用
+	if s.config.CacheReuse > 0 {
+		args = append(args, "--cache-reuse", fmt.Sprintf("%d", s.config.CacheReuse))
 	}
 
 	// Draft 模型 GPU 配置（Eagle3 等场景）

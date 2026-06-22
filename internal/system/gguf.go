@@ -201,6 +201,18 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 		}
 	}
 
+	// 兜底：通过文件名推断模型是否支持 MTP（Step 系列支持 flash mtp3）
+	if !meta.HasMTP {
+		lowerName := strings.ToLower(path)
+		mtpKeywords := []string{"step3.5", "step3.7"}
+		for _, kw := range mtpKeywords {
+			if strings.Contains(lowerName, kw) {
+				meta.HasMTP = true
+				break
+			}
+		}
+	}
+
 	log.Debug().Str("architecture", meta.Architecture).Bool("has_mtp", meta.HasMTP).Msg("[gguf] MTP detection result")
 
 	// 架构排除：某些模型虽然 GGUF 元数据中有 nextn_predict_layers，

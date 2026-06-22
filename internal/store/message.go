@@ -38,15 +38,16 @@ type Message struct {
 
 // encryptField 使用 AES-GCM 加密字段，返回 "enc:" 前缀的密文
 // 如果 encKey 为 nil，则跳过加密直接返回明文
-func encryptField(plaintext string, encKey []byte) string {
+// 加密失败时返回错误，调用方应决定如何处理而非静默回退为明文
+func encryptField(plaintext string, encKey []byte) (string, error) {
 	if encKey == nil || plaintext == "" {
-		return plaintext
+		return plaintext, nil
 	}
 	encrypted, err := secrets.Encrypt(plaintext, encKey)
 	if err != nil {
-		return plaintext
+		return "", fmt.Errorf("encrypt field failed: %w", err)
 	}
-	return "enc:" + encrypted
+	return "enc:" + encrypted, nil
 }
 
 // decryptField 解密 "enc:" 前缀的密文，兼容旧版明文数据
@@ -66,13 +67,27 @@ func decryptField(ciphertext string, encKey []byte) string {
 }
 
 // encryptMessage 加密消息中的敏感字段
-func encryptMessage(msg *Message, encKey []byte) {
-	msg.Content = encryptField(msg.Content, encKey)
-	msg.ThinkingContent = encryptField(msg.ThinkingContent, encKey)
-	msg.SearchResults = encryptField(msg.SearchResults, encKey)
-	msg.Images = encryptField(msg.Images, encKey)
-	msg.Attachments = encryptField(msg.Attachments, encKey)
-	msg.ToolCalls = encryptField(msg.ToolCalls, encKey)
+func encryptMessage(msg *Message, encKey []byte) error {
+	var err error
+	if msg.Content, err = encryptField(msg.Content, encKey); err != nil {
+		return err
+	}
+	if msg.ThinkingContent, err = encryptField(msg.ThinkingContent, encKey); err != nil {
+		return err
+	}
+	if msg.SearchResults, err = encryptField(msg.SearchResults, encKey); err != nil {
+		return err
+	}
+	if msg.Images, err = encryptField(msg.Images, encKey); err != nil {
+		return err
+	}
+	if msg.Attachments, err = encryptField(msg.Attachments, encKey); err != nil {
+		return err
+	}
+	if msg.ToolCalls, err = encryptField(msg.ToolCalls, encKey); err != nil {
+		return err
+	}
+	return nil
 }
 
 // decryptMessage 解密消息中的敏感字段
@@ -99,7 +114,9 @@ func CreateMessage(db *sql.DB, msg *Message, encKey []byte) error {
 		msg.CreatedAt = saved.CreatedAt
 	}
 	// 加密复制的结构体，不修改原始 msg
-	encryptMessage(&saved, encKey)
+	if err := encryptMessage(&saved, encKey); err != nil {
+		return fmt.Errorf("encrypt message: %w", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

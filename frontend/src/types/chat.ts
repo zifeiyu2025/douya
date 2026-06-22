@@ -26,6 +26,8 @@ export interface Message {
     images?: string
     attachments?: AttachmentSummary[]
     created_at: string
+    tokens_per_second?: number  // 生成速度（tokens/s），仅流式完成时携带
+    predicted_n?: number        // 生成的 token 数
 }
 
 export interface Attachment {
@@ -85,6 +87,7 @@ export interface Config {
     repeat_penalty: number
     kv_unified: boolean
     cache_idle_slots: boolean
+    cache_reuse: number
     cache_ram: number
     image_min_tokens: number
     image_max_tokens: number
@@ -241,6 +244,7 @@ export const DEFAULT_CONFIG: Config = {
     repeat_penalty: 1,
     kv_unified: false,
     cache_idle_slots: false,
+    cache_reuse: 0,
     cache_ram: 0,
     image_min_tokens: 0,
     image_max_tokens: 0,
@@ -370,4 +374,7 @@ export interface ConvStreamingState {
     thinkingDuration: number
     searchQuery: string
     contextTrimmed: { reason: string; promptTokens?: number; contextSize?: number; messagesAfter?: number } | null
+    tokensPerSecond: number  // 实时生成速度（tokens/s），0 表示未获取
+    predictedN: number       // 已生成的 token 数
+    promptProgress: { total: number; cache: number; processed: number; timeMs: number } | null
 }

@@ -284,6 +284,18 @@
           <template #label>并发槽位数 <HelpTip content="同时处理的请求数。0=自动（通常为 1），增大可支持多用户并发但会按比例增加显存占用" /></template>
           <n-input-number v-model:value="formConfig.parallel" :min="0" placeholder="0 = 自动" style="width: 100%" />
         </n-form-item>
+        <n-form-item>
+          <template #label>缓存复用块大小 <HelpTip content="KV 缓存复用的块大小。0=禁用，设置后启用 KV shifting 复用缓存块，可减少重复计算" /></template>
+          <n-input-number v-model:value="formConfig.cache_reuse" :min="0" :step="1" placeholder="0" style="width: 100%" @blur="autoSave" />
+        </n-form-item>
+        <n-form-item>
+          <template #label>空闲休眠(秒) <HelpTip content="服务器空闲指定秒数后自动休眠以节省资源。-1=禁用休眠，0=立即休眠" /></template>
+          <n-input-number v-model:value="formConfig.sleep_idle_seconds" :min="-1" :step="1" placeholder="-1" style="width: 100%" @blur="autoSave" />
+        </n-form-item>
+        <n-form-item>
+          <template #label>预填充助手消息 <HelpTip content="开启后，最后一条助手消息会被预填充到 KV 缓存，加速后续推理。关闭则不预填充" /></template>
+          <n-switch v-model:value="formConfig.prefill_assistant" />
+        </n-form-item>
 
         <div class="gen-params-save-row">
           <span class="gen-params-status" v-if="genParamsDirty">设置已修改，自动保存中...</span>
@@ -325,15 +337,15 @@
         </n-form-item>
         <template v-if="formConfig.spec_type === 'ngram-mod'">
           <n-form-item>
-            <template #label>N-Min <HelpTip content="ngram-mod 推测的最小 n-gram 长度。值越小匹配越宽松，建议 48" /></template>
+            <template #label>ngram-mod 最小 token 数 <HelpTip content="ngram-mod 推测的最小 n-gram 长度。值越小匹配越宽松，建议 48" /></template>
             <n-input-number v-model:value="formConfig.spec_ngram_mod_n_min" :min="1" :max="256" :step="1" placeholder="48" @blur="autoSave" />
           </n-form-item>
           <n-form-item>
-            <template #label>N-Max <HelpTip content="ngram-mod 推测的最大 n-gram 长度。值越大覆盖范围越广，建议 64" /></template>
+            <template #label>ngram-mod 最大 token 数 <HelpTip content="ngram-mod 推测的最大 n-gram 长度。值越大覆盖范围越广，建议 64" /></template>
             <n-input-number v-model:value="formConfig.spec_ngram_mod_n_max" :min="1" :max="256" :step="1" placeholder="64" @blur="autoSave" />
           </n-form-item>
           <n-form-item>
-            <template #label>N-Match <HelpTip content="ngram-mod 触发推测所需的最小匹配数。值越大越保守，建议 24" /></template>
+            <template #label>ngram-mod 查找长度 <HelpTip content="ngram-mod 触发推测所需的最小匹配数。值越大越保守，建议 24" /></template>
             <n-input-number v-model:value="formConfig.spec_ngram_mod_n_match" :min="1" :max="256" :step="1" placeholder="24" @blur="autoSave" />
           </n-form-item>
         </template>
@@ -593,6 +605,7 @@ const formConfig = ref<Config>({
   mmproj_offload: true,
   kv_unified: false,
   cache_idle_slots: false,
+  cache_reuse: 0,
   cache_ram: 0,
   image_min_tokens: 0,
   image_max_tokens: 0,
@@ -894,7 +907,7 @@ watch(hasGPUInfo, (hasGPU) => {
 const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'model_path', 'llama_server_path', 'api_base', 'port', 'context_size',
   'temperature', 'top_p', 'top_k', 'repeat_penalty',
-  'mmproj_auto', 'mmproj_offload', 'kv_unified', 'cache_idle_slots', 'cache_ram',
+  'mmproj_auto', 'mmproj_offload', 'kv_unified', 'cache_idle_slots', 'cache_reuse', 'cache_ram',
   'image_min_tokens', 'image_max_tokens', 'fit_target', 'fit_ctx',
   'system_prompt', 'chat_background', 'chat_background_opacity', 'user_avatar', 'ai_avatar',
   'search_mode', 'thinking_enabled', 'thinking_soft_switch', 'sleep_idle_seconds', 'models_max',

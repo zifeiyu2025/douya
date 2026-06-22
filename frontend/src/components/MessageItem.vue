@@ -34,12 +34,17 @@
         <template v-else>
           <ThinkBlock v-if="message.thinking_content" :content="message.thinking_content" :duration="message.thinking_duration" />
           <div class="markdown-body" v-html="renderedContent" />
+          <div v-if="!isUser && showPromptProgress" class="prompt-progress">
+            正在处理提示词 {{ promptProgressPercent }}%
+            <span v-if="promptProgressEta">(ETA: {{ promptProgressEta }}s)</span>
+          </div>
           <SearchStatus v-if="hasSearchResults" :searching="false" :results="message.search_results" :default-expanded="false" />
         </template>
       </div>
 
       <div class="msg-actions" :class="{ 'user-actions': isUser, 'ai-actions': !isUser }">
         <div class="action-row">
+          <span v-if="!isUser && tokensPerSecond > 0" class="token-speed">⚡ {{ tokensPerSecond }} t/s</span>
           <button class="action-btn" @click="copyContent" title="复制">
             <AppIcon name="copy" class="action-icon" :size="14" />
             <span class="action-label">复制</span>
@@ -93,6 +98,50 @@ function attachmentIcon(type: string): 'audio' | 'video' | 'pdf' | 'file' | 'ima
 
 const isUser = computed(() => props.message.role === 'user')
 
+const isLastAIMessage = computed(() => {
+    return chatStore.lastAIMessageId === props.message.id
+})
+
+const tokensPerSecond = computed(() => {
+    // 流式中：使用实时速度数据
+    if (chatStore.isGenerating && isLastAIMessage.value && chatStore.tokensPerSecond > 0) {
+        return Math.round(chatStore.tokensPerSecond * 10) / 10
+    }
+    // 流式后：使用消息中保存的速度数据
+    const tps = props.message.tokens_per_second
+    if (!tps || tps <= 0) return 0
+    return Math.round(tps * 10) / 10
+})
+
+const showPromptProgress = computed(() => {
+    if (isUser.value) return false
+    const pp = chatStore.promptProgress
+    if (!pp || !chatStore.isGenerating) return false
+    // 只在实际处理量 > 0 且处理时间 > 1秒时显示（避免闪烁）
+    const actualProcessed = pp.processed - pp.cache
+    const actualTotal = pp.total - pp.cache
+    return actualProcessed > 0 && actualTotal > 0 && actualProcessed < actualTotal && pp.timeMs > 1000
+})
+
+const promptProgressPercent = computed(() => {
+    const pp = chatStore.promptProgress
+    if (!pp) return 0
+    const actualProcessed = pp.processed - pp.cache
+    const actualTotal = pp.total - pp.cache
+    if (actualTotal <= 0) return 0
+    return Math.round((actualProcessed / actualTotal) * 100)
+})
+
+const promptProgressEta = computed(() => {
+    const pp = chatStore.promptProgress
+    if (!pp) return 0
+    const actualProcessed = pp.processed - pp.cache
+    const actualTotal = pp.total - pp.cache
+    if (actualProcessed <= 0 || pp.timeMs <= 0) return 0
+    const elapsedSecs = pp.timeMs / 1000
+    return Math.ceil(elapsedSecs * (actualTotal / actualProcessed - 1))
+})
+
 const hasSearchResults = computed(() => {
     if (!props.message.search_results) return false
     if (props.message.search_results === '[]') return false
@@ -128,10 +177,6 @@ watch(() => props.message.content, async (newContent) => {
     renderedContent.value = newContent
   }
 }, { immediate: true })
-
-const isLastAIMessage = computed(() => {
-  return chatStore.lastAIMessageId === props.message.id
-})
 
 const findPreviousUserMessage = () => {
   const index = chatStore.messages.findIndex(m => m.id === props.message.id)
@@ -530,6 +575,27 @@ function regenerate() {
 .action-label {
   font-size: 12.5px;
   line-height: 1;
+}
+
+.token-speed {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1;
+  padding: 6px 8px;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.prompt-progress {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 4px 0;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 :deep(.citation-link) {

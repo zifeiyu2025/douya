@@ -33,11 +33,14 @@ func CreateConversation(db *sql.DB, conv *Conversation, encKey []byte) error {
 		conv.UpdatedAt = now
 	}
 	// 加密标题
-	encryptedTitle := encryptField(conv.Title, encKey)
+	encryptedTitle, err := encryptField(conv.Title, encKey)
+	if err != nil {
+		return fmt.Errorf("encrypt conversation title: %w", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_, err := db.ExecContext(ctx,
+	_, err = db.ExecContext(ctx,
 		"INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
 		conv.ID, encryptedTitle, conv.CreatedAt, conv.UpdatedAt,
 	)
@@ -92,11 +95,14 @@ func ListConversations(db *sql.DB, encKey []byte) ([]*Conversation, error) {
 func UpdateConversation(db *sql.DB, conv *Conversation, encKey []byte) error {
 	conv.UpdatedAt = time.Now()
 	// 加密标题
-	encryptedTitle := encryptField(conv.Title, encKey)
+	encryptedTitle, err := encryptField(conv.Title, encKey)
+	if err != nil {
+		return fmt.Errorf("encrypt conversation title: %w", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_, err := db.ExecContext(ctx,
+	_, err = db.ExecContext(ctx,
 		"UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?",
 		encryptedTitle, conv.UpdatedAt, conv.ID,
 	)

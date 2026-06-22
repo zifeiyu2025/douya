@@ -18,6 +18,9 @@ function createEmptyStreamingState(): ConvStreamingState {
         thinkingDuration: 0,
         searchQuery: '',
         contextTrimmed: null,
+        tokensPerSecond: 0,
+        predictedN: 0,
+        promptProgress: null,
     }
 }
 
@@ -88,6 +91,8 @@ export const useChatStore = defineStore('chat', () => {
     const thinkingDuration = computed(() => currentConvState.value.thinkingDuration)
     const searchQuery = computed(() => currentConvState.value.searchQuery)
     const contextTrimmed = computed(() => currentConvState.value.contextTrimmed)
+    const tokensPerSecond = computed(() => currentConvState.value.tokensPerSecond)
+    const promptProgress = computed(() => currentConvState.value.promptProgress)
 
     const lastAIMessageId = computed(() => {
         for (let i = messages.value.length - 1; i >= 0; i--) {
@@ -278,12 +283,60 @@ export const useChatStore = defineStore('chat', () => {
         }
     }
 
+    /** 处理 token_speed 事件：实时更新生成速度 */
+    function handleTokenSpeed(convId: string, content: any) {
+        const state = getConvState(convId)
+        try {
+            let c: unknown = content
+            if (typeof c === 'string') {
+                try { c = JSON.parse(c) } catch { return }
+            }
+            const data = c as { tokensPerSecond?: number; predictedN?: number }
+            if (data.tokensPerSecond && data.tokensPerSecond > 0) {
+                state.tokensPerSecond = data.tokensPerSecond
+                state.predictedN = data.predictedN || 0
+            }
+        } catch { /* 忽略解析错误 */ }
+    }
+
+    /** 处理 prompt_progress 事件：实时更新提示词处理进度 */
+    function handlePromptProgress(convId: string, content: any) {
+        const state = getConvState(convId)
+        try {
+            let c: unknown = content
+            if (typeof c === 'string') {
+                try { c = JSON.parse(c) } catch { return }
+            }
+            const data = c as { total?: number; cache?: number; processed?: number; timeMs?: number }
+            if (data.processed && data.processed > 0) {
+                state.promptProgress = {
+                    total: data.total || 0,
+                    cache: data.cache || 0,
+                    processed: data.processed || 0,
+                    timeMs: data.timeMs || 0,
+                }
+            }
+        } catch { /* 忽略解析错误 */ }
+    }
+
     async function handleTerminalAsync(convId: string) {
         const targetConvId = convId || generatingConvId.value
         if (targetConvId) {
             try {
                 const msgs = (await wails.getMessages(targetConvId)) as Message[]
                 if (targetConvId === currentConversationId.value || targetConvId === generatingConvId.value) {
+                    // 保留 tokens_per_second 数据（数据库中不存储此字段，从 assistant_message 事件获取）
+                    const speedMap = new Map<string, number>()
+                    for (const m of messages.value) {
+                        if (m.tokens_per_second && m.tokens_per_second > 0) {
+                            speedMap.set(m.id, m.tokens_per_second)
+                        }
+                    }
+                    for (const m of (msgs || [])) {
+                        if (speedMap.has(m.id)) {
+                            m.tokens_per_second = speedMap.get(m.id)
+                        }
+                    }
                     messages.value = msgs || []
                 }
                 nextTick(() => handleTerminalEvent(convId))
@@ -398,6 +451,8 @@ export const useChatStore = defineStore('chat', () => {
         tool_call_start: (id, c) => handleToolCallStart(id, c),
         search_start: (id, c) => handleSearchStart(id, c),
         search_result: (id, c) => handleSearchResult(id, c),
+        token_speed: (id, c) => handleTokenSpeed(id, c),
+        prompt_progress: (id, c) => handlePromptProgress(id, c),
         done: (id) => { void handleTerminalAsync(id) },
         stopped: (id) => { void handleTerminalAsync(id) },
         error: (id, c, current) => handleError(id, c, current),
@@ -642,6 +697,8 @@ export const useChatStore = defineStore('chat', () => {
         thinkingDuration,
         searchQuery,
         contextTrimmed,
+        tokensPerSecond,
+        promptProgress,
         lastError,
         generatingConvId,
         waitingFirstToken,

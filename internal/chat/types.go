@@ -21,6 +21,8 @@ type Message struct {
 	Images           string              `json:"images,omitempty"`
 	Attachments      []AttachmentSummary `json:"attachments,omitempty"`
 	CreatedAt        string              `json:"created_at"`
+	TokensPerSecond  float64             `json:"tokens_per_second,omitempty"` // 生成速度（tokens/s），仅事件传递，不存数据库
+	PredictedN       int                 `json:"predicted_n,omitempty"`      // 生成的 token 数，仅事件传递，不存数据库
 }
 
 type AttachmentSummary struct {

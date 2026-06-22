@@ -678,8 +678,12 @@ type StreamAccumulator struct {
 	ThinkingDone               bool
 	FirstRoundThinking         string
 	FirstRoundThinkingDuration float64
-	PromptTokens               int    // 来自 SSE 流式响应的 usage 字段
-	CompletionID               string // 来自 SSE 流式响应的 id 字段，用于 /v1/chat/completions/control
+	PromptTokens               int     // 来自 SSE 流式响应的 usage 字段
+	CompletionID               string  // 来自 SSE 流式响应的 id 字段，用于 /v1/chat/completions/control
+	TokensPerSecond            float64 // 来自 SSE 流式响应的 timings.predicted_per_second
+	PredictedN                 int     // 来自 SSE 流式响应的 timings.predicted_n
+	OnTimings                  func(timings llm.SSETimings) // 当收到 timings 数据时的回调，用于实时推送速度
+	OnPromptProgress          func(progress llm.SSEPromptProgress) // 当收到 prompt_progress 数据时的回调
 }
 
 // 流式响应缓冲区最大大小（10MB）
@@ -699,6 +703,23 @@ func (a *StreamAccumulator) callback() func(llm.SSEChunk) error {
 		// 提取 usage 信息（llama-server 在流结束时返回）
 		if chunk.Usage != nil && chunk.Usage.PromptTokens > 0 {
 			a.PromptTokens = chunk.Usage.PromptTokens
+		}
+
+		// 提取 timings 信息（llama-server 在流结束时返回，包含生成速度）
+		if chunk.Timings != nil && chunk.Timings.PredictedPerSecond > 0 {
+			a.TokensPerSecond = chunk.Timings.PredictedPerSecond
+			a.PredictedN = chunk.Timings.PredictedN
+			// 实时推送速度数据到前端
+			if a.OnTimings != nil {
+				a.OnTimings(*chunk.Timings)
+			}
+		}
+
+		// 提取 prompt_progress 信息（llama-server 在 prompt 处理阶段返回）
+		if chunk.PromptProgress != nil && chunk.PromptProgress.Processed > 0 {
+			if a.OnPromptProgress != nil {
+				a.OnPromptProgress(*chunk.PromptProgress)
+			}
 		}
 
 		// 追踪 completion ID（用于 /v1/chat/completions/control 实时控制）
@@ -1141,13 +1162,16 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 		}
 
 		req := &llm.ChatCompletionRequest{
-			Model:         s.modelNameForRequest(),
-			Messages:      llmMessages,
-			MaxTokens:     s.calcMaxTokens(estimateMessagesTokens(llmMessages) + 250), // +250 for tool schema
-			Temperature:   cfg.Temperature,
-			TopP:          cfg.TopP,
-			TopK:          cfg.TopK,
-			RepeatPenalty: cfg.RepeatPenalty,
+			Model:           s.modelNameForRequest(),
+			Messages:        llmMessages,
+			MaxTokens:       s.calcMaxTokens(estimateMessagesTokens(llmMessages) + 250), // +250 for tool schema
+			Temperature:     cfg.Temperature,
+			TopP:            cfg.TopP,
+			TopK:            cfg.TopK,
+			RepeatPenalty:   cfg.RepeatPenalty,
+			TimingsPerToken: true,
+			ReturnProgress:  true,
+			StreamOptions:   &llm.StreamOptions{IncludeUsage: true},
 		}
 		if !hitMaxRounds {
 			req.Tools = []llm.ToolDefinition{searchToolDef}
@@ -1235,7 +1259,10 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 	if err := store.CreateMessage(s.db, aiMsg, s.encKey); err != nil {
 		log.Error().Err(err).Msg("save ai message")
 	}
-	s.emitForConv(convID, "assistant_message", storeMsgToChat(aiMsg))
+	chatMsg := storeMsgToChat(aiMsg)
+	chatMsg.TokensPerSecond = acc.TokensPerSecond
+	chatMsg.PredictedN = acc.PredictedN
+	s.emitForConv(convID, "assistant_message", chatMsg)
 	return nil
 }
 
@@ -1369,6 +1396,21 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 
 func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llmMessages []llm.ChatMessage, searchMode string, _ string, titleContent string, searchResp *search.SearchResponse) error {
 	acc := NewStreamAccumulator(convID, s.emit, s.emitForConv)
+	// 设置 timings 回调，实时推送 token 速度到前端
+	acc.OnTimings = func(timings llm.SSETimings) {
+		s.emitForConv(convID, "token_speed", map[string]interface{}{
+			"tokensPerSecond": timings.PredictedPerSecond,
+			"predictedN":      timings.PredictedN,
+		})
+	}
+	acc.OnPromptProgress = func(progress llm.SSEPromptProgress) {
+		s.emitForConv(convID, "prompt_progress", map[string]interface{}{
+			"total":     progress.Total,
+			"cache":     progress.Cache,
+			"processed": progress.Processed,
+			"timeMs":    progress.TimeMs,
+		})
+	}
 
 	caps := s.GetModelCapabilities()
 	// 在函数入口获取快照，避免数据竞争
@@ -1381,12 +1423,15 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 	}
 
 	req := &llm.ChatCompletionRequest{
-		Model:         s.modelNameForRequest(),
-		MaxTokens:     s.calcMaxTokens(estimateMessagesTokens(llmMessages)),
-		Temperature:   cfg.Temperature,
-		TopP:          cfg.TopP,
-		TopK:          cfg.TopK,
-		RepeatPenalty: cfg.RepeatPenalty,
+		Model:           s.modelNameForRequest(),
+		MaxTokens:       s.calcMaxTokens(estimateMessagesTokens(llmMessages)),
+		Temperature:     cfg.Temperature,
+		TopP:            cfg.TopP,
+		TopK:            cfg.TopK,
+		RepeatPenalty:   cfg.RepeatPenalty,
+		TimingsPerToken: true,
+		ReturnProgress:  true,
+		StreamOptions:   &llm.StreamOptions{IncludeUsage: true},
 	}
 	// 支持 tool call 的模型，在 "auto" 和 "on" 模式下提供工具
 	if (searchMode == "auto" || searchMode == "on") && caps.ToolCallSupport {
@@ -1497,7 +1542,10 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 		if err := store.CreateMessage(s.db, aiMsg, s.encKey); err != nil {
 			log.Error().Err(err).Msg("save ai message")
 		}
-		s.emitForConv(convID, "assistant_message", storeMsgToChat(aiMsg))
+		chatMsg := storeMsgToChat(aiMsg)
+		chatMsg.TokensPerSecond = acc.TokensPerSecond
+		chatMsg.PredictedN = acc.PredictedN
+		s.emitForConv(convID, "assistant_message", chatMsg)
 	}
 
 	conv, err := store.GetConversation(s.db, convID, s.encKey)

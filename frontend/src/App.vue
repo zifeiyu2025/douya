@@ -33,6 +33,15 @@
                       <div class="loading-spinner"></div>
                       <span class="status-text">{{ switchingModelName }} · {{ switchStageText }}{{ switchDuration }}</span>
                     </div>
+                    <div v-else-if="modelLoadProgress && modelLoadProgress.status === 'loading'" class="load-progress-animation">
+                      <div class="loading-spinner"></div>
+                      <div class="load-progress-info">
+                        <span class="status-text">{{ loadProgressModelName }} · 加载 {{ modelLoadProgress.progress }}%</span>
+                        <div class="load-progress-bar">
+                          <div class="load-progress-bar-fill" :style="{ width: modelLoadProgress.progress + '%' }"></div>
+                        </div>
+                      </div>
+                    </div>
                     <div v-else-if="modelLoadFailed" class="error-animation">
                       <span class="status-dot stopped" />
                       <span class="status-text error-text">{{ errorModelName }} · 加载失败</span>
@@ -158,6 +167,7 @@ const isServerLoading = computed(() => {
 const isModelSwitching = computed(() => settingsStore.isModelSwitching)
 const isFirstLoad = computed(() => settingsStore.isFirstLoad)
 const modelLoadFailed = computed(() => settingsStore.modelLoadFailed)
+const modelLoadProgress = computed(() => settingsStore.modelLoadProgress)
 const switchingModelDisplay = computed(() => settingsStore.switchingModelDisplay)
 const switchStartedAt = computed(() => settingsStore.switchStartedAt)
 const previousModelBeforeSwitch = computed(() => settingsStore.previousModelBeforeSwitch)
@@ -166,6 +176,11 @@ const switchingModelName = computed(() => {
   if (switchingModelDisplay.value) return switchingModelDisplay.value
   if (serverStatus.value.switching_to) return formatModelName(serverStatus.value.switching_to).display
   return ''
+})
+
+const loadProgressModelName = computed(() => {
+  if (!modelLoadProgress.value) return ''
+  return formatModelName(modelLoadProgress.value.model).display
 })
 
 const errorModelName = computed(() => {
@@ -229,12 +244,17 @@ const splashModelName = computed(() => {
 })
 
 const splashProgress = computed(() => {
+  // 优先使用后端推送的真实加载进度
+  if (modelLoadProgress.value && modelLoadProgress.value.status === 'loading') {
+    return Math.max(5, Math.min(99, Math.round(modelLoadProgress.value.progress)))
+  }
+  // 无真实进度时使用粗略阶段映射（仅作为兜底）
   const stageMap: Record<string, number> = {
-    idle: 5, preparing: 15, loading: 40,
-    waiting: 70, detecting: 90, done: 100,
+    idle: 0, preparing: 5, loading: 10,
+    waiting: 10, detecting: 90, done: 100,
     failed: 100, rolling_back: 50,
   }
-  return stageMap[settingsStore.switchProgress.stage] ?? 10
+  return stageMap[settingsStore.switchProgress.stage] ?? 0
 })
 
 watch(switchProgressStage, (stage) => {
@@ -553,6 +573,7 @@ onMounted(async () => {
   settingsStore.initStatusListener()
   settingsStore.initSwitchProgressListener()
   settingsStore.initMmprojUnavailableListener()
+  settingsStore.initModelLoadProgressListener()
   chatStore.loadConversations()
   await settingsStore.loadConfig()
 
@@ -596,6 +617,7 @@ onUnmounted(() => {
   settingsStore.cleanupStatusListener()
   settingsStore.cleanupSwitchProgressListener()
   settingsStore.cleanupMmprojUnavailableListener()
+  settingsStore.cleanupModelLoadProgressListener()
   wails.offAbnormalCleanup()
   wails.offSwitchProgress()
   wails.offShutdownProgress()
@@ -630,7 +652,8 @@ onUnmounted(() => {
 
 .loading-animation,
 .switching-animation,
-.error-animation {
+.error-animation,
+.load-progress-animation {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -645,6 +668,33 @@ onUnmounted(() => {
 
 .error-text {
   color: var(--accent-danger);
+}
+
+.load-progress-animation {
+  color: var(--accent-primary);
+  font-weight: 500;
+}
+
+.load-progress-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.load-progress-bar {
+  width: 120px;
+  height: 4px;
+  background: var(--bg-secondary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.load-progress-bar-fill {
+  height: 100%;
+  background: var(--accent-primary);
+  border-radius: 2px;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @keyframes switchingPulse {

@@ -9,6 +9,7 @@ import {
     type ModelCapabilities,
     type SwitchResult,
     type SearchAPIKeys,
+    type ModelLoadProgressEvent,
 } from '../services/wails'
 import { formatModelName } from '../utils/model'
 import type { ModelSwitchState, SwitchProgressStage, SwitchProgress } from '../types/settings'
@@ -76,6 +77,9 @@ export const useSettingsStore = defineStore('settings', () => {
     const currentModel = ref('')
     const modelLoadError = ref('')
     const hasEverBeenReady = ref(false)
+
+    // ----- 模型加载进度（后端 modelLoadProgress 事件） -----
+    const modelLoadProgress = ref<ModelLoadProgressEvent | null>(null)
 
     // ----- 模型切换状态机（单一 source of truth） -----
     const switchState = ref<ModelSwitchState>({ phase: 'idle' })
@@ -530,6 +534,21 @@ export const useSettingsStore = defineStore('settings', () => {
         wails.offMmprojUnavailable()
     }
 
+    function initModelLoadProgressListener() {
+        wails.onModelLoadProgress((progress: ModelLoadProgressEvent) => {
+            if (progress.status === 'running') {
+                // 模型加载完成，清除进度状态
+                modelLoadProgress.value = null
+            } else {
+                modelLoadProgress.value = progress
+            }
+        })
+    }
+
+    function cleanupModelLoadProgressListener() {
+        wails.offModelLoadProgress()
+    }
+
     function resetSwitchProgress() {
         clearAllTimers()
         reset()
@@ -547,6 +566,7 @@ export const useSettingsStore = defineStore('settings', () => {
         currentModel,
         modelLoadError,
         hasEverBeenReady,
+        modelLoadProgress,
         // 兼容旧 API
         modelLoadFailed,
         isModelSwitching,
@@ -575,6 +595,8 @@ export const useSettingsStore = defineStore('settings', () => {
         cleanupSwitchProgressListener,
         initMmprojUnavailableListener,
         cleanupMmprojUnavailableListener,
+        initModelLoadProgressListener,
+        cleanupModelLoadProgressListener,
         resetSwitchProgress,
         // 状态机内部 API（供测试 / 高级用例使用）
         switchState,

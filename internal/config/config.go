@@ -108,6 +108,7 @@ type Config struct {
 	// KV 缓存持久化配置
 	SlotSavePath    string `json:"slot_save_path"`     // KV 缓存保存路径（为空则使用默认路径 appDir/slots/）
 	SlotSaveEnabled bool   `json:"slot_save_enabled"`  // 是否启用 KV 缓存持久化
+	CacheReuse      int    `json:"cache_reuse"`        // KV 缓存复用块大小（0=禁用，默认0）
 	// Draft 模型 GPU 配置（Eagle3 等需要独立 draft 模型的场景）
 	SpecDraftNgl    int    `json:"spec_draft_ngl"`     // draft 模型 GPU 层数（0=不传递）
 	SpecDraftDevice string `json:"spec_draft_device"`  // draft 模型设备（如 "cuda:0"，为空则不传递）

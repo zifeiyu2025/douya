@@ -109,6 +109,13 @@ export interface ShutdownProgressEvent {
     message: string
 }
 
+/** 模型加载进度事件 */
+export interface ModelLoadProgressEvent {
+    model: string
+    status: string
+    progress: number
+}
+
 /** 异常清理事件 */
 export interface AbnormalCleanupEvent {
     count: number
@@ -295,6 +302,10 @@ export const wails = {
         EventsOn('shutdown:progress', callback)
     },
     offShutdownProgress: () => EventsOff('shutdown:progress'),
+    onModelLoadProgress: (callback: (progress: ModelLoadProgressEvent) => void) => {
+        EventsOn('modelLoadProgress', callback)
+    },
+    offModelLoadProgress: () => EventsOff('modelLoadProgress'),
     onServerLog: (callback: (line: string) => void) => {
         EventsOn('server:log', callback)
     },

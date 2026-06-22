@@ -141,6 +141,8 @@ type ChatCompletionRequest struct {
 	Reasoning     string           `json:"reasoning,omitempty"`
 	ReasoningBudget int            `json:"reasoning_budget,omitempty"`
 	ReasoningControl bool           `json:"reasoning_control,omitempty"`
+	TimingsPerToken bool           `json:"timings_per_token,omitempty"` // 每个 token 返回 timings 数据，用于实时速度显示
+	ReturnProgress bool           `json:"return_progress,omitempty"`  // 在流式响应中返回 prompt 处理进度
 	Tools         []ToolDefinition       `json:"tools,omitempty"`
 	ChatTemplateKwargs map[string]interface{} `json:"chat_template_kwargs,omitempty"`
 	StreamOptions *StreamOptions          `json:"stream_options,omitempty"`
@@ -163,15 +165,36 @@ type Choice struct {
 }
 
 type SSEChunk struct {
-	ID      string      `json:"id"`
-	Choices []SSEChoice `json:"choices"`
-	Usage   *SSEUsage   `json:"usage,omitempty"`
+	ID             string             `json:"id"`
+	Choices        []SSEChoice        `json:"choices"`
+	Usage          *SSEUsage          `json:"usage,omitempty"`
+	Timings        *SSETimings        `json:"timings,omitempty"`
+	PromptProgress *SSEPromptProgress `json:"prompt_progress,omitempty"`
 }
 
 type SSEUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+}
+
+// SSETimings 解析 llama-server 返回的 timings 字段（包含生成速度等信息）
+type SSETimings struct {
+	PromptN             int     `json:"prompt_n"`
+	PromptMs            float64 `json:"prompt_ms"`
+	PromptPerSecond     float64 `json:"prompt_per_second"`
+	PredictedN          int     `json:"predicted_n"`
+	PredictedMs         float64 `json:"predicted_ms"`
+	PredictedPerTokenMs float64 `json:"predicted_per_token_ms"`
+	PredictedPerSecond  float64 `json:"predicted_per_second"`
+}
+
+// SSEPromptProgress 解析 llama-server 返回的 prompt_progress 字段（包含 prompt 处理进度信息）
+type SSEPromptProgress struct {
+	Total     int     `json:"total"`
+	Cache     int     `json:"cache"`
+	Processed int     `json:"processed"`
+	TimeMs    float64 `json:"time_ms"`
 }
 
 type SSEChoice struct {
@@ -270,6 +293,33 @@ type LoraAdapter struct {
 	ID    int     `json:"id"`
 	Path  string  `json:"path"`
 	Scale float64 `json:"scale"`
+}
+
+// ModelLoadEvent 解析 /models/sse 端点返回的模型加载进度事件
+// 实际 SSE 数据格式：
+//
+//	{"model":"xxx", "event":"status_change", "data":{"status":"loading", "progress":{"stages":[...], "current":"text_model", "value":0.35}}}
+//
+// value 范围 0-1，需乘以 100 转为百分比
+type ModelLoadEvent struct {
+	Model  string              `json:"model"`
+	Event  string              `json:"event"`
+	Data   ModelLoadEventData  `json:"data"`
+	Status string              // 从 Data.Status 或顶层 status 推导
+	ProgressPercent float64    // 0-100 百分比，从 Data.Progress.Value 转换
+}
+
+// ModelLoadEventData /models/sse 事件中的 data 字段
+type ModelLoadEventData struct {
+	Status   string              `json:"status"`
+	Progress *ModelLoadProgress  `json:"progress"`
+}
+
+// ModelLoadProgress 加载进度信息
+type ModelLoadProgress struct {
+	Stages  []string `json:"stages"`
+	Current string   `json:"current"`
+	Value   float64  `json:"value"` // 0-1 范围
 }
 
 // SlotInfo slot 状态信息（用于 /slots 端点）

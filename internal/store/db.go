@@ -55,6 +55,7 @@ func Migrate(db *sql.DB, encKey []byte) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
 		CREATE INDEX IF NOT EXISTS idx_messages_conversation_created ON messages(conversation_id, created_at);
+		CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at);
 		CREATE TABLE IF NOT EXISTS settings (
 			key TEXT PRIMARY KEY,
 			value TEXT
@@ -218,10 +219,15 @@ func migrateEncryptExistingData(db *sql.DB, encKey []byte) error {
 		}
 		// 只加密非空且未加密的标题
 		if title != "" && (len(title) < 4 || title[:4] != "enc:") {
+			encTitle, err := encryptField(title, encKey)
+			if err != nil {
+				log.Error().Err(err).Str("id", id).Msg("[db] failed to encrypt conversation title during migration")
+				continue
+			}
 			convUpdates = append(convUpdates, struct {
 				id    string
 				title string
-			}{id, encryptField(title, encKey)})
+			}{id, encTitle})
 		}
 	}
 	rows.Close()
@@ -263,14 +269,24 @@ func migrateEncryptExistingData(db *sql.DB, encKey []byte) error {
 		if !needsEncrypt {
 			continue
 		}
+		encContent, err := encryptField(content.String, encKey)
+		if err != nil {
+			log.Error().Err(err).Str("id", id).Msg("[db] failed to encrypt message content during migration")
+			continue
+		}
+		encThinking, _ := encryptField(thinkingContent.String, encKey)
+		encSearch, _ := encryptField(searchResults.String, encKey)
+		encImages, _ := encryptField(images.String, encKey)
+		encAttachments, _ := encryptField(attachments.String, encKey)
+		encToolCalls, _ := encryptField(toolCalls.String, encKey)
 		msgUpdates = append(msgUpdates, msgUpdate{
 			id:              id,
-			content:         encryptField(content.String, encKey),
-			thinkingContent: encryptField(thinkingContent.String, encKey),
-			searchResults:   encryptField(searchResults.String, encKey),
-			images:          encryptField(images.String, encKey),
-			attachments:     encryptField(attachments.String, encKey),
-			toolCalls:       encryptField(toolCalls.String, encKey),
+			content:         encContent,
+			thinkingContent: encThinking,
+			searchResults:   encSearch,
+			images:          encImages,
+			attachments:     encAttachments,
+			toolCalls:       encToolCalls,
 		})
 	}
 	msgRows.Close()

@@ -42,6 +42,11 @@ func (c *Client) BaseURL() string {
 	return c.baseURL
 }
 
+// HTTPClient 返回配置了超时的 HTTP 客户端实例，供外部包（如 app.go）发起 HTTP 请求时复用
+func (c *Client) HTTPClient() *http.Client {
+	return c.httpClient
+}
+
 // SetCurrentModel 设置当前加载的模型名称（v9744+ API 要求在请求中包含 model 字段）
 func (c *Client) SetCurrentModel(modelName string) {
 	c.modelMu.Lock()
@@ -654,6 +659,84 @@ func (c *Client) LoadModel(ctx context.Context, modelName string) error {
 	}
 
 	log.Info().Str("model", modelName).Int("status", resp.StatusCode).Str("body", string(respBody)).Msg("[client] LoadModel response")
+
+	return nil
+}
+
+// WatchModelLoadProgress 通过 /models/sse 端点实时监听模型加载进度
+// 当模型状态变为 "running" 或上下文被取消时返回
+func (c *Client) WatchModelLoadProgress(ctx context.Context, modelName string, onProgress func(event ModelLoadEvent)) error {
+	url := fmt.Sprintf("%s/models/sse", c.baseURL)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return fmt.Errorf("create request failed: %w", err)
+	}
+	c.setAuthHeader(req)
+
+	resp, err := c.streamClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := readBody(resp.Body)
+		return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	// SSE 单行最大 10MB，与 StreamChat 保持一致
+	const maxSSELineSize = 10 * 1024 * 1024
+	scanner.Buffer(make([]byte, 0, 1024*1024), maxSSELineSize)
+
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			return nil
+		}
+
+		var event ModelLoadEvent
+		if err := json.Unmarshal([]byte(data), &event); err != nil {
+			continue
+		}
+
+		// 只关注目标模型的事件
+		if event.Model != modelName {
+			continue
+		}
+
+		// 从嵌套的 data 字段推导 status 和 progress
+		// SSE 格式: {"model":"xxx", "event":"status_change", "data":{"status":"loading", "progress":{"value":0.35}}}
+		if event.Data.Status != "" {
+			event.Status = event.Data.Status
+		}
+		if event.Data.Progress != nil {
+			event.ProgressPercent = event.Data.Progress.Value * 100 // 0-1 → 0-100
+		}
+
+		if onProgress != nil {
+			onProgress(event)
+		}
+
+		// 模型加载完成
+		if event.Status == "running" {
+			return nil
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("error reading SSE stream: %w", err)
+	}
 
 	return nil
 }

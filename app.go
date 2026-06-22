@@ -9,7 +9,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -20,6 +19,7 @@ import (
 
 	"douya/internal/chat"
 	"douya/internal/config"
+	"douya/internal/httputil"
 	"douya/internal/llm"
 	"douya/internal/rag"
 	"douya/internal/search"
@@ -381,6 +381,7 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		ContextSize:          contextSize,
 		SlotSavePath:         cfg.SlotSavePath,
 		SlotSaveEnabled:      cfg.SlotSaveEnabled,
+		CacheReuse:           cfg.CacheReuse,
 		SpecDraftNgl:         cfg.SpecDraftNgl,
 		SpecDraftDevice:      cfg.SpecDraftDevice,
 		Agent:                cfg.Agent,
@@ -530,6 +531,10 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 			SwitchingTo: modelForDetect,
 		})
 
+		// 在 LoadModel 之前启动 SSE 监听，确保捕获完整加载进度
+		sseCancel := a.tryWatchModelLoadProgress(ctx, modelForDetect)
+		defer sseCancel()
+
 		loadErr := a.client.LoadModel(ctx, modelForDetect)
 		if loadErr != nil && !isAlreadyRunningError(loadErr) {
 			// 非预期错误（非 "already running"），报告失败
@@ -545,6 +550,7 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 			if loadErr != nil {
 				zlog.Info().Str("model", modelForDetect).Msg("[server] model is already running/loading, waiting for loaded state")
 			}
+
 			// 首次加载进度回调：每 5 次轮询推送一次进度
 			lastProgressStage := ""
 			progressCallback := func(pollCount int, status string) {
@@ -1269,14 +1275,14 @@ func (a *App) SaveSlot(slotID int) error {
 	}
 	a.client.SetAuthHeader(req)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := a.client.HTTPClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("保存 slot 请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := httputil.ReadBodyLimited(resp.Body, 1024*1024) // 限制 1MB，错误响应体通常很小
 		return fmt.Errorf("保存 slot 返回状态 %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -1300,14 +1306,14 @@ func (a *App) RestoreSlot(slotID int) error {
 	}
 	a.client.SetAuthHeader(req)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := a.client.HTTPClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("恢复 slot 请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := httputil.ReadBodyLimited(resp.Body, 1024*1024) // 限制 1MB，错误响应体通常很小
 		return fmt.Errorf("恢复 slot 返回状态 %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -2315,6 +2321,34 @@ func isAlreadyRunningError(err error) bool {
 		strings.Contains(errMsg, "already loaded")
 }
 
+// tryWatchModelLoadProgress 尝试通过 /models/sse 端点实时监听模型加载进度
+// 将进度通过 runtime.EventsEmit 推送到前端（事件名 modelLoadProgress）
+// 如果 SSE 连接失败，静默回退到轮询方式，不影响主流程
+// 返回一个 cancel 函数，调用方可提前终止 SSE 监听
+func (a *App) tryWatchModelLoadProgress(ctx context.Context, modelName string) context.CancelFunc {
+	sseCtx, sseCancel := context.WithCancel(ctx)
+
+	go func() {
+		defer sseCancel()
+
+		err := a.client.WatchModelLoadProgress(sseCtx, modelName, func(event llm.ModelLoadEvent) {
+			// 推送实时加载进度到前端
+			runtime.EventsEmit(ctx, "modelLoadProgress", map[string]interface{}{
+				"model":    event.Model,
+				"status":   event.Status,
+				"progress": event.ProgressPercent,
+			})
+		})
+
+		if err != nil {
+			// SSE 连接失败，静默回退到轮询方式
+			zlog.Debug().Err(err).Str("model", modelName).Msg("[sse] /models/sse unavailable, falling back to polling")
+		}
+	}()
+
+	return sseCancel
+}
+
 // emitSwitchingStatus emits a server status event indicating a model switch is in progress.
 func (a *App) emitSwitchingStatus(modelName string) {
 	runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
@@ -2507,10 +2541,15 @@ func (a *App) switchLoadModel(modelName string) (bool, string) {
 	loadTimeout := a.calculateLoadTimeout(modelName)
 	zlog.Info().Str("model", modelName).Dur("timeout", loadTimeout).Msg("[router] switch model with dynamic timeout")
 
+	// 在 LoadModel 之前启动 SSE 监听，确保捕获完整加载进度
+	sseCancel := a.tryWatchModelLoadProgress(a.ctx, modelName)
+	defer sseCancel()
+
 	loadErr := a.client.LoadModel(a.ctx, modelName)
 	if loadErr == nil {
 		// LoadModel 返回 200 仅表示开始加载，需要等待模型真正就绪
 		a.emitSwitchProgress("waiting", modelName)
+
 		if waitErr := a.client.WaitForModelLoaded(a.ctx, modelName, loadTimeout); waitErr != nil {
 			// 优先检测 OOM/显存/内存不足，返回明确提示
 			if oomMsg := a.detectOOMError(); oomMsg != "" {
@@ -2543,6 +2582,7 @@ func (a *App) switchLoadModel(modelName string) (bool, string) {
 		// 模型可能还在 LOADING 状态，必须等待状态变为 loaded
 		zlog.Info().Str("model", modelName).Msg("[router] model is already running/loading, waiting for loaded state")
 		a.emitSwitchProgress("waiting", modelName)
+
 		if waitErr := a.client.WaitForModelLoaded(a.ctx, modelName, loadTimeout); waitErr != nil {
 			if oomMsg := a.detectOOMError(); oomMsg != "" {
 				return false, oomMsg
