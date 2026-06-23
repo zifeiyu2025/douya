@@ -46,6 +46,7 @@ import {
     RerankEnabled,
     SaveSlot,
     RestoreSlot,
+    EraseSlot,
     DeleteModel,
     DownloadModel,
     CountTokens,
@@ -55,6 +56,9 @@ import {
     Tokenize,
     ApplyTemplate,
     GetServerLogs,
+    GetTerminalHistory,
+    ResizeTerminal,
+    IsConPTYMode,
     SelectLoraFile,
 } from '../../wailsjs/go/main/App'
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
@@ -233,6 +237,9 @@ export const wails = {
     restoreSlot: async (slotID: number): Promise<void> => {
         await RestoreSlot(slotID)
     },
+    eraseSlot: async (slotID: number): Promise<void> => {
+        await EraseSlot(slotID)
+    },
     deleteModel: async (modelName: string): Promise<void> => {
         await DeleteModel(modelName)
     },
@@ -314,6 +321,20 @@ export const wails = {
         EventsOn('server:log', callback)
     },
     offServerLog: () => EventsOff('server:log'),
+    // ConPTY 终端原始字节流（base64 编码，用于 xterm.js 渲染）
+    onTerminalData: (callback: (data: string) => void) => {
+        EventsOn('server:terminal', callback)
+    },
+    offTerminalData: () => EventsOff('server:terminal'),
+    getTerminalHistory: async (): Promise<string> => {
+        return await GetTerminalHistory()
+    },
+    resizeTerminal: async (cols: number, rows: number): Promise<void> => {
+        await ResizeTerminal(cols, rows)
+    },
+    isConPTYMode: async (): Promise<boolean> => {
+        return await IsConPTYMode()
+    },
     listKnowledgeBases: async (): Promise<CollectionInfo[]> => {
         return (await ListKnowledgeBases()) as CollectionInfo[]
     },

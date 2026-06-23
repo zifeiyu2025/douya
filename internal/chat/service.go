@@ -546,6 +546,16 @@ func (s *Service) applyThinkingControl(req *llm.ChatCompletionRequest) {
 		req.ReasoningBudget = budget
 	}
 
+	// 传递请求级 reasoning 扩展字段（仅在用户显式配置时才传递，避免覆盖服务器默认值）
+	if cfg != nil {
+		if cfg.ReasoningBudgetStartTag != "" {
+			req.ReasoningBudgetStartTag = cfg.ReasoningBudgetStartTag
+		}
+		if cfg.ReasoningBudgetEndTag != "" {
+			req.ReasoningBudgetEndTag = cfg.ReasoningBudgetEndTag
+		}
+	}
+
 	// 所有 ThinkingModeTemplate 模型都需要在 chat_template_kwargs 中显式传递 enable_thinking：
 	// - --reasoning auto 时 default_template_kwargs 为空，模板可能无法正确插入思考标记
 	// - 请求级 kwargs 会覆盖服务端默认值，确保模板行为一致

@@ -46,6 +46,12 @@ export function GetModelCapabilities():Promise<llm.ModelCapabilities>;
 
 export function GetServerLogs():Promise<string>;
 
+export function GetTerminalHistory():Promise<string>;
+
+export function IsConPTYMode():Promise<boolean>;
+
+export function ResizeTerminal(cols:number,rows:number):Promise<void>;
+
 export function GetSlots():Promise<Array<llm.SlotInfo>>;
 
 export function GetSmartParams():Promise<main.SmartParamsInfo>;
@@ -77,6 +83,8 @@ export function RenameConversation(arg1:string,arg2:string):Promise<void>;
 export function RerankEnabled():Promise<boolean>;
 
 export function RestoreSlot(arg1:number):Promise<void>;
+
+export function EraseSlot(arg1:number):Promise<void>;
 
 export function SaveSlot(arg1:number):Promise<void>;
 

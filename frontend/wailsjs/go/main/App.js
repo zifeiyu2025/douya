@@ -82,6 +82,18 @@ export function GetServerLogs() {
   return window['go']['main']['App']['GetServerLogs']();
 }
 
+export function GetTerminalHistory() {
+  return window['go']['main']['App']['GetTerminalHistory']();
+}
+
+export function IsConPTYMode() {
+  return window['go']['main']['App']['IsConPTYMode']();
+}
+
+export function ResizeTerminal(cols, rows) {
+  return window['go']['main']['App']['ResizeTerminal'](cols, rows);
+}
+
 export function GetSlots() {
   return window['go']['main']['App']['GetSlots']();
 }
@@ -144,6 +156,10 @@ export function RerankEnabled() {
 
 export function RestoreSlot(arg1) {
   return window['go']['main']['App']['RestoreSlot'](arg1);
+}
+
+export function EraseSlot(arg1) {
+  return window['go']['main']['App']['EraseSlot'](arg1);
 }
 
 export function SaveSlot(arg1) {

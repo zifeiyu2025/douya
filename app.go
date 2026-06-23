@@ -404,6 +404,7 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		Agent:                cfg.Agent,
 		UIMcpProxy:           cfg.UIMcpProxy,
 		BackendSampling:      cfg.BackendSampling,
+		SsePingInterval:      cfg.SsePingInterval,
 		LoraPaths:            cfg.LoraPaths,
 	}
 
@@ -987,7 +988,7 @@ func (a *App) startup(ctx context.Context) {
 
 	a.serverMu.Lock()
 	a.server = llm.NewServer(a.buildServerConfig())
-	// 设置 llama-server 日志实时推送到前端控制台
+	// 设置 llama-server 日志实时推送到前端控制台（exec.Cmd 回退模式使用）
 	a.server.SetOnLog(func(line string) {
 		// 异步推送，避免阻塞 llama-server 输出
 		go func(l string) {
@@ -995,6 +996,13 @@ func (a *App) startup(ctx context.Context) {
 				runtime.EventsEmit(a.ctx, "server:log", l)
 			}
 		}(line)
+	})
+	// 设置终端原始字节流推送到前端 xterm.js（ConPTY 模式使用）
+	// 数据已批量合并（50ms 窗口），直接同步发送即可
+	a.server.SetOnTerminalData(func(data []byte) {
+		if a.ctx != nil {
+			runtime.EventsEmit(a.ctx, "server:terminal", data)
+		}
 	})
 	a.serverMu.Unlock()
 
@@ -1286,7 +1294,7 @@ func (a *App) RerankEnabled() bool {
 }
 
 // SaveSlot 保存当前 slot 的 KV 缓存到磁盘。
-// 调用 llama-server 的 /slots/{id}/save 端点。
+// 调用 llama-server 的 POST /slots/{id}?action=save 端点（v9744+ 新格式）。
 func (a *App) SaveSlot(slotID int) error {
 	if a.client == nil {
 		return fmt.Errorf("客户端未初始化")
@@ -1294,7 +1302,7 @@ func (a *App) SaveSlot(slotID int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	url := fmt.Sprintf("%s/slots/%d/save", a.client.BaseURL(), slotID)
+	url := fmt.Sprintf("%s/slots/%d?action=save", a.client.BaseURL(), slotID)
 	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
 	if err != nil {
 		return fmt.Errorf("创建保存 slot 请求失败: %w", err)
@@ -1317,7 +1325,7 @@ func (a *App) SaveSlot(slotID int) error {
 }
 
 // RestoreSlot 从磁盘恢复 slot 的 KV 缓存。
-// 调用 llama-server 的 /slots/{id}/restore 端点。
+// 调用 llama-server 的 POST /slots/{id}?action=restore 端点（v9744+ 新格式）。
 func (a *App) RestoreSlot(slotID int) error {
 	if a.client == nil {
 		return fmt.Errorf("客户端未初始化")
@@ -1325,7 +1333,7 @@ func (a *App) RestoreSlot(slotID int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	url := fmt.Sprintf("%s/slots/%d/restore", a.client.BaseURL(), slotID)
+	url := fmt.Sprintf("%s/slots/%d?action=restore", a.client.BaseURL(), slotID)
 	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
 	if err != nil {
 		return fmt.Errorf("创建恢复 slot 请求失败: %w", err)
@@ -1344,6 +1352,37 @@ func (a *App) RestoreSlot(slotID int) error {
 	}
 
 	zlog.Info().Int("slot_id", slotID).Msg("[app] RestoreSlot: KV cache restored successfully")
+	return nil
+}
+
+// EraseSlot 删除指定 slot 的 KV 缓存文件。
+// 调用 llama-server 的 POST /slots/{id}?action=erase 端点（v9744+ 新增）。
+func (a *App) EraseSlot(slotID int) error {
+	if a.client == nil {
+		return fmt.Errorf("客户端未初始化")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	url := fmt.Sprintf("%s/slots/%d?action=erase", a.client.BaseURL(), slotID)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+	if err != nil {
+		return fmt.Errorf("创建删除 slot 请求失败: %w", err)
+	}
+	a.client.SetAuthHeader(req)
+
+	resp, err := a.client.HTTPClient().Do(req)
+	if err != nil {
+		return fmt.Errorf("删除 slot 请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := httputil.ReadBodyLimited(resp.Body, 1024*1024)
+		return fmt.Errorf("删除 slot 返回状态 %d: %s", resp.StatusCode, string(body))
+	}
+
+	zlog.Info().Int("slot_id", slotID).Msg("[app] EraseSlot: KV cache erased successfully")
 	return nil
 }
 
@@ -1433,6 +1472,30 @@ func (a *App) GetServerLogs() string {
 		return ""
 	}
 	return a.server.LastOutput()
+}
+
+// GetTerminalHistory 获取终端历史日志（纯文本，用于 xterm.js 初始化时回显）
+func (a *App) GetTerminalHistory() string {
+	if a.server == nil {
+		return ""
+	}
+	return a.server.LastOutput()
+}
+
+// ResizeTerminal 调整 ConPTY 终端尺寸（前端 xterm.js 尺寸变化时调用）
+func (a *App) ResizeTerminal(cols, rows int) error {
+	if a.server == nil {
+		return nil
+	}
+	return a.server.ResizeTerminal(cols, rows)
+}
+
+// IsConPTYMode 返回当前是否使用 ConPTY 模式（前端据此决定用 xterm.js 还是文本日志）
+func (a *App) IsConPTYMode() bool {
+	if a.server == nil {
+		return false
+	}
+	return a.server.IsConPTYMode()
 }
 
 func (a *App) GetConversations() ([]*chat.Conversation, error) {

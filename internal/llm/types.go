@@ -175,6 +175,11 @@ type ChatCompletionRequest struct {
 	Reasoning     string           `json:"reasoning,omitempty"`
 	ReasoningBudget int            `json:"reasoning_budget,omitempty"`
 	ReasoningControl bool           `json:"reasoning_control,omitempty"`
+	// 请求级 reasoning 扩展字段（v9744+）
+	ReasoningFormat         string `json:"reasoning_format,omitempty"`          // 请求级覆盖思考格式：none/deepseek/deepseek-legacy
+	ReasoningBudgetStartTag string `json:"reasoning_budget_start_tag,omitempty"` // 思考预算区间起始标记
+	ReasoningBudgetEndTag   string `json:"reasoning_budget_end_tag,omitempty"`   // 思考预算区间结束标记
+	ReasoningInContent      *bool  `json:"reasoning_in_content,omitempty"`       // deepseek-legacy 流式时是否在 content 中保留 think 标签
 	TimingsPerToken bool           `json:"timings_per_token,omitempty"` // 每个 token 返回 timings 数据，用于实时速度显示
 	ReturnProgress bool           `json:"return_progress,omitempty"`  // 在流式响应中返回 prompt 处理进度
 	Tools         []ToolDefinition       `json:"tools,omitempty"`
@@ -190,6 +195,14 @@ type ChatCompletionRequest struct {
 	ContinueFinalMessage bool                  `json:"continue_final_message,omitempty"` // 继续最终消息
 	GenerationPrompt    string                 `json:"generation_prompt,omitempty"`       // 生成提示
 	PostSamplingProbs   bool                   `json:"post_sampling_probs,omitempty"`    // 后采样概率
+	// Anthropic 风格 thinking 参数兼容（llama.cpp 自动转换为 reasoning_budget_tokens）
+	Thinking            *AnthropicThinking     `json:"thinking,omitempty"`
+}
+
+// AnthropicThinking Anthropic 风格的思考参数，llama-server 会自动转换为 reasoning_budget_tokens
+type AnthropicThinking struct {
+	Type         string `json:"type"`          // "enabled" 或 "disabled"
+	BudgetTokens int    `json:"budget_tokens"` // 思考 token 预算
 }
 
 // StreamOptions 控制 SSE 流式响应的附加选项

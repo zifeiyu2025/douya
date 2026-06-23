@@ -14,6 +14,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"github.com/UserExistsError/conpty"
 	"github.com/rs/zerolog/log"
 )
 
@@ -122,12 +123,15 @@ type ServerConfig struct {
 	UIMcpProxy bool // 仅启用 MCP CORS 代理
 	// 后端采样（实验性，将采样逻辑移到 GPU 执行，不兼容 grammar 和 reasoning budget）
 	BackendSampling bool
+	// SSE ping 间隔秒数（0=使用服务器默认 30 秒，用于保持长连接活跃）
+	SsePingInterval int
 	// LoRA 适配器路径（逗号分隔，启动时通过 --lora 加载，配合 --lora-init-without-apply 默认不应用）
 	LoraPaths string
 }
 
 type Server struct {
 	cmd                  *exec.Cmd
+	pty                  *conpty.ConPty // ConPTY 伪控制台（非 nil 表示使用 ConPTY 模式）
 	config               *ServerConfig
 	status               ServerStatus
 	ctx                  context.Context
@@ -137,7 +141,8 @@ type Server struct {
 	stderrBuf            *RingBuffer
 	mtpFallbackDisabled  bool
 	lastStartTime        time.Time
-	onLog                func(line string) // 日志行回调（用于实时推送到前端）
+	onLog                func(line string)          // 日志行回调（用于实时推送到前端）
+	onTerminalData       func(data []byte)          // 终端原始字节流回调（用于 xterm.js 渲染）
 }
 
 func NewServer(cfg *ServerConfig) *Server {
@@ -156,6 +161,31 @@ func (s *Server) SetOnLog(cb func(line string)) {
 	if s.stderrBuf != nil {
 		s.stderrBuf.SetOnChange(cb)
 	}
+}
+
+// SetOnTerminalData 设置终端原始字节流回调，用于 xterm.js 渲染
+// ConPTY 模式下，llama-server 的输出（含 ANSI 颜色码）会通过此回调批量推送
+func (s *Server) SetOnTerminalData(cb func(data []byte)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onTerminalData = cb
+}
+
+// ResizeTerminal 调整 ConPTY 终端尺寸（前端 xterm.js 尺寸变化时调用）
+func (s *Server) ResizeTerminal(width, height int) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.pty == nil {
+		return nil // exec.Cmd 模式无需调整
+	}
+	return s.pty.Resize(width, height)
+}
+
+// IsConPTYMode 返回当前是否使用 ConPTY 模式
+func (s *Server) IsConPTYMode() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.pty != nil
 }
 
 func (s *Server) Start() error {
@@ -411,6 +441,11 @@ func (s *Server) Start() error {
 		args = append(args, "--backend-sampling")
 	}
 
+	// SSE ping 间隔（保持长连接活跃，防止代理/防火墙超时断连）
+	if s.config.SsePingInterval > 0 {
+		args = append(args, "--sse-ping-interval", fmt.Sprintf("%d", s.config.SsePingInterval))
+	}
+
 	// LoRA 适配器：启动时加载但默认不应用（scale=0），用户可通过设置界面热切换
 	if s.config.LoraPaths != "" {
 		for _, p := range strings.Split(s.config.LoraPaths, ",") {
@@ -490,8 +525,6 @@ func (s *Server) Start() error {
 	if s.onLog != nil {
 		s.stderrBuf.SetOnChange(s.onLog)
 	}
-	s.cmd.Stdout = s.stderrBuf.TeeWriter(os.Stderr)
-	s.cmd.Stderr = s.stderrBuf.TeeWriter(os.Stderr)
 
 	currentPath := os.Getenv("PATH")
 	newPath := runtimeDir
@@ -506,20 +539,74 @@ func (s *Server) Start() error {
 		}
 	}
 	filtered = append(filtered, "PATH="+newPath)
-	s.cmd.Env = filtered
-
-	s.cmd.SysProcAttr = &syscall.SysProcAttr{
-		HideWindow:    true,
-		CreationFlags: 0x08000000,
-	}
 
 	s.lastStartTime = time.Now()
 
-	if err := s.cmd.Start(); err != nil {
-		s.status = ServerStatus{Running: false, Error: fmt.Sprintf("failed to start server: %v", err)}
+	// 尝试用 ConPTY 启动（获得原生终端输出：ANSI 颜色码、进度条）
+	// 生活类比：ConPTY 就像一个"虚拟显示器"，让 llama-server 以为自己在真正的终端里运行
+	pty, ptyErr := startWithConPTY(s.config.ServerPath, args, runtimeDir, filtered, 120, 40)
+	if ptyErr != nil {
+		log.Warn().Err(ptyErr).Msg("ConPTY unavailable, falling back to exec.Cmd")
+		s.pty = nil
+		// 回退到 exec.Cmd 方式（原有逻辑）
+		s.cmd.Stdout = s.stderrBuf.TeeWriter(os.Stderr)
+		s.cmd.Stderr = s.stderrBuf.TeeWriter(os.Stderr)
+		s.cmd.Env = filtered
+		s.cmd.SysProcAttr = &syscall.SysProcAttr{
+			HideWindow:    true,
+			CreationFlags: 0x08000000,
+		}
+
+		if err := s.cmd.Start(); err != nil {
+			s.status = ServerStatus{Running: false, Error: fmt.Sprintf("failed to start server: %v", err)}
+			s.mu.Unlock()
+			return fmt.Errorf("failed to start server: %w", err)
+		}
+
+		if s.job == nil {
+			job, err := CreateJobObject()
+			if err != nil {
+				log.Error().Err(err).Msg("create job object failed (child process not bound)")
+			} else {
+				s.job = job
+			}
+		}
+
+		if s.job != nil {
+			if err := s.job.AssignProcess(s.cmd.Process.Pid); err != nil {
+				log.Error().Err(err).Msg("assign process to job object failed (child process not bound)")
+			} else {
+				log.Info().Int("pid", s.cmd.Process.Pid).Msg("llama-server bound to job object (will auto-kill on parent exit)")
+			}
+		}
+
+		s.replaceContext()
+		s.status = ServerStatus{Running: true}
+
+		go func() {
+			err := s.cmd.Wait()
+			s.mu.Lock()
+			s.status = ServerStatus{Running: false}
+			if err != nil && s.ctx.Err() == nil {
+				errMsg := fmt.Sprintf("server exited with error: %v", err)
+				if s.stderrBuf != nil {
+					if tail := s.stderrBuf.String(); tail != "" {
+						errMsg += "\n" + tail
+					}
+				}
+				s.status.Error = errMsg
+			}
+			s.mu.Unlock()
+		}()
+
 		s.mu.Unlock()
-		return fmt.Errorf("failed to start server: %w", err)
+		return nil
 	}
+
+	// ConPTY 启动成功
+	s.pty = pty
+	s.cmd = nil
+	log.Info().Int("pid", pty.Pid()).Msg("llama-server started with ConPTY (native terminal output: ANSI colors + progress bars)")
 
 	if s.job == nil {
 		job, err := CreateJobObject()
@@ -531,23 +618,26 @@ func (s *Server) Start() error {
 	}
 
 	if s.job != nil {
-		if err := s.job.AssignProcess(s.cmd.Process.Pid); err != nil {
+		if err := s.job.AssignProcess(pty.Pid()); err != nil {
 			log.Error().Err(err).Msg("assign process to job object failed (child process not bound)")
 		} else {
-			log.Info().Int("pid", s.cmd.Process.Pid).Msg("llama-server bound to job object (will auto-kill on parent exit)")
+			log.Info().Int("pid", pty.Pid()).Msg("llama-server bound to job object (will auto-kill on parent exit)")
 		}
 	}
 
-	// 清理旧的 cancel 函数并创建新的 context，避免重复调用 Start() 时旧 cancel 被覆盖导致资源泄漏
 	s.replaceContext()
 	s.status = ServerStatus{Running: true}
 
+	// 启动 ConPTY 输出读取 goroutine（批量发送到前端 xterm.js）
+	go s.readConPTYOutput()
+
+	// 启动等待 goroutine
 	go func() {
-		err := s.cmd.Wait()
+		exitCode, err := pty.Wait(s.ctx)
 		s.mu.Lock()
 		s.status = ServerStatus{Running: false}
 		if err != nil && s.ctx.Err() == nil {
-			errMsg := fmt.Sprintf("server exited with error: %v", err)
+			errMsg := fmt.Sprintf("server exited with error: %v (exit code: %d)", err, exitCode)
 			if s.stderrBuf != nil {
 				if tail := s.stderrBuf.String(); tail != "" {
 					errMsg += "\n" + tail
@@ -560,6 +650,67 @@ func (s *Server) Start() error {
 
 	s.mu.Unlock()
 	return nil
+}
+
+// readConPTYOutput 持续读取 ConPTY 输出，50ms 窗口批量发送到前端
+// 生活类比：就像邮递员收集信件，不是收到一封就跑一趟，而是攒一批一起送，效率更高
+func (s *Server) readConPTYOutput() {
+	buf := make([]byte, 8192)
+	var pending []byte
+	lastFlush := time.Now()
+
+	for {
+		n, err := s.pty.Read(buf)
+		if n > 0 {
+			// 追加到待发送缓冲
+			data := make([]byte, n)
+			copy(data, buf[:n])
+			pending = append(pending, data...)
+			// 同时写入 RingBuffer（用于错误诊断，按行切分存储）
+			if s.stderrBuf != nil {
+				s.stderrBuf.Write(buf[:n])
+			}
+		}
+
+		// 50ms 窗口批量发送（降低 IPC 频次 10-50 倍）
+		now := time.Now()
+		if len(pending) > 0 && now.Sub(lastFlush) >= 50*time.Millisecond {
+			s.mu.RLock()
+			cb := s.onTerminalData
+			s.mu.RUnlock()
+			if cb != nil {
+				cb(pending)
+			}
+			pending = pending[:0]
+			lastFlush = now
+		}
+
+		if err != nil {
+			// 读取出错或 EOF，发送剩余数据后退出
+			if len(pending) > 0 {
+				s.mu.RLock()
+				cb := s.onTerminalData
+				s.mu.RUnlock()
+				if cb != nil {
+					cb(pending)
+				}
+			}
+			return
+		}
+
+		// 检查 context 是否取消
+		if s.ctx.Err() != nil {
+			if len(pending) > 0 {
+				s.mu.RLock()
+				cb := s.onTerminalData
+				s.mu.RUnlock()
+				if cb != nil {
+					cb(pending)
+				}
+			}
+			return
+		}
+	}
 }
 
 // replaceContext 清理旧的 cancel 函数并创建新的 context，避免资源泄漏
@@ -647,6 +798,61 @@ func (s *Server) GracefulStop(timeout time.Duration) error {
 
 func (s *Server) stopInternal() error {
 	s.mu.Lock()
+
+	// ConPTY 模式：用 taskkill 终止进程树，然后关闭 ConPTY
+	if s.pty != nil {
+		pid := s.pty.Pid()
+		pty := s.pty
+		s.mu.Unlock()
+
+		// 先尝试正常终止进程树
+		terminateCmd := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/T")
+		terminateCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+		if err := terminateCmd.Run(); err != nil {
+			log.Debug().Err(err).Int("pid", pid).Msg("terminate process (may already be dead)")
+		}
+
+		// 等待进程退出（带超时）
+		waitDone := make(chan struct{})
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			pty.Wait(ctx)
+			close(waitDone)
+		}()
+
+		timer := time.NewTimer(3 * time.Second)
+		defer timer.Stop()
+
+		select {
+		case <-waitDone:
+			pty.Close()
+			s.mu.Lock()
+			s.status = ServerStatus{Running: false}
+			if s.cancel != nil {
+				s.cancel()
+			}
+			s.mu.Unlock()
+			return nil
+		case <-timer.C:
+			// 超时后强制 kill
+			killCmd := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/F", "/T")
+			killCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+			if err := killCmd.Run(); err != nil {
+				log.Debug().Err(err).Int("pid", pid).Msg("force kill process (may already be dead)")
+			}
+			pty.Close()
+			s.mu.Lock()
+			s.status = ServerStatus{Running: false}
+			if s.cancel != nil {
+				s.cancel()
+			}
+			s.mu.Unlock()
+			return fmt.Errorf("server did not terminate gracefully, force killed")
+		}
+	}
+
+	// exec.Cmd 模式（原有逻辑）
 	if s.cmd == nil || s.cmd.Process == nil {
 		s.mu.Unlock()
 		return nil
@@ -818,6 +1024,10 @@ func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(Serv
 }
 
 func (s *Server) isAlive() bool {
+	if s.pty != nil {
+		// ConPTY 模式：Wait goroutine 会在进程退出时设置 Running=false
+		return s.status.Running
+	}
 	if s.cmd == nil || s.cmd.Process == nil {
 		return false
 	}

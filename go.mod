@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	fyne.io/systray v1.12.1
+	github.com/UserExistsError/conpty v0.1.4
 	github.com/dgraph-io/badger/v4 v4.5.0
 	github.com/google/uuid v1.6.0
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728

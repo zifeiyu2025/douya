@@ -28,6 +28,7 @@ declare module 'vue' {
     Sidebar: typeof import('./components/Sidebar.vue')['default']
     SlotStatus: typeof import('./components/SlotStatus.vue')['default']
     SplashScreen: typeof import('./components/ui/SplashScreen.vue')['default']
+    TerminalConsole: typeof import('./components/TerminalConsole.vue')['default']
     ThinkBlock: typeof import('./components/ThinkBlock.vue')['default']
     TokenCounter: typeof import('./components/TokenCounter.vue')['default']
   }

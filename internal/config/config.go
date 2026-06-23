@@ -54,6 +54,9 @@ type Config struct {
 	RAGChunkOverlap   int     `json:"rag_chunk_overlap"`
 	EmbeddingModel    string  `json:"embedding_model"` // 专用嵌入模型路径（可选，为空则用聊天模型）
 	ReasoningBudgetMessage string `json:"reasoning_budget_message"`
+	// 请求级 reasoning 扩展字段（v9744+，为空则不传递，使用服务器默认值）
+	ReasoningBudgetStartTag string `json:"reasoning_budget_start_tag"` // 思考预算区间起始标记
+	ReasoningBudgetEndTag   string `json:"reasoning_budget_end_tag"`   // 思考预算区间结束标记
 	Mmap              bool    `json:"mmap"`
 	KVOffload         bool    `json:"kv_offload"`
 	ContextShift      bool    `json:"context_shift"`
@@ -134,6 +137,8 @@ type Config struct {
 	UIMcpProxy bool `json:"ui_mcp_proxy"` // 仅启用 MCP CORS 代理（Agent 已包含此项）
 	// 后端采样（实验性，将采样逻辑移到 GPU 执行，不兼容 grammar 和 reasoning budget）
 	BackendSampling bool `json:"backend_sampling"`
+	// SSE ping 间隔秒数（0=使用服务器默认 30 秒，用于保持长连接活跃）
+	SsePingInterval int `json:"sse_ping_interval"`
 	// LoRA 适配器路径（逗号分隔，启动时通过 --lora 加载，配合 --lora-init-without-apply 默认不应用）
 	LoraPaths string `json:"lora_paths"`
 }
@@ -152,7 +157,7 @@ func DefaultConfig() *Config {
 		TopK:              20,
 		RepeatPenalty:     1,
 		KVUnified:         false,
-		CacheIdleSlots:    false,
+		CacheIdleSlots:    true, // 与 llama.cpp 默认值对齐，空闲 slot 缓存保留
 		CacheRAM:          0,
 		ImageMinTokens:    0,
 		ImageMaxTokens:    0,
@@ -179,6 +184,8 @@ func DefaultConfig() *Config {
 		RAGChunkSize:     512,
 		RAGChunkOverlap:  64,
 		ReasoningBudgetMessage: "",
+		ReasoningBudgetStartTag: "",
+		ReasoningBudgetEndTag: "",
 		Mmap:             true,
 		KVOffload:        true,
 		ContextShift:     false,
@@ -198,11 +205,11 @@ func DefaultConfig() *Config {
 		ServerAPIKeyEnabled: true,
 		ExposeServer:       false,
 		SwaFull:              false,
-		CtxCheckpoints:       0,
-		CheckpointMinStep:    0,
+		CtxCheckpoints:       32,  // 与 llama.cpp 默认值对齐，长上下文检查点回滚
+		CheckpointMinStep:    256, // 检查点最小步长，避免过于频繁
 		Tools:                "",
 		PrefillAssistant:     true,
-		SlotPromptSimilarity: 0.0,
+		SlotPromptSimilarity: 0.1, // 与 llama.cpp 默认值对齐，slot 缓存 prompt 相似度阈值
 		SkipChatParsing:      false,
 		APIPrefix:            "",
 		SimpleIO:             false,
@@ -248,6 +255,7 @@ func DefaultConfig() *Config {
 		Agent:                 false,
 		UIMcpProxy:            false,
 		BackendSampling:       false,
+		SsePingInterval:       0,
 		LoraPaths:             "",
 	}
 }
