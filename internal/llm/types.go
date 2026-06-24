@@ -195,6 +195,12 @@ type ChatCompletionRequest struct {
 	ContinueFinalMessage bool                  `json:"continue_final_message,omitempty"` // 继续最终消息
 	GenerationPrompt    string                 `json:"generation_prompt,omitempty"`       // 生成提示
 	PostSamplingProbs   bool                   `json:"post_sampling_probs,omitempty"`    // 后采样概率
+	// 请求级采样扩展字段（llama.cpp 新增）
+	Samplers        []string `json:"samplers,omitempty"`          // 自定义采样器顺序（如 ["top_k","top_p","temperature"]）
+	IgnoreEos       bool     `json:"ignore_eos,omitempty"`        // 忽略 EOS 继续生成
+	Verbose         bool     `json:"verbose,omitempty"`           // 响应中包含调试信息
+	AdaptiveTarget  float64  `json:"adaptive_target,omitempty"`   // 请求级自适应采样目标（0=禁用）
+	AdaptiveDecay   float64  `json:"adaptive_decay,omitempty"`    // 请求级自适应采样衰减（0=禁用）
 	// Anthropic 风格 thinking 参数兼容（llama.cpp 自动转换为 reasoning_budget_tokens）
 	Thinking            *AnthropicThinking     `json:"thinking,omitempty"`
 }

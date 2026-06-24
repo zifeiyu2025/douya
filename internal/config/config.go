@@ -64,6 +64,17 @@ type Config struct {
 	DryMultiplier     float64 `json:"dry_multiplier"`
 	DryBase           float64 `json:"dry_base"`
 	DryAllowedLength  int     `json:"dry_allowed_length"`
+	DrySequenceBreaker string `json:"dry_sequence_breaker"` // Dry 采样序列中断符（逗号分隔，如 "\n","。"）
+	DryPenaltyLastN    int    `json:"dry_penalty_last_n"`   // Dry 惩罚窗口大小（0=使用 repeat_last_n）
+	GrpAttnN          int    `json:"grp_attn_n"`           // 分组注意力组数（0=禁用，默认1）
+	GrpAttnW          int    `json:"grp_attn_w"`           // 分组注意力窗口宽度（0=禁用，默认512）
+	Jinja             *bool  `json:"jinja"`                // Jinja2 模板引擎开关（nil=不传递，true=--jinja，false=--no-jinja）
+	CachePrompt       *bool  `json:"cache_prompt"`         // Prompt 缓存控制（nil=不传递，true=--cache-prompt，false=--no-cache-prompt）
+	Metrics           bool   `json:"metrics"`              // 服务器指标端点开关
+	Verbose           bool   `json:"verbose"`              // 详细日志开关
+	SpecDraftThreads      int  `json:"spec_draft_threads"`       // Draft 模型线程数（0=不传递）
+	SpecDraftThreadsBatch int  `json:"spec_draft_threads_batch"` // Draft 模型批处理线程数（0=不传递）
+	SpecDefault           bool `json:"spec_default"`             // 使用默认推测解码配置
 	Device            string  `json:"device"`
 	Parallel          int     `json:"parallel"`
 	CacheTypeK        string  `json:"cache_type_k"`
@@ -124,6 +135,9 @@ type Config struct {
 	// 自适应采样（llama.cpp 新增，动态调整采样参数）
 	AdaptiveTarget float64 `json:"adaptive_target"` // 自适应采样目标概率（0=禁用，0-1）
 	AdaptiveDecay  float64 `json:"adaptive_decay"`  // 自适应采样衰减率（0=默认 0.5，0-1）
+	// 请求级采样扩展字段（llama.cpp 新增）
+	Samplers  string `json:"samplers"`   // 自定义采样器顺序（逗号分隔，如 "top_k,top_p,temperature"）
+	IgnoreEos bool   `json:"ignore_eos"` // 忽略 EOS 继续生成
 	// 模型标签（逗号分隔，用于 /v1/models 返回的 tags 字段）
 	Tags string `json:"tags"`
 	// 媒体路径（多模态模型额外媒体文件目录）
@@ -193,6 +207,17 @@ func DefaultConfig() *Config {
 		DryMultiplier:    0,
 		DryBase:          1.75,
 		DryAllowedLength: 2,
+		DrySequenceBreaker: "",
+		DryPenaltyLastN:    0,
+		GrpAttnN:          0,
+		GrpAttnW:          0,
+		Jinja:             nil,
+		CachePrompt:       nil,
+		Metrics:           false,
+		Verbose:           false,
+		SpecDraftThreads:      0,
+		SpecDraftThreadsBatch: 0,
+		SpecDefault:           false,
 		Device:           "",
 		Parallel:         0,
 		CacheTypeK:       "",
@@ -231,6 +256,8 @@ func DefaultConfig() *Config {
 		MtmdBatchMaxTokens:   0,
 		AdaptiveTarget:       0,
 		AdaptiveDecay:        0,
+		Samplers:             "",
+		IgnoreEos:            false,
 		Tags:                 "",
 		MediaPath:            "",
 		Offline:              false,

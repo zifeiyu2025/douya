@@ -216,6 +216,91 @@ func (c *Client) Chat(ctx context.Context, req *ChatCompletionRequest) (*ChatCom
 	return &result, nil
 }
 
+// AnthropicMessages 代理 Anthropic Messages API 请求
+// 将原始请求体转发到 /v1/messages 端点，返回原始响应体
+// 生活类比：就像快递中转站，原封不动地把包裹从发件人转给收件人，不拆包不改装
+func (c *Client) AnthropicMessages(ctx context.Context, body []byte) ([]byte, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/messages", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create anthropic messages request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	c.setAuthHeader(httpReq)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("anthropic messages request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := readBody(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read anthropic messages response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("anthropic messages returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return respBody, nil
+}
+
+// AnthropicCountTokens 代理 Anthropic token 计数请求
+// 将原始请求体转发到 /v1/messages/count_tokens 端点，返回原始响应体
+func (c *Client) AnthropicCountTokens(ctx context.Context, body []byte) ([]byte, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/messages/count_tokens", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create anthropic count tokens request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	c.setAuthHeader(httpReq)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("anthropic count tokens request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := readBody(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read anthropic count tokens response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("anthropic count tokens returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return respBody, nil
+}
+
+// BuiltInTools 代理内置工具请求
+// 将原始请求体转发到 /tools 端点，返回原始响应体
+func (c *Client) BuiltInTools(ctx context.Context, body []byte) ([]byte, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/tools", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create built-in tools request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	c.setAuthHeader(httpReq)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("built-in tools request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := readBody(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read built-in tools response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("built-in tools returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return respBody, nil
+}
+
 // Embedding sends a request to /v1/embeddings and returns vector embeddings.
 // input can be a string or []string.
 func (c *Client) Embedding(ctx context.Context, req *EmbeddingRequest) (*EmbeddingResponse, error) {
@@ -255,7 +340,17 @@ func (c *Client) Embedding(ctx context.Context, req *EmbeddingRequest) (*Embeddi
 }
 
 func (c *Client) HealthCheck(ctx context.Context) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/health", nil)
+	// 优先请求 /v1/health 端点（新版 llama-server 推荐端点）
+	// 如果失败（404 或连接错误），回退到 /health 端点
+	if err := c.healthCheckOnce(ctx, "/v1/health"); err == nil {
+		return nil
+	}
+	return c.healthCheckOnce(ctx, "/health")
+}
+
+// healthCheckOnce 向指定端点发起健康检查请求
+func (c *Client) healthCheckOnce(ctx context.Context, endpoint string) error {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create health check request: %w", err)
 	}
@@ -983,6 +1078,49 @@ func (c *Client) CountTokens(ctx context.Context, messages []ChatMessage) (int, 
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return 0, fmt.Errorf("failed to parse count tokens response: %w", err)
+	}
+
+	return result.InputTokens, nil
+}
+
+// CountTokensViaInputTokens 通过 /v1/chat/completions/input_tokens 端点获取精确 token 计数
+// 比 /tokenize 更精确，因为会经过完整的 chat template 处理
+func (c *Client) CountTokensViaInputTokens(ctx context.Context, messages []ChatMessage) (int, error) {
+	body, err := json.Marshal(map[string]interface{}{
+		"messages": messages,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to marshal input tokens request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions/input_tokens", bytes.NewReader(body))
+	if err != nil {
+		return 0, fmt.Errorf("failed to create input tokens request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	c.setAuthHeader(httpReq)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return 0, fmt.Errorf("input tokens request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read input tokens response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("input tokens request failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		Object      string `json:"object"`
+		InputTokens int    `json:"input_tokens"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return 0, fmt.Errorf("failed to parse input tokens response: %w", err)
 	}
 
 	return result.InputTokens, nil

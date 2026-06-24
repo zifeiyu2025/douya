@@ -43,8 +43,7 @@ export function useMermaid(rootRef: Ref<HTMLElement | undefined>) {
 
         nextTick(() => {
             observeAll()
-            // 绑定副本按钮
-            // 注意：bindCodeCopyButtons 由 MessageItem 自己调用
+            // 复制按钮由 setupCodeCopyDelegation 事件委托处理
         })
     })
 

@@ -191,7 +191,7 @@ func dropFTS5Artifacts(db *sql.DB) {
 }
 
 // migrateEncryptExistingData 将旧版明文数据加密
-// 检查是否已有加密数据标记，如果没有则批量加密
+// 采用分批处理避免全量加载到内存
 func migrateEncryptExistingData(db *sql.DB, encKey []byte) error {
 	// 检查是否已完成迁移
 	var migrationDone string
@@ -202,106 +202,17 @@ func migrateEncryptExistingData(db *sql.DB, encKey []byte) error {
 
 	log.Info().Msg("[db] starting encryption migration for existing plaintext data")
 
-	// 加密 conversations.title
-	rows, err := db.Query("SELECT id, title FROM conversations")
-	if err != nil {
+	// 加密 conversations.title（通常数量较少，可直接加载）
+	if err := migrateConversations(db, encKey); err != nil {
 		return fmt.Errorf("migrate conversations: %w", err)
 	}
-	var convUpdates []struct {
-		id    string
-		title string
-	}
-	for rows.Next() {
-		var id, title string
-		if err := rows.Scan(&id, &title); err != nil {
-			rows.Close()
-			return fmt.Errorf("scan conversation: %w", err)
-		}
-		// 只加密非空且未加密的标题
-		if title != "" && (len(title) < 4 || title[:4] != "enc:") {
-			encTitle, err := encryptField(title, encKey)
-			if err != nil {
-				log.Error().Err(err).Str("id", id).Msg("[db] failed to encrypt conversation title during migration")
-				continue
-			}
-			convUpdates = append(convUpdates, struct {
-				id    string
-				title string
-			}{id, encTitle})
-		}
-	}
-	rows.Close()
 
-	for _, u := range convUpdates {
-		_, err := db.Exec("UPDATE conversations SET title = ? WHERE id = ?", u.title, u.id)
-		if err != nil {
-			log.Error().Err(err).Str("id", u.id).Msg("[db] failed to encrypt conversation title")
-		}
-	}
-
-	// 加密 messages 的敏感字段
-	msgRows, err := db.Query("SELECT id, content, thinking_content, search_results, images, attachments, tool_calls FROM messages")
-	if err != nil {
+	// 加密 messages 的敏感字段（分批处理）
+	if err := migrateMessages(db, encKey); err != nil {
 		return fmt.Errorf("migrate messages: %w", err)
 	}
-	type msgUpdate struct {
-		id               string
-		content          string
-		thinkingContent  string
-		searchResults    string
-		images           string
-		attachments      string
-		toolCalls        string
-	}
-	var msgUpdates []msgUpdate
-	for msgRows.Next() {
-		var id string
-		var content, thinkingContent, searchResults, images, attachments, toolCalls sql.NullString
-		if err := msgRows.Scan(&id, &content, &thinkingContent, &searchResults, &images, &attachments, &toolCalls); err != nil {
-			msgRows.Close()
-			return fmt.Errorf("scan message: %w", err)
-		}
-		// 检查 content 是否需要加密（只加密未加密的数据）
-		needsEncrypt := false
-		if content.Valid && content.String != "" && (len(content.String) < 4 || content.String[:4] != "enc:") {
-			needsEncrypt = true
-		}
-		if !needsEncrypt {
-			continue
-		}
-		encContent, err := encryptField(content.String, encKey)
-		if err != nil {
-			log.Error().Err(err).Str("id", id).Msg("[db] failed to encrypt message content during migration")
-			continue
-		}
-		encThinking, _ := encryptField(thinkingContent.String, encKey)
-		encSearch, _ := encryptField(searchResults.String, encKey)
-		encImages, _ := encryptField(images.String, encKey)
-		encAttachments, _ := encryptField(attachments.String, encKey)
-		encToolCalls, _ := encryptField(toolCalls.String, encKey)
-		msgUpdates = append(msgUpdates, msgUpdate{
-			id:              id,
-			content:         encContent,
-			thinkingContent: encThinking,
-			searchResults:   encSearch,
-			images:          encImages,
-			attachments:     encAttachments,
-			toolCalls:       encToolCalls,
-		})
-	}
-	msgRows.Close()
 
-	for _, u := range msgUpdates {
-		_, err := db.Exec(
-			"UPDATE messages SET content = ?, thinking_content = ?, search_results = ?, images = ?, attachments = ?, tool_calls = ? WHERE id = ?",
-			u.content, u.thinkingContent, u.searchResults, u.images, u.attachments, u.toolCalls, u.id,
-		)
-		if err != nil {
-			log.Error().Err(err).Str("id", u.id).Msg("[db] failed to encrypt message")
-		}
-	}
-
-	log.Info().Int("conversations", len(convUpdates)).Int("messages", len(msgUpdates)).Msg("[db] encryption migration completed")
+	log.Info().Msg("[db] encryption migration completed")
 
 	// 标记迁移完成
 	_, err = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('encryption_migration_done', 'yes')")
@@ -310,4 +221,119 @@ func migrateEncryptExistingData(db *sql.DB, encKey []byte) error {
 	}
 
 	return nil
+}
+
+// migrateConversations 加密会话标题
+func migrateConversations(db *sql.DB, encKey []byte) error {
+	rows, err := db.Query("SELECT id, title FROM conversations")
+	if err != nil {
+		return fmt.Errorf("query conversations: %w", err)
+	}
+	defer rows.Close()
+
+	migrated := 0
+	for rows.Next() {
+		var id, title string
+		if err := rows.Scan(&id, &title); err != nil {
+			return fmt.Errorf("scan conversation: %w", err)
+		}
+		// 只加密非空且未加密的标题
+		if title == "" || (len(title) >= 4 && title[:4] == "enc:") {
+			continue
+		}
+		encTitle, err := encryptField(title, encKey)
+		if err != nil {
+			log.Error().Err(err).Str("id", id).Msg("[db] failed to encrypt conversation title during migration")
+			continue
+		}
+		if _, err := db.Exec("UPDATE conversations SET title = ? WHERE id = ?", encTitle, id); err != nil {
+			log.Error().Err(err).Str("id", id).Msg("[db] failed to update encrypted conversation title")
+		}
+		migrated++
+	}
+
+	log.Info().Int("migrated", migrated).Msg("[db] conversation title encryption done")
+	return nil
+}
+
+// migrateMessages 分批加密消息的敏感字段
+func migrateMessages(db *sql.DB, encKey []byte) error {
+	const batchSize = 100
+	offset := 0
+	totalMigrated := 0
+
+	for {
+		rows, err := db.Query(
+			"SELECT id, content, thinking_content, search_results, images, attachments, tool_calls FROM messages ORDER BY id LIMIT ? OFFSET ?",
+			batchSize, offset,
+		)
+		if err != nil {
+			return fmt.Errorf("query messages batch: %w", err)
+		}
+
+		batchCount := 0
+		for rows.Next() {
+			batchCount++
+			var id string
+			var content, thinkingContent, searchResults, images, attachments, toolCalls sql.NullString
+			if err := rows.Scan(&id, &content, &thinkingContent, &searchResults, &images, &attachments, &toolCalls); err != nil {
+				rows.Close()
+				return fmt.Errorf("scan message: %w", err)
+			}
+
+			// 检查 content 是否需要加密（只加密未加密的数据）
+			if !content.Valid || content.String == "" || (len(content.String) >= 4 && content.String[:4] == "enc:") {
+				continue
+			}
+
+			// 加密 content（主字段，错误时跳过该条消息）
+			encContent, err := encryptField(content.String, encKey)
+			if err != nil {
+				log.Error().Err(err).Str("id", id).Msg("[db] failed to encrypt message content during migration, skipping")
+				continue
+			}
+
+			// 加密其他字段（错误时保留原值，而非静默丢弃）
+			encThinking := encryptFieldWithFallback(thinkingContent, encKey)
+			encSearch := encryptFieldWithFallback(searchResults, encKey)
+			encImages := encryptFieldWithFallback(images, encKey)
+			encAttachments := encryptFieldWithFallback(attachments, encKey)
+			encToolCalls := encryptFieldWithFallback(toolCalls, encKey)
+
+			_, err = db.Exec(
+				"UPDATE messages SET content = ?, thinking_content = ?, search_results = ?, images = ?, attachments = ?, tool_calls = ? WHERE id = ?",
+				encContent, encThinking, encSearch, encImages, encAttachments, encToolCalls, id,
+			)
+			if err != nil {
+				log.Error().Err(err).Str("id", id).Msg("[db] failed to update encrypted message")
+			}
+			totalMigrated++
+		}
+		rows.Close()
+
+		// 本批不足 batchSize 条，说明已处理完
+		if batchCount < batchSize {
+			break
+		}
+		offset += batchSize
+	}
+
+	log.Info().Int("migrated", totalMigrated).Msg("[db] message encryption done")
+	return nil
+}
+
+// encryptFieldWithFallback 加密 NullString 字段，失败时保留原值
+func encryptFieldWithFallback(ns sql.NullString, encKey []byte) string {
+	if !ns.Valid || ns.String == "" {
+		return ns.String
+	}
+	if len(ns.String) >= 4 && ns.String[:4] == "enc:" {
+		return ns.String
+	}
+	encrypted, err := encryptField(ns.String, encKey)
+	if err != nil {
+		log.Error().Err(err).Msg("[db] encrypt field failed, keeping original value")
+		return ns.String // 保留原值而非返回空字符串
+	}
+	return encrypted
 }

@@ -119,6 +119,17 @@ export interface Config {
     dry_multiplier: number
     dry_base: number
     dry_allowed_length: number
+    dry_sequence_breaker: string   // Dry 采样序列中断符（逗号分隔）
+    dry_penalty_last_n: number     // Dry 惩罚窗口大小
+    grp_attn_n: number             // 分组注意力组数
+    grp_attn_w: number             // 分组注意力窗口宽度
+    jinja: boolean                 // Jinja2 模板引擎开关
+    cache_prompt: boolean          // Prompt 缓存控制
+    metrics: boolean               // 服务器指标端点开关
+    verbose: boolean               // 详细日志开关
+    spec_draft_threads: number     // Draft 模型线程数
+    spec_draft_threads_batch: number // Draft 模型批处理线程数
+    spec_default: boolean          // 使用默认推测解码配置
     device: string
     parallel: number
     cache_type_k: string
@@ -179,6 +190,11 @@ export interface Config {
     spec_draft_device: string
     // 后端采样（实验性）
     backend_sampling: boolean
+    // 请求级采样配置
+    samplers: string                 // 自定义采样器顺序（逗号分隔）
+    ignore_eos: boolean              // 忽略 EOS 继续生成
+    adaptive_target: number          // 请求级自适应采样目标
+    adaptive_decay: number           // 请求级自适应采样衰减
 }
 
 export interface SmartParamsInfo {
@@ -276,6 +292,17 @@ export const DEFAULT_CONFIG: Config = {
     dry_multiplier: 0,
     dry_base: 1.75,
     dry_allowed_length: 2,
+    dry_sequence_breaker: '',
+    dry_penalty_last_n: 0,
+    grp_attn_n: 0,
+    grp_attn_w: 0,
+    jinja: false,
+    cache_prompt: false,
+    metrics: false,
+    verbose: false,
+    spec_draft_threads: 0,
+    spec_draft_threads_batch: 0,
+    spec_default: false,
     device: '',
     parallel: 0,
     cache_type_k: '',
@@ -331,6 +358,11 @@ export const DEFAULT_CONFIG: Config = {
     spec_draft_ngl: 0,
     spec_draft_device: '',
     backend_sampling: false,
+    // 请求级采样配置
+    samplers: '',                     // 空字符串=不自定义
+    ignore_eos: false,
+    adaptive_target: 0,               // 0=禁用
+    adaptive_decay: 0,                // 0=禁用
 }
 
 export interface ServerStatus {

@@ -64,9 +64,9 @@ import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import ThinkBlock from './ThinkBlock.vue'
 import SearchStatus from './SearchStatus.vue'
-import { renderMarkdown } from '../utils/markdown'
-import { useMermaid } from '../composables/useMermaid'
-import { bindCodeCopyButtons } from '../utils/codeCopy'
+ import { renderMarkdown } from '../utils/markdown'
+ import { useMermaid } from '../composables/useMermaid'
+ import { setupCodeCopyDelegation } from '../utils/codeCopy'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import type { Message, AttachmentSummary } from '../services/wails'
@@ -158,6 +158,7 @@ const findPreviousUserMessage = () => {
 }
 
 const rootRef = ref<HTMLElement>()
+let cleanupCodeCopyDelegation: (() => void) | null = null
 
 // 使用 IntersectionObserver 懒加载 mermaid（仅进入视口才下载 2.84MB chunk）
 const { refreshObservation } = useMermaid(rootRef)
@@ -165,7 +166,7 @@ const { refreshObservation } = useMermaid(rootRef)
 onMounted(() => {
     const el = rootRef.value
     if (el) {
-        bindCodeCopyButtons(el)
+        cleanupCodeCopyDelegation = setupCodeCopyDelegation(el)
     }
     document.addEventListener('mousedown', handleDocumentMouseDown)
     document.addEventListener('scroll', hideSelectionBtn, true)
@@ -177,7 +178,6 @@ watch(renderedContent, async () => {
     if (el) {
         // 内容更新后重新观察新出现的 .mermaid 元素
         refreshObservation()
-        bindCodeCopyButtons(el)
     }
 })
 
@@ -324,6 +324,10 @@ function previewImage(src: string) {
 
 // 组件卸载时清理可能残留的图片预览 overlay 和 keydown 监听器，避免内存泄漏
 onUnmounted(() => {
+  if (cleanupCodeCopyDelegation) {
+    cleanupCodeCopyDelegation()
+    cleanupCodeCopyDelegation = null
+  }
   if (activePreviewCleanup) {
     activePreviewCleanup()
     activePreviewCleanup = null

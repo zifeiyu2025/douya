@@ -56,6 +56,17 @@ type ServerConfig struct {
 	DryMultiplier    float64
 	DryBase          float64
 	DryAllowedLength int
+	DrySequenceBreaker string
+	DryPenaltyLastN    int
+	GrpAttnN          int
+	GrpAttnW          int
+	Jinja             *bool  // Jinja2 模板引擎开关
+	CachePrompt       *bool  // Prompt 缓存控制
+	Metrics           bool   // 服务器指标端点开关
+	Verbose           bool   // 详细日志开关
+	SpecDraftThreads      int  // Draft 模型线程数
+	SpecDraftThreadsBatch int  // Draft 模型批处理线程数
+	SpecDefault           bool // 使用默认推测解码配置
 	Device           string
 	Parallel         int
 	APIKey           string
@@ -127,6 +138,8 @@ type ServerConfig struct {
 	SsePingInterval int
 	// LoRA 适配器路径（逗号分隔，启动时通过 --lora 加载，配合 --lora-init-without-apply 默认不应用）
 	LoraPaths string
+	// Reranker 模型路径（配置后自动启用 --rerank 端点）
+	RerankerModelPath string
 }
 
 type Server struct {
@@ -313,6 +326,53 @@ func (s *Server) Start() error {
 		if s.config.DryAllowedLength > 0 {
 			args = append(args, "--dry-allowed-length", fmt.Sprintf("%d", s.config.DryAllowedLength))
 		}
+		// Dry 采样扩展参数
+		if s.config.DrySequenceBreaker != "" {
+			for _, breaker := range strings.Split(s.config.DrySequenceBreaker, ",") {
+				breaker = strings.TrimSpace(breaker)
+				if breaker != "" {
+					args = append(args, "--dry-sequence-breaker", breaker)
+				}
+			}
+		}
+		if s.config.DryPenaltyLastN > 0 {
+			args = append(args, "--dry-penalty-last-n", fmt.Sprintf("%d", s.config.DryPenaltyLastN))
+		}
+	}
+	// 分组注意力参数
+	if s.config.GrpAttnN > 0 {
+		args = append(args, "--grp-attn-n", fmt.Sprintf("%d", s.config.GrpAttnN))
+	}
+	if s.config.GrpAttnW > 0 {
+		args = append(args, "--grp-attn-w", fmt.Sprintf("%d", s.config.GrpAttnW))
+	}
+	// Jinja2 模板引擎开关
+	if s.config.Jinja != nil {
+		if *s.config.Jinja {
+			args = append(args, "--jinja")
+		} else {
+			args = append(args, "--no-jinja")
+		}
+	}
+	// Prompt 缓存控制
+	if s.config.CachePrompt != nil {
+		if *s.config.CachePrompt {
+			args = append(args, "--cache-prompt")
+		} else {
+			args = append(args, "--no-cache-prompt")
+		}
+	}
+	// 服务器指标端点
+	if s.config.Metrics {
+		args = append(args, "--metrics")
+	}
+	// 详细日志
+	if s.config.Verbose {
+		args = append(args, "--verbose")
+	}
+	// 重排序端点：配置了 reranker 模型时自动启用
+	if s.config.RerankerModelPath != "" {
+		args = append(args, "--rerank")
 	}
 	if s.config.Device != "" {
 		args = append(args, "--device", s.config.Device)
@@ -514,6 +574,17 @@ func (s *Server) Start() error {
 	// 模型重打包（启动时重新打包模型权重）
 	if s.config.Repack {
 		args = append(args, "--repack")
+	}
+	// Draft 模型线程配置
+	if s.config.SpecDraftThreads > 0 && !s.mtpFallbackDisabled {
+		args = append(args, "--spec-draft-threads", fmt.Sprintf("%d", s.config.SpecDraftThreads))
+	}
+	if s.config.SpecDraftThreadsBatch > 0 && !s.mtpFallbackDisabled {
+		args = append(args, "--spec-draft-threads-batch", fmt.Sprintf("%d", s.config.SpecDraftThreadsBatch))
+	}
+	// 默认推测解码配置
+	if s.config.SpecDefault {
+		args = append(args, "--spec-default")
 	}
 
 	s.cmd = exec.Command(s.config.ServerPath, args...)

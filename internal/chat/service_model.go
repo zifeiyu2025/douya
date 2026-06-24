@@ -1,0 +1,475 @@
+// Copyright zifeiyu. All rights reserved.
+// 豆芽本地AI
+
+package chat
+
+import (
+	"context"
+	"fmt"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/rs/zerolog/log"
+
+	"douya/internal/llm"
+	"douya/internal/system"
+)
+
+func (s *Service) DetectModelArchitecture() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	client := s.getClientSnapshot()
+	if client == nil {
+		return s.DetectModelArchitectureForModel("")
+	}
+	info, err := client.GetModelInfo(ctx)
+	if err != nil {
+		return s.DetectModelArchitectureForModel("")
+	}
+	return s.DetectModelArchitectureForModel(info.Name)
+}
+
+// modelKeywordConfig 定义模型关键词匹配配置
+type modelKeywordConfig struct {
+	keywords     []string
+	thinkingMode string
+	softSwitch   bool
+}
+
+// matchModelKeywords 根据配置列表按优先级匹配模型关键词，
+// 返回 (thinkingMode, supportsReasoning, softSwitchSupport)。
+// 未匹配时 thinkingMode 为 llm.ThinkingModeNone。
+func matchModelKeywords(target string, configs []modelKeywordConfig) (string, bool, bool) {
+	for _, cfg := range configs {
+		for _, kw := range cfg.keywords {
+			if strings.Contains(target, kw) {
+				return cfg.thinkingMode, true, cfg.softSwitch
+			}
+		}
+	}
+	return llm.ThinkingModeNone, false, false
+}
+
+func (s *Service) DetectModelArchitectureForModel(modelName string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// 在函数入口获取快照，避免 goroutine 中数据竞争
+	client := s.getClientSnapshot()
+	cfg := s.getConfigSnapshot()
+
+	// Parallel fetch: model info and server props
+	type infoResult struct {
+		info *llm.ModelInfo
+		err  error
+	}
+	type propsResult struct {
+		props *llm.ServerProps
+		err   error
+	}
+
+	infoCh := make(chan infoResult, 1)
+	propsCh := make(chan propsResult, 1)
+
+	// Check if we have cached props from a previous call (e.g., SwitchModel's mmproj wait)
+	s.cachedPropsMu.RLock()
+	cached := s.cachedProps
+	s.cachedPropsMu.RUnlock()
+	// Clear cache after reading (one-time use)
+	if cached != nil {
+		s.cachedPropsMu.Lock()
+		s.cachedProps = nil
+		s.cachedPropsMu.Unlock()
+	}
+
+	go func() {
+		var info *llm.ModelInfo
+		var err error
+		if client == nil {
+			infoCh <- infoResult{nil, fmt.Errorf("llm client is nil")}
+			return
+		}
+		if modelName != "" {
+			info, err = client.GetModelInfoByName(ctx, modelName)
+		} else {
+			info, err = client.GetModelInfo(ctx)
+		}
+		infoCh <- infoResult{info, err}
+	}()
+
+	go func() {
+		if cached != nil {
+			propsCh <- propsResult{cached, nil}
+			return
+		}
+		if client == nil {
+			propsCh <- propsResult{nil, fmt.Errorf("llm client is nil")}
+			return
+		}
+		props, err := client.GetServerProps(ctx, modelName)
+		propsCh <- propsResult{props, err}
+	}()
+
+	// Wait for model info (required)
+	ir := <-infoCh
+	if ir.err != nil {
+		// Drain props channel
+		<-propsCh
+		return fmt.Errorf("failed to get model info: %w", ir.err)
+	}
+	info := ir.info
+
+	// Wait for props (optional, best-effort)
+	pr := <-propsCh
+	props, propsErr := pr.props, pr.err
+
+	caps := llm.DetectCapabilities(*info)
+	var supportsReasoning bool
+	var softSwitchSupport bool
+	var mmprojLoaded bool
+	thinkingMode := llm.ThinkingModeNone
+
+	if propsErr == nil {
+		log.Info().
+			Bool("vision", props.Modalities.Vision).
+			Bool("audio", props.Modalities.Audio).
+			Bool("supports_tools", props.ChatTemplateCaps.SupportsTools).
+			Bool("supports_preserve_reasoning", props.ChatTemplateCaps.SupportsPreserveReasoning).
+			Str("build_info", props.BuildInfo).
+			Msg("[model] /props")
+
+		mmprojLoaded = props.Modalities.Vision || props.Modalities.Audio
+		caps.ImageInput = props.Modalities.Vision
+		caps.AudioInput = props.Modalities.Audio
+		caps.VideoInput = props.Modalities.Video
+
+		if props.ChatTemplateCaps.SupportsPreserveReasoning {
+			supportsReasoning = true
+			thinkingMode = llm.ThinkingModeTemplate
+		}
+		// 检测模型是否支持 tool call
+		// 优先级：/props chat_template_caps.supports_tools > chat_template_tool_use > GGUF 元数据
+		if props.ChatTemplateCaps.SupportsTools || props.ChatTemplateCaps.SupportsToolCalls {
+			caps.ToolCallSupport = true
+		} else if props.ChatTemplateToolUse != "" {
+			caps.ToolCallSupport = true
+		} else {
+			// /props 未返回原生模板，回退到 GGUF 元数据判断
+			caps.ToolCallSupport = s.detectToolCallFromGGUF()
+		}
+	} else {
+		log.Warn().Err(propsErr).Msg("[model] /props failed, using GGUF metadata as fallback")
+		caps.ToolCallSupport = s.detectToolCallFromGGUF()
+	}
+
+	if thinkingMode == llm.ThinkingModeNone {
+		// 优先使用 GGUF 元数据中的 architecture 字段推断
+		var ggufMeta *system.GGUFMetadata
+		modelPath := s.resolveModelPath(cfg.ModelPath)
+		if modelPath != "" {
+			if meta, err := system.ParseGGUFMetadataCached(modelPath); err == nil {
+				ggufMeta = meta
+			}
+		}
+		if ggufMeta != nil && ggufMeta.Architecture != "" {
+			lowerArch := strings.ToLower(ggufMeta.Architecture)
+			archConfigs := []modelKeywordConfig{
+				{keywords: []string{"qwen3", "qwen3moe", "qwen3next", "qwen3vl", "qwen3vlmoe"}, thinkingMode: llm.ThinkingModeTemplate, softSwitch: true},
+				{keywords: []string{"gemma2", "gemma4", "gemma3n", "llama4", "phi4", "mistral3", "mistral4"}, thinkingMode: llm.ThinkingModeTemplate},
+				{keywords: []string{"deepseek3", "deepseek2"}, thinkingMode: llm.ThinkingModeReasoning},
+			}
+			if mode, reasoning, soft := matchModelKeywords(lowerArch, archConfigs); mode != llm.ThinkingModeNone {
+				thinkingMode = mode
+				supportsReasoning = reasoning
+				softSwitchSupport = soft
+			}
+		}
+
+		// 兜底：文件名关键词匹配
+		if thinkingMode == llm.ThinkingModeNone {
+			lowerName := strings.ToLower(info.Name)
+			nameConfigs := []modelKeywordConfig{
+				{keywords: []string{"qwen3", "qwq", "qwen3moe", "qwen3-next", "qwen3next", "qwen3-vl", "qwen3vl", "qwen3.5", "qwen3.6"}, thinkingMode: llm.ThinkingModeTemplate, softSwitch: true},
+				{keywords: []string{"gemma-4", "gemma4", "gemma-2", "gemma-3", "gemma3", "gemma-3n", "gemma3n", "llama-4", "llama4", "mistral-small-3", "mistral-small3", "mistral-small3.1", "mistral-3", "mistral3", "mistral-4", "mistral4", "phi-4-reasoning-plus"}, thinkingMode: llm.ThinkingModeTemplate},
+				{keywords: []string{"deepseek-r1", "deepseek-v2", "deepseek-v3", "deepseek-v4", "deepseek-r", "phi-4-reasoning", "phi4-reasoning"}, thinkingMode: llm.ThinkingModeReasoning},
+			}
+			if mode, reasoning, soft := matchModelKeywords(lowerName, nameConfigs); mode != llm.ThinkingModeNone {
+				thinkingMode = mode
+				supportsReasoning = reasoning
+				softSwitchSupport = soft
+			}
+		}
+	}
+
+	s.modelCapsMu.Lock()
+	s.modelCaps = llm.ModelCapabilities{
+		ImageInput:        caps.ImageInput,
+		AudioInput:        caps.AudioInput,
+		VideoInput:        caps.VideoInput,
+		TextInput:         caps.TextInput,
+		Reasoning:         supportsReasoning,
+		MmprojLoaded:      mmprojLoaded,
+		HasMTP:            s.detectHasMTP(),
+		ThinkingMode:      thinkingMode,
+		SoftSwitchSupport: softSwitchSupport,
+		NParams:           s.resolveNParams(info.Meta.NParams),
+		ToolCallSupport:   caps.ToolCallSupport,
+	}
+	s.modelCapsMu.Unlock()
+	// FIX: Only set detectedModelName when it's empty (called from DetectModelArchitecture without model name).
+	// When called from SwitchModel, SetDetectedModelName() has already set the correct name.
+	// Do NOT overwrite with info.Name, which may differ from the user-selected model name.
+	s.detectedModelMu.Lock()
+	if s.detectedModelName == "" {
+		s.detectedModelName = info.Name
+	}
+	s.detectedModelMu.Unlock()
+	log.Info().
+		Str("name", info.Name).
+		Str("model", modelName).
+		Interface("server_caps", info.Capabilities).
+		Bool("image", caps.ImageInput).
+		Bool("audio", caps.AudioInput).
+		Bool("text", caps.TextInput).
+		Bool("reasoning", supportsReasoning).
+		Str("thinking_mode", thinkingMode).
+		Bool("soft_switch", softSwitchSupport).
+		Msg("[model] detected capabilities")
+
+	return nil
+}
+
+func (s *Service) GetDetectedModelName() string {
+	s.detectedModelMu.RLock()
+	defer s.detectedModelMu.RUnlock()
+	return s.detectedModelName
+}
+
+func (s *Service) SetDetectedModelName(name string) {
+	s.detectedModelMu.Lock()
+	s.detectedModelName = name
+	s.detectedModelMu.Unlock()
+	s.InvalidatePromptCache()
+}
+
+// SetCachedProps caches a ServerProps result for use by DetectModelArchitectureForModel,
+// avoiding a redundant HTTP call when the caller has already fetched props.
+func (s *Service) SetCachedProps(props *llm.ServerProps) {
+	s.cachedPropsMu.Lock()
+	s.cachedProps = props
+	s.cachedPropsMu.Unlock()
+}
+
+func (s *Service) InvalidatePromptCache() {
+	s.promptMu.Lock()
+	defer s.promptMu.Unlock()
+	s.sysPromptCache = ""
+	s.sysPromptDate = ""
+	s.sysPromptConfig = ""
+}
+
+func (s *Service) GetModelCapabilities() llm.ModelCapabilities {
+	s.modelCapsMu.RLock()
+	defer s.modelCapsMu.RUnlock()
+	return s.modelCaps
+}
+
+// GetThinkingSoftSwitch 获取当前思考软开关状态（前端兼容用）
+// 内部映射自 cfg.Reasoning：auto/空 → "auto"，on → "think"，off → "no_think"
+func (s *Service) GetThinkingSoftSwitch() string {
+	cfg := s.getConfigSnapshot()
+	if cfg == nil {
+		return "auto"
+	}
+	switch cfg.Reasoning {
+	case "on":
+		return "think"
+	case "off":
+		return "no_think"
+	default:
+		return "auto"
+	}
+}
+
+func (s *Service) SetModelCapabilities(caps llm.ModelCapabilities) {
+	s.modelCapsMu.Lock()
+	defer s.modelCapsMu.Unlock()
+	s.modelCaps = caps
+}
+
+func (s *Service) resolveModelPath(p string) string {
+	if p == "" {
+		return ""
+	}
+	p = filepath.Clean(p)
+	if filepath.IsAbs(p) {
+		return p
+	}
+	if s.appDir != "" {
+		return filepath.Join(s.appDir, p)
+	}
+	return p
+}
+
+func (s *Service) detectHasMTP() bool {
+	cfg := s.getConfigSnapshot()
+	if cfg == nil {
+		return false
+	}
+	modelPath := s.resolveModelPath(cfg.ModelPath)
+	if modelPath == "" {
+		return false
+	}
+	meta, err := system.ParseGGUFMetadataCached(modelPath)
+	if err != nil {
+		log.Warn().Err(err).Str("path", modelPath).Msg("[model] GGUF parse failed for MTP detection")
+		return false
+	}
+	if meta.HasMTP {
+		log.Info().Str("path", modelPath).Msg("[model] MTP support detected from GGUF metadata")
+	}
+	return meta.HasMTP
+}
+
+func (s *Service) resolveNParams(serverNParams float64) float64 {
+	if serverNParams > 0 {
+		return serverNParams
+	}
+	cfg := s.getConfigSnapshot()
+	if cfg == nil {
+		return 0
+	}
+	modelPath := s.resolveModelPath(cfg.ModelPath)
+	if modelPath == "" {
+		return 0
+	}
+	meta, err := system.ParseGGUFMetadataCached(modelPath)
+	if err != nil {
+		return 0
+	}
+	return system.ResolveNParams(0, meta)
+}
+
+// detectToolCallFromGGUF 基于 GGUF 元数据判断模型是否支持 tool call
+// 优先检查 chat_template_tool_use 字段，其次检查 ChatTemplate 中是否包含 tool 相关语法
+func (s *Service) detectToolCallFromGGUF() bool {
+	cfg := s.getConfigSnapshot()
+	if cfg == nil {
+		return false
+	}
+	modelPath := s.resolveModelPath(cfg.ModelPath)
+	if modelPath == "" {
+		return false
+	}
+	meta, err := system.ParseGGUFMetadataCached(modelPath)
+	if err != nil {
+		return false
+	}
+	// GGUF 元数据中有专门的 tool use 模板
+	if meta.ChatTemplateToolUse != "" {
+		return true
+	}
+	// 检查 ChatTemplate 中是否包含 tool 相关语法
+	if meta.ChatTemplate != "" {
+		lower := strings.ToLower(meta.ChatTemplate)
+		if strings.Contains(lower, "tool_call") || strings.Contains(lower, "tool_use") {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) applyThinkingControl(req *llm.ChatCompletionRequest) {
+	s.modelCapsMu.RLock()
+	mode := s.modelCaps.ThinkingMode
+	s.modelCapsMu.RUnlock()
+
+	if mode == llm.ThinkingModeNone {
+		return
+	}
+
+	cfg := s.getConfigSnapshot()
+	budget := 0
+	if cfg != nil {
+		budget = cfg.ReasoningBudget
+	}
+
+	// 推理模型启用 reasoning_control，允许通过 /v1/chat/completions/control 实时结束思考
+	req.ReasoningControl = true
+
+	// enable_thinking 与请求级 Reasoning 状态均由 llama-server --reasoning 启动参数统一处理，
+	// 此处仅保留 ReasoningBudget 作为请求级预算控制。
+	if budget > 0 {
+		req.ReasoningBudget = budget
+	}
+
+	// 传递请求级 reasoning 扩展字段（仅在用户显式配置时才传递，避免覆盖服务器默认值）
+	if cfg != nil {
+		if cfg.ReasoningBudgetStartTag != "" {
+			req.ReasoningBudgetStartTag = cfg.ReasoningBudgetStartTag
+		}
+		if cfg.ReasoningBudgetEndTag != "" {
+			req.ReasoningBudgetEndTag = cfg.ReasoningBudgetEndTag
+		}
+	}
+
+	// 所有 ThinkingModeTemplate 模型都需要在 chat_template_kwargs 中显式传递 enable_thinking：
+	// - --reasoning auto 时 default_template_kwargs 为空，模板可能无法正确插入思考标记
+	// - 请求级 kwargs 会覆盖服务端默认值，确保模板行为一致
+	// 对于 ThinkingModeReasoning 模型（DeepSeek），思考由服务端 reasoning 参数控制，无需 kwargs
+	if mode == llm.ThinkingModeTemplate {
+		if req.ChatTemplateKwargs == nil {
+			req.ChatTemplateKwargs = make(map[string]interface{})
+		}
+		// 根据 Reasoning 配置决定 enable_thinking 值，避免 --reasoning off 时被覆盖为 true
+		enableThinking := true
+		if cfg != nil && cfg.Reasoning == "off" {
+			enableThinking = false
+		}
+		req.ChatTemplateKwargs["enable_thinking"] = enableThinking
+	}
+}
+
+// applySamplingParams 将请求级采样参数从 Config 应用到 ChatCompletionRequest。
+// 仅在配置非空/非零时传递，避免覆盖服务器默认值。
+// 生活类比：就像厨师做菜时按需添加调料，只有客人明确要求时才加，否则用厨房的默认口味。
+func (s *Service) applySamplingParams(req *llm.ChatCompletionRequest) {
+	cfg := s.getConfigSnapshot()
+	if cfg == nil {
+		return
+	}
+	// 自定义采样器顺序（逗号分隔，如 "top_k,top_p,temperature"）
+	if cfg.Samplers != "" {
+		samplers := strings.Split(cfg.Samplers, ",")
+		for i, v := range samplers {
+			samplers[i] = strings.TrimSpace(v)
+		}
+		req.Samplers = samplers
+	}
+	// 忽略 EOS 继续生成
+	if cfg.IgnoreEos {
+		req.IgnoreEos = true
+	}
+	// 请求级 verbose（复用服务端 verbose 配置，在响应中包含调试信息）
+	if cfg.Verbose {
+		req.Verbose = true
+	}
+	// 请求级自适应采样目标（0=禁用，使用服务器启动参数）
+	if cfg.AdaptiveTarget > 0 {
+		req.AdaptiveTarget = cfg.AdaptiveTarget
+	}
+	// 请求级自适应采样衰减（0=禁用，使用服务器启动参数）
+	if cfg.AdaptiveDecay > 0 {
+		req.AdaptiveDecay = cfg.AdaptiveDecay
+	}
+}
+
+func (s *Service) modelNameForRequest() string {
+	s.detectedModelMu.RLock()
+	defer s.detectedModelMu.RUnlock()
+	if s.detectedModelName != "" {
+		return s.detectedModelName
+	}
+	return "default"
+}

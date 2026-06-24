@@ -11,15 +11,16 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AdvancedSettings: typeof import('./components/settings/AdvancedSettings.vue')['default']
     AppIcon: typeof import('./components/ui/AppIcon.vue')['default']
+    BasicSettings: typeof import('./components/settings/BasicSettings.vue')['default']
     ChatInput: typeof import('./components/ChatInput.vue')['default']
     ChatView: typeof import('./components/ChatView.vue')['default']
     ContextTrimmed: typeof import('./components/ContextTrimmed.vue')['default']
+    ExperimentalSettings: typeof import('./components/settings/ExperimentalSettings.vue')['default']
     LoraManager: typeof import('./components/LoraManager.vue')['default']
     MessageItem: typeof import('./components/MessageItem.vue')['default']
     MessageList: typeof import('./components/MessageList.vue')['default']
-    NA: typeof import('naive-ui')['NA']
-    NTag: typeof import('naive-ui')['NTag']
     NText: typeof import('naive-ui')['NText']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']

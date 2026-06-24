@@ -639,6 +639,8 @@ func DetectLanguage(content string) string { return detectLanguage(content) }
 
 // SearchResultInstruction is the exported version for testing.
 func SearchResultInstruction(lang string) string { return searchResultInstruction(lang) }
+func IsCodeRelated(query string) bool          { return isCodeRelated(query) } // Exported for testing
+func EstimateMessageTokens(m *store.Message) int         { return estimateMessageTokens(m) } // Exported for testing
 func (s *Service) doSearch(ctx context.Context, query string) *search.SearchResponse {
 	// 在锁保护下获取搜索链快照，避免数据竞争
 	chain := s.getSearchChainSnapshot()

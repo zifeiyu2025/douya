@@ -74,6 +74,10 @@
               </div>
               <div v-if="streamingContent" class="markdown-body streaming" v-html="renderedStreaming" />
               <n-spin v-else-if="!thinkingContent && !isSearching" size="small" />
+              <!-- 生成速度：仅在流式生成且有速度数据时显示，低调不抢焦点 -->
+              <div v-if="generationSpeed > 0" class="generation-speed">
+                {{ generationSpeed.toFixed(1) }} token/s
+              </div>
             </template>
             <SearchStatus v-if="isSearching" :searching="true" :results="''" :query="searchQuery" />
             <SearchStatus v-else-if="searchResults" :searching="false" :results="searchResults" :default-expanded="true" />
@@ -82,7 +86,7 @@
         </div>
       </div>
     </template>
-    <!-- 回到底部按钮：用户向上滚动后显示 -->
+    <!-- 回到底部按钮 -->
     <Transition name="scroll-bottom-fade">
       <button
         v-if="!isAutoScrollEnabled && messages && messages.length > 0"
@@ -90,8 +94,8 @@
         @click="scrollToBottom('smooth'); isAutoScrollEnabled = true"
         title="回到底部"
       >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-          <path d="M8 11.5a.75.75 0 0 1-.53-.22l-4-4a.75.75 0 0 1 1.06-1.06L8 9.69l3.47-3.47a.75.75 0 1 1 1.06 1.06l-4 4A.75.75 0 0 1 8 11.5z" />
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+          <path d="M11 5v10M7 11l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </button>
     </Transition>
@@ -146,6 +150,7 @@ const isThinking = computed(() => chatStore.isThinking)
 const thinkingDuration = computed(() => chatStore.thinkingDuration)
 const searchQuery = computed(() => chatStore.searchQuery)
 const contextTrimmed = computed(() => chatStore.contextTrimmed)
+const generationSpeed = computed(() => chatStore.generationSpeed)
 
 // 当思考完成且正文为空时，将思考内容作为正文展示（纯前端展示优化，不干预引擎输出）
 const thinkingAsContent = computed(() => {
@@ -340,6 +345,13 @@ watch(() => chatStore.lastError, (err) => {
  */
 .markdown-body.streaming {
   contain: style;
+}
+
+/* 生成速度指示器：小字号、次要颜色，不抢视觉焦点 */
+.generation-speed {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
 }
 
 /* 停止思考按钮容器：紧贴思考块下方，左对齐 */
@@ -627,45 +639,50 @@ watch(() => chatStore.lastError, (err) => {
   }
 }
 
+/* 回到底部按钮：正圆包裹箭头 */
 .scroll-to-bottom-btn {
   position: sticky;
-  bottom: 20px;
+  bottom: 24px;
   align-self: center;
-  width: 36px;
-  height: 36px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
-  border: none;
+  border: 1px solid var(--border-color);
   background: var(--bg-primary);
   color: var(--text-secondary);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
   z-index: 10;
   transition: all 0.2s ease;
 }
 
 .scroll-to-bottom-btn:hover {
   background: var(--accent-primary);
+  border-color: var(--accent-primary);
   color: #ffffff;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
 }
 
 .scroll-to-bottom-btn:active {
-  transform: translateY(0) scale(0.92);
+  transform: translateY(0) scale(0.95);
 }
 
-.scroll-bottom-fade-enter-active,
+.scroll-bottom-fade-enter-active {
+  transition: opacity 0.25s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
 .scroll-bottom-fade-leave-active {
-  transition: opacity 0.25s var(--transition-normal), transform 0.25s var(--transition-normal);
+  transition: opacity 0.15s ease;
 }
 
 .scroll-bottom-fade-enter-from,
 .scroll-bottom-fade-leave-to {
   opacity: 0;
-  transform: translateY(12px) scale(0.9);
+  transform: translateY(12px);
 }
 </style>
 
