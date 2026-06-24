@@ -45,6 +45,17 @@
             <ExperimentalSettings />
           </n-collapse-item>
 
+          <!-- ==================== 关于 ==================== -->
+          <n-collapse-item name="about">
+            <template #header>
+              <div class="settings-group-header">
+                <span class="settings-group-title">关于</span>
+                <span class="settings-group-desc">版本信息与更新</span>
+              </div>
+            </template>
+            <AboutSettings />
+          </n-collapse-item>
+
         </n-collapse>
       </n-form>
     </div>
@@ -68,6 +79,7 @@ import defaultAiAvatar from '../assets/images/appicon.png'
 import BasicSettings from '../components/settings/BasicSettings.vue'
 import AdvancedSettings from '../components/settings/AdvancedSettings.vue'
 import ExperimentalSettings from '../components/settings/ExperimentalSettings.vue'
+import AboutSettings from '../components/settings/AboutSettings.vue'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from '../components/settings/settingsContext'
 
 const settingsStore = useSettingsStore()

@@ -156,6 +156,23 @@ export interface SlotInfo {
     cache_shift: boolean
 }
 
+/** 更新信息 */
+export interface UpdateInfo {
+    has_update: boolean
+    latest_version: string
+    current_version: string
+    download_url: string
+    release_notes: string
+    published_at: string
+}
+
+/** 更新下载进度事件 */
+export interface UpdateProgressEvent {
+    percent: number
+    downloaded: number
+    total: number
+}
+
 /** 聊天消息（用于 token 计数和模板应用） */
 export interface ChatMessage {
     role: string
@@ -380,6 +397,20 @@ export const wails = {
     selectImageFile: async (): Promise<string> => {
         return (await SelectImageFile()) as string
     },
+    // 更新相关方法（后端绑定生成后可替换为直接 import）
+    getAppVersion: async (): Promise<string> => {
+        return (window as any)['go']['main']['App']['GetAppVersion']()
+    },
+    checkUpdate: async (): Promise<UpdateInfo> => {
+        return (await (window as any)['go']['main']['App']['CheckUpdate']()) as UpdateInfo
+    },
+    performUpdate: async (downloadURL: string, latestVersion: string): Promise<void> => {
+        await (window as any)['go']['main']['App']['PerformUpdate'](downloadURL, latestVersion)
+    },
+    onUpdateProgress: (callback: (progress: UpdateProgressEvent) => void) => {
+        EventsOn('update:progress', callback)
+    },
+    offUpdateProgress: () => EventsOff('update:progress'),
 } as const
 
 export type WailsService = typeof wails
