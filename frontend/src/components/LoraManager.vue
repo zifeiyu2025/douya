@@ -16,20 +16,28 @@
             </svg>
             <span class="path-value">{{ path || '点击选择文件...' }}</span>
           </div>
-          <button class="lora-path-remove" @click="removePath(index)" title="移除">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </button>
+          <n-button quaternary circle size="tiny" class="lora-path-remove" @click="removePath(index)" title="移除">
+            <template #icon>
+              <n-icon size="14">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </n-icon>
+            </template>
+          </n-button>
         </div>
       </div>
 
-      <button class="lora-add-btn" @click="handleAddPath">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-        </svg>
+      <n-button type="primary" size="small" ghost class="lora-add-btn" @click="handleAddPath">
+        <template #icon>
+          <n-icon size="14">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </n-icon>
+        </template>
         添加 LoRA 适配器
-      </button>
+      </n-button>
 
       <!-- 重启提示 -->
       <Transition name="lora-hint">
@@ -47,12 +55,16 @@
     <div class="lora-section" style="margin-top: 16px;">
       <div class="section-header">
         <span class="section-title">运行时状态</span>
-        <button class="lora-refresh-btn" :class="{ spinning: loading }" @click="loadAdapters" title="刷新">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-          </svg>
-        </button>
+        <n-button quaternary circle size="tiny" class="lora-refresh-btn" :class="{ spinning: loading }" @click="loadAdapters" title="刷新">
+          <template #icon>
+            <n-icon size="14">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              </svg>
+            </n-icon>
+          </template>
+        </n-button>
       </div>
 
       <!-- 错误提示 -->
@@ -319,48 +331,18 @@ onMounted(() => {
 }
 
 .lora-path-remove {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
   flex-shrink: 0;
-  transition: all 0.15s;
 }
 
 .lora-path-remove:hover {
-  background: rgba(250, 81, 81, 0.1);
   color: var(--accent-danger);
 }
 
 /* ===== 添加按钮 ===== */
 
 .lora-add-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
   width: 100%;
-  padding: 8px 0;
   margin-top: 8px;
-  border: 1px dashed var(--border-color);
-  border-radius: var(--border-radius-md, 12px);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.lora-add-btn:hover {
-  border-color: var(--accent-primary);
-  color: var(--accent-primary);
-  background: rgba(7, 193, 96, 0.04);
 }
 
 /* ===== 提示信息 ===== */
@@ -401,26 +383,7 @@ onMounted(() => {
 
 /* ===== 刷新按钮 ===== */
 
-.lora-refresh-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.lora-refresh-btn:hover {
-  border-color: var(--accent-primary);
-  color: var(--accent-primary);
-}
-
-.lora-refresh-btn.spinning svg {
+.lora-refresh-btn.spinning :deep(svg) {
   animation: spin 0.8s linear infinite;
 }
 

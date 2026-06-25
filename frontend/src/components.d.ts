@@ -11,6 +11,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AboutSettings: typeof import('./components/settings/AboutSettings.vue')['default']
     AdvancedSettings: typeof import('./components/settings/AdvancedSettings.vue')['default']
     AppIcon: typeof import('./components/ui/AppIcon.vue')['default']
     BasicSettings: typeof import('./components/settings/BasicSettings.vue')['default']
@@ -21,13 +22,14 @@ declare module 'vue' {
     LoraManager: typeof import('./components/LoraManager.vue')['default']
     MessageItem: typeof import('./components/MessageItem.vue')['default']
     MessageList: typeof import('./components/MessageList.vue')['default']
+    NButton: typeof import('naive-ui')['NButton']
+    NIcon: typeof import('naive-ui')['NIcon']
     NText: typeof import('naive-ui')['NText']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SearchStatus: typeof import('./components/SearchStatus.vue')['default']
     ServerConsole: typeof import('./components/ServerConsole.vue')['default']
     Sidebar: typeof import('./components/Sidebar.vue')['default']
-    SlotStatus: typeof import('./components/SlotStatus.vue')['default']
     SplashScreen: typeof import('./components/ui/SplashScreen.vue')['default']
     TerminalConsole: typeof import('./components/TerminalConsole.vue')['default']
     ThinkBlock: typeof import('./components/ThinkBlock.vue')['default']

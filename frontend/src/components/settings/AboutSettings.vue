@@ -51,7 +51,7 @@
       <!-- 空闲状态 -->
       <div v-if="updateStatus === 'idle'" class="update-row">
         <span class="update-current">当前版本：v{{ currentVersion }}</span>
-        <n-button type="primary" size="small" @click="handleCheckUpdate">
+        <n-button type="primary" size="small" ghost @click="handleCheckUpdate">
           检查更新
         </n-button>
       </div>
@@ -74,7 +74,7 @@
           <span class="update-info">
             新版本：<span class="version-highlight">v{{ updateInfo?.latest_version }}</span>
           </span>
-          <n-button type="primary" size="small" @click="handlePerformUpdate">
+          <n-button type="primary" size="small" ghost @click="handlePerformUpdate">
             立即更新
           </n-button>
         </div>
@@ -111,7 +111,7 @@
       <div v-else-if="updateStatus === 'error'" class="update-row">
         <n-icon size="18" color="var(--error-color, #d03050)"><CloseCircleOutline /></n-icon>
         <span class="update-status-text update-error">{{ errorMessage }}</span>
-        <n-button size="small" @click="handleCheckUpdate">重试</n-button>
+        <n-button type="primary" size="small" ghost @click="handleCheckUpdate">重试</n-button>
       </div>
     </div>
   </div>

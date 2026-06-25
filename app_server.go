@@ -87,10 +87,10 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		contextSize = cfg.ContextSize
 	}
 
+	// SleepIdleSeconds：尊重用户显式设置
+	// -1 表示禁用空闲休眠（与 llama.cpp 9793 默认值对齐），0 视为未设置也禁用
+	// server.go 中通过 > 0 判断是否传参，所以 -1/0 都不会传 --sleep-idle-seconds
 	sleepIdle := cfg.SleepIdleSeconds
-	if sleepIdle <= 0 {
-		sleepIdle = 120
-	}
 	modelsMax := cfg.ModelsMax
 	if modelsMax <= 0 {
 		modelsMax = 1

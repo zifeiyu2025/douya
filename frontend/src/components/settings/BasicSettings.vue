@@ -12,7 +12,7 @@
             <span class="hover-hint">点击更改</span>
           </div>
           <div class="upload-actions">
-            <n-button size="small" text @click.stop="clearBackground">清除</n-button>
+            <n-button type="primary" size="small" ghost @click.stop="clearBackground">清除</n-button>
           </div>
         </div>
     </div>
@@ -34,9 +34,9 @@
           :custom-request="handleUserAvatarUpload"
           accept="image/*"
         >
-          <n-button size="small" quaternary>上传</n-button>
+          <n-button type="primary" size="small" ghost>上传</n-button>
         </n-upload>
-        <n-button size="small" text @click="clearUserAvatar" v-if="formConfig.user_avatar">清除</n-button>
+        <n-button type="primary" size="small" ghost @click="clearUserAvatar" v-if="formConfig.user_avatar">清除</n-button>
       </div>
     </div>
   </n-form-item>
@@ -52,9 +52,9 @@
           :custom-request="handleAIAvatarUpload"
           accept="image/*"
         >
-          <n-button size="small" quaternary>上传</n-button>
+          <n-button type="primary" size="small" ghost>上传</n-button>
         </n-upload>
-        <n-button size="small" text @click="clearAIAvatar" v-if="formConfig.ai_avatar">清除</n-button>
+        <n-button type="primary" size="small" ghost @click="clearAIAvatar" v-if="formConfig.ai_avatar">清除</n-button>
       </div>
     </div>
   </n-form-item>
@@ -93,16 +93,22 @@
       <span class="model-ref-current" v-if="settingsStore.currentModel">当前: {{ settingsStore.currentModel }}</span>
     </div>
     <div v-if="currentModelRef.raw_thinking" class="model-ref-tabs">
-      <button
+      <n-button
+        :type="!refShowThinking ? 'primary' : 'default'"
+        ghost
+        size="small"
         class="model-ref-tab"
         :class="{ active: !refShowThinking }"
         @click="refShowThinking = false"
-      >非思考模式</button>
-      <button
+      >非思考模式</n-button>
+      <n-button
+        :type="refShowThinking ? 'primary' : 'default'"
+        ghost
+        size="small"
         class="model-ref-tab"
         :class="{ active: refShowThinking }"
         @click="refShowThinking = true"
-      >思考模式</button>
+      >思考模式</n-button>
     </div>
     <div class="model-ref-body">
       <template v-if="!refShowThinking">
@@ -119,7 +125,7 @@
       </template>
       <div v-if="currentModelRef.note" class="model-ref-note">{{ currentModelRef.note }}</div>
     </div>
-    <n-button size="tiny" quaternary class="model-ref-apply" @click="applyModelRef">
+    <n-button type="primary" size="small" ghost class="model-ref-apply" @click="applyModelRef">
       应用参考参数
     </n-button>
   </div>
@@ -128,25 +134,25 @@
     <template #label>温度 <HelpTip content="控制回答的随机性。值越低越确定保守，值越高越多样创意。一般 0.3-0.8 之间" /></template>
     <n-slider v-model:value="formConfig.temperature" :min="0" :max="2" :step="0.01" />
     <span class="slider-value">{{ formConfig.temperature }}</span>
-    <n-button v-if="currentModelRef" quaternary size="tiny" class="reset-btn" @click="formConfig.temperature = activeModelRefRaw.temperature">{{ activeModelRefRaw.temperature }}</n-button>
+    <n-button v-if="currentModelRef" type="primary" size="small" ghost class="reset-btn" @click="formConfig.temperature = activeModelRefRaw.temperature">{{ activeModelRefRaw.temperature }}</n-button>
   </n-form-item>
   <n-form-item>
     <template #label>Top P <HelpTip content="从概率最高的候选词中筛选，只考虑累计概率达到此阈值的词。0.95 表示保留前 95% 概率的词" /></template>
     <n-slider v-model:value="formConfig.top_p" :min="0" :max="1" :step="0.01" />
     <span class="slider-value">{{ formConfig.top_p }}</span>
-    <n-button v-if="currentModelRef" quaternary size="tiny" class="reset-btn" @click="formConfig.top_p = activeModelRefRaw.top_p">{{ activeModelRefRaw.top_p }}</n-button>
+    <n-button v-if="currentModelRef" type="primary" size="small" ghost class="reset-btn" @click="formConfig.top_p = activeModelRefRaw.top_p">{{ activeModelRefRaw.top_p }}</n-button>
   </n-form-item>
   <n-form-item>
     <template #label>Top K <HelpTip content="只从概率最高的 K 个候选词中选择。值越小选择越少越确定，0 表示不限制" /></template>
     <n-slider v-model:value="formConfig.top_k" :min="0" :max="100" :step="1" />
     <span class="slider-value">{{ formConfig.top_k }}</span>
-    <n-button v-if="currentModelRef" quaternary size="tiny" class="reset-btn" @click="formConfig.top_k = activeModelRefRaw.top_k">{{ activeModelRefRaw.top_k }}</n-button>
+    <n-button v-if="currentModelRef" type="primary" size="small" ghost class="reset-btn" @click="formConfig.top_k = activeModelRefRaw.top_k">{{ activeModelRefRaw.top_k }}</n-button>
   </n-form-item>
   <n-form-item>
     <template #label>上下文长度 <HelpTip content="模型能记住的对话历史 token 数。值越大记忆越长但占用显存越多，超过模型支持的最大值会被自动截断" /></template>
     <n-slider v-model:value="contextSizeIndex" :min="0" :max="contextSizeSteps.length - 1" :step="1" :marks="contextSizeMarks" />
     <span class="slider-value">{{ formatContextSize(formConfig.context_size) }}</span>
-    <n-button v-if="currentModelRef" quaternary size="tiny" class="reset-btn" @click="applyContextSizeRef">{{ formatContextSize(activeModelRefRaw.context_size) }}</n-button>
+    <n-button v-if="currentModelRef" type="primary" size="small" ghost class="reset-btn" @click="applyContextSizeRef">{{ formatContextSize(activeModelRefRaw.context_size) }}</n-button>
   </n-form-item>
   <n-form-item>
     <template #label>重复惩罚 <HelpTip content="大于 1 时惩罚重复内容，防止 AI 反复说同样的话。1.0 表示不惩罚" /></template>
@@ -324,12 +330,14 @@ const {
   user-select: none;
 }
 
-:deep(.upload-actions .n-button.n-button--text) {
+:deep(.upload-actions .n-button.n-button--ghost) {
   color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.6);
 }
 
-:deep(.upload-actions .n-button.n-button--text:hover) {
-  color: var(--accent-primary);
+:deep(.upload-actions .n-button.n-button--ghost:hover) {
+  color: #ffffff;
+  border-color: #ffffff;
   background: rgba(255, 255, 255, 0.15);
 }
 
@@ -400,8 +408,6 @@ const {
 
 .reset-btn {
   margin-left: 4px;
-  font-size: 11px;
-  color: var(--text-muted);
   min-width: 32px;
 }
 
@@ -472,7 +478,6 @@ const {
 
 .model-ref-apply {
   width: 100%;
-  border-top: 1px solid var(--border-color);
   border-radius: 0 0 var(--border-radius-md) var(--border-radius-md);
 }
 
@@ -483,24 +488,11 @@ const {
 }
 
 .model-ref-tab {
-  padding: 6px 14px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  cursor: pointer;
-  transition: all 0.2s;
+  border-radius: 0;
 }
 
 .model-ref-tab.active {
-  color: var(--accent-primary);
-  border-bottom-color: var(--accent-primary);
   font-weight: 600;
-}
-
-.model-ref-tab:hover:not(.active) {
-  color: var(--text-primary);
 }
 
 .gen-params-save-row {

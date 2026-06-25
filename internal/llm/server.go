@@ -21,6 +21,25 @@ import (
 const vramCheckInterval = 500 * time.Millisecond
 const vramCheckTimeout = 15
 
+// allowedCacheTypes 列出 llama.cpp 9793 允许的 KV cache 类型
+// 已删除的类型：q2_k, q3_k, q4_k, q5_k, q6_k, iq4_xs
+var allowedCacheTypes = map[string]bool{
+	"f32":    true,
+	"f16":    true,
+	"bf16":   true,
+	"q8_0":   true,
+	"q4_0":   true,
+	"q4_1":   true,
+	"iq4_nl": true,
+	"q5_0":   true,
+	"q5_1":   true,
+}
+
+// isValidCacheType 校验 cache 类型是否被 9793 支持
+func isValidCacheType(t string) bool {
+	return allowedCacheTypes[strings.ToLower(t)]
+}
+
 type ServerConfig struct {
 	ModelsDir        string
 	MmprojAuto       bool
@@ -120,7 +139,7 @@ type ServerConfig struct {
 	MtmdBatchMaxTokens int // 图像编码每个 batch 的最大 token 数（默认 1024）
 	// 自适应采样（llama.cpp 新增，动态调整采样参数）
 	AdaptiveTarget float64 // 自适应采样目标概率（0-1，默认 0.0=禁用）
-	AdaptiveDecay  float64 // 自适应采样衰减率（0-1，默认 0.5）
+	AdaptiveDecay  float64 // 自适应采样衰减率（0-1，默认 0.90）
 	// 模型标签（逗号分隔，用于 /v1/models 返回的 tags 字段）
 	Tags string
 	// 媒体路径（多模态模型额外媒体文件目录）
@@ -247,10 +266,18 @@ func (s *Server) Start() error {
 		args = append(args, "--flash-attn", s.config.FlashAttn)
 	}
 	if s.config.CacheTypeK != "" {
-		args = append(args, "--cache-type-k", s.config.CacheTypeK)
+		if isValidCacheType(s.config.CacheTypeK) {
+			args = append(args, "--cache-type-k", s.config.CacheTypeK)
+		} else {
+			log.Warn().Str("type", s.config.CacheTypeK).Msg("[server] unsupported cache type, skipping --cache-type-k (9793 removed q2_k/q3_k/q4_k/q5_k/q6_k/iq4_xs)")
+		}
 	}
 	if s.config.CacheTypeV != "" {
-		args = append(args, "--cache-type-v", s.config.CacheTypeV)
+		if isValidCacheType(s.config.CacheTypeV) {
+			args = append(args, "--cache-type-v", s.config.CacheTypeV)
+		} else {
+			log.Warn().Str("type", s.config.CacheTypeV).Msg("[server] unsupported cache type, skipping --cache-type-v (9793 removed q2_k/q3_k/q4_k/q5_k/q6_k/iq4_xs)")
+		}
 	}
 	if s.config.Mlock {
 		args = append(args, "--mlock")
@@ -394,10 +421,18 @@ func (s *Server) Start() error {
 		args = append(args, "--spec-draft-n-min", fmt.Sprintf("%d", s.config.SpecDraftNMin))
 	}
 	if s.config.CacheTypeKDraft != "" && !s.mtpFallbackDisabled {
-		args = append(args, "--spec-draft-type-k", s.config.CacheTypeKDraft)
+		if isValidCacheType(s.config.CacheTypeKDraft) {
+			args = append(args, "--spec-draft-type-k", s.config.CacheTypeKDraft)
+		} else {
+			log.Warn().Str("type", s.config.CacheTypeKDraft).Msg("[server] unsupported cache type, skipping --spec-draft-type-k (9793 removed q2_k/q3_k/q4_k/q5_k/q6_k/iq4_xs)")
+		}
 	}
 	if s.config.CacheTypeVDraft != "" && !s.mtpFallbackDisabled {
-		args = append(args, "--spec-draft-type-v", s.config.CacheTypeVDraft)
+		if isValidCacheType(s.config.CacheTypeVDraft) {
+			args = append(args, "--spec-draft-type-v", s.config.CacheTypeVDraft)
+		} else {
+			log.Warn().Str("type", s.config.CacheTypeVDraft).Msg("[server] unsupported cache type, skipping --spec-draft-type-v (9793 removed q2_k/q3_k/q4_k/q5_k/q6_k/iq4_xs)")
+		}
 	}
 	if s.config.SpecNgramModNMin > 0 && s.config.SpecType == "ngram-mod" {
 		args = append(args, "--spec-ngram-mod-n-min", fmt.Sprintf("%d", s.config.SpecNgramModNMin))

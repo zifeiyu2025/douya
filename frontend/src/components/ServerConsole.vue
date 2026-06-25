@@ -21,9 +21,6 @@
             <TerminalConsole ref="terminalRef" />
           </div>
         </n-tab-pane>
-        <n-tab-pane name="slots" tab="Slot 状态">
-          <SlotStatus />
-        </n-tab-pane>
       </n-tabs>
     </n-drawer-content>
   </n-drawer>
@@ -33,11 +30,10 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { NDrawer, NDrawerContent, NButton, NCheckbox, NTabs, NTabPane, useMessage } from 'naive-ui'
 import { wails } from '../services/wails'
-import SlotStatus from './SlotStatus.vue'
 import TerminalConsole from './TerminalConsole.vue'
 
 const visible = ref(false)
-const activeTab = ref<'logs' | 'slots'>('logs')
+const activeTab = ref<'logs'>('logs')
 const paused = ref(false)
 const isConPTY = ref(false)
 const terminalRef = ref<InstanceType<typeof TerminalConsole>>()
