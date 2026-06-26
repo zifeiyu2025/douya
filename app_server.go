@@ -524,6 +524,11 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 			case <-ticker.C:
 			}
 
+			// 正在生成时跳过轮询，避免与生成请求争用 HTTP 连接池
+			if a.service != nil && a.service.IsGenerating() {
+				continue
+			}
+
 			// 不在切换中且 serverReady 为 true 时才检查
 			if a.isSwitching.Load() || !a.serverReady.Load() {
 				continue

@@ -173,6 +173,7 @@ type Server struct {
 	stderrBuf            *RingBuffer
 	mtpFallbackDisabled  bool
 	lastStartTime        time.Time
+	cmdEnv               []string                  // 安全传递给子进程的环境变量（如 API Key）
 	onLog                func(line string)          // 日志行回调（用于实时推送到前端）
 	onTerminalData       func(data []byte)          // 终端原始字节流回调（用于 xterm.js 渲染）
 }
@@ -237,6 +238,9 @@ func (s *Server) Start() error {
 		"--port", fmt.Sprintf("%d", s.config.Port),
 		"--jinja",
 		"--fit", "on",
+		// 禁用 llama-server 自带的 Web UI：豆芽有自己的 Vue 前端，不使用原生 webui。
+		// 好处：减少不必要的 HTTP 路由和静态资源占用，避免用户误访问原生 webui 造成混淆。
+		"--no-webui",
 	}
 
 	// 根据配置决定绑定地址：暴露则 0.0.0.0（局域网可访问），否则 127.0.0.1（仅本机）
@@ -408,8 +412,11 @@ func (s *Server) Start() error {
 		args = append(args, "--parallel", fmt.Sprintf("%d", s.config.Parallel))
 	}
 	args = append(args, "--timeout", "900")
+	// 安全：API Key 通过环境变量传递，而非命令行参数
+	// 基于 GO-CONFIG-001 安全实践：避免命令行参数被同权限进程通过 tasklist/WMI 读取
+	// llama-server 支持 LLAMA_API_KEY 环境变量（见 llama.cpp/tools/server/README.md）
 	if s.config.APIKey != "" {
-		args = append(args, "--api-key", s.config.APIKey)
+		s.cmdEnv = append(s.cmdEnv, "LLAMA_API_KEY="+s.config.APIKey)
 	}
 	if s.config.SpecType != "" && !s.mtpFallbackDisabled {
 		args = append(args, "--spec-type", s.config.SpecType)
@@ -645,6 +652,9 @@ func (s *Server) Start() error {
 		}
 	}
 	filtered = append(filtered, "PATH="+newPath)
+	// 追加安全传递的环境变量（如 API Key）
+	// 基于 GO-CONFIG-001 安全实践：通过环境变量而非命令行参数传递敏感信息
+	filtered = append(filtered, s.cmdEnv...)
 
 	s.lastStartTime = time.Now()
 

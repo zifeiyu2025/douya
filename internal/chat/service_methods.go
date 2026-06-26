@@ -14,11 +14,31 @@ import (
 )
 
 // StopGeneration stops the current generation (if any).
+// 优先通过 DELETE /v1/stream/:conv_id 优雅停止（让 llama-server 立即停止推理并释放资源），
+// 同时取消 context 作为兜底确保连接断开。
+// 生活类比：就像挂断电话，先礼貌地说"再见"让对方停止说话，然后挂断线路
 func (s *Service) StopGeneration() {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	if s.currentCancel != nil {
-		s.currentCancel()
+
+	convID := s.currentConvID
+	cancelFn := s.currentCancel
+
+	// 优先调用 DELETE 端点优雅停止（基于 SSE Replay Buffer 功能）
+	if convID != "" {
+		client := s.getClientSnapshot()
+		if client != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := client.DeleteStream(ctx, convID); err != nil {
+				log.Debug().Err(err).Str("conv_id", convID).Msg("[chat] DeleteStream failed, falling back to context cancel")
+			}
+			cancel()
+		}
+	}
+
+	// 兜底：取消 context 确保连接断开
+	if cancelFn != nil {
+		cancelFn()
 		s.currentCancel = nil
 	}
 }

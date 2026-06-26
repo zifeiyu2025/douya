@@ -46,7 +46,7 @@ export const useChatStore = defineStore('chat', () => {
     const convStreamingStates = reactive(new Map<string, ConvStreamingState>())
     const isLoadingConversations = ref(false)
     const waitingFirstToken = ref(false)
-    // 生成速度（tokens/s），由后端 generation_speed 事件实时推送，0 表示未获取
+    // 生成速度（tokens/s），由后端 token_speed 事件实时推送（每 500ms 降频），0 表示未获取
     const generationSpeed = ref(0)
 
     // ----- 集中 timer 管理（防止泄漏/竞态） -----
@@ -289,7 +289,8 @@ export const useChatStore = defineStore('chat', () => {
         }
     }
 
-    /** 处理 token_speed 事件：实时更新生成速度 */
+    /** 处理 token_speed 事件：实时更新生成速度（会话级 + 全局）
+     *  合并了原 generation_speed 事件的功能，后端每 500ms 降频发射一次 */
     function handleTokenSpeed(convId: string, content: any) {
         const state = getConvState(convId)
         try {
@@ -297,26 +298,14 @@ export const useChatStore = defineStore('chat', () => {
             if (typeof c === 'string') {
                 try { c = JSON.parse(c) } catch { return }
             }
-            const data = c as { tokensPerSecond?: number; predictedN?: number }
+            const data = c as { tokensPerSecond?: number; predictedN?: number; tokens_per_second?: number }
             if (data.tokensPerSecond && data.tokensPerSecond > 0) {
                 state.tokensPerSecond = data.tokensPerSecond
                 state.predictedN = data.predictedN || 0
-            }
-        } catch { /* 忽略解析错误 */ }
-    }
-
-    /** 处理 generation_speed 事件：更新全局生成速度（tokens/s） */
-    function handleGenerationSpeed(convId: string, content: any) {
-        // 仅更新当前正在生成的会话速度，避免后台会话事件覆盖前台显示
-        if (convId !== generatingConvId.value && convId !== '') return
-        try {
-            let c: unknown = content
-            if (typeof c === 'string') {
-                try { c = JSON.parse(c) } catch { return }
-            }
-            const data = c as { tokens_per_second?: number }
-            if (data.tokens_per_second && data.tokens_per_second > 0) {
-                generationSpeed.value = data.tokens_per_second
+                // 同时更新全局生成速度（原 generation_speed 事件功能，仅当前生成会话）
+                if (convId === generatingConvId.value || convId === '') {
+                    generationSpeed.value = data.tokens_per_second || data.tokensPerSecond
+                }
             }
         } catch { /* 忽略解析错误 */ }
     }
@@ -474,7 +463,6 @@ export const useChatStore = defineStore('chat', () => {
         search_start: (id, c) => handleSearchStart(id, c),
         search_result: (id, c) => handleSearchResult(id, c),
         token_speed: (id, c) => handleTokenSpeed(id, c),
-        generation_speed: (id, c) => handleGenerationSpeed(id, c),
         prompt_progress: (id, c) => handlePromptProgress(id, c),
         done: (id) => { void handleTerminalAsync(id) },
         stopped: (id) => { void handleTerminalAsync(id) },

@@ -415,7 +415,9 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 
 		acc.resetForNextCall()
 		toolCtx, toolCancel := context.WithTimeout(cancelCtx, 300*time.Second)
-		err := client.StreamChat(toolCtx, req, acc.callback())
+		// tool call 每轮使用独立的 convID，避免 SSE Replay Buffer 冲突
+		toolConvID := fmt.Sprintf("%s::round%d", convID, round)
+		err := client.StreamChatWithConvID(toolCtx, req, toolConvID, acc.callback())
 		toolCancel()
 		if err != nil {
 			if cancelCtx.Err() == context.Canceled {
@@ -453,7 +455,8 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 
 				retryCtx, retryCancel := context.WithTimeout(cancelCtx, 300*time.Second)
 				defer retryCancel()
-				retryErr := client.StreamChat(retryCtx, req, acc.callback())
+				retryConvID := fmt.Sprintf("%s::round%d::retry", convID, round)
+				retryErr := client.StreamChatWithConvID(retryCtx, req, retryConvID, acc.callback())
 				if retryErr != nil {
 					if cancelCtx.Err() == context.Canceled {
 						s.savePartialContentIfAny(convID, acc)
@@ -630,18 +633,37 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 
 func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llmMessages []llm.ChatMessage, searchMode string, _ string, titleContent string, searchResp *search.SearchResponse) error {
 	acc := NewStreamAccumulator(convID, s.emit, s.emitForConv)
-	// 设置 timings 回调，实时推送 token 速度到前端
+	// 降频控制：token 速度每 500ms 发射一次，prompt 进度每 200ms 发射一次
+	// 生活类比：就像汽车仪表盘的速度表，不需要每毫秒刷新，每 500ms 跳一下数字人眼完全看不出来差异
+	// 但能把每 token 一次 IPC 降低到每秒 2 次，高速生成（100+ t/s）时开销降低 98%
+	var lastSpeedEmit time.Time
+	const speedEmitInterval = 500 * time.Millisecond
+	var lastProgressEmit time.Time
+	const progressEmitInterval = 200 * time.Millisecond
+
+	// 设置 timings 回调：合并原 token_speed + generation_speed 为单一事件
+	// payload 同时包含两种字段命名，前端 handleTokenSpeed 一次性更新会话级和全局速度
 	acc.OnTimings = func(timings llm.SSETimings) {
+		now := time.Now()
+		if now.Sub(lastSpeedEmit) < speedEmitInterval {
+			return
+		}
+		lastSpeedEmit = now
 		s.emitForConv(convID, "token_speed", map[string]interface{}{
-			"tokensPerSecond": timings.PredictedPerSecond,
-			"predictedN":      timings.PredictedN,
-		})
-		// 推送生成速度统计到前端（事件名 generation_speed）
-		s.emitForConv(convID, "generation_speed", map[string]interface{}{
-			"tokens_per_second": timings.PredictedPerSecond,
+			"tokensPerSecond":   timings.PredictedPerSecond,
+			"predictedN":        timings.PredictedN,
+			"tokens_per_second": timings.PredictedPerSecond, // 兼容原 generation_speed 消费者
 		})
 	}
 	acc.OnPromptProgress = func(progress llm.SSEPromptProgress) {
+		if progress.Processed <= 0 {
+			return
+		}
+		now := time.Now()
+		if now.Sub(lastProgressEmit) < progressEmitInterval {
+			return
+		}
+		lastProgressEmit = now
 		s.emitForConv(convID, "prompt_progress", map[string]interface{}{
 			"total":     progress.Total,
 			"cache":     progress.Cache,
@@ -696,7 +718,9 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 		return innerCallback(chunk)
 	}
 
-	err := client.StreamChat(streamCtx, req, wrappedCallback)
+	// 启用 SSE Replay Buffer：传入 convID 让 llama-server 缓冲 SSE 字节
+	// 当 HTTP 连接断开但 llama-server 仍在运行时，可通过 GET /v1/stream/:conv_id 恢复
+	err := client.StreamChatWithConvID(streamCtx, req, convID, wrappedCallback)
 
 	if err != nil {
 		if cancelCtx.Err() == context.Canceled {
@@ -734,7 +758,8 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 			retryCtx, retryCancel := context.WithTimeout(cancelCtx, 300*time.Second)
 			defer retryCancel()
 
-			retryErr := client.StreamChat(retryCtx, req, acc.callback())
+			retryConvID := convID + "::retry"
+			retryErr := client.StreamChatWithConvID(retryCtx, req, retryConvID, acc.callback())
 			if retryErr != nil {
 				if cancelCtx.Err() == context.Canceled {
 					s.savePartialContentIfAny(convID, acc)

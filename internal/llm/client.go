@@ -83,6 +83,14 @@ func (c *Client) SetAuthHeader(req *http.Request) {
 }
 
 func (c *Client) StreamChat(ctx context.Context, req *ChatCompletionRequest, onToken func(chunk SSEChunk) error) error {
+	return c.StreamChatWithConvID(ctx, req, "", onToken)
+}
+
+// StreamChatWithConvID 发起流式聊天请求，可选通过 convID 启用 SSE Replay Buffer
+// 当 convID 非空时，设置 X-Conversation-Id header，llama-server 会缓冲 SSE 字节，
+// 客户端断线后可通过 GET /v1/stream/:conv_id 重放恢复（TTL 5分钟，缓冲区 4MB）
+// 生活类比：就像看视频时开启"断点续播"功能，网络断了也能从上次的位置继续
+func (c *Client) StreamChatWithConvID(ctx context.Context, req *ChatCompletionRequest, convID string, onToken func(chunk SSEChunk) error) error {
 	req.Stream = true
 	req.StreamOptions = &StreamOptions{IncludeUsage: true}
 
@@ -96,6 +104,10 @@ func (c *Client) StreamChat(ctx context.Context, req *ChatCompletionRequest, onT
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	// 启用 SSE Replay Buffer：服务端缓冲 SSE 字节，支持断线重连
+	if convID != "" {
+		httpReq.Header.Set("X-Conversation-Id", convID)
+	}
 	c.setAuthHeader(httpReq)
 
 	resp, err := c.streamClient.Do(httpReq)
@@ -1595,4 +1607,35 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 	}
 
 	return fmt.Errorf("model %s did not become loaded within %v", modelName, timeout)
+}
+
+// DeleteStream 调用 DELETE /v1/stream/:conv_id 停止指定会话的流式生成
+// 基于 llama.cpp SSE Replay Buffer 功能（b9809+）
+// 生活类比：就像挂断电话，不仅自己不听，还告诉对方也不用继续说了
+// 返回 nil 表示成功停止（包括会话不存在的情况，幂等操作）
+func (c *Client) DeleteStream(ctx context.Context, convID string) error {
+	if convID == "" {
+		return nil
+	}
+	reqURL := c.baseURL + "/v1/stream/" + url.PathEscape(convID)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, reqURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create delete stream request: %w", err)
+	}
+	c.setAuthHeader(httpReq)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("delete stream request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// 204 No Content 表示成功；404 表示会话不存在（幂等，视为成功）
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusNotFound {
+		body, _ := readBody(resp.Body)
+		return fmt.Errorf("delete stream returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	log.Debug().Str("conv_id", convID).Msg("[client] DeleteStream: stream stopped")
+	return nil
 }

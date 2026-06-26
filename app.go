@@ -200,10 +200,15 @@ func resolvePath(p string) string {
 	baseDir := appDir()
 	candidate := filepath.Join(baseDir, p)
 	// 验证结果路径仍在基准目录内
+	// 基于 GO-PATH-001 安全实践：使用分隔符前缀避免兄弟目录绕过
 	absCandidate, err := filepath.Abs(candidate)
-	if err == nil && !strings.HasPrefix(absCandidate, baseDir) {
-		zlog.Warn().Str("path", p).Str("baseDir", baseDir).Msg("[resolvePath] path traversal detected")
-		return filepath.Join(baseDir, filepath.Base(p))
+	if err == nil {
+		// 检查路径是否在 baseDir 内（精确匹配 baseDir 或以 baseDir+分隔符开头）
+		// 避免如 baseDir="C:\app" 时 "C:\app-evil" 通过 HasPrefix 检查
+		if absCandidate != baseDir && !strings.HasPrefix(absCandidate, baseDir+string(filepath.Separator)) {
+			zlog.Warn().Str("path", p).Str("baseDir", baseDir).Msg("[resolvePath] path traversal detected")
+			return filepath.Join(baseDir, filepath.Base(p))
+		}
 	}
 	if _, err := os.Stat(candidate); err == nil {
 		return candidate

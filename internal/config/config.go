@@ -212,7 +212,7 @@ func DefaultConfig() *Config {
 		GrpAttnN:          0,
 		GrpAttnW:          0,
 		Jinja:             nil,
-		CachePrompt:       nil,
+		CachePrompt:       boolPtr(true), // 显式启用 prompt 缓存，多轮对话时复用前缀 KV，降低首 token 延迟
 		Metrics:           false,
 		Verbose:           false,
 		SpecDraftThreads:      0,
@@ -286,6 +286,9 @@ func DefaultConfig() *Config {
 		LoraPaths:             "",
 	}
 }
+
+// boolPtr 返回指向 b 的指针，用于 *bool 类型配置字段的默认值
+func boolPtr(b bool) *bool { return &b }
 
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)

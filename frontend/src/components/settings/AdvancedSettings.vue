@@ -14,7 +14,7 @@
     </div>
     <template #feedback>
       <span class="api-key-hint">
-        获取地址：<n-a href="https://ollama.com/settings/keys" target="_blank">https://ollama.com/settings/keys</n-a>
+        获取地址：<n-a href="https://ollama.com/settings/keys" target="_blank" rel="noopener noreferrer">https://ollama.com/settings/keys</n-a>
       </span>
     </template>
   </n-form-item>
@@ -33,7 +33,7 @@
     </div>
     <template #feedback>
       <span class="api-key-hint">
-        获取地址：<n-a href="https://app.tavily.com/" target="_blank">https://app.tavily.com/</n-a>
+        获取地址：<n-a href="https://app.tavily.com/" target="_blank" rel="noopener noreferrer">https://app.tavily.com/</n-a>
         （免费额度 1000 次/月）
       </span>
     </template>

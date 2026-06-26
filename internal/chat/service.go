@@ -78,6 +78,14 @@ func (s *Service) CurrentConvID() string {
 	return s.currentConvID
 }
 
+// IsGenerating 返回当前是否正在生成（currentConvID 非空表示正在生成）。
+// 用于让 router 模式轮询在生成期间暂停，避免与生成请求争用 HTTP 连接。
+func (s *Service) IsGenerating() bool {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return s.currentConvID != ""
+}
+
 func (s *Service) UpdateClient(client *llm.Client) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()

@@ -43,6 +43,7 @@ func (h *LocalFileLoader) ServeHTTP(res http.ResponseWriter, req *http.Request) 
 	}
 
 	// 安全：清理路径并阻止路径遍历
+	// 基于 GO-PATH-001 安全实践
 	cleaned := filepath.Clean(filePath)
 	if strings.Contains(cleaned, "..") {
 		res.WriteHeader(http.StatusForbidden)
@@ -62,6 +63,15 @@ func (h *LocalFileLoader) ServeHTTP(res http.ResponseWriter, req *http.Request) 
 		return
 	}
 
+	// 安全：SVG 文件可能包含 JavaScript，强制作为附件下载而非内联渲染
+	// 基于 GO-XSS-001 安全实践：不将可能含脚本的活跃格式作为 HTML 内容提供
+	if ext == ".svg" {
+		res.Header().Set("Content-Type", "image/svg+xml")
+		res.Header().Set("Content-Disposition", "attachment")
+		res.Write(fileData)
+		return
+	}
+
 	switch ext {
 	case ".jpg", ".jpeg":
 		res.Header().Set("Content-Type", "image/jpeg")
@@ -73,8 +83,6 @@ func (h *LocalFileLoader) ServeHTTP(res http.ResponseWriter, req *http.Request) 
 		res.Header().Set("Content-Type", "image/webp")
 	case ".bmp":
 		res.Header().Set("Content-Type", "image/bmp")
-	case ".svg":
-		res.Header().Set("Content-Type", "image/svg+xml")
 	}
 	res.Write(fileData)
 }

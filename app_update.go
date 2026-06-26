@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"douya/internal/version"
 
@@ -53,8 +56,10 @@ func (a *App) CheckUpdate() (*UpdateInfo, error) {
 	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest",
 		version.GitHubOwner, version.GitHubRepo)
 
-	// 发起 HTTP 请求
-	resp, err := http.Get(apiURL)
+	// 安全：使用带超时的 HTTP 客户端，避免网络异常时无限期挂起
+	// 基于 GO-HTTPCLIENT-001 安全实践
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(apiURL)
 	if err != nil {
 		return nil, fmt.Errorf("请求 GitHub API 失败: %w", err)
 	}
@@ -105,6 +110,12 @@ func (a *App) CheckUpdate() (*UpdateInfo, error) {
 // PerformUpdate 执行自动更新
 // 生活类比：就像手机下载更新包后自动安装——先下载，然后重启应用完成替换
 func (a *App) PerformUpdate(downloadURL string, latestVersion string) error {
+	// 安全：校验下载 URL，防止 SSRF 攻击
+	// 基于 GO-SSRF-001 安全实践：不信任前端传入的 URL，必须为 HTTPS 且来自 GitHub 域名
+	if err := validateUpdateURL(downloadURL); err != nil {
+		return fmt.Errorf("下载地址校验失败: %w", err)
+	}
+
 	// 通知前端：开始下载
 	wailsRuntime.EventsEmit(a.ctx, "update:progress", map[string]interface{}{
 		"stage":   "downloading",
@@ -141,8 +152,11 @@ func (a *App) PerformUpdate(downloadURL string, latestVersion string) error {
 }
 
 // downloadWithProgress 下载文件并报告进度
-func (a *App) downloadWithProgress(url, destPath string) error {
-	resp, err := http.Get(url)
+func (a *App) downloadWithProgress(downloadURL, destPath string) error {
+	// 安全：使用带超时的 HTTP 客户端，避免下载挂起耗尽资源
+	// 基于 GO-HTTPCLIENT-001 安全实践：大文件下载设置 10 分钟超时
+	client := &http.Client{Timeout: 10 * time.Minute}
+	resp, err := client.Get(downloadURL)
 	if err != nil {
 		return fmt.Errorf("下载请求失败: %w", err)
 	}
@@ -219,6 +233,15 @@ func (a *App) launchUpdateScript(zipPath string, tempDir string) error {
 
 	tempExtract := filepath.Join(tempDir, "extracted")
 
+	// 安全：对插入 PowerShell 脚本的路径变量进行转义
+	// 基于 GO-INJECT-002 安全实践：防止路径中含 PowerShell 特殊字符（" $ `）导致注入
+	psEscape := func(s string) string {
+		s = strings.ReplaceAll(s, "`", "``")
+		s = strings.ReplaceAll(s, "\"", "`\"")
+		s = strings.ReplaceAll(s, "$", "`$")
+		return s
+	}
+
 	// 生成 PowerShell 更新脚本
 	script := fmt.Sprintf(`$ErrorActionPreference = "Stop"
 $appDir = "%s"
@@ -272,7 +295,7 @@ Start-Sleep -Seconds 3
 Remove-Item $tempExtract -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
 Write-Host "Update complete!"
-`, appDirPath, zipPath, tempExtract, exePath)
+`, psEscape(appDirPath), psEscape(zipPath), psEscape(tempExtract), psEscape(exePath))
 
 	// 写入脚本文件（UTF-8 BOM 编码）
 	scriptPath := filepath.Join(tempDir, "update.ps1")
@@ -349,4 +372,43 @@ func compareVersions(a, b string) int {
 	}
 
 	return 0
+}
+
+// validateUpdateURL 校验更新下载 URL 的安全性
+// 基于 GO-SSRF-001 安全实践：仅允许 HTTPS 协议、仅允许 GitHub 官方域名、拒绝内网/本地地址
+// 生活类比：就像快递员只认准官方发货地址，拒绝从陌生地址取件
+func validateUpdateURL(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("URL 解析失败: %w", err)
+	}
+
+	// 仅允许 HTTPS 协议
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("仅允许 HTTPS 协议，当前: %s", parsed.Scheme)
+	}
+
+	// 仅允许 GitHub 官方域名
+	allowedHosts := map[string]bool{
+		"github.com":              true,
+		"objects.githubusercontent.com": true,
+		"release-assets.githubusercontent.com": true,
+	}
+	hostname := parsed.Hostname()
+	if !allowedHosts[hostname] {
+		return fmt.Errorf("仅允许 GitHub 官方域名，当前: %s", hostname)
+	}
+
+	// 解析 DNS 并拒绝内网/本地地址（防止 DNS 重绑定攻击）
+	ips, err := net.LookupIP(hostname)
+	if err != nil {
+		return fmt.Errorf("DNS 解析失败: %w", err)
+	}
+	for _, ip := range ips {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			return fmt.Errorf("检测到内网/本地地址: %s", ip.String())
+		}
+	}
+
+	return nil
 }

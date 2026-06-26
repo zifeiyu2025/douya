@@ -50,16 +50,11 @@ const purify = (() => {
     if (typeof d === 'function' && typeof window !== 'undefined') {
         return d(window)
     }
-    // 降级：仅在无 window 的环境（如测试）中使用
-    // 移除危险的 HTML 标签和事件属性
+    // 安全降级：无 window 环境（如测试）中返回空串而非使用弱正则净化
+    // 基于 VUE-XSS-001 安全实践：弱正则无法覆盖所有 XSS 向量，不如直接拒绝渲染
+    console.error('[security] DOMPurify unavailable, returning empty string for safety')
     return {
-        sanitize: (html: string) =>
-            html
-                .replace(/<script[\s\S]*?<\/script>/gi, '')
-                .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
-                .replace(/<object[\s\S]*?<\/object>/gi, '')
-                .replace(/<embed[^>]*>/gi, '')
-                .replace(/\s+on\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, ''),
+        sanitize: (_html: string) => '',
     }
 })()
 
