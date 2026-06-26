@@ -18,7 +18,7 @@ import (
 func TestEndToEndRAG(t *testing.T) {
 	// Use temp dir for Badger
 	tmpDir := t.TempDir()
-	vs, err := NewVectorStore(tmpDir, DefaultHNSWConfig())
+	vs, err := NewVectorStore(tmpDir)
 	if err != nil {
 		t.Fatalf("NewVectorStore: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestEndToEndRAG_Persistence(t *testing.T) {
 	ctx := context.Background()
 
 	// Phase 1: Write
-	vs1, err := NewVectorStore(tmpDir, DefaultHNSWConfig())
+	vs1, err := NewVectorStore(tmpDir)
 	if err != nil {
 		t.Fatalf("NewVectorStore 1: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestEndToEndRAG_Persistence(t *testing.T) {
 	vs1.Close()
 
 	// Phase 2: Reopen and search
-	vs2, err := NewVectorStore(tmpDir, DefaultHNSWConfig())
+	vs2, err := NewVectorStore(tmpDir)
 	if err != nil {
 		t.Fatalf("NewVectorStore 2: %v", err)
 	}
@@ -172,7 +172,7 @@ func truncate(s string, maxLen int) string {
 // TestEndToEndRAG_DataDir tests that the data directory is created automatically.
 func TestEndToEndRAG_DataDir(t *testing.T) {
 	tmpDir := filepath.Join(t.TempDir(), "nested", "rag", "data")
-	vs, err := NewVectorStore(tmpDir, DefaultHNSWConfig())
+	vs, err := NewVectorStore(tmpDir)
 	if err != nil {
 		t.Fatalf("NewVectorStore with nested dir: %v", err)
 	}

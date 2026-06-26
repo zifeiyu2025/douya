@@ -21,7 +21,7 @@ import (
 const vramCheckInterval = 500 * time.Millisecond
 const vramCheckTimeout = 15
 
-// allowedCacheTypes 列出 llama.cpp 9793 允许的 KV cache 类型
+// allowedCacheTypes 列出 llama.cpp 允许的 KV cache 类型
 // 已删除的类型：q2_k, q3_k, q4_k, q5_k, q6_k, iq4_xs
 var allowedCacheTypes = map[string]bool{
 	"f32":    true,
@@ -35,7 +35,7 @@ var allowedCacheTypes = map[string]bool{
 	"q5_1":   true,
 }
 
-// isValidCacheType 校验 cache 类型是否被 9793 支持
+// isValidCacheType 校验 cache 类型是否被支持
 func isValidCacheType(t string) bool {
 	return allowedCacheTypes[strings.ToLower(t)]
 }
@@ -269,14 +269,14 @@ func (s *Server) Start() error {
 		if isValidCacheType(s.config.CacheTypeK) {
 			args = append(args, "--cache-type-k", s.config.CacheTypeK)
 		} else {
-			log.Warn().Str("type", s.config.CacheTypeK).Msg("[server] unsupported cache type, skipping --cache-type-k (9793 removed q2_k/q3_k/q4_k/q5_k/q6_k/iq4_xs)")
+			log.Warn().Str("type", s.config.CacheTypeK).Msg("[server] unsupported cache type, skipping --cache-type-k (removed q2_k/q3_k/q4_k/q5_k/q6_k/iq4_xs)")
 		}
 	}
 	if s.config.CacheTypeV != "" {
 		if isValidCacheType(s.config.CacheTypeV) {
 			args = append(args, "--cache-type-v", s.config.CacheTypeV)
 		} else {
-			log.Warn().Str("type", s.config.CacheTypeV).Msg("[server] unsupported cache type, skipping --cache-type-v (9793 removed q2_k/q3_k/q4_k/q5_k/q6_k/iq4_xs)")
+			log.Warn().Str("type", s.config.CacheTypeV).Msg("[server] unsupported cache type, skipping --cache-type-v (removed q2_k/q3_k/q4_k/q5_k/q6_k/iq4_xs)")
 		}
 	}
 	if s.config.Mlock {
@@ -424,14 +424,14 @@ func (s *Server) Start() error {
 		if isValidCacheType(s.config.CacheTypeKDraft) {
 			args = append(args, "--spec-draft-type-k", s.config.CacheTypeKDraft)
 		} else {
-			log.Warn().Str("type", s.config.CacheTypeKDraft).Msg("[server] unsupported cache type, skipping --spec-draft-type-k (9793 removed q2_k/q3_k/q4_k/q5_k/q6_k/iq4_xs)")
+			log.Warn().Str("type", s.config.CacheTypeKDraft).Msg("[server] unsupported cache type, skipping --spec-draft-type-k (removed q2_k/q3_k/q4_k/q5_k/q6_k/iq4_xs)")
 		}
 	}
 	if s.config.CacheTypeVDraft != "" && !s.mtpFallbackDisabled {
 		if isValidCacheType(s.config.CacheTypeVDraft) {
 			args = append(args, "--spec-draft-type-v", s.config.CacheTypeVDraft)
 		} else {
-			log.Warn().Str("type", s.config.CacheTypeVDraft).Msg("[server] unsupported cache type, skipping --spec-draft-type-v (9793 removed q2_k/q3_k/q4_k/q5_k/q6_k/iq4_xs)")
+			log.Warn().Str("type", s.config.CacheTypeVDraft).Msg("[server] unsupported cache type, skipping --spec-draft-type-v (removed q2_k/q3_k/q4_k/q5_k/q6_k/iq4_xs)")
 		}
 	}
 	if s.config.SpecNgramModNMin > 0 && s.config.SpecType == "ngram-mod" {
@@ -664,9 +664,10 @@ func (s *Server) Start() error {
 		}
 
 		if err := s.cmd.Start(); err != nil {
-			s.status = ServerStatus{Running: false, Error: fmt.Sprintf("failed to start server: %v", err)}
+			enhancedErr := enhanceStartError(err)
+			s.status = ServerStatus{Running: false, Error: fmt.Sprintf("启动 llama-server 失败: %v", enhancedErr)}
 			s.mu.Unlock()
-			return fmt.Errorf("failed to start server: %w", err)
+			return fmt.Errorf("启动 llama-server 失败: %w", enhancedErr)
 		}
 
 		if s.job == nil {
@@ -749,6 +750,12 @@ func (s *Server) Start() error {
 					errMsg += "\n" + tail
 				}
 			}
+			// 检测 DLL 缺失导致的立即崩溃（进程刚启动就退出且 stderr 包含 DLL 相关信息）
+			if exitCode != 0 && s.lastStartTime.Before(time.Now().Add(-10*time.Second)) {
+				if enhanced := enhanceStartError(fmt.Errorf("%s", errMsg)); enhanced != nil {
+					errMsg = enhanced.Error()
+				}
+			}
 			s.status.Error = errMsg
 		}
 		s.mu.Unlock()
@@ -756,6 +763,31 @@ func (s *Server) Start() error {
 
 	s.mu.Unlock()
 	return nil
+}
+
+// enhanceStartError 增强启动错误信息，检测 DLL 缺失等常见问题
+// 生活类比：就像翻译官把晦涩的英文报错翻译成通俗易懂的中文提示
+func enhanceStartError(err error) error {
+	if err == nil {
+		return nil
+	}
+	errStr := err.Error()
+	lower := strings.ToLower(errStr)
+
+	// Windows DLL 缺失错误通常包含 "The specified module could not be found" 或 DLL 文件名
+	if strings.Contains(lower, "the specified module could not be found") ||
+		strings.Contains(lower, "dll not found") ||
+		strings.Contains(lower, ".dll") && (strings.Contains(lower, "not found") || strings.Contains(lower, "cannot find")) {
+		return fmt.Errorf("启动引擎失败，可能是 DLL 文件缺失: %w\n请检查 runtime/ 目录是否包含所有必要的 DLL 文件", err)
+	}
+
+	// 引擎 exe 本身不存在
+	if strings.Contains(lower, "the system cannot find the file specified") ||
+		strings.Contains(lower, "no such file or directory") {
+		return fmt.Errorf("启动引擎失败，引擎程序文件不存在: %w\n请检查 config.json 中的 llama_server_path 配置", err)
+	}
+
+	return err
 }
 
 // readConPTYOutput 持续读取 ConPTY 输出，50ms 窗口批量发送到前端

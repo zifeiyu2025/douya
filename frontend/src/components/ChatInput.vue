@@ -164,6 +164,7 @@
           </button>
         </div>
       </div>
+      <div class="input-footer-reminder">AI也会犯错，请仔细甄别</div>
     </div>
     <div v-if="contextMenuVisible" class="ctx-menu" :style="{ left: contextMenuX + 'px', top: contextMenuY + 'px' }" @click.stop>
       <button class="ctx-menu-item" :class="{ disabled: !canCut }" @click="ctxCut">
@@ -912,7 +913,7 @@ onUnmounted(() => {
 
 <style scoped>
 .input-area {
-  padding: 16px 24px 20px;
+  padding: 10px 24px 10px;
   border-top: 1px solid var(--border-color);
   background: var(--bg-primary);
   position: relative;
@@ -923,6 +924,17 @@ onUnmounted(() => {
   max-width: var(--msg-max-width);
   margin: 0 auto;
   width: 100%;
+}
+
+.input-footer-reminder {
+  max-width: var(--msg-max-width);
+  margin: 6px auto 0;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  letter-spacing: 0.2px;
+  user-select: none;
 }
 
 .attachment-preview-bar {

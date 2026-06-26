@@ -17,12 +17,7 @@ import (
 func newTestStore(t *testing.T) (*VectorStore, func()) {
 	t.Helper()
 	dir := t.TempDir()
-	cfg := HNSWConfig{
-		M:              8,
-		EFConstruction: 50,
-		EF:             50,
-	}
-	vs, err := NewVectorStore(dir, cfg)
+	vs, err := NewVectorStore(dir)
 	if err != nil {
 		t.Fatalf("NewVectorStore: %v", err)
 	}
@@ -339,10 +334,9 @@ func TestDeleteCollection_NotFound(t *testing.T) {
 
 func TestPersist_VectorsSurviveReopen(t *testing.T) {
 	dir := t.TempDir()
-	cfg := HNSWConfig{M: 8, EFConstruction: 50, EF: 50}
 
 	// First session: create collection and add vectors.
-	vs1, err := NewVectorStore(dir, cfg)
+	vs1, err := NewVectorStore(dir)
 	if err != nil {
 		t.Fatalf("NewVectorStore session 1: %v", err)
 	}
@@ -360,7 +354,7 @@ func TestPersist_VectorsSurviveReopen(t *testing.T) {
 	}
 
 	// Second session: re-open and search — vectors should still be there.
-	vs2, err := NewVectorStore(dir, cfg)
+	vs2, err := NewVectorStore(dir)
 	if err != nil {
 		t.Fatalf("NewVectorStore session 2: %v", err)
 	}

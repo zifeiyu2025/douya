@@ -220,7 +220,7 @@ func scanFlatModels(modelsDir string) ([]ModelPreset, error) {
 			ModelPath:  filepath.Join("models", mf),
 			MmprojPath: mmprojPath,
 			Jinja:      true,
-			SleepIdle:  -1, // 与 llama.cpp 9793 默认值对齐，-1 禁用空闲休眠（不写入 preset.ini，继承全局默认）
+			SleepIdle:  -1, // 与 llama.cpp 默认值对齐，-1 禁用空闲休眠（不写入 preset.ini，继承全局默认）
 		}
 
 		if mmprojPath != "" {

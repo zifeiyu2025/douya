@@ -2,7 +2,6 @@
 package httputil
 
 import (
-	"io"
 	"testing"
 	"strings"
 )
@@ -42,9 +41,6 @@ func TestReadBodyLimitedEmpty(t *testing.T) {
 		t.Fatalf("ReadBodyLimited returned error: %v", err)
 	}
 	if len(got) != 0 {
-		t.Fatalf("expected empty, got %d bytes", len(got))
+		t.Fatalf("expected empty, got %d bytes", got)
 	}
 }
-
-// 确保 io 包被使用（避免未使用导入）
-var _ = io.EOF

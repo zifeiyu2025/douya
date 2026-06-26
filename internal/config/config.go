@@ -166,9 +166,9 @@ func DefaultConfig() *Config {
 		APIBase:           "http://127.0.0.1:8080",
 		Port:              8080,
 		ContextSize:       8192,
-		Temperature:       0.8, // 与 llama.cpp 9793 默认值对齐
+		Temperature:       0.8, // 与 llama.cpp 默认值对齐
 		TopP:              0.95,
-		TopK:              40, // 与 llama.cpp 9793 默认值对齐
+		TopK:              40, // 与 llama.cpp 默认值对齐
 		RepeatPenalty:     1,
 		KVUnified:         false,
 		CacheIdleSlots:    true, // 与 llama.cpp 默认值对齐，空闲 slot 缓存保留
@@ -189,7 +189,7 @@ func DefaultConfig() *Config {
 		SearchMode:        "off",
 		ThinkingEnabled:     true,
 		ThinkingSoftSwitch:  "auto",
-		SleepIdleSeconds: -1, // 与 llama.cpp 9793 默认值对齐，-1 禁用空闲休眠
+		SleepIdleSeconds: -1, // 与 llama.cpp 默认值对齐，-1 禁用空闲休眠
 		ModelsMax:         1,
 		RAGEnabled:        false,
 		RAGActiveKB:      "default",
@@ -231,7 +231,7 @@ func DefaultConfig() *Config {
 		ExposeServer:       false,
 		SwaFull:              false,
 		CtxCheckpoints:       32,  // 与 llama.cpp 默认值对齐，长上下文检查点回滚
-		CheckpointMinStep:    8192, // 与 llama.cpp 9793 默认值对齐，检查点最小步长
+		CheckpointMinStep:    256,  // 与 llama.cpp 默认值对齐，检查点最小步长
 		Tools:                "",
 		PrefillAssistant:     true,
 		SlotPromptSimilarity: 0.1, // 与 llama.cpp 默认值对齐，slot 缓存 prompt 相似度阈值

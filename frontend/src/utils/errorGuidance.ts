@@ -17,6 +17,46 @@ interface ErrorPattern {
 
 const errorPatterns: ErrorPattern[] = [
   {
+    pattern: /DLL.*缺失|核心DLL|CUDA运行时DLL|dll not found|\.dll.*not found|specified module could not be found/i,
+    guidance: {
+      category: 'DLL缺失',
+      title: '运行时 DLL 文件缺失',
+      description: 'llama-server 引擎依赖的 DLL 文件缺失，无法正常启动。',
+      suggestions: [
+        '检查 runtime/ 目录是否包含所有必要的 DLL 文件',
+        '核心 DLL 包括：llama.dll、ggml.dll、ggml-base.dll、ggml-cpu.dll 等',
+        '如果使用 NVIDIA GPU，还需 CUDA 运行时 DLL：cudart64_13.dll、cublas64_13.dll、cublasLt64_13.dll',
+        '重新下载或解压完整的 runtime 压缩包',
+      ],
+    },
+  },
+  {
+    pattern: /引擎程序.*不存在|引擎程序文件不存在|llama-server.*not found|the system cannot find the file/i,
+    guidance: {
+      category: '引擎缺失',
+      title: '引擎程序文件缺失',
+      description: 'llama-server.exe 引擎程序文件不存在，无法启动推理服务。',
+      suggestions: [
+        '检查 runtime/ 目录下是否存在 llama-server.exe',
+        '在设置中检查 llama_server_path 配置路径是否正确',
+        '重新下载或解压完整的 runtime 压缩包',
+      ],
+    },
+  },
+  {
+    pattern: /模型文件.*未找到|未找到任何.*\.gguf|no models found/i,
+    guidance: {
+      category: '模型缺失',
+      title: '未找到模型文件',
+      description: 'models/ 目录下没有找到任何 GGUF 模型文件。',
+      suggestions: [
+        '将 GGUF 模型文件放入 models/ 目录',
+        '确认模型文件扩展名为 .gguf',
+        '从 Hugging Face 或 ModelScope 下载模型文件',
+      ],
+    },
+  },
+  {
     pattern: /显存不足|out of memory|OOM|CUDA out of memory|CUDA error|VRAM|gpu.*memory|failed to allocate cuda/i,
     guidance: {
       category: 'VRAM不足',

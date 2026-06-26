@@ -42,7 +42,3 @@ Thumbs.db
 # Misc
 *.md5
 focus_*.ps1
-
-
-# Wails
-wails.json

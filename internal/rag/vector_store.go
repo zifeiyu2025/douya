@@ -82,7 +82,6 @@ func DefaultHNSWConfig() HNSWConfig {
 // in-memory index. It is safe for concurrent use.
 type VectorStore struct {
 	db        *badger.DB
-	cfg       HNSWConfig
 	bm25Index *BM25Index // BM25 关键词检索索引
 
 	// Per-collection state. Access is protected by the collection-level lock map.
@@ -222,7 +221,7 @@ func cosineSimilarityPreNorm(query, vec []float64, queryNorm float64) float64 {
 
 // NewVectorStore opens (or creates) a Badger-backed vector store at dataDir.
 // An empty dataDir creates an in-memory store (useful for testing).
-func NewVectorStore(dataDir string, cfg HNSWConfig) (*VectorStore, error) {
+func NewVectorStore(dataDir string) (*VectorStore, error) {
 	opts := badger.DefaultOptions(dataDir)
 	opts.Logger = &badgerLogAdapter{}
 
@@ -237,7 +236,6 @@ func NewVectorStore(dataDir string, cfg HNSWConfig) (*VectorStore, error) {
 
 	vs := &VectorStore{
 		db:        db,
-		cfg:       cfg,
 		bm25Index: NewBM25Index(),
 		locks:     make(map[string]*sync.Mutex),
 		indexes:   make(map[string]*memIndex),

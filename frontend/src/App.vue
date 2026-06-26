@@ -587,6 +587,26 @@ onMounted(async () => {
     }
   }, { immediate: true })
 
+  // 首次启动失败时弹出修复建议对话框（而非仅在状态栏显示文字）
+  // 生活类比：就像开店时设备出故障，不只挂个"暂停营业"牌子，还要告诉顾客具体出了什么问题、怎么修
+  let hasShownStartupError = false
+  watch(() => settingsStore.serverStatus.error, (errorVal) => {
+    if (!errorVal || hasShownStartupError) return
+    // 仅在首次加载阶段（从未就绪过）弹出 dialog，避免与手动切换模型的提示重复
+    if (settingsStore.hasEverBeenReady) return
+    hasShownStartupError = true
+    const guidance = classifyError(errorVal)
+    if (guidance) {
+      const suggestions = guidance.suggestions.map((s, i) => `${i + 1}. ${s}`).join('\n')
+      discreteDialog.error({
+        title: guidance.title,
+        content: `${guidance.description}\n\n错误详情：${errorVal}\n\n修复建议：\n${suggestions}`,
+        positiveText: '知道了',
+        style: { whiteSpace: 'pre-wrap' },
+      })
+    }
+  })
+
   wails.onAbnormalCleanup((data) => {
     chatStore.loadConversations()
     discreteMessage.info(`已自动清理 ${data.count} 个异常会话（无有效消息）`, { duration: 5000 })

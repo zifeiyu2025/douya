@@ -175,9 +175,9 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 		if ggufMeta != nil && ggufMeta.Architecture != "" {
 			lowerArch := strings.ToLower(ggufMeta.Architecture)
 			archConfigs := []modelKeywordConfig{
-				{keywords: []string{"qwen3", "qwen3moe", "qwen3next", "qwen3vl", "qwen3vlmoe"}, thinkingMode: llm.ThinkingModeTemplate, softSwitch: true},
-				{keywords: []string{"gemma2", "gemma4", "gemma3n", "llama4", "phi4", "mistral3", "mistral4"}, thinkingMode: llm.ThinkingModeTemplate},
-				{keywords: []string{"deepseek3", "deepseek2"}, thinkingMode: llm.ThinkingModeReasoning},
+				{keywords: []string{"qwen3", "qwen3moe", "qwen3next", "qwen3vl", "qwen3vlmoe", "qwen35", "qwen35moe", "qwen36"}, thinkingMode: llm.ThinkingModeTemplate, softSwitch: true},
+				{keywords: []string{"gemma2", "gemma4", "gemma3n", "llama4", "phi4", "mistral3", "mistral4", "glm4", "chatglm4", "cohere2moe", "tiny-aya", "ernie4-5", "ernie4-5-moe", "minimax-m2"}, thinkingMode: llm.ThinkingModeTemplate},
+				{keywords: []string{"deepseek3", "deepseek2", "deepseek32"}, thinkingMode: llm.ThinkingModeReasoning},
 			}
 			if mode, reasoning, soft := matchModelKeywords(lowerArch, archConfigs); mode != llm.ThinkingModeNone {
 				thinkingMode = mode
@@ -190,9 +190,9 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 		if thinkingMode == llm.ThinkingModeNone {
 			lowerName := strings.ToLower(info.Name)
 			nameConfigs := []modelKeywordConfig{
-				{keywords: []string{"qwen3", "qwq", "qwen3moe", "qwen3-next", "qwen3next", "qwen3-vl", "qwen3vl", "qwen3.5", "qwen3.6"}, thinkingMode: llm.ThinkingModeTemplate, softSwitch: true},
-				{keywords: []string{"gemma-4", "gemma4", "gemma-2", "gemma-3", "gemma3", "gemma-3n", "gemma3n", "llama-4", "llama4", "mistral-small-3", "mistral-small3", "mistral-small3.1", "mistral-3", "mistral3", "mistral-4", "mistral4", "phi-4-reasoning-plus"}, thinkingMode: llm.ThinkingModeTemplate},
-				{keywords: []string{"deepseek-r1", "deepseek-v2", "deepseek-v3", "deepseek-v4", "deepseek-r", "phi-4-reasoning", "phi4-reasoning"}, thinkingMode: llm.ThinkingModeReasoning},
+				{keywords: []string{"qwen3", "qwq", "qwen3moe", "qwen3-next", "qwen3next", "qwen3-vl", "qwen3vl", "qwen3.5", "qwen3.6", "qwen35", "qwen35moe", "qwen36"}, thinkingMode: llm.ThinkingModeTemplate, softSwitch: true},
+				{keywords: []string{"gemma-4", "gemma4", "gemma-2", "gemma-3", "gemma3", "gemma-3n", "gemma3n", "llama-4", "llama4", "mistral-small-3", "mistral-small3", "mistral-small3.1", "mistral-3", "mistral3", "mistral-4", "mistral4", "phi-4-reasoning-plus", "glm4", "chatglm4", "cohere2moe", "tiny-aya", "ernie-4.5", "ernie4.5", "minimax-m2", "minimaxm2"}, thinkingMode: llm.ThinkingModeTemplate},
+				{keywords: []string{"deepseek-r1", "deepseek-v2", "deepseek-v3", "deepseek-v4", "deepseek-r", "deepseek-3.2", "deepseek32", "phi-4-reasoning", "phi4-reasoning"}, thinkingMode: llm.ThinkingModeReasoning},
 			}
 			if mode, reasoning, soft := matchModelKeywords(lowerName, nameConfigs); mode != llm.ThinkingModeNone {
 				thinkingMode = mode

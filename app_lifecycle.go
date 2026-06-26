@@ -127,7 +127,7 @@ func (a *App) startup(ctx context.Context) {
 
 	// Initialize RAG (Badger-backed vector store + LLM embedder)
 	ragDir := filepath.Join(appDir(), "data", "rag")
-	ragVS, err := rag.NewVectorStore(ragDir, rag.DefaultHNSWConfig())
+	ragVS, err := rag.NewVectorStore(ragDir)
 	if err != nil {
 		zlog.Error().Err(err).Msg("[startup] RAG vector store init failed (RAG disabled)")
 	} else {

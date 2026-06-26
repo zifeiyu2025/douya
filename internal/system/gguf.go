@@ -166,7 +166,7 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 	if !meta.HasReasoning && meta.Architecture != "" {
 		lowerArch := strings.ToLower(meta.Architecture)
 		// Template 模式：通过 chat template 的 enable_thinking 控制
-		archTemplateKeywords := []string{"gemma2", "gemma4", "qwen3", "llama4", "phi4", "qwen3moe", "qwen3next", "qwen3vl", "qwen3vlmoe", "gemma3n", "mistral3", "mistral4", "granite_speech", "glm4", "chatglm4", "cohere2moe", "tiny-aya"}
+		archTemplateKeywords := []string{"gemma2", "gemma4", "qwen3", "llama4", "phi4", "qwen3moe", "qwen3next", "qwen3vl", "qwen3vlmoe", "gemma3n", "mistral3", "mistral4", "granite_speech", "glm4", "chatglm4", "cohere2moe", "tiny-aya", "qwen35", "qwen35moe", "qwen36", "ernie4-5", "ernie4-5-moe", "minimax-m2"}
 		for _, kw := range archTemplateKeywords {
 			if strings.Contains(lowerArch, kw) {
 				meta.HasReasoning = true
@@ -175,7 +175,7 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 		}
 		// Reasoning 模式：通过 reasoning 参数控制
 		if !meta.HasReasoning {
-			archReasoningKeywords := []string{"deepseek3", "deepseek-v3", "deepseek2"}
+			archReasoningKeywords := []string{"deepseek3", "deepseek-v3", "deepseek2", "deepseek32"}
 			for _, kw := range archReasoningKeywords {
 				if strings.Contains(lowerArch, kw) {
 					meta.HasReasoning = true
@@ -189,11 +189,12 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 	if !meta.HasReasoning {
 		lowerName := strings.ToLower(path)
 		reasoningKeywords := []string{
-			"qwen3", "qwen3.5", "qwen3.6", "gemma-4", "gemma4", "gemma-3", "gemma3", "gemma-2", "llama-4", "llama4",
+			"qwen3", "qwen3.5", "qwen3.6", "qwen35", "qwen36", "gemma-4", "gemma4", "gemma-3", "gemma3", "gemma-2", "llama-4", "llama4",
 			"mistral-small-3", "mistral-small3", "mistral-4", "mistral4",
-			"deepseek-r1", "deepseek-v2", "deepseek-v3", "deepseek-v4", "deepseek-r",
+			"deepseek-r1", "deepseek-v2", "deepseek-v3", "deepseek-v4", "deepseek-r", "deepseek-3.2", "deepseek32",
 			"phi-4-reasoning", "phi4-reasoning",
 			"glm4", "chatglm4", "cohere2moe", "tiny-aya",
+			"ernie-4.5", "ernie4.5", "minimax-m2", "minimaxm2",
 		}
 		for _, kw := range reasoningKeywords {
 			if strings.Contains(lowerName, kw) {
