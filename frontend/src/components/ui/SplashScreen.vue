@@ -1,6 +1,8 @@
 <template>
   <Transition name="splash" @after-leave="$emit('complete')">
     <div v-if="visible" class="splash-screen">
+      <!-- HUD 扫描线背景层 -->
+      <div class="splash-scanline" aria-hidden="true"></div>
       <div class="splash-content">
         <!-- Logo + 旋转弧线 -->
         <div class="splash-logo" :class="{ 'is-done': stage === 'done', 'is-failed': stage === 'failed' }">
@@ -83,6 +85,34 @@ const stageText = computed(() => {
   align-items: center;
   justify-content: center;
   background: var(--bg-primary);
+  overflow: hidden;
+}
+
+/* ===== HUD 扫描线背景层 =====
+ * 一条从上到下移动的渐变线，营造"系统扫描"氛围
+ * 用 background-position 动画（扫描线效果比 transform 更合适）
+ */
+.splash-scanline {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.4;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    transparent 45%,
+    color-mix(in srgb, var(--accent-primary) 30%, transparent) 50%,
+    transparent 55%,
+    transparent 100%
+  );
+  background-size: 100% 300%;
+  animation: scan-bg 3s linear infinite;
+  will-change: background-position;
+}
+
+@keyframes scan-bg {
+  0% { background-position: 0% 0%; }
+  100% { background-position: 0% 100%; }
 }
 
 .splash-content {
@@ -90,6 +120,8 @@ const stageText = computed(() => {
   flex-direction: column;
   align-items: center;
   gap: 28px;
+  position: relative;
+  z-index: 1;
 }
 
 /* Logo 区域 */
@@ -100,14 +132,18 @@ const stageText = computed(() => {
   color: var(--accent-primary);
   transition: color var(--transition-normal);
   animation: logo-enter 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* SVG 发光效果 */
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent-primary) 50%, transparent));
 }
 
 .splash-logo.is-done {
   color: var(--accent-success);
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent-success) 60%, transparent));
 }
 
 .splash-logo.is-failed {
   color: var(--accent-danger);
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent-danger) 60%, transparent));
 }
 
 @keyframes logo-enter {
@@ -139,13 +175,7 @@ const stageText = computed(() => {
   }
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* 品牌标识 */
+/* ===== 品牌标识：发光文字 ===== */
 .splash-brand {
   display: flex;
   flex-direction: column;
@@ -171,6 +201,18 @@ const stageText = computed(() => {
   color: var(--accent-primary);
   letter-spacing: 6px;
   padding-left: 6px;
+  /* 文字发光效果 */
+  text-shadow: 0 0 12px color-mix(in srgb, var(--accent-primary) 50%, transparent);
+  animation: title-glow 2.5s ease-in-out infinite;
+}
+
+@keyframes title-glow {
+  0%, 100% {
+    text-shadow: 0 0 12px color-mix(in srgb, var(--accent-primary) 40%, transparent);
+  }
+  50% {
+    text-shadow: 0 0 20px color-mix(in srgb, var(--accent-primary) 70%, transparent);
+  }
 }
 
 .splash-subtitle {

@@ -1397,18 +1397,46 @@ onUnmounted(() => {
   background: var(--accent-primary);
   color: white;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: transform 0.2s, box-shadow 0.2s;
   flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+  /* 持续微发光，强化"可点击"感知 */
+  box-shadow: 0 2px 8px rgba(7, 193, 96, 0.25);
 }
 
 .send-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 .send-btn:not(:disabled):hover {
   transform: scale(1.05);
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+  box-shadow: 0 4px 14px rgba(7, 193, 96, 0.4);
+}
+
+/* 点击涟漪效果（伪元素，不影响布局） */
+.send-btn:not(:disabled):active::after,
+.stop-btn:active::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.3);
+  animation: ripple 0.5s ease-out;
+  pointer-events: none;
+}
+
+@keyframes ripple {
+  0% {
+    transform: scale(0);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
 }
 
 .stop-btn {
@@ -1422,13 +1450,16 @@ onUnmounted(() => {
   background: var(--accent-danger);
   color: white;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: transform 0.2s, box-shadow 0.2s;
   flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(250, 81, 81, 0.25);
 }
 
 .stop-btn:hover {
   transform: scale(1.05);
-  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+  box-shadow: 0 4px 14px rgba(250, 81, 81, 0.4);
 }
 </style>
 

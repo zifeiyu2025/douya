@@ -127,7 +127,12 @@ html.dark {
   }
 }
 
-/* 统一定义的动画,避免在多个组件中重复 */
+/* ========================================
+ * 统一动画关键帧库（避免组件内重复定义）
+ * 性能原则：只用 transform/opacity（GPU 友好），不触发 layout/paint
+ * ======================================== */
+
+/* 基础动画 */
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
@@ -141,6 +146,114 @@ html.dark {
   0%, 100% { transform: translateX(0); }
   25% { transform: translateX(-4px); }
   75% { transform: translateX(4px); }
+}
+
+/* ===== 科技感动效 ===== */
+
+/* 雷达脉冲扩散（用于运行状态点） */
+@keyframes radar-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+/* 流光渐变扫描（用于 Logo 文字） */
+@keyframes gradient-flow {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+/* 流式光标闪烁（AI 生成时） */
+@keyframes cursor-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+/* 会话项 stagger 入场（上滑 + 淡入） */
+@keyframes item-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 路由切换过渡 */
+@keyframes route-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* HUD 扫描线（SplashScreen 背景） */
+@keyframes scan-line {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+/* 呼吸发光（用于状态指示） */
+@keyframes glow-breath {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(7, 193, 96, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 14px rgba(7, 193, 96, 0.7);
+  }
+}
+
+/* 数字滚动（Token 速度） */
+@keyframes number-pop {
+  0% { transform: translateY(2px); opacity: 0.6; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+/* ===== 性能优化：CSS containment 隔离 =====
+ * contain: layout style 限制浏览器重排范围
+ * content-visibility 仅对非视口元素使用，避免流式容器高度抖动
+ */
+.app-layout {
+  contain: layout style;
+}
+
+.sidebar {
+  contain: layout style;
+}
+
+.main-header {
+  contain: layout style;
+}
+
+/* ===== 主题切换全局平滑过渡 =====
+ * 仅对颜色相关属性过渡，避免影响 transform/opacity 动画性能
+ * transition-duration 0.4s 足够平滑又不拖沓
+ */
+html, body, .app-layout, .sidebar, .main-area, .main-header,
+.server-status, .conversation-item, .message-bubble, .n-dropdown-menu {
+  transition: background-color 0.4s ease, color 0.4s ease, border-color 0.4s ease;
+}
+
+/* ===== prefers-reduced-motion 降级 =====
+ * 尊重用户系统设置，自动关闭非必要动画
+ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 html, body, #app {
@@ -515,12 +628,26 @@ html, body, #app {
   flex-shrink: 0;
   min-width: 10px;
   min-height: 10px;
-  transition: all 0.3s;
+  transition: background-color 0.3s, box-shadow 0.3s;
+  position: relative;
 }
 
+/* 运行态：雷达脉冲扩散环 + 呼吸发光 */
 .status-dot.running {
   background: var(--accent-primary);
-  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+  box-shadow: 0 0 8px rgba(7, 193, 96, 0.5);
+  animation: glow-breath 2s ease-in-out infinite;
+}
+
+/* 雷达扩散环（伪元素，不影响布局） */
+.status-dot.running::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  animation: radar-pulse 1.8s ease-out infinite;
+  pointer-events: none;
 }
 
 .status-dot.stopped {
@@ -681,12 +808,6 @@ html, body, #app {
 .dark .hljs-deletion {
   color: #ffdcd7;
   background-color: #67060c;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .message-avatar {

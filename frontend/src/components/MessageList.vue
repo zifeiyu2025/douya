@@ -3,18 +3,32 @@
     <Transition name="switch-overlay">
       <div v-if="isSwitching" class="switch-overlay">
         <div class="switch-overlay-content">
-          <div class="switch-spinner"></div>
+          <!-- 圆形进度环 + 中心 spinner -->
+          <div class="switch-ring-wrapper">
+            <svg class="switch-ring-svg" width="80" height="80" viewBox="0 0 80 80">
+              <!-- 底层淡圈 -->
+              <circle cx="40" cy="40" r="36" stroke="var(--border-color)" stroke-width="2" fill="none" opacity="0.3" />
+              <!-- 旋转弧线 -->
+              <circle cx="40" cy="40" r="36" stroke="var(--accent-primary)" stroke-width="2.5"
+                stroke-linecap="round" fill="none"
+                stroke-dasharray="85 150"
+                class="switch-ring-arc" />
+            </svg>
+            <div class="switch-ring-center">
+              <div class="switch-ring-pulse"></div>
+            </div>
+          </div>
           <div class="switch-model-name">{{ switchingToModel }}</div>
           <div class="switch-progress-msg">
             {{ getSwitchProgressText() }}
           </div>
           <div class="switch-stage-indicator">
-            <div 
-              v-for="(stage, idx) in switchStages" 
+            <div
+              v-for="(stage, idx) in switchStages"
               :key="idx"
-              :class="['stage-item', { 
+              :class="['stage-item', {
                 'active': getCurrentStageIndex() >= idx,
-                'completed': getCurrentStageIndex() > idx 
+                'completed': getCurrentStageIndex() > idx
               }]"
             >
               <span class="stage-dot"></span>
@@ -74,6 +88,8 @@
               </div>
               <div v-if="streamingContent" class="markdown-body streaming" v-html="renderedStreaming" />
               <n-spin v-else-if="!thinkingContent && !isSearching" size="small" />
+              <!-- 流式光标：AI 正在生成内容时显示闪烁竖线 -->
+              <span v-if="streamingContent && isGenerating" class="streaming-cursor" aria-hidden="true"></span>
               <!-- 生成速度：仅在流式生成且有速度数据时显示，低调不抢焦点 -->
               <div v-if="generationSpeed > 0" class="generation-speed">
                 {{ generationSpeed.toFixed(1) }} token/s
@@ -543,13 +559,44 @@ watch(() => chatStore.lastError, (err) => {
   gap: 16px;
 }
 
-.switch-spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid var(--border-color);
-  border-top-color: var(--accent-primary);
+/* ===== 圆形进度环 =====
+ * SVG 弧线旋转 + 中心呼吸点，替代旧版 border spinner
+ * 性能：纯 transform 旋转，GPU 友好
+ */
+.switch-ring-wrapper {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent-primary) 40%, transparent));
+}
+
+.switch-ring-svg {
+  display: block;
+}
+
+.switch-ring-arc {
+  transform-origin: 40px 40px;
+  animation: spin 1.4s linear infinite;
+}
+
+.switch-ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.switch-ring-pulse {
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+  background: var(--accent-primary);
+  box-shadow: 0 0 12px var(--accent-primary);
+  animation: pulse 1.5s ease-in-out infinite;
 }
 
 .switch-model-name {
@@ -591,17 +638,18 @@ watch(() => chatStore.lastError, (err) => {
   height: 12px;
   border-radius: 50%;
   background-color: var(--border-color);
-  transition: background-color 0.3s ease;
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .stage-item.active .stage-dot {
   background-color: var(--accent-primary);
-  box-shadow: 0 0 8px var(--accent-primary);
+  box-shadow: 0 0 10px var(--accent-primary);
   animation: pulse 1.5s ease-in-out infinite;
 }
 
 .stage-item.completed .stage-dot {
   background-color: var(--accent-primary);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent-primary) 50%, transparent);
 }
 
 .stage-label {
@@ -614,15 +662,6 @@ watch(() => chatStore.lastError, (err) => {
   font-weight: 500;
 }
 
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-}
-
 .switch-overlay-enter-active,
 .switch-overlay-leave-active {
   transition: opacity 0.3s ease;
@@ -631,12 +670,6 @@ watch(() => chatStore.lastError, (err) => {
 .switch-overlay-enter-from,
 .switch-overlay-leave-to {
   opacity: 0;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 /* 回到底部按钮：正圆包裹箭头 */
@@ -683,6 +716,27 @@ watch(() => chatStore.lastError, (err) => {
 .scroll-bottom-fade-leave-to {
   opacity: 0;
   transform: translateY(12px);
+}
+
+/* ===== AI 流式光标 =====
+ * 闪烁竖线，AI 生成时跟随文字末尾
+ * 用 inline-block + animation，GPU 友好
+ */
+.streaming-cursor {
+  display: inline-block;
+  width: 8px;
+  height: 1.1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--accent-primary);
+  border-radius: 1px;
+  animation: cursor-blink 1s step-end infinite;
+  will-change: opacity;
+}
+
+/* 流式 markdown 容器性能优化 */
+.markdown-body.streaming {
+  contain: style;
 }
 </style>
 

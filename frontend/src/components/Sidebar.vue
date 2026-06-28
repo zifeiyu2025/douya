@@ -29,10 +29,11 @@
       </div>
       <template v-else>
         <div
-          v-for="conv in filteredConversations"
+          v-for="(conv, idx) in filteredConversations"
           :key="conv.id"
           class="conversation-item"
           :class="{ active: conv.id === chatStore.currentConversationId }"
+          :style="{ '--stagger-idx': Math.min(idx, 12) }"
           @click="handleSelect(conv.id)"
           @contextmenu.prevent="handleContextMenu($event, conv)"
         >
@@ -234,6 +235,7 @@ async function handleExport(id: string, format: string) {
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
 }
 
 .loading-container {
@@ -254,31 +256,64 @@ async function handleExport(id: string, format: string) {
   animation: spin 0.8s linear infinite;
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 .loading-text {
   font-size: 14px;
   color: var(--text-secondary);
 }
 
+/* ===== Logo 科技感：渐变流光 + 呼吸发光 ===== */
 .logo-text {
   font-size: 28px;
   font-weight: 800;
   letter-spacing: 2px;
   line-height: 1;
   text-transform: uppercase;
+  position: relative;
+  /* 渐变流光背景，--accent-primary 作为主色 */
+  background: linear-gradient(
+    90deg,
+    var(--text-primary) 0%,
+    var(--accent-primary) 50%,
+    var(--text-primary) 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gradient-flow 4s linear infinite;
+  /* GPU 加速 */
+  will-change: background-position;
 }
 
-.logo-dou {
-  color: var(--text-primary);
+/* 暗色模式下 Logo 更亮 */
+:global(.dark) .logo-text {
+  background: linear-gradient(
+    90deg,
+    var(--text-primary) 0%,
+    var(--accent-primary) 80%,
+    var(--text-primary) 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gradient-flow 4s linear infinite;
 }
 
+/* logo-ya 保留纯色（兼容旧结构，渐变已在 .logo-text 整体应用） */
+.logo-dou,
 .logo-ya {
-  color: var(--accent-primary);
+  -webkit-text-fill-color: initial;
+}
+
+/* ===== 会话列表 stagger 入场 =====
+ * 每项延迟 calc(var(--stagger-idx) * 30ms)，最多 12 项避免长列表卡顿
+ * 仅首次加载时触发（通过 :not(.entered) 控制，这里简化为始终应用）
+ */
+.conversation-item {
+  animation: item-slide-in 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation-delay: calc(var(--stagger-idx, 0) * 30ms);
+  will-change: opacity, transform;
 }
 
 .create-btn-wrapper {

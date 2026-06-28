@@ -79,14 +79,29 @@
                   </button>
                 </div>
               </div>
-              <router-view />
+              <router-view v-slot="{ Component }">
+                <Transition name="route-fade" mode="out-in">
+                  <component :is="Component" />
+                </Transition>
+              </router-view>
             </div>
           </div>
         </Transition>
     <Transition name="switch-overlay">
       <div v-if="showSwitchOverlay" class="switch-overlay">
         <div class="switch-overlay-content">
-          <div class="switch-spinner"></div>
+          <div class="switch-ring-wrapper">
+            <svg class="switch-ring-svg" width="80" height="80" viewBox="0 0 80 80">
+              <circle cx="40" cy="40" r="36" stroke="var(--border-color)" stroke-width="2" fill="none" opacity="0.3" />
+              <circle cx="40" cy="40" r="36" stroke="var(--accent-primary)" stroke-width="2.5"
+                stroke-linecap="round" fill="none"
+                stroke-dasharray="85 150"
+                class="switch-ring-arc" />
+            </svg>
+            <div class="switch-ring-center">
+              <div class="switch-ring-pulse"></div>
+            </div>
+          </div>
           <div class="switch-model-name">{{ overlayModelName }}</div>
           <div class="switch-progress-msg">{{ switchStageText }}</div>
         </div>
@@ -95,7 +110,18 @@
     <Transition name="switch-overlay">
       <div v-if="isExiting" class="switch-overlay">
         <div class="switch-overlay-content">
-          <div class="switch-spinner"></div>
+          <div class="switch-ring-wrapper">
+            <svg class="switch-ring-svg" width="80" height="80" viewBox="0 0 80 80">
+              <circle cx="40" cy="40" r="36" stroke="var(--border-color)" stroke-width="2" fill="none" opacity="0.3" />
+              <circle cx="40" cy="40" r="36" stroke="var(--accent-primary)" stroke-width="2.5"
+                stroke-linecap="round" fill="none"
+                stroke-dasharray="85 150"
+                class="switch-ring-arc" />
+            </svg>
+            <div class="switch-ring-center">
+              <div class="switch-ring-pulse"></div>
+            </div>
+          </div>
           <div class="switch-model-name">正在退出豆芽</div>
           <div class="switch-progress-msg">{{ exitMessage }}</div>
         </div>
@@ -737,12 +763,6 @@ onUnmounted(() => {
   animation: spin 0.8s linear infinite;
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 .window-controls {
   display: flex;
   align-items: center;
@@ -826,13 +846,41 @@ onUnmounted(() => {
   gap: 16px;
 }
 
-.switch-spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid var(--border-color);
-  border-top-color: var(--accent-primary);
+/* ===== 圆形进度环（与 MessageList 一致） ===== */
+.switch-ring-wrapper {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent-primary) 40%, transparent));
+}
+
+.switch-ring-svg {
+  display: block;
+}
+
+.switch-ring-arc {
+  transform-origin: 40px 40px;
+  animation: spin 1.4s linear infinite;
+}
+
+.switch-ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.switch-ring-pulse {
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  animation: exit-spin 0.8s linear infinite;
+  background: var(--accent-primary);
+  box-shadow: 0 0 12px var(--accent-primary);
+  animation: pulse 1.5s ease-in-out infinite;
 }
 
 .switch-model-name {
@@ -856,9 +904,26 @@ onUnmounted(() => {
   opacity: 0;
 }
 
-@keyframes exit-spin {
-  to {
-    transform: rotate(360deg);
-  }
+/* ===== 路由切换过渡 =====
+ * out-in 模式：先淡出当前，再淡入下一个，避免重叠
+ * translateY(6px) 轻微上滑，配合 opacity 营造层次感
+ */
+.route-fade-enter-active {
+  transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: opacity, transform;
 }
-</style>
+
+.route-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: opacity, transform;
+}
+
+.route-fade-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.route-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}</style>
