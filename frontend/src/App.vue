@@ -99,6 +99,7 @@
             stroke-linecap="round" stroke-dasharray="35 240" class="switch-deco-mid" opacity="0.45" />
         </svg>
         <div class="switch-overlay-content">
+          <!-- 圆形进度环 + 中心 LOGO 图片 -->
           <div class="switch-ring-wrapper">
             <svg class="switch-ring-svg" width="80" height="80" viewBox="0 0 80 80">
               <circle cx="40" cy="40" r="36" stroke="var(--border-color)" stroke-width="2" fill="none" opacity="0.3" />
@@ -108,16 +109,25 @@
                 class="switch-ring-arc" />
             </svg>
             <div class="switch-ring-center">
-              <div class="switch-ring-pulse"></div>
+              <img :src="appLogo" alt="豆芽" class="switch-ring-logo" />
             </div>
           </div>
           <div class="switch-model-name">{{ overlayModelName }}</div>
-          <!-- 进度条：细线条 + accent 色填充 -->
-          <div class="switch-progress-bar">
-            <div class="switch-progress-fill" :class="{ 'indeterminate': switchProgressPercent <= 0 }"
-                 :style="switchProgressPercent > 0 ? { width: switchProgressPercent + '%' } : {}"></div>
-          </div>
           <div class="switch-progress-msg">{{ switchStageText }}</div>
+          <!-- 阶段指示器：3 阶段进度 -->
+          <div class="switch-stage-indicator">
+            <div
+              v-for="(stage, idx) in switchStages"
+              :key="idx"
+              :class="['stage-item', {
+                'active': getSwitchStageIndex() >= idx,
+                'completed': getSwitchStageIndex() > idx
+              }]"
+            >
+              <span class="stage-dot"></span>
+              <span class="stage-label">{{ stage }}</span>
+            </div>
+          </div>
         </div>
       </div>
     </Transition>
@@ -129,18 +139,21 @@
           <circle cx="180" cy="180" r="160" stroke="currentColor" stroke-width="1" opacity="0.08" class="exit-ring-outer" />
           <circle cx="180" cy="180" r="120" stroke="currentColor" stroke-width="1.5" opacity="0.15" class="exit-ring-mid" />
           <circle cx="180" cy="180" r="80" stroke="currentColor" stroke-width="2" opacity="0.25" class="exit-ring-inner" />
-          <!-- 中心点 -->
-          <circle cx="180" cy="180" r="4" fill="currentColor" class="exit-center-dot" />
         </svg>
         <div class="switch-overlay-content">
-          <div class="exit-icon-wrapper">
-            <!-- 退出图标：门 + 箭头 -->
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M28 6 L28 42 L8 42 L8 6 Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.4" />
-              <path d="M28 24 L42 24 M36 18 L42 24 L36 30" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
+          <!-- 退出动效：LOGO + 退出图标叠加 -->
+          <div class="exit-logo-wrapper">
+            <img :src="appLogo" alt="豆芽" class="exit-logo-img" />
+            <div class="exit-icon-badge">
+              <!-- 退出图标：箭头向外 -->
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </div>
           </div>
-          <div class="switch-model-name exit-title">正在退出豆芽</div>
+          <div class="switch-model-name">正在退出豆芽</div>
           <div class="switch-progress-msg">{{ exitMessage }}</div>
         </div>
       </div>
@@ -175,6 +188,7 @@ import { classifyError } from './utils/errorGuidance'
 import type { Conversation, ModelOption } from './services/wails'
 import { wails } from './services/wails'
 import { WindowMinimise, WindowToggleMaximise, WindowIsMaximised, WindowHide } from '../wailsjs/runtime/runtime'
+import appLogo from './assets/images/appicon.png'
 
 const { message: discreteMessage, dialog: discreteDialog } = createDiscreteApi(['message', 'dialog'])
 
@@ -236,11 +250,19 @@ const errorModelName = computed(() => {
 const switchDuration = ref('')
 let switchDurationTimer: ReturnType<typeof setInterval> | null = null
 
-const showSwitchOverlay = computed(() => settingsStore.switchProgress.stage !== 'idle' && !isModelSwitching.value && settingsStore.hasEverBeenReady)
+// 合并触发条件：切换进行中（isModelSwitching）或切换后反馈（stage 非 idle）都显示 overlay
+// 这样 MessageList.vue 不再需要自己的切换 overlay，避免重复
+const showSwitchOverlay = computed(() =>
+  isModelSwitching.value || (settingsStore.switchProgress.stage !== 'idle' && settingsStore.hasEverBeenReady)
+)
 
 const switchProgressStage = computed(() => settingsStore.switchProgress.stage)
 
 const switchStageText = computed(() => {
+  // 切换进行中（前端发起，后端还未推送 stage）
+  if (isModelSwitching.value && settingsStore.switchProgress.stage === 'idle') {
+    return '正在切换模型...'
+  }
   const stage = settingsStore.switchProgress.stage
   const texts: Record<string, string> = {
     'preparing': '准备切换模型...',
@@ -248,6 +270,7 @@ const switchStageText = computed(() => {
     'waiting': '初始化模型...',
     'detecting': '检测模型能力...',
     'done': '加载完成',
+    'failed': '模型加载失败',
     'vram-warning': 'VRAM 不足警告，可能影响性能...',
     'spec-warning': '推测解码兼容性警告...',
   }
@@ -259,6 +282,21 @@ const overlayModelName = computed(() => {
   if (switchingModelDisplay.value) return switchingModelDisplay.value
   return ''
 })
+
+// 切换阶段指示器（3 阶段，与原 MessageList 逻辑一致）
+const switchStages = ['准备切换', '加载新模型', '初始化完成']
+
+function getSwitchStageIndex(): number {
+  // 切换进行中但后端未推送 stage 时，显示第一阶段
+  if (isModelSwitching.value && settingsStore.switchProgress.stage === 'idle') return 0
+  const stage = settingsStore.switchProgress.stage
+  switch (stage) {
+    case 'preparing': return 0
+    case 'loading': return 1
+    case 'done': return 2
+    default: return 0
+  }
+}
 
 const isMaximized = ref(false)
 const isExiting = ref(false)
@@ -937,13 +975,25 @@ onUnmounted(() => {
   justify-content: center;
 }
 
-.switch-ring-pulse {
-  width: 12px;
-  height: 12px;
+/* 圆环中心 LOGO 图片（替代原 pulse 点） */
+.switch-ring-logo {
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
-  background: var(--accent-primary);
-  box-shadow: 0 0 12px var(--accent-primary);
-  animation: pulse 1.5s ease-in-out infinite;
+  object-fit: cover;
+  /* 轻微呼吸缩放，提示正在加载 */
+  animation: logo-breath 1.8s ease-in-out infinite;
+}
+
+@keyframes logo-breath {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
 }
 
 .switch-model-name {
@@ -960,31 +1010,68 @@ onUnmounted(() => {
   color: var(--text-secondary);
 }
 
-/* ===== 切换进度条 ===== */
-.switch-progress-bar {
-  width: 200px;
-  height: 2px;
+/* ===== 阶段指示器（3 阶段）=====
+ * 实用性：让用户知道当前进度到了哪一步
+ */
+.switch-stage-indicator {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-top: 8px;
+}
+
+.stage-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0.4;
+  transition: opacity 0.3s ease;
+}
+
+.stage-item.active {
+  opacity: 1;
+}
+
+.stage-item.completed {
+  opacity: 0.8;
+}
+
+.stage-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
   background: var(--border-color);
-  border-radius: 1px;
-  overflow: hidden;
+  transition: background 0.3s ease, box-shadow 0.3s ease;
 }
 
-.switch-progress-fill {
-  height: 100%;
+.stage-item.active .stage-dot {
   background: var(--accent-primary);
-  border-radius: 1px;
-  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 0 6px rgba(7, 193, 96, 0.5);
+  box-shadow: 0 0 8px rgba(7, 193, 96, 0.6);
+  animation: stage-dot-pulse 1.5s ease-in-out infinite;
 }
 
-.switch-progress-fill.indeterminate {
-  width: 30% !important;
-  animation: indeterminate-slide 1.4s ease-in-out infinite;
+.stage-item.completed .stage-dot {
+  background: var(--accent-primary);
 }
 
-@keyframes indeterminate-slide {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(400%); }
+@keyframes stage-dot-pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.3);
+  }
+}
+
+.stage-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.stage-item.active .stage-label {
+  color: var(--accent-primary);
+  font-weight: 500;
 }
 
 /* ===== 切换 overlay 过渡：入场缩放 + 出场模糊 ===== */
@@ -1070,33 +1157,75 @@ onUnmounted(() => {
   }
 }
 
-.exit-icon-wrapper {
-  color: var(--accent-primary);
-  filter: drop-shadow(0 0 6px rgba(7, 193, 96, 0.3));
-  animation: exit-icon-enter 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+/* ===== 退出动效：LOGO + 退出图标徽章叠加 =====
+ * LOGO 居中，右下角小徽章显示退出图标，实用且直观
+ */
+.exit-logo-wrapper {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: exit-logo-enter 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-@keyframes exit-icon-enter {
+@keyframes exit-logo-enter {
   from {
     opacity: 0;
-    transform: translateX(-12px);
+    transform: scale(0.8);
   }
   to {
     opacity: 1;
-    transform: translateX(0);
+    transform: scale(1);
   }
 }
 
-.exit-title {
-  animation: exit-title-color 1.2s ease-in-out infinite;
+.exit-logo-img {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  /* 退出时 LOGO 缓慢变淡 */
+  animation: exit-logo-fade 1.2s ease-out 0.3s forwards;
 }
 
-@keyframes exit-title-color {
-  0%, 100% {
-    color: var(--text-primary);
+@keyframes exit-logo-fade {
+  from {
+    opacity: 1;
+    transform: scale(1);
   }
-  50% {
-    color: var(--accent-primary);
+  to {
+    opacity: 0.6;
+    transform: scale(0.92);
+  }
+}
+
+/* 退出图标徽章：右下角小圆圈 + 箭头向外图标 */
+.exit-icon-badge {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent-danger);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(250, 81, 81, 0.4), 0 0 0 3px var(--bg-primary);
+  animation: exit-badge-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.15s both;
+}
+
+@keyframes exit-badge-pop {
+  from {
+    opacity: 0;
+    transform: scale(0);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
   }
 }
 
@@ -1123,15 +1252,16 @@ onUnmounted(() => {
   .switch-deco-outer,
   .switch-deco-mid,
   .switch-ring-arc,
-  .switch-ring-pulse,
-  .switch-progress-fill.indeterminate,
+  .switch-ring-logo,
+  .stage-item.active .stage-dot,
   .exit-deco,
   .exit-ring-outer,
   .exit-ring-mid,
   .exit-ring-inner,
   .exit-center-dot,
-  .exit-icon-wrapper,
-  .exit-title {
+  .exit-logo-wrapper,
+  .exit-logo-img,
+  .exit-icon-badge {
     animation: none;
   }
 }

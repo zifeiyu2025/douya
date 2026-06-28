@@ -55,12 +55,6 @@
           <div class="splash-subtitle">本地 AI 聊天助手</div>
         </div>
 
-        <!-- 进度条（加载中显示） -->
-        <div v-if="stage !== 'done' && stage !== 'failed'" class="splash-progress-bar">
-          <div class="splash-progress-fill" :class="{ 'indeterminate': progress <= 0 }"
-               :style="progress > 0 ? { width: progress + '%' } : {}"></div>
-        </div>
-
         <!-- 状态文字 -->
         <div class="splash-status">
           <span class="status-text" :class="{ 'status-done': stage === 'done', 'status-failed': stage === 'failed' }">{{ stageText }}</span>
@@ -265,51 +259,7 @@ const stageText = computed(() => {
   padding-left: 3px;
 }
 
-/* ===== 进度条 =====
- * 现代科技感：细线条 + 渐变填充 + 不定模式
- */
-.splash-progress-bar {
-  width: 200px;
-  height: 2px;
-  background: var(--border-color);
-  border-radius: 1px;
-  overflow: hidden;
-  animation: progress-enter 0.4s ease 0.4s both;
-}
-
-@keyframes progress-enter {
-  from {
-    opacity: 0;
-    transform: scaleX(0.6);
-  }
-  to {
-    opacity: 1;
-    transform: scaleX(1);
-  }
-}
-
-.splash-progress-fill {
-  height: 100%;
-  background: var(--accent-primary);
-  border-radius: 1px;
-  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 0 6px rgba(7, 193, 96, 0.5);
-}
-
-/* 不定模式（progress <= 0 时）：左右循环滑动 */
-.splash-progress-fill.indeterminate {
-  width: 30% !important;
-  animation: indeterminate-slide 1.4s ease-in-out infinite;
-}
-
-@keyframes indeterminate-slide {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(400%);
-  }
-}
+/* ===== 进度条已移除（用户要求）===== */
 
 /* 状态文字 */
 .splash-status {
@@ -378,8 +328,7 @@ const stageText = computed(() => {
   .deco-ring-outer,
   .deco-ring-mid,
   .logo-spinner-ring,
-  .splash-title,
-  .splash-progress-fill.indeterminate {
+  .splash-title {
     animation: none;
   }
 }

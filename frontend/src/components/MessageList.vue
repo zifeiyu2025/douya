@@ -1,43 +1,6 @@
 <template>
   <div ref="messageListRef" class="message-list">
-    <Transition name="switch-overlay">
-      <div v-if="isSwitching" class="switch-overlay">
-        <div class="switch-overlay-content">
-          <!-- 圆形进度环 + 中心 spinner -->
-          <div class="switch-ring-wrapper">
-            <svg class="switch-ring-svg" width="80" height="80" viewBox="0 0 80 80">
-              <!-- 底层淡圈 -->
-              <circle cx="40" cy="40" r="36" stroke="var(--border-color)" stroke-width="2" fill="none" opacity="0.3" />
-              <!-- 旋转弧线 -->
-              <circle cx="40" cy="40" r="36" stroke="var(--accent-primary)" stroke-width="2.5"
-                stroke-linecap="round" fill="none"
-                stroke-dasharray="85 150"
-                class="switch-ring-arc" />
-            </svg>
-            <div class="switch-ring-center">
-              <div class="switch-ring-pulse"></div>
-            </div>
-          </div>
-          <div class="switch-model-name">{{ switchingToModel }}</div>
-          <div class="switch-progress-msg">
-            {{ getSwitchProgressText() }}
-          </div>
-          <div class="switch-stage-indicator">
-            <div
-              v-for="(stage, idx) in switchStages"
-              :key="idx"
-              :class="['stage-item', {
-                'active': getCurrentStageIndex() >= idx,
-                'completed': getCurrentStageIndex() > idx
-              }]"
-            >
-              <span class="stage-dot"></span>
-              <span class="stage-label">{{ stage }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Transition>
+    <!-- 模型切换 overlay 已移至 App.vue 统一管理，避免重复 -->
     <div v-if="(!messages || messages.length === 0) && !isGenerating" class="message-list-empty">
       <div class="welcome-container">
         <div class="welcome-brand">
@@ -206,49 +169,8 @@ async function handleStopThinking() {
   }
 }
 
-const isSwitching = computed(() => settingsStore.isModelSwitching)
-const switchingToModel = computed(() => {
-  if (settingsStore.serverStatus.switching_to) {
-    return formatModelName(settingsStore.serverStatus.switching_to).display
-  }
-  return ''
-})
-
-const switchStages = ['准备切换', '加载新模型', '初始化完成']
-
-function getCurrentStageIndex(): number {
-  const stage = settingsStore.switchProgress.stage
-  switch (stage) {
-    case 'preparing':
-      return 0
-    case 'loading':
-      return 1
-    case 'done':
-      return 2
-    default:
-      return 0
-  }
-}
-
-function getSwitchProgressText(): string {
-  const stage = settingsStore.switchProgress.stage
-  const newModel = switchingToModel.value
-
-  switch (stage) {
-    case 'preparing':
-      return '准备切换模型...'
-    case 'loading':
-      return `正在加载模型 ${newModel}...`
-    case 'waiting':
-      return '等待服务器就绪...'
-    case 'done':
-      return '模型初始化完成！'
-    case 'failed':
-      return '模型加载失败'
-    default:
-      return '正在切换模型...'
-  }
-}
+// 模型切换 overlay 相关逻辑已移至 App.vue 统一管理
+// 这里保留 isSwitching 等变量供其他用途（如禁用输入）
 
 // PERF-003 + Step 3: 流式 Markdown 渲染跑在 Web Worker 中，主线程零阻塞
 // - useMarkdownWorker 内部维护任务 ID 防过期、动态节流、Worker 复用
@@ -537,140 +459,7 @@ watch(() => chatStore.lastError, (err) => {
   color: var(--text-secondary);
 }
 
-.switch-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--bg-primary);
-  opacity: 0.85;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  pointer-events: auto;
-}
-
-.switch-overlay-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-}
-
-/* ===== 圆形进度环 =====
- * SVG 弧线旋转 + 中心呼吸点，替代旧版 border spinner
- * 性能：纯 transform 旋转，GPU 友好
- */
-.switch-ring-wrapper {
-  position: relative;
-  width: 80px;
-  height: 80px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent-primary) 40%, transparent));
-}
-
-.switch-ring-svg {
-  display: block;
-}
-
-.switch-ring-arc {
-  transform-origin: 40px 40px;
-  animation: spin 1.4s linear infinite;
-}
-
-.switch-ring-center {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.switch-ring-pulse {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--accent-primary);
-  box-shadow: 0 0 12px var(--accent-primary);
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-.switch-model-name {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.switch-progress-msg {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.switch-stage-indicator {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 24px;
-}
-
-.stage-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  opacity: 0.3;
-  transition: opacity 0.3s ease;
-}
-
-.stage-item.active {
-  opacity: 1;
-}
-
-.stage-item.completed {
-  opacity: 0.7;
-}
-
-.stage-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background-color: var(--border-color);
-  transition: background-color 0.3s ease, box-shadow 0.3s ease;
-}
-
-.stage-item.active .stage-dot {
-  background-color: var(--accent-primary);
-  box-shadow: 0 0 10px var(--accent-primary);
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-.stage-item.completed .stage-dot {
-  background-color: var(--accent-primary);
-  box-shadow: 0 0 6px color-mix(in srgb, var(--accent-primary) 50%, transparent);
-}
-
-.stage-label {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.stage-item.active .stage-label {
-  color: var(--text-primary);
-  font-weight: 500;
-}
-
-.switch-overlay-enter-active,
-.switch-overlay-leave-active {
-  transition: opacity 0.3s ease;
-}
-
-.switch-overlay-enter-from,
-.switch-overlay-leave-to {
-  opacity: 0;
-}
+/* 模型切换 overlay 样式已移至 App.vue 统一管理 */
 
 /* 回到底部按钮：正圆包裹箭头 */
 .scroll-to-bottom-btn {
