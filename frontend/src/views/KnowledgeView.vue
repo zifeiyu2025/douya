@@ -787,7 +787,7 @@ onMounted(async () => {
 }
 
 .status-active {
-  color: var(--success-color, #18a058);
+  color: var(--accent-success, #07c160);
   font-weight: 500;
 }
 

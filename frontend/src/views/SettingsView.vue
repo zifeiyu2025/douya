@@ -346,8 +346,9 @@ const searchKeys = ref<SearchAPIKeys>({
 // 用户输入的新 API Key（不在状态中保存真实密钥）
 const newOllamaApiKey = ref('')
 const newTavilyApiKey = ref('')
+const savingSearchKeys = ref(false)
 
-function saveSearchKeys() {
+async function saveSearchKeys() {
     // 只发送非空的 key，空值表示不更新
     const keysToUpdate: Partial<SearchAPIKeys> = {}
     if (newOllamaApiKey.value) {
@@ -357,20 +358,48 @@ function saveSearchKeys() {
         keysToUpdate.tavily_api_key = newTavilyApiKey.value
     }
     if (Object.keys(keysToUpdate).length === 0) return
-    settingsStore.saveSearchAPIKeys(keysToUpdate).then(() => {
+
+    // 构建提示文案：区分保存了哪些 key
+    const savedNames: string[] = []
+    if (keysToUpdate.ollama_api_key) savedNames.push('Ollama')
+    if (keysToUpdate.tavily_api_key) savedNames.push('Tavily')
+
+    savingSearchKeys.value = true
+    try {
+        await settingsStore.saveSearchAPIKeys(keysToUpdate)
         // 保存成功后清空输入框
         newOllamaApiKey.value = ''
         newTavilyApiKey.value = ''
-    })
+        message.destroyAll()
+        message.success(`${savedNames.join(' + ')} API Key 已保存`, { duration: 2500 })
+    } catch (e) {
+        console.error('Failed to save search API keys:', e)
+        message.destroyAll()
+        message.error('API Key 保存失败，请重试', { duration: 4000 })
+    } finally {
+        savingSearchKeys.value = false
+    }
 }
 
 const serverApiKey = ref('')
 const hasServerApiKey = ref(false)
+const savingServerApiKey = ref(false)
 
-function saveServerApiKey() {
-    if (serverApiKey.value) {
-        settingsStore.saveServerAPIKey(serverApiKey.value)
+async function saveServerApiKey() {
+    if (!serverApiKey.value) return
+    savingServerApiKey.value = true
+    try {
+        await settingsStore.saveServerAPIKey(serverApiKey.value)
         hasServerApiKey.value = true
+        serverApiKey.value = ''
+        message.destroyAll()
+        message.success('服务 API Key 已保存', { duration: 2500 })
+    } catch (e) {
+        console.error('Failed to save server API key:', e)
+        message.destroyAll()
+        message.error('服务 API Key 保存失败，请重试', { duration: 4000 })
+    } finally {
+        savingServerApiKey.value = false
     }
 }
 
@@ -667,9 +696,11 @@ const settingsContext: SettingsContext = {
   newTavilyApiKey,
   searchKeys,
   saveSearchKeys,
+  savingSearchKeys,
   serverApiKey,
   hasServerApiKey,
   saveServerApiKey,
+  savingServerApiKey,
   onServerAPIKeyToggle,
   onExposeServerToggle,
   cacheTypeKOptions,

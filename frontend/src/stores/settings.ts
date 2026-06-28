@@ -253,6 +253,52 @@ export const useSettingsStore = defineStore('settings', () => {
         }
     }
 
+    // ----- 启动兜底：周期性状态轮询 + 看门狗（防止事件监听器注册晚于后端事件发射导致无限转圈） -----
+    let startupPollingTimer: ReturnType<typeof setInterval> | null = null
+    let startupWatchdogTimer: ReturnType<typeof setTimeout> | null = null
+    let receivedAnyStatusEvent = false
+
+    /** 启动周期性状态轮询（每 3s 兜底检查服务器状态） */
+    function startStartupPolling() {
+        // 监听器重复初始化时先清除旧定时器
+        stopStartupPolling()
+        startupPollingTimer = setInterval(() => {
+            checkServerStatus()
+        }, 3000)
+    }
+
+    /** 停止周期性状态轮询 + 清除看门狗定时器 */
+    function stopStartupPolling() {
+        if (startupPollingTimer) {
+            clearInterval(startupPollingTimer)
+            startupPollingTimer = null
+        }
+        if (startupWatchdogTimer) {
+            clearTimeout(startupWatchdogTimer)
+            startupWatchdogTimer = null
+        }
+    }
+
+    /** 启动看门狗：60s 内未收到任何状态事件则主动轮询，轮询失败则标记 failed */
+    function startStartupWatchdog() {
+        // 重复初始化时先清除旧定时器
+        if (startupWatchdogTimer) {
+            clearTimeout(startupWatchdogTimer)
+            startupWatchdogTimer = null
+        }
+        startupWatchdogTimer = setTimeout(async () => {
+            if (!receivedAnyStatusEvent && !hasEverBeenReady.value) {
+                console.warn('[startup] watchdog: no status event received in 60s, polling manually')
+                try {
+                    await checkServerStatus()
+                } catch (e) {
+                    console.error('[startup] watchdog: manual polling failed', e)
+                    finishFailure(String(e) || '启动看门狗触发失败', currentModel.value, false, false)
+                }
+            }
+        }, 60000)
+    }
+
     // ----- 副作用：状态机驱动的定时器（集中管理,自动清理） -----
     let pendingTransitions: ReturnType<typeof setTimeout>[] = []
 
@@ -294,6 +340,19 @@ export const useSettingsStore = defineStore('settings', () => {
                     finishTimeout()
                 }
             }, SWITCH_TIMING.SERVER_POLL_TIMEOUT_MS))
+        }
+    })
+
+    // 启动兜底：当已就绪或进入终态时停止周期性轮询
+    watch(hasEverBeenReady, (ready) => {
+        if (ready) {
+            stopStartupPolling()
+        }
+    })
+    watch(() => switchState.value.phase, (phase) => {
+        // phase 进入 done(ready_after_switch)/failed/timeout 时停止轮询
+        if (phase === 'ready_after_switch' || phase === 'failed' || phase === 'timeout') {
+            stopStartupPolling()
         }
     })
 
@@ -359,21 +418,18 @@ export const useSettingsStore = defineStore('settings', () => {
     }
 
     async function saveSearchAPIKeys(keys: Partial<SearchAPIKeys>) {
-        try {
-            // 仅保存用户实际输入的新密钥，空字符串表示未修改
-            const fullKeys: SearchAPIKeys = {
-                ollama_api_key: keys.ollama_api_key ?? '',
-                tavily_api_key: keys.tavily_api_key ?? '',
-                ollama_api_key_set: false,
-                tavily_api_key_set: false,
-            }
-            if (!fullKeys.ollama_api_key && !fullKeys.tavily_api_key) return
-            await wails.setSearchAPIKeys(fullKeys)
-            // 保存成功后刷新设置状态
-            await loadSearchAPIKeys()
-        } catch (e) {
-            console.error('Failed to save search API keys:', e)
+        // 仅保存用户实际输入的新密钥，空字符串表示未修改
+        const fullKeys: SearchAPIKeys = {
+            ollama_api_key: keys.ollama_api_key ?? '',
+            tavily_api_key: keys.tavily_api_key ?? '',
+            ollama_api_key_set: false,
+            tavily_api_key_set: false,
         }
+        if (!fullKeys.ollama_api_key && !fullKeys.tavily_api_key) return
+        // 不吞掉错误，让调用方 catch 后给用户视觉反馈
+        await wails.setSearchAPIKeys(fullKeys)
+        // 保存成功后刷新设置状态
+        await loadSearchAPIKeys()
     }
 
     async function hasServerAPIKey(): Promise<boolean> {
@@ -386,11 +442,8 @@ export const useSettingsStore = defineStore('settings', () => {
     }
 
     async function saveServerAPIKey(key: string) {
-        try {
-            await wails.setServerAPIKey(key)
-        } catch (e) {
-            console.error('Failed to save server API key:', e)
-        }
+        // 不吞掉错误，让调用方 catch 后给用户视觉反馈
+        await wails.setServerAPIKey(key)
     }
 
     async function cycleSearchMode() {
@@ -485,7 +538,18 @@ export const useSettingsStore = defineStore('settings', () => {
 
     function initStatusListener() {
         wails.onServerStatus((status: ServerStatus) => {
+            receivedAnyStatusEvent = true
             serverStatus.value = status
+            // 后端错误事件触发 failed 状态（仅在 first_load/switching 阶段，避免 idle 时误标记失败）
+            if (status.running === false && status.error) {
+                const phase = switchState.value.phase
+                if (phase === 'first_load' || phase === 'switching') {
+                    const prev = phase === 'switching' && 'previousModel' in switchState.value
+                        ? switchState.value.previousModel
+                        : currentModel.value
+                    finishFailure(status.error, prev, false, false)
+                }
+            }
             if (status.capabilities) {
                 modelCapabilities.value = status.capabilities
             }
@@ -502,6 +566,10 @@ export const useSettingsStore = defineStore('settings', () => {
             }
         })
         checkServerStatus()
+        // 启动周期性轮询兜底，防止事件竞态导致无限转圈
+        startStartupPolling()
+        // 启动看门狗：60s 兜底保护，防止事件监听完全失效
+        startStartupWatchdog()
     }
 
     function cleanupStatusListener() {
@@ -512,9 +580,7 @@ export const useSettingsStore = defineStore('settings', () => {
         wails.onSwitchProgress((progress) => {
             // 仅在 idle 接受进度事件,首次加载时记录 first_load
             if (switchState.value.phase === 'idle') {
-                if (progress.stage === 'loading' || progress.stage === 'preparing' || progress.stage === 'waiting') {
-                    beginFirstLoad(progress.targetModel || currentModel.value)
-                }
+                beginFirstLoad(progress.targetModel || currentModel.value)
             }
             reportProgress(progress.stage as SwitchProgressStage)
         })

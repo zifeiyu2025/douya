@@ -40,9 +40,11 @@ export interface SettingsContext {
   newTavilyApiKey: Ref<string>
   searchKeys: Ref<SearchAPIKeys>
   saveSearchKeys: () => void
+  savingSearchKeys: Ref<boolean>
   serverApiKey: Ref<string>
   hasServerApiKey: Ref<boolean>
   saveServerApiKey: () => void
+  savingServerApiKey: Ref<boolean>
   onServerAPIKeyToggle: () => Promise<void>
   onExposeServerToggle: () => Promise<void>
 

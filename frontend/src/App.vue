@@ -227,11 +227,13 @@ const toggleConsole = () => {
 }
 
 // SplashScreen 逻辑
+const modelLoadTimeout = computed(() => settingsStore.switchState.phase === 'timeout')
 const showSplash = computed(() => {
-  // 首次加载且未就绪且未失败时显示
-  if (!settingsStore.hasEverBeenReady && !modelLoadFailed.value) return true
-  // 加载失败但还没显示过主界面时也显示（显示错误状态）
-  if (!settingsStore.hasEverBeenReady && modelLoadFailed.value) return true
+  // 首次加载未就绪时显示 splash（无论 failed 还是 timeout 都仍显示）
+  // SplashScreen 组件会根据 stage 决定是否转圈（timeout/failed 均映射为 'failed' stage，停止转圈）
+  if (!settingsStore.hasEverBeenReady) return true
+  // 已就绪后无论是否 timeout 都不显示 splash
+  if (modelLoadTimeout.value) return false
   return false
 })
 

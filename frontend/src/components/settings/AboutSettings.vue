@@ -64,7 +64,7 @@
 
       <!-- 已是最新 -->
       <div v-else-if="updateStatus === 'up-to-date'" class="update-row">
-        <n-icon size="18" color="var(--success-color, #18a058)"><CheckmarkCircleOutline /></n-icon>
+        <n-icon size="18" color="var(--accent-success, #07c160)"><CheckmarkCircleOutline /></n-icon>
         <span class="update-status-text update-success">已是最新版本</span>
       </div>
 
@@ -109,7 +109,7 @@
 
       <!-- 错误 -->
       <div v-else-if="updateStatus === 'error'" class="update-row">
-        <n-icon size="18" color="var(--error-color, #d03050)"><CloseCircleOutline /></n-icon>
+        <n-icon size="18" color="var(--accent-danger, #fa5151)"><CloseCircleOutline /></n-icon>
         <span class="update-status-text update-error">{{ errorMessage }}</span>
         <n-button type="primary" size="small" ghost @click="handleCheckUpdate">重试</n-button>
       </div>
@@ -343,11 +343,11 @@ onUnmounted(() => {
 }
 
 .update-success {
-  color: var(--success-color, #18a058);
+  color: var(--accent-success, #07c160);
 }
 
 .update-error {
-  color: var(--error-color, #d03050);
+  color: var(--accent-danger, #fa5151);
 }
 
 .update-available {

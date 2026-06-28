@@ -7,7 +7,10 @@
         type="password"
         show-password-on="click"
         :placeholder="searchKeys.ollama_api_key_set ? '已设置，输入新值覆盖' : '输入 API Key 保存'"
+        :loading="savingSearchKeys"
+        :disabled="savingSearchKeys"
         @blur="saveSearchKeys"
+        @keyup.enter="saveSearchKeys"
         class="api-key-input"
       />
       <n-tag v-if="searchKeys.ollama_api_key_set" type="success" size="small">已设置</n-tag>
@@ -26,7 +29,10 @@
         type="password"
         show-password-on="click"
         :placeholder="searchKeys.tavily_api_key_set ? '已设置，输入新值覆盖' : '输入 API Key 保存'"
+        :loading="savingSearchKeys"
+        :disabled="savingSearchKeys"
         @blur="saveSearchKeys"
+        @keyup.enter="saveSearchKeys"
         class="api-key-input"
       />
       <n-tag v-if="searchKeys.tavily_api_key_set" type="success" size="small">已设置</n-tag>
@@ -63,7 +69,10 @@
         type="password"
         show-password-on="click"
         :placeholder="hasServerApiKey ? '已设置，留空保持不变' : '设置后 API 请求需携带此密钥'"
+        :loading="savingServerApiKey"
+        :disabled="savingServerApiKey"
         @blur="saveServerApiKey"
+        @keyup.enter="saveServerApiKey"
         class="api-key-input"
       />
       <n-tag v-if="hasServerApiKey" type="success" size="small">已设置</n-tag>
@@ -290,8 +299,8 @@ const ctx = inject<SettingsContext>(SETTINGS_CONTEXT_KEY)!
 
 const {
   formConfig, autoSave,
-  newOllamaApiKey, newTavilyApiKey, searchKeys, saveSearchKeys,
-  serverApiKey, hasServerApiKey, saveServerApiKey,
+  newOllamaApiKey, newTavilyApiKey, searchKeys, saveSearchKeys, savingSearchKeys,
+  serverApiKey, hasServerApiKey, saveServerApiKey, savingServerApiKey,
   onServerAPIKeyToggle, onExposeServerToggle,
   cacheTypeKOptions, cacheTypeVOptions, specTypeOptions,
   settingsStore,
@@ -313,6 +322,16 @@ const {
 .api-key-hint {
   font-size: 12px;
   color: var(--n-text-color-3);
+}
+
+/* "已设置"标签淡入动画：保存成功后的微妙视觉确认 */
+.api-key-row :deep(.n-tag) {
+  animation: tagFadeIn 0.3s ease;
+}
+
+@keyframes tagFadeIn {
+  from { opacity: 0; transform: scale(0.85); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 .setting-hint {

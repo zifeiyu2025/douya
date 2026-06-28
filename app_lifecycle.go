@@ -52,6 +52,15 @@ func (a *App) startup(ctx context.Context) {
 			Title:   "关键文件缺失",
 			Message: msg,
 		})
+		// 关键文件缺失，终止启动流程
+		// 尽力通知前端（前端可能还未注册监听器，但轮询机制会恢复状态）
+		runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+			Running:    false,
+			ModelReady: false,
+			Error:      "关键文件缺失，请检查 runtime/ 和 models/ 目录",
+		})
+		zlog.Error().Strs("missing_paths", missingPaths).Msg("[startup] critical files missing, aborting startup")
+		return
 	}
 
 	dbPath := filepath.Join(appDir(), "data", "douya.db")
