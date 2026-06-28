@@ -141,17 +141,9 @@
           <circle cx="180" cy="180" r="80" stroke="currentColor" stroke-width="2" opacity="0.25" class="exit-ring-inner" />
         </svg>
         <div class="switch-overlay-content">
-          <!-- 退出动效：LOGO + 退出图标叠加 -->
+          <!-- 退出动效：仅 LOGO（简洁） -->
           <div class="exit-logo-wrapper">
             <img :src="appLogo" alt="豆芽" class="exit-logo-img" />
-            <div class="exit-icon-badge">
-              <!-- 退出图标：箭头向外 -->
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
-            </div>
           </div>
           <div class="switch-model-name">正在退出豆芽</div>
           <div class="switch-progress-msg">{{ exitMessage }}</div>
@@ -1157,11 +1149,10 @@ onUnmounted(() => {
   }
 }
 
-/* ===== 退出动效：LOGO + 退出图标徽章叠加 =====
- * LOGO 居中，右下角小徽章显示退出图标，实用且直观
+/* ===== 退出动效：仅 LOGO（简洁） =====
+ * LOGO 居中显示，缓慢变淡传递离开感
  */
 .exit-logo-wrapper {
-  position: relative;
   width: 80px;
   height: 80px;
   display: flex;
@@ -1182,8 +1173,8 @@ onUnmounted(() => {
 }
 
 .exit-logo-img {
-  width: 64px;
-  height: 64px;
+  width: 72px;
+  height: 72px;
   border-radius: 50%;
   object-fit: cover;
   /* 退出时 LOGO 缓慢变淡 */
@@ -1198,34 +1189,6 @@ onUnmounted(() => {
   to {
     opacity: 0.6;
     transform: scale(0.92);
-  }
-}
-
-/* 退出图标徽章：右下角小圆圈 + 箭头向外图标 */
-.exit-icon-badge {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--accent-danger);
-  color: #ffffff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 8px rgba(250, 81, 81, 0.4), 0 0 0 3px var(--bg-primary);
-  animation: exit-badge-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.15s both;
-}
-
-@keyframes exit-badge-pop {
-  from {
-    opacity: 0;
-    transform: scale(0);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
   }
 }
 
@@ -1260,8 +1223,7 @@ onUnmounted(() => {
   .exit-ring-inner,
   .exit-center-dot,
   .exit-logo-wrapper,
-  .exit-logo-img,
-  .exit-icon-badge {
+  .exit-logo-img {
     animation: none;
   }
 }
