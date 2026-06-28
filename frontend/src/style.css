@@ -220,59 +220,17 @@ html.dark {
   100% { transform: translateY(0); opacity: 1; }
 }
 
-/* ===== HUD 网格底纹 =====
- * 极淡的科技感网格线作为页面氛围层
- * - 两条 linear-gradient 组合（横+竖）形成网格
- * - opacity 极低（0.025），不干扰阅读
- * - 颜色跟随 accent-primary 自动适配主题
- * - background-attachment: fixed 避免滚动时网格跟随移动
+/* ===== HUD 网格底纹（已移除）=====
+ * 原本用 .app-layout::after 做网格底纹，但在 WebView2 中
+ * isolation:isolate + ::after z-index 堆叠有 bug，会覆盖主内容区文字
+ * 已移除以恢复文字可见性
  */
-@keyframes hud-grid-drift {
-  0% { background-position: 0 0, 0 0; }
-  100% { background-position: 40px 40px, 40px 40px; }
-}
 
 /* ===== 性能优化：CSS containment 隔离 =====
- * contain: layout style 限制浏览器重排范围
- * content-visibility 仅对非视口元素使用，避免流式容器高度抖动
+ * 注意：.app-layout 不加 contain:layout，避免 WebView2 堆叠上下文 bug
  */
 .app-layout {
-  contain: layout style;
   position: relative;
-}
-
-/* HUD 网格背景层：叠加在用户自定义背景之上、所有内容之下 */
-.app-layout::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  opacity: 0.15;
-  background-image:
-    linear-gradient(to right,
-      color-mix(in srgb, var(--accent-primary) 8%, transparent) 1px,
-      transparent 1px),
-    linear-gradient(to bottom,
-      color-mix(in srgb, var(--accent-primary) 8%, transparent) 1px,
-      transparent 1px);
-  background-size: 40px 40px, 40px 40px;
-  background-position: 0 0, 0 0;
-  /* 极慢漂移，营造科技感氛围但不分散注意力 */
-  animation: hud-grid-drift 60s linear infinite;
-  will-change: background-position;
-}
-
-/* 用户启用自定义聊天背景时，网格层进一步淡化避免冲突 */
-.app-layout:has(.chat-background-active)::after {
-  opacity: 0.08;
-}
-
-/* 尊重用户的减少动画偏好：网格静止 */
-@media (prefers-reduced-motion: reduce) {
-  .app-layout::after {
-    animation: none;
-  }
 }
 
 .sidebar {
@@ -284,12 +242,12 @@ html.dark {
 }
 
 /* ===== 主题切换全局平滑过渡 =====
- * 仅对颜色相关属性过渡，避免影响 transform/opacity 动画性能
- * transition-duration 0.4s 足够平滑又不拖沓
+ * 注意：不对 color 属性做 transition，避免主题切换时文字瞬间变透明
+ * 只过渡 background-color 和 border-color
  */
 html, body, .app-layout, .sidebar, .main-area, .main-header,
 .server-status, .conversation-item, .message-bubble, .n-dropdown-menu {
-  transition: background-color 0.4s ease, color 0.4s ease, border-color 0.4s ease;
+  transition: background-color 0.4s ease, border-color 0.4s ease;
 }
 
 /* ===== prefers-reduced-motion 降级 =====

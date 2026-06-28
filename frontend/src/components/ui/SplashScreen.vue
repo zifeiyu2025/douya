@@ -1,8 +1,6 @@
 <template>
   <Transition name="splash" @after-leave="$emit('complete')">
     <div v-if="visible" class="splash-screen">
-      <!-- HUD 扫描线背景层 -->
-      <div class="splash-scanline" aria-hidden="true"></div>
       <div class="splash-content">
         <!-- Logo + 旋转弧线 -->
         <div class="splash-logo" :class="{ 'is-done': stage === 'done', 'is-failed': stage === 'failed' }">
@@ -88,32 +86,10 @@ const stageText = computed(() => {
   overflow: hidden;
 }
 
-/* ===== HUD 扫描线背景层 =====
- * 一条从上到下移动的渐变线，营造"系统扫描"氛围
- * 用 background-position 动画（扫描线效果比 transform 更合适）
+/* ===== 扫描线已移除 =====
+ * 原本用 .splash-scanline 做扫描线效果，但 opacity:0.4 遮挡了"豆芽"文字
+ * 已移除以恢复文字可见性
  */
-.splash-scanline {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0.4;
-  background: linear-gradient(
-    180deg,
-    transparent 0%,
-    transparent 45%,
-    color-mix(in srgb, var(--accent-primary) 30%, transparent) 50%,
-    transparent 55%,
-    transparent 100%
-  );
-  background-size: 100% 300%;
-  animation: scan-bg 3s linear infinite;
-  will-change: background-position;
-}
-
-@keyframes scan-bg {
-  0% { background-position: 0% 0%; }
-  100% { background-position: 0% 100%; }
-}
 
 .splash-content {
   display: flex;
@@ -204,17 +180,17 @@ const stageText = computed(() => {
   color: var(--accent-primary);
   letter-spacing: 6px;
   padding-left: 6px;
-  /* 文字发光效果 */
-  text-shadow: 0 0 12px color-mix(in srgb, var(--accent-primary) 50%, transparent);
+  /* text-shadow 的 color-mix 在旧版 WebView2 可能失效，改用纯色阴影 */
+  text-shadow: 0 0 12px rgba(7, 193, 96, 0.4);
   animation: title-glow 2.5s ease-in-out infinite;
 }
 
 @keyframes title-glow {
   0%, 100% {
-    text-shadow: 0 0 12px color-mix(in srgb, var(--accent-primary) 40%, transparent);
+    text-shadow: 0 0 12px rgba(7, 193, 96, 0.4);
   }
   50% {
-    text-shadow: 0 0 20px color-mix(in srgb, var(--accent-primary) 70%, transparent);
+    text-shadow: 0 0 20px rgba(7, 193, 96, 0.6);
   }
 }
 

@@ -261,7 +261,11 @@ async function handleExport(id: string, format: string) {
   color: var(--text-secondary);
 }
 
-/* ===== Logo 科技感：渐变流光 + 呼吸发光 ===== */
+/* ===== Logo：纯色文字（回退渐变流光）=====
+ * 原本用 background-clip:text + -webkit-text-fill-color:transparent 做渐变流光
+ * 但在 WebView2 中 -webkit-text-fill-color:transparent 会导致文字消失
+ * 已回退为纯色文字，保留 accent-primary 作为主色
+ */
 .logo-text {
   font-size: 28px;
   font-weight: 800;
@@ -269,47 +273,19 @@ async function handleExport(id: string, format: string) {
   line-height: 1;
   text-transform: uppercase;
   position: relative;
-  /* 渐变流光背景，--accent-primary 作为主色 */
-  background: linear-gradient(
-    90deg,
-    var(--text-primary) 0%,
-    var(--accent-primary) 50%,
-    var(--text-primary) 100%
-  );
-  background-size: 200% auto;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: gradient-flow 4s linear infinite;
-  /* GPU 加速 */
-  will-change: background-position;
+  color: var(--accent-primary);
+  transition: color 0.3s ease;
 }
 
-/* 暗色模式下 Logo 更亮 */
+/* 暗色模式下 Logo 颜色稍亮 */
 :global(.dark) .logo-text {
-  background: linear-gradient(
-    90deg,
-    var(--text-primary) 0%,
-    var(--accent-primary) 80%,
-    var(--text-primary) 100%
-  );
-  background-size: 200% auto;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: gradient-flow 4s linear infinite;
+  color: var(--accent-primary);
 }
 
-/* logo-dou / logo-ya：继承父元素渐变流光
- * 旧代码用 -webkit-text-fill-color: initial 在某些 WebView 下不生效，导致文字透明消失
- * 改为继承父元素的 background + background-clip:text，让子元素也参与渐变
- */
+/* logo-dou / logo-ya：继承父元素颜色，确保文字可见 */
 .logo-dou,
 .logo-ya {
-  background: inherit;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: inherit;
 }
 
 /* ===== 会话列表 stagger 入场 =====
