@@ -31,7 +31,7 @@
       <div class="avatar-buttons">
         <n-upload
           :show-file-list="false"
-          :custom-request="handleUserAvatarUpload"
+          :custom-request="(data: any) => handleAvatarUpload(data, 'user_avatar')"
           accept="image/*"
         >
           <n-button type="primary" size="small" ghost>上传</n-button>
@@ -49,7 +49,7 @@
       <div class="avatar-buttons">
         <n-upload
           :show-file-list="false"
-          :custom-request="handleAIAvatarUpload"
+          :custom-request="(data: any) => handleAvatarUpload(data, 'ai_avatar')"
           accept="image/*"
         >
           <n-button type="primary" size="small" ghost>上传</n-button>
@@ -235,8 +235,8 @@ const ctx = inject<SettingsContext>(SETTINGS_CONTEXT_KEY)!
 const {
   formConfig, autoSave, genParamsDirty,
   backgroundImageUrl, selectBackgroundImage, clearBackground,
-  handleUserAvatarUpload, clearUserAvatar,
-  handleAIAvatarUpload, clearAIAvatar,
+  handleAvatarUpload, clearUserAvatar,
+  clearAIAvatar,
   defaultUserAvatar, defaultAiAvatar,
   reasoningOptions, supportsReasoning,
   currentModelRef, activeModelRefRaw, refShowThinking, applyModelRef,

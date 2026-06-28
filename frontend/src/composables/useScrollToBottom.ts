@@ -96,7 +96,7 @@ export function useScrollToBottom(threshold = 150) {
                 isAutoScrollEnabled.value = false
             }
         }
-        el.addEventListener('scroll', scrollHandler)
+        el.addEventListener('scroll', scrollHandler, { passive: true })
         boundElement = el
     }
 

@@ -722,6 +722,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  stopSwitchDurationTimer()
   chatStore.cleanupStreamListener()
   settingsStore.cleanupStatusListener()
   settingsStore.cleanupSwitchProgressListener()

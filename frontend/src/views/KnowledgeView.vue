@@ -185,6 +185,7 @@ import {
 import { ArrowBackOutline, AddOutline, TrashOutline, CloseOutline, CloudUploadOutline, CheckmarkCircleOutline } from '@vicons/ionicons5'
 import { wails, type CollectionInfo, type DocumentMeta, type ModelOption } from '../services/wails'
 import { useSettingsStore } from '../stores/settings'
+import { showError, showSuccess, showWarning } from '../utils/showError'
 
 const message = useMessage()
 const dialog = useDialog()
@@ -304,8 +305,7 @@ async function loadData() {
     }
     await loadDocuments()
   } catch (e: any) {
-    message.destroyAll()
-    message.error('加载知识库数据失败: ' + (e.message || e))
+    showError(message, '加载知识库数据失败', e)
   }
 }
 
@@ -323,26 +323,22 @@ async function handleKBChange(name: string) {
     activeKB.value = name
     await loadDocuments()
   } catch (e: any) {
-    message.destroyAll()
-    message.error('切换知识库失败: ' + (e.message || e))
+    showError(message, '切换知识库失败', e)
   }
 }
 
 async function handleCreateKB() {
   if (!newKBName.value.trim()) {
-    message.destroyAll()
-    message.warning('请输入知识库名称')
+    showWarning(message, '请输入知识库名称')
     return
   }
   try {
     await wails.createKnowledgeBase(newKBName.value.trim())
-    message.destroyAll()
-    message.success('知识库创建成功')
+    showSuccess(message, '知识库创建成功')
     newKBName.value = ''
     await loadData()
   } catch (e: any) {
-    message.destroyAll()
-    message.error('创建失败: ' + (e.message || e))
+    showError(message, '创建失败', e)
   }
 }
 
@@ -355,13 +351,11 @@ async function handleDeleteKB() {
     onPositiveClick: async () => {
       try {
         await wails.deleteKnowledgeBase(activeKB.value)
-        message.destroyAll()
-        message.success('知识库已删除')
+        showSuccess(message, '知识库已删除')
         activeKB.value = 'default'
         await loadData()
       } catch (e: any) {
-        message.destroyAll()
-        message.error('删除失败: ' + (e.message || e))
+        showError(message, '删除失败', e)
       }
     },
   })
@@ -370,12 +364,10 @@ async function handleDeleteKB() {
 async function handleDeleteDoc(docID: string) {
   try {
     await wails.deleteDocument(activeKB.value, docID)
-    message.destroyAll()
-    message.success('文档已删除')
+    showSuccess(message, '文档已删除')
     await loadDocuments()
   } catch (e: any) {
-    message.destroyAll()
-    message.error('删除文档失败: ' + (e.message || e))
+    showError(message, '删除文档失败', e)
   }
 }
 
@@ -398,12 +390,10 @@ async function handleFileUpload({ file }: any) {
     }
     const base64 = btoa(binary)
     await wails.uploadDocument(activeKB.value, f.name, base64, f.type || 'application/octet-stream')
-    message.destroyAll()
-    message.success(`${f.name} 上传成功`)
+    showSuccess(message, `${f.name} 上传成功`)
     await loadDocuments()
   } catch (e: any) {
-    message.destroyAll()
-    message.error('上传失败: ' + (e.message || e))
+    showError(message, '上传失败', e)
   } finally {
     uploading.value = false
   }
@@ -422,8 +412,7 @@ async function handleRAGToggle(enabled: boolean) {
       message.info('RAG 已关闭', { duration: 2000 })
     }
   } catch (e: any) {
-    message.destroyAll()
-    message.error('切换 RAG 失败: ' + (e.message || e))
+    showError(message, '切换 RAG 失败', e)
   }
 }
 
@@ -437,11 +426,9 @@ async function handleSaveRAGConfig() {
     config.rag_chunk_overlap = ragConfig.value.chunkOverlap
     config.embedding_model = ragConfig.value.embeddingModel
     await wails.updateConfig(config)
-    message.destroyAll()
-    message.success('RAG 设置已保存')
+    showSuccess(message, 'RAG 设置已保存')
   } catch (e: any) {
-    message.destroyAll()
-    message.error('保存失败: ' + (e.message || e))
+    showError(message, '保存失败', e)
   } finally {
     savingRAG.value = false
   }

@@ -21,7 +21,7 @@
 import { ref, computed, watch } from 'vue'
 import { NIcon } from 'naive-ui'
 import { ChevronForwardOutline, BulbOutline } from '@vicons/ionicons5'
-import { renderMarkdown } from '../utils/markdown'
+import { renderMarkdown, escapeHtml } from '../utils/markdown'
 import { cleanStreamingContent } from '../utils/streaming'
 
 const props = defineProps<{
@@ -56,7 +56,8 @@ watch(cleanedContent, async (newVal) => {
   try {
     renderedContent.value = await renderMarkdown(cleanStreamingContent(newVal))
   } catch (_) {
-    renderedContent.value = newVal
+    // 渲染失败时转义后作为纯文本显示，避免直接赋值原始未消毒内容到 v-html（XSS 防护）
+    renderedContent.value = escapeHtml(newVal)
   }
 }, { immediate: true })
 

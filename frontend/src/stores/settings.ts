@@ -574,6 +574,9 @@ export const useSettingsStore = defineStore('settings', () => {
 
     function cleanupStatusListener() {
         wails.offServerStatus()
+        // 清理所有相关定时器，避免离开设置页后定时器残留
+        stopStartupPolling()       // 清理 startupPollingTimer 与 startupWatchdogTimer
+        clearAllTimers()           // 清理 pendingTransitions 中所有定时器
     }
 
     function initSwitchProgressListener() {

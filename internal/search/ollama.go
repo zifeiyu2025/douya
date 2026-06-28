@@ -10,14 +10,16 @@ import (
 )
 
 type OllamaProvider struct {
-	apiKey     string
-	httpClient *http.Client
+	BaseProvider
+	apiKey string
 }
 
 func NewOllamaProvider(apiKey string) *OllamaProvider {
 	return &OllamaProvider{
-		apiKey:     apiKey,
-		httpClient: &http.Client{Timeout: 20 * time.Second},
+		BaseProvider: BaseProvider{
+			httpClient: &http.Client{Timeout: 20 * time.Second},
+		},
+		apiKey: apiKey,
 	}
 }
 
@@ -40,26 +42,13 @@ func (p *OllamaProvider) Search(ctx context.Context, query string) (*SearchRespo
 		return nil, fmt.Errorf("ollama marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://ollama.com/api/web_search", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("ollama create request: %w", err)
+	headers := map[string]string{
+		"Content-Type":  "application/json",
+		"Authorization": "Bearer " + p.apiKey,
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
-
-	resp, err := p.httpClient.Do(httpReq)
+	respBody, err := p.doSearch(ctx, http.MethodPost, "https://ollama.com/api/web_search", bytes.NewReader(body), headers)
 	if err != nil {
-		return nil, fmt.Errorf("ollama request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := readBody(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("ollama read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("ollama api returned status %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("ollama: %w", err)
 	}
 
 	var result struct {

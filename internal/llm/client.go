@@ -24,6 +24,13 @@ import (
 
 const maxResponseBody = 50 * 1024 * 1024
 
+const (
+	httpClientTimeout = 300 * time.Second // 普通 HTTP 请求超时
+	streamTimeout     = 900 * time.Second // 流式请求超时
+	pollTimeout       = 3 * time.Second   // 轮询超时
+	pollRetryInterval = 300 * time.Millisecond // 轮询重试间隔
+)
+
 // readBody 读取 HTTP 响应体，限制最大 50MB 防止内存耗尽。
 func readBody(r io.Reader) ([]byte, error) {
 	return httputil.ReadBodyLimited(r, maxResponseBody)
@@ -34,6 +41,7 @@ type Client struct {
 	apiKey        string
 	httpClient    *http.Client
 	streamClient  *http.Client
+	pollClient    *http.Client // 复用的轮询客户端，用于 WaitForModelLoaded 等轮询场景
 	currentModel  string
 	modelMu       sync.RWMutex
 }
@@ -65,8 +73,9 @@ func NewClient(baseURL string, apiKey string) *Client {
 	return &Client{
 		baseURL:      strings.TrimRight(baseURL, "/"),
 		apiKey:       apiKey,
-		httpClient:   &http.Client{Timeout: 300 * time.Second},
-		streamClient: &http.Client{Timeout: 900 * time.Second},
+		httpClient:   &http.Client{Timeout: httpClientTimeout},
+		streamClient: &http.Client{Timeout: streamTimeout},
+		pollClient:   &http.Client{Timeout: pollTimeout},
 	}
 }
 
@@ -80,6 +89,52 @@ func (c *Client) setAuthHeader(req *http.Request) {
 // SetAuthHeader 公开方法，供外部包（如 app.go）设置认证 header
 func (c *Client) SetAuthHeader(req *http.Request) {
 	c.setAuthHeader(req)
+}
+
+// doSimpleJSONRequest 执行简单的 JSON 请求，返回响应体（成功时）或错误（失败时）。
+// 用于 LoadModel/UnloadModel/DeleteModel/DownloadModel/ReloadModels/ReloadPresets/StopThinking/healthCheckOnce 等场景：
+// 这些请求的共同模式是 "创建请求 → setAuthHeader → Do → Close → 检查状态码"。
+// 生活类比：就像寄挂号信，只关心是否签收（状态码 200），不关心回信内容（除非调用方需要响应体）。
+//
+// 参数：
+//   - method: HTTP 方法（GET/POST/DELETE 等）
+//   - url: 完整 URL
+//   - body: 请求体（nil 表示无请求体，GET 请求通常传 nil）
+//   - actionDesc: 操作描述（如 "load model"），用于错误信息
+//
+// 返回：
+//   - 成功：响应体字节和 nil
+//   - 失败：nil 和错误（错误信息包含状态码和错误响应体，限制 1MB）
+func (c *Client) doSimpleJSONRequest(ctx context.Context, method, url string, body []byte, actionDesc string) ([]byte, error) {
+	var bodyReader io.Reader
+	if body != nil {
+		bodyReader = bytes.NewReader(body)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create %s request: %w", actionDesc, err)
+	}
+	if body != nil {
+		httpReq.Header.Set("Content-Type", "application/json")
+	}
+	c.setAuthHeader(httpReq)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("%s request failed: %w", actionDesc, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, httputil.ReadErrorBody(resp, actionDesc+" returned")
+	}
+
+	// 成功时读取响应体供调用方使用（调用方可用 _ 忽略）
+	respBody, err := readBody(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s response: %w", actionDesc, err)
+	}
+	return respBody, nil
 }
 
 func (c *Client) StreamChat(ctx context.Context, req *ChatCompletionRequest, onToken func(chunk SSEChunk) error) error {
@@ -117,8 +172,7 @@ func (c *Client) StreamChatWithConvID(ctx context.Context, req *ChatCompletionRe
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := readBody(resp.Body)
-		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(respBody))
+		return httputil.ReadErrorBody(resp, "unexpected status code")
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -205,112 +259,59 @@ func (c *Client) Chat(ctx context.Context, req *ChatCompletionRequest) (*ChatCom
 	httpReq.Header.Set("Content-Type", "application/json")
 	c.setAuthHeader(httpReq)
 
-	resp, err := c.httpClient.Do(httpReq)
+	result, _, err := httputil.DoAndUnmarshal[ChatCompletionResponse](c.httpClient, httpReq, maxResponseBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := readBody(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, err
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	var result ChatCompletionResponse
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
-	}
-
-	return &result, nil
+	return result, nil
 }
 
-// AnthropicMessages 代理 Anthropic Messages API 请求
-// 将原始请求体转发到 /v1/messages 端点，返回原始响应体
-// 生活类比：就像快递中转站，原封不动地把包裹从发件人转给收件人，不拆包不改装
-func (c *Client) AnthropicMessages(ctx context.Context, body []byte) ([]byte, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/messages", bytes.NewReader(body))
+// proxyRequest 代理透传请求：将原始请求体转发到指定端点，返回原始响应体。
+// 用于 AnthropicMessages/AnthropicCountTokens/BuiltInTools 等代理场景。
+// 生活类比：就像快递中转站，原封不动地把包裹从发件人转给收件人，不拆包不改装。
+func (c *Client) proxyRequest(ctx context.Context, endpoint, actionDesc string, body []byte) ([]byte, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+endpoint, bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create anthropic messages request: %w", err)
+		return nil, fmt.Errorf("failed to create %s request: %w", actionDesc, err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	c.setAuthHeader(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("anthropic messages request failed: %w", err)
+		return nil, fmt.Errorf("%s request failed: %w", actionDesc, err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := readBody(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read anthropic messages response: %w", err)
+		return nil, fmt.Errorf("failed to read %s response: %w", actionDesc, err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("anthropic messages returned status %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("%s returned status %d: %s", actionDesc, resp.StatusCode, string(respBody))
 	}
 
 	return respBody, nil
+}
+
+// AnthropicMessages 代理 Anthropic Messages API 请求
+// 将原始请求体转发到 /v1/messages 端点，返回原始响应体
+func (c *Client) AnthropicMessages(ctx context.Context, body []byte) ([]byte, error) {
+	return c.proxyRequest(ctx, "/v1/messages", "anthropic messages", body)
 }
 
 // AnthropicCountTokens 代理 Anthropic token 计数请求
 // 将原始请求体转发到 /v1/messages/count_tokens 端点，返回原始响应体
 func (c *Client) AnthropicCountTokens(ctx context.Context, body []byte) ([]byte, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/messages/count_tokens", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create anthropic count tokens request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	c.setAuthHeader(httpReq)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("anthropic count tokens request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := readBody(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read anthropic count tokens response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("anthropic count tokens returned status %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	return respBody, nil
+	return c.proxyRequest(ctx, "/v1/messages/count_tokens", "anthropic count tokens", body)
 }
 
 // BuiltInTools 代理内置工具请求
 // 将原始请求体转发到 /tools 端点，返回原始响应体
 func (c *Client) BuiltInTools(ctx context.Context, body []byte) ([]byte, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/tools", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create built-in tools request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	c.setAuthHeader(httpReq)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("built-in tools request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := readBody(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read built-in tools response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("built-in tools returned status %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	return respBody, nil
+	return c.proxyRequest(ctx, "/tools", "built-in tools", body)
 }
 
 // Embedding sends a request to /v1/embeddings and returns vector embeddings.
@@ -328,27 +329,12 @@ func (c *Client) Embedding(ctx context.Context, req *EmbeddingRequest) (*Embeddi
 	httpReq.Header.Set("Content-Type", "application/json")
 	c.setAuthHeader(httpReq)
 
-	resp, err := c.httpClient.Do(httpReq)
+	result, _, err := httputil.DoAndUnmarshal[EmbeddingResponse](c.httpClient, httpReq, maxResponseBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := readBody(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, err
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	var result EmbeddingResponse
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
-	}
-
-	return &result, nil
+	return result, nil
 }
 
 func (c *Client) HealthCheck(ctx context.Context) error {
@@ -362,23 +348,8 @@ func (c *Client) HealthCheck(ctx context.Context) error {
 
 // healthCheckOnce 向指定端点发起健康检查请求
 func (c *Client) healthCheckOnce(ctx context.Context, endpoint string) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+endpoint, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create health check request: %w", err)
-	}
-	c.setAuthHeader(httpReq)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("health check failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("health check returned status %d", resp.StatusCode)
-	}
-
-	return nil
+	_, err := c.doSimpleJSONRequest(ctx, http.MethodGet, c.baseURL+endpoint, nil, "health check")
+	return err
 }
 
 // StopThinking 发送 POST /v1/chat/completions/control 请求，强制结束当前思考块。
@@ -395,22 +366,8 @@ func (c *Client) StopThinking(ctx context.Context, completionID string) error {
 		return fmt.Errorf("failed to marshal stop thinking request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions/control", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("failed to create stop thinking request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	c.setAuthHeader(httpReq)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("stop thinking request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := readBody(resp.Body)
-		return fmt.Errorf("stop thinking returned status %d: %s", resp.StatusCode, string(respBody))
+	if _, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions/control", body, "stop thinking"); err != nil {
+		return err
 	}
 
 	log.Info().Str("completion_id", completionID).Msg("[client] StopThinking: reasoning_end sent successfully")
@@ -436,26 +393,9 @@ func (c *Client) Rerank(ctx context.Context, query string, documents []string, t
 		return nil, fmt.Errorf("failed to marshal rerank request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/rerank", bytes.NewReader(body))
+	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/v1/rerank", body, "rerank")
 	if err != nil {
-		return nil, fmt.Errorf("failed to create rerank request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	c.setAuthHeader(httpReq)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("rerank request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := readBody(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read rerank response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("rerank returned status %d: %s", resp.StatusCode, string(respBody))
+		return nil, err
 	}
 
 	var result RerankResponse
@@ -582,8 +522,7 @@ func (c *Client) GetModelInfoByName(ctx context.Context, modelName string) (*Mod
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := readBody(resp.Body)
-		return nil, fmt.Errorf("models endpoint returned status %d: %s", resp.StatusCode, string(body))
+		return nil, httputil.ReadErrorBody(resp, "models endpoint returned")
 	}
 
 	body, err := readBody(resp.Body)
@@ -762,27 +701,13 @@ func (c *Client) LoadModel(ctx context.Context, modelName string) error {
 		return fmt.Errorf("failed to marshal load model request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/models/load", bytes.NewReader(body))
+	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/models/load", body, "load model")
 	if err != nil {
-		return fmt.Errorf("failed to create load model request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	c.setAuthHeader(httpReq)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("load model request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, _ := readBody(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("load model returned status %d: %s", resp.StatusCode, string(respBody))
+		return err
 	}
 
-	log.Info().Str("model", modelName).Int("status", resp.StatusCode).Str("body", string(respBody)).Msg("[client] LoadModel response")
-
+	// 项目约定：LoadModel 必须记录响应体内容以确认请求被接受
+	log.Info().Str("model", modelName).Str("body", string(respBody)).Msg("[client] LoadModel response")
 	return nil
 }
 
@@ -806,8 +731,7 @@ func (c *Client) WatchModelLoadProgress(ctx context.Context, modelName string, o
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := readBody(resp.Body)
-		return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))
+		return httputil.ReadErrorBody(resp, "unexpected status")
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -873,23 +797,9 @@ func (c *Client) WatchModelLoadProgress(ctx context.Context, modelName string, o
 // 在修改了 router-preset.ini 后调用，使路由器感知到配置变化
 // 原版 llama.cpp 使用 GET /v1/models?reload 来触发 preset 重载
 func (c *Client) ReloadPresets(ctx context.Context) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/models?reload=1", nil)
-	if err != nil {
-		return fmt.Errorf("failed to create reload presets request: %w", err)
+	if _, err := c.doSimpleJSONRequest(ctx, http.MethodGet, c.baseURL+"/v1/models?reload=1", nil, "reload presets"); err != nil {
+		return err
 	}
-	c.setAuthHeader(httpReq)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("reload presets request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := readBody(resp.Body)
-		return fmt.Errorf("reload presets returned status %d: %s", resp.StatusCode, string(respBody))
-	}
-
 	log.Info().Msg("[client] ReloadPresets: presets reloaded successfully")
 	return nil
 }
@@ -899,26 +809,8 @@ func (c *Client) UnloadModel(ctx context.Context, modelName string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal unload model request: %w", err)
 	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/models/unload", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("failed to create unload model request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	c.setAuthHeader(httpReq)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("unload model request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := readBody(resp.Body)
-		return fmt.Errorf("unload model returned status %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	return nil
+	_, err = c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/models/unload", body, "unload model")
+	return err
 }
 
 func (c *Client) GetModelsList(ctx context.Context) ([]ListedModel, error) {
@@ -935,8 +827,7 @@ func (c *Client) GetModelsList(ctx context.Context) ([]ListedModel, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := readBody(resp.Body)
-		return nil, fmt.Errorf("models endpoint returned status %d: %s", resp.StatusCode, string(body))
+		return nil, httputil.ReadErrorBody(resp, "models endpoint returned")
 	}
 
 	body, err := readBody(resp.Body)
@@ -971,24 +862,8 @@ func (c *Client) GetModelsList(ctx context.Context) ([]ListedModel, error) {
 }
 
 func (c *Client) ReloadModels(ctx context.Context) error {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/models?reload", nil)
-	if err != nil {
-		return err
-	}
-	c.setAuthHeader(httpReq)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("reload models request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := readBody(resp.Body)
-		return fmt.Errorf("reload models returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	_, err := c.doSimpleJSONRequest(ctx, http.MethodGet, c.baseURL+"/models?reload", nil, "reload models")
+	return err
 }
 
 // DeleteModel 调用 DELETE /models 删除模型（从列表中移除并卸载）
@@ -997,25 +872,9 @@ func (c *Client) DeleteModel(ctx context.Context, modelName string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal delete model request: %w", err)
 	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+"/models", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("failed to create delete model request: %w", err)
+	if _, err := c.doSimpleJSONRequest(ctx, http.MethodDelete, c.baseURL+"/models", body, "delete model"); err != nil {
+		return err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	c.setAuthHeader(httpReq)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("delete model request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := readBody(resp.Body)
-		return fmt.Errorf("delete model returned status %d: %s", resp.StatusCode, string(respBody))
-	}
-
 	log.Info().Str("model", modelName).Msg("[client] DeleteModel: model deleted")
 	return nil
 }
@@ -1027,25 +886,9 @@ func (c *Client) DownloadModel(ctx context.Context, modelName string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal download model request: %w", err)
 	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/models", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("failed to create download model request: %w", err)
+	if _, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/models", body, "download model"); err != nil {
+		return err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	c.setAuthHeader(httpReq)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("download model request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := readBody(resp.Body)
-		return fmt.Errorf("download model returned status %d: %s", resp.StatusCode, string(respBody))
-	}
-
 	log.Info().Str("model", modelName).Msg("[client] DownloadModel: download started")
 	return nil
 }
@@ -1062,25 +905,7 @@ func (c *Client) CountTokens(ctx context.Context, messages []ChatMessage) (int, 
 		return 0, fmt.Errorf("failed to marshal count tokens request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions/input_tokens", bytes.NewReader(body))
-	if err != nil {
-		return 0, fmt.Errorf("failed to create count tokens request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	c.setAuthHeader(httpReq)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return 0, fmt.Errorf("count tokens request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := readBody(resp.Body)
-		return 0, fmt.Errorf("count tokens returned status %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	respBody, err := readBody(resp.Body)
+	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions/input_tokens", body, "count tokens")
 	if err != nil {
 		return 0, err
 	}
@@ -1105,26 +930,9 @@ func (c *Client) CountTokensViaInputTokens(ctx context.Context, messages []ChatM
 		return 0, fmt.Errorf("failed to marshal input tokens request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions/input_tokens", bytes.NewReader(body))
+	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions/input_tokens", body, "input tokens")
 	if err != nil {
-		return 0, fmt.Errorf("failed to create input tokens request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	c.setAuthHeader(httpReq)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return 0, fmt.Errorf("input tokens request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read input tokens response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("input tokens request failed with status %d: %s", resp.StatusCode, string(respBody))
+		return 0, err
 	}
 
 	var result struct {
@@ -1145,24 +953,7 @@ func (c *Client) GetLoraAdapters(ctx context.Context) ([]LoraAdapter, error) {
 	if model := c.GetCurrentModel(); model != "" {
 		reqURL += "?model=" + url.QueryEscape(model)
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create get lora adapters request: %w", err)
-	}
-	c.setAuthHeader(httpReq)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("get lora adapters request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := readBody(resp.Body)
-		return nil, fmt.Errorf("get lora adapters returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	body, err := readBody(resp.Body)
+	body, err := c.doSimpleJSONRequest(ctx, http.MethodGet, reqURL, nil, "get lora adapters")
 	if err != nil {
 		return nil, err
 	}
@@ -1182,22 +973,8 @@ func (c *Client) SetLoraAdapters(ctx context.Context, adapters []LoraAdapter) er
 		return fmt.Errorf("failed to marshal set lora adapters request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/lora-adapters", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("failed to create set lora adapters request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	c.setAuthHeader(httpReq)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("set lora adapters request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := readBody(resp.Body)
-		return fmt.Errorf("set lora adapters returned status %d: %s", resp.StatusCode, string(respBody))
+	if _, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/lora-adapters", body, "set lora adapters"); err != nil {
+		return err
 	}
 
 	log.Info().Int("adapters", len(adapters)).Msg("[client] SetLoraAdapters: lora adapters updated")
@@ -1211,24 +988,7 @@ func (c *Client) GetSlots(ctx context.Context) ([]SlotInfo, error) {
 	if model := c.GetCurrentModel(); model != "" {
 		reqURL += "?model=" + url.QueryEscape(model)
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create get slots request: %w", err)
-	}
-	c.setAuthHeader(httpReq)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("get slots request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := readBody(resp.Body)
-		return nil, fmt.Errorf("get slots returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	body, err := readBody(resp.Body)
+	body, err := c.doSimpleJSONRequest(ctx, http.MethodGet, reqURL, nil, "get slots")
 	if err != nil {
 		return nil, err
 	}
@@ -1253,25 +1013,7 @@ func (c *Client) Tokenize(ctx context.Context, text string) ([]int, error) {
 		return nil, fmt.Errorf("failed to marshal tokenize request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/tokenize", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create tokenize request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	c.setAuthHeader(httpReq)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("tokenize request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := readBody(resp.Body)
-		return nil, fmt.Errorf("tokenize returned status %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	respBody, err := readBody(resp.Body)
+	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/tokenize", body, "tokenize")
 	if err != nil {
 		return nil, err
 	}
@@ -1298,25 +1040,7 @@ func (c *Client) ApplyTemplate(ctx context.Context, messages []ChatMessage) (str
 		return "", fmt.Errorf("failed to marshal apply template request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/apply-template", bytes.NewReader(body))
-	if err != nil {
-		return "", fmt.Errorf("failed to create apply template request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	c.setAuthHeader(httpReq)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return "", fmt.Errorf("apply template request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := readBody(resp.Body)
-		return "", fmt.Errorf("apply template returned status %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	respBody, err := readBody(resp.Body)
+	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/apply-template", body, "apply template")
 	if err != nil {
 		return "", err
 	}
@@ -1352,8 +1076,7 @@ func (c *Client) GetModelStatus(ctx context.Context, modelName string) (*ModelSt
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := readBody(resp.Body)
-		return nil, fmt.Errorf("models endpoint returned status %d: %s", resp.StatusCode, string(body))
+		return nil, httputil.ReadErrorBody(resp, "models endpoint returned")
 	}
 
 	body, err := readBody(resp.Body)
@@ -1408,7 +1131,7 @@ func FuzzyMatchModelID(id, name string) bool {
 
 func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeout time.Duration, onProgress ...func(pollCount int, status string)) error {
 	deadline := time.Now().Add(timeout)
-	pollClient := &http.Client{Timeout: 3 * time.Second}
+	pollClient := c.pollClient
 	pollCount := 0
 
 	// 稳定性检查：模型变为 loaded/sleeping 后，再确认几次状态保持稳定
@@ -1445,15 +1168,15 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 
 		resp, err := pollClient.Do(httpReq)
 		if err != nil {
-			time.Sleep(300 * time.Millisecond)
+			time.Sleep(pollRetryInterval)
 			continue
 		}
 
-		defer resp.Body.Close()
 		body, readErr := readBody(resp.Body)
+		resp.Body.Close() // 立即关闭：readBody 已读完数据，避免循环内 body 堆积（defer 是函数级会堆积）
 
 		if resp.StatusCode != http.StatusOK || readErr != nil {
-			time.Sleep(300 * time.Millisecond)
+			time.Sleep(pollRetryInterval)
 			continue
 		}
 
@@ -1469,7 +1192,7 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 		}
 
 		if json.Unmarshal(body, &raw) != nil {
-			time.Sleep(300 * time.Millisecond)
+			time.Sleep(pollRetryInterval)
 			continue
 		}
 
@@ -1549,7 +1272,7 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 						stableCount = 0
 					}
 					// 使用正常轮询间隔
-					time.Sleep(300 * time.Millisecond)
+					time.Sleep(pollRetryInterval)
 				default:
 					// loading 等其他状态，继续等待
 					// 注意：不再提前终止 loading 状态，只依赖总超时保护
@@ -1559,7 +1282,7 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 						log.Debug().Str("model", modelName).Str("status", d.Status.Value).Int("previous_stable", stableCount).Msg("[client] WaitForModelLoaded: model left loaded state, resetting stability")
 						stableCount = 0
 					}
-					time.Sleep(300 * time.Millisecond)
+					time.Sleep(pollRetryInterval)
 				}
 				break
 			}
@@ -1602,7 +1325,7 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 				}
 				log.Debug().Str("model", modelName).Strs("available_ids", ids).Int("poll", pollCount).Msg("[client] WaitForModelLoaded: model not found in response, retrying")
 			}
-			time.Sleep(300 * time.Millisecond)
+			time.Sleep(pollRetryInterval)
 		}
 	}
 

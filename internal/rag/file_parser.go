@@ -111,7 +111,11 @@ func parseDOCX(data []byte) (string, error) {
 	return text, nil
 }
 
-var xmlTagRe = regexp.MustCompile(`<[^>]+>`)
+var (
+	xmlTagRe       = regexp.MustCompile(`<[^>]+>`)
+	multiSpaceRe   = regexp.MustCompile(`[^\S\n]+`)
+	multiNewlineRe = regexp.MustCompile(`\n{3,}`)
+)
 
 func stripXMLTags(xml string) string {
 	text := xmlTagRe.ReplaceAllString(xml, " ")
@@ -129,9 +133,7 @@ func stripXMLTags(xml string) string {
 func cleanWhitespace(text string) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	text = strings.ReplaceAll(text, "\r", "\n")
-	multiSpaceRe := regexp.MustCompile(`[^\S\n]+`)
 	text = multiSpaceRe.ReplaceAllString(text, " ")
-	multiNewlineRe := regexp.MustCompile(`\n{3,}`)
 	text = multiNewlineRe.ReplaceAllString(text, "\n\n")
 	lines := strings.Split(text, "\n")
 	var cleaned []string

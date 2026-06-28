@@ -142,6 +142,7 @@ func (a *App) PerformUpdate(downloadURL string, latestVersion string) error {
 
 	// 生成并启动更新脚本
 	if err := a.launchUpdateScript(zipPath, tempDir); err != nil {
+		os.RemoveAll(tempDir) // 清理临时目录，避免残留
 		return fmt.Errorf("启动更新脚本失败: %w", err)
 	}
 
@@ -171,7 +172,12 @@ func (a *App) downloadWithProgress(downloadURL, destPath string) error {
 	if err != nil {
 		return fmt.Errorf("创建下载文件失败: %w", err)
 	}
-	defer out.Close()
+	// 兜底关闭：显式 Close 后将 out 置为 nil，避免 defer 重复关闭
+	defer func() {
+		if out != nil {
+			out.Close()
+		}
+	}()
 
 	// 获取文件总大小
 	contentLength := resp.ContentLength
@@ -186,7 +192,16 @@ func (a *App) downloadWithProgress(downloadURL, destPath string) error {
 	}
 
 	_, err = io.Copy(progressWriter, resp.Body)
-	return err
+	if err != nil {
+		return fmt.Errorf("下载写入失败: %w", err)
+	}
+
+	// 显式关闭文件并检查错误，确保缓冲数据落盘
+	if err := out.Close(); err != nil {
+		return fmt.Errorf("关闭下载文件失败: %w", err)
+	}
+	out = nil // 防止 defer 重复关闭
+	return nil
 }
 
 // downloadProgressWriter 追踪下载进度的 io.Writer
@@ -377,6 +392,16 @@ func compareVersions(a, b string) int {
 // validateUpdateURL 校验更新下载 URL 的安全性
 // 基于 GO-SSRF-001 安全实践：仅允许 HTTPS 协议、仅允许 GitHub 官方域名、拒绝内网/本地地址
 // 生活类比：就像快递员只认准官方发货地址，拒绝从陌生地址取件
+//
+// TOCTOU 风险说明（BUG-6，已评估并接受）：
+// 本函数对 DNS 解析结果做了内网/本地地址检查，但 HTTP 客户端在实际建立连接时会再次解析 DNS，
+// 两次解析可能返回不同 IP（DNS rebinding 攻击），理论上存在 TOCTOU（Time-Of-Check vs Time-Of-Use）窗口。
+// 经评估，本应用接受该风险，不做完全修复，理由如下：
+//  1. 本应用为本地客户端，URL 实际来源于 GitHub API 返回的资产地址，并非用户可直接控制的输入；
+//  2. 已具备 HTTPS 协议校验 + GitHub 官方域名白名单 + DNS 内网地址检查的多层防护；
+//  3. 完全修复需自定义 http.Transport.DialContext 在 TCP 连接前再次校验目标 IP，复杂度较高；
+//  4. 攻击者若能实施 DNS rebinding，通常已具备更高等级的系统控制权，SSRF 防护价值有限。
+// 如未来需进一步加固，可在 downloadWithProgress 中使用自定义 Dialer 复用本函数解析得到的 IP 直连。
 func validateUpdateURL(rawURL string) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {

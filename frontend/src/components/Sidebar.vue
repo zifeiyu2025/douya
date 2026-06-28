@@ -2,16 +2,6 @@
   <div class="sidebar" :class="{ collapsed }">
     <div class="sidebar-header" style="--wails-draggable:drag">
       <div class="sidebar-logo">
-        <!-- SVG 装饰图标：豆芽抽象造型 -->
-        <svg class="logo-icon" width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <!-- 外圈装饰 -->
-          <circle cx="14" cy="14" r="13" stroke="currentColor" stroke-width="1.5" opacity="0.2" />
-          <!-- 两片叶子（豆芽造型） -->
-          <path d="M14 20 Q10 14 6 10 Q9 8 12 11 Q14 14 14 20 Z" fill="currentColor" opacity="0.85" />
-          <path d="M14 20 Q18 14 22 10 Q19 8 16 11 Q14 14 14 20 Z" fill="currentColor" opacity="0.6" />
-          <!-- 茎 -->
-          <path d="M14 20 L14 24" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-        </svg>
         <div class="logo-text">
           <span class="logo-dou">Dou</span><span class="logo-ya">Ya</span>
         </div>
@@ -96,6 +86,7 @@ import { NButton, NIcon, NInput, NDropdown, useDialog, useMessage } from 'naive-
 import { AddOutline, SearchOutline, SettingsOutline, BookOutline, PencilOutline, DocumentTextOutline, CodeSlashOutline, TrashOutline, FileTrayFullOutline, GridOutline } from '@vicons/ionicons5'
 import { useChatStore } from '../stores/chat'
 import { fixUtf8 } from '../utils/utf8'
+import { showSuccess } from '../utils/showError'
 import type { Conversation } from '../services/wails'
 
 const props = defineProps<{ collapsed: boolean }>()
@@ -222,8 +213,7 @@ async function handleContextAction(key: string, conv: Conversation) {
         negativeText: '取消',
         onPositiveClick: async () => {
           await chatStore.deleteConversation(conv.id)
-          message.destroyAll()
-          message.success('已删除')
+          showSuccess(message, '已删除')
         },
       })
       break
@@ -233,8 +223,7 @@ async function handleContextAction(key: string, conv: Conversation) {
 async function handleExport(id: string, format: string) {
     const success = await chatStore.exportConversationWithDialog(id, format)
     if (success) {
-        message.destroyAll()
-        message.success('导出成功')
+        showSuccess(message, '导出成功')
     }
 }
 </script>
@@ -245,20 +234,7 @@ async function handleExport(id: string, format: string) {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
   position: relative;
-}
-
-/* SVG 图标：跟随主色，hover 时缓慢旋转 */
-.logo-icon {
-  color: var(--accent-primary);
-  flex-shrink: 0;
-  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-  filter: drop-shadow(0 0 4px rgba(7, 193, 96, 0.3));
-}
-
-.sidebar-logo:hover .logo-icon {
-  transform: rotate(360deg);
 }
 
 .loading-container {
@@ -284,11 +260,7 @@ async function handleExport(id: string, format: string) {
   color: var(--text-secondary);
 }
 
-/* ===== Logo：纯色文字（回退渐变流光）=====
- * 原本用 background-clip:text + -webkit-text-fill-color:transparent 做渐变流光
- * 但在 WebView2 中 -webkit-text-fill-color:transparent 会导致文字消失
- * 已回退为纯色文字，保留 accent-primary 作为主色
- */
+/* ===== Logo：纯文字版（已移除 SVG 图标和 hover 动画）===== */
 .logo-text {
   font-size: 28px;
   font-weight: 800;
@@ -296,19 +268,17 @@ async function handleExport(id: string, format: string) {
   line-height: 1;
   text-transform: uppercase;
   position: relative;
-  color: var(--accent-primary);
-  transition: color 0.3s ease;
+  /* 不再设统一 color，由 logo-dou/logo-ya 各自指定 */
 }
 
-/* 暗色模式下 Logo 颜色稍亮 */
-:global(.dark) .logo-text {
-  color: var(--accent-primary);
+/* logo-dou：固定白色（亮暗模式均白色，符合用户需求）*/
+.logo-dou {
+  color: #ffffff;
 }
 
-/* logo-dou / logo-ya：继承父元素颜色，确保文字可见 */
-.logo-dou,
+/* logo-ya：保持 accent 主色 */
 .logo-ya {
-  color: inherit;
+  color: var(--accent-primary);
 }
 
 /* ===== 会话列表 stagger 入场 =====

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -327,7 +326,6 @@ func IngestFileFromBase64(ctx context.Context, vs *VectorStore, ds *DocumentStor
 
 func cleanText(text string) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
-	re := regexp.MustCompile(`\n{3,}`)
-	text = re.ReplaceAllString(text, "\n\n")
+	text = multiNewlineRe.ReplaceAllString(text, "\n\n")
 	return strings.TrimSpace(text)
 }

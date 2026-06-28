@@ -21,6 +21,20 @@ import (
 // 因此该限制是在解密前截断，可能漏掉较旧的匹配结果，但对于搜索场景，最近的记录通常足够。
 const searchMaxScanRows = 500
 
+// dbOpTimeout 是 store 包所有 DB 操作的默认超时时间。
+// 提取为常量便于统一调整，避免魔法数字散落各处。
+const dbOpTimeout = 10 * time.Second
+
+// messageColumns 是 messages 表的列名列表，保持 INSERT/SELECT 语句一致。
+// 生活类比：像表格的表头清单，确保每次填写和读取都按同一顺序，不会错位。
+const messageColumns = "id, conversation_id, role, content, thinking_content, thinking_duration, search_results, images, attachments, tool_calls, tool_call_id, created_at"
+
+// scanMessage 将 rows 当前行扫描到 msg 结构体，统一 12 个字段的 Scan 逻辑。
+// 生活类比：像快递扫码枪，按固定顺序逐一扫描包裹的 12 个标签贴到对应字段上。
+func scanMessage(rows *sql.Rows, msg *Message) error {
+	return rows.Scan(&msg.ID, &msg.ConversationID, &msg.Role, &msg.Content, &msg.ThinkingContent, &msg.ThinkingDuration, &msg.SearchResults, &msg.Images, &msg.Attachments, &msg.ToolCalls, &msg.ToolCallID, &msg.CreatedAt)
+}
+
 type Message struct {
 	ID               string    `json:"id"`
 	ConversationID   string    `json:"conversation_id"`
@@ -118,10 +132,10 @@ func CreateMessage(db *sql.DB, msg *Message, encKey []byte) error {
 		return fmt.Errorf("encrypt message: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), dbOpTimeout)
 	defer cancel()
 	_, err := db.ExecContext(ctx,
-		"INSERT INTO messages (id, conversation_id, role, content, thinking_content, thinking_duration, search_results, images, attachments, tool_calls, tool_call_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		"INSERT INTO messages ("+messageColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		saved.ID, saved.ConversationID, saved.Role, saved.Content, saved.ThinkingContent, saved.ThinkingDuration, saved.SearchResults, saved.Images, saved.Attachments, saved.ToolCalls, saved.ToolCallID, saved.CreatedAt,
 	)
 	if err != nil {
@@ -131,10 +145,10 @@ func CreateMessage(db *sql.DB, msg *Message, encKey []byte) error {
 }
 
 func GetMessagesByConversation(db *sql.DB, convID string, encKey []byte) ([]*Message, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), dbOpTimeout)
 	defer cancel()
 	rows, err := db.QueryContext(ctx,
-		"SELECT id, conversation_id, role, content, thinking_content, thinking_duration, search_results, images, attachments, tool_calls, tool_call_id, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC",
+		"SELECT "+messageColumns+" FROM messages WHERE conversation_id = ? ORDER BY created_at ASC",
 		convID,
 	)
 	if err != nil {
@@ -144,7 +158,7 @@ func GetMessagesByConversation(db *sql.DB, convID string, encKey []byte) ([]*Mes
 	var msgs []*Message
 	for rows.Next() {
 		msg := &Message{}
-		if err := rows.Scan(&msg.ID, &msg.ConversationID, &msg.Role, &msg.Content, &msg.ThinkingContent, &msg.ThinkingDuration, &msg.SearchResults, &msg.Images, &msg.Attachments, &msg.ToolCalls, &msg.ToolCallID, &msg.CreatedAt); err != nil {
+		if err := scanMessage(rows, msg); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
 		}
 		// 解密敏感字段
@@ -163,10 +177,10 @@ func GetMessagesByConversation(db *sql.DB, convID string, encKey []byte) ([]*Mes
 // 因此通过 LIMIT 限制扫描数量，避免对消息量大的应用造成性能瓶颈。
 func SearchMessages(db *sql.DB, query string, encKey []byte) ([]*Message, error) {
 	// 加载最近的消息（限制扫描数量，避免全表扫描）
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), dbOpTimeout)
 	defer cancel()
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, conversation_id, role, content, thinking_content, thinking_duration, search_results, images, attachments, tool_calls, tool_call_id, created_at FROM messages ORDER BY created_at DESC LIMIT ?`,
+		`SELECT `+messageColumns+` FROM messages ORDER BY created_at DESC LIMIT ?`,
 		searchMaxScanRows,
 	)
 	if err != nil {
@@ -180,7 +194,7 @@ func SearchMessages(db *sql.DB, query string, encKey []byte) ([]*Message, error)
 	for rows.Next() {
 		scanned++
 		msg := &Message{}
-		if err := rows.Scan(&msg.ID, &msg.ConversationID, &msg.Role, &msg.Content, &msg.ThinkingContent, &msg.ThinkingDuration, &msg.SearchResults, &msg.Images, &msg.Attachments, &msg.ToolCalls, &msg.ToolCallID, &msg.CreatedAt); err != nil {
+		if err := scanMessage(rows, msg); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
 		}
 		// 解密敏感字段
@@ -201,11 +215,11 @@ func SearchMessages(db *sql.DB, query string, encKey []byte) ([]*Message, error)
 }
 
 func GetMessage(db *sql.DB, id string, encKey []byte) (*Message, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), dbOpTimeout)
 	defer cancel()
 	var msg Message
 	err := db.QueryRowContext(ctx,
-		"SELECT id, conversation_id, role, content, thinking_content, thinking_duration, search_results, images, attachments, tool_calls, tool_call_id, created_at FROM messages WHERE id = ?",
+		"SELECT "+messageColumns+" FROM messages WHERE id = ?",
 		id,
 	).Scan(&msg.ID, &msg.ConversationID, &msg.Role, &msg.Content, &msg.ThinkingContent, &msg.ThinkingDuration, &msg.SearchResults, &msg.Images, &msg.Attachments, &msg.ToolCalls, &msg.ToolCallID, &msg.CreatedAt)
 	if err != nil {
@@ -217,7 +231,7 @@ func GetMessage(db *sql.DB, id string, encKey []byte) (*Message, error) {
 }
 
 func DeleteMessage(db *sql.DB, id string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), dbOpTimeout)
 	defer cancel()
 	_, err := db.ExecContext(ctx, "DELETE FROM messages WHERE id = ?", id)
 	if err != nil {

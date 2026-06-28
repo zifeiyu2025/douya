@@ -20,6 +20,7 @@ import (
 
 const vramCheckInterval = 500 * time.Millisecond
 const vramCheckTimeout = 15
+const healthCheckTimeout = 2 * time.Second // 健康检查超时
 
 // allowedCacheTypes 列出 llama.cpp 允许的 KV cache 类型
 // 已删除的类型：q2_k, q3_k, q4_k, q5_k, q6_k, iq4_xs
@@ -176,12 +177,14 @@ type Server struct {
 	cmdEnv               []string                  // 安全传递给子进程的环境变量（如 API Key）
 	onLog                func(line string)          // 日志行回调（用于实时推送到前端）
 	onTerminalData       func(data []byte)          // 终端原始字节流回调（用于 xterm.js 渲染）
+	healthClient         *http.Client               // 复用的健康检查 HTTP 客户端（WaitForReady/GracefulStop 共用）
 }
 
 func NewServer(cfg *ServerConfig) *Server {
 	return &Server{
-		config: cfg,
-		status: ServerStatus{Running: false},
+		config:       cfg,
+		status:       ServerStatus{Running: false},
+		healthClient: &http.Client{Timeout: healthCheckTimeout},
 	}
 }
 
@@ -221,18 +224,44 @@ func (s *Server) IsConPTYMode() bool {
 	return s.pty != nil
 }
 
-func (s *Server) Start() error {
-	s.mu.Lock()
-
-	if s.status.Running && s.isAlive() {
-		log.Info().Msg("stopping existing model server before starting new one...")
-		s.mu.Unlock()
-		if err := s.stopInternal(); err != nil {
-			log.Error().Err(err).Msg("stop existing server before restart")
-		}
-		s.mu.Lock()
+// appendStringArg 当 val 非空时追加字符串参数。
+// 生活类比：像寄快递时，收件人姓名填了才写"收件人：xxx"，空白就不写那行。
+func appendStringArg(args []string, flag, val string) []string {
+	if val != "" {
+		return append(args, flag, val)
 	}
+	return args
+}
 
+// appendIntArg 当 val > 0 时追加整数控件参数。
+func appendIntArg(args []string, flag string, val int) []string {
+	if val > 0 {
+		return append(args, flag, fmt.Sprintf("%d", val))
+	}
+	return args
+}
+
+// appendFloatArg 当 val > 0 时追加浮点数参数，format 指定格式（如 "%.2f"）。
+func appendFloatArg(args []string, flag string, val float64, format string) []string {
+	if val > 0 {
+		return append(args, flag, fmt.Sprintf(format, val))
+	}
+	return args
+}
+
+// appendBoolArg 当 val 为 true 时追加布尔标志参数（无值）。
+func appendBoolArg(args []string, flag string, val bool) []string {
+	if val {
+		return append(args, flag)
+	}
+	return args
+}
+
+// buildStartArgs 根据配置组装 llama-server 启动命令行参数。
+// 从 Start() 抽出以降低单函数复杂度。
+// 这是纯函数：只读 s.config 和 s.mtpFallbackDisabled，不修改任何状态，无副作用。
+// 注意：API Key 通过环境变量传递（涉及 s.cmdEnv 状态修改），相关逻辑保留在 Start() 中。
+func (s *Server) buildStartArgs() []string {
 	args := []string{
 		"--models-dir", s.config.ModelsDir,
 		"--port", fmt.Sprintf("%d", s.config.Port),
@@ -257,18 +286,10 @@ func (s *Server) Start() error {
 		// 这与豆芽的显式加载逻辑冲突，可能导致子进程参数不完整或加载状态混乱
 		args = append(args, "--no-models-autoload")
 	}
-	if s.config.ModelsMax > 0 {
-		args = append(args, "--models-max", fmt.Sprintf("%d", s.config.ModelsMax))
-	}
-	if s.config.SleepIdleSeconds > 0 {
-		args = append(args, "--sleep-idle-seconds", fmt.Sprintf("%d", s.config.SleepIdleSeconds))
-	}
-	if s.config.GPULayers != "" {
-		args = append(args, "--gpu-layers", s.config.GPULayers)
-	}
-	if s.config.FlashAttn != "" {
-		args = append(args, "--flash-attn", s.config.FlashAttn)
-	}
+	args = appendIntArg(args, "--models-max", s.config.ModelsMax)
+	args = appendIntArg(args, "--sleep-idle-seconds", s.config.SleepIdleSeconds)
+	args = appendStringArg(args, "--gpu-layers", s.config.GPULayers)
+	args = appendStringArg(args, "--flash-attn", s.config.FlashAttn)
 	if s.config.CacheTypeK != "" {
 		if isValidCacheType(s.config.CacheTypeK) {
 			args = append(args, "--cache-type-k", s.config.CacheTypeK)
@@ -283,79 +304,39 @@ func (s *Server) Start() error {
 			log.Warn().Str("type", s.config.CacheTypeV).Msg("[server] unsupported cache type, skipping --cache-type-v (removed q2_k/q3_k/q4_k/q5_k/q6_k/iq4_xs)")
 		}
 	}
-	if s.config.Mlock {
-		args = append(args, "--mlock")
-	}
-	if s.config.Threads > 0 {
-		args = append(args, "-t", fmt.Sprintf("%d", s.config.Threads))
-	}
-	if s.config.BatchSize > 0 {
-		args = append(args, "-b", fmt.Sprintf("%d", s.config.BatchSize))
-	}
-	if s.config.UBatchSize > 0 {
-		args = append(args, "-ub", fmt.Sprintf("%d", s.config.UBatchSize))
-	}
-	if s.config.ContextSize > 0 {
-		args = append(args, "-c", fmt.Sprintf("%d", s.config.ContextSize))
-	}
-	if s.config.MmprojAuto {
-		args = append(args, "--mmproj-auto")
-	}
-	if s.config.MmprojOffload {
-		args = append(args, "--mmproj-offload")
-	}
-	if s.config.Reasoning != "" {
-		args = append(args, "--reasoning", s.config.Reasoning)
-	}
-	if s.config.ReasoningBudget > 0 {
-		args = append(args, "--reasoning-budget", fmt.Sprintf("%d", s.config.ReasoningBudget))
-	}
-	if s.config.ReasoningFormat != "" {
-		args = append(args, "--reasoning-format", s.config.ReasoningFormat)
-	}
-	if s.config.ReasoningBudgetMessage != "" {
-		args = append(args, "--reasoning-budget-message", s.config.ReasoningBudgetMessage)
-	}
-	if s.config.KVUnified {
-		args = append(args, "--kv-unified")
-	}
-	if s.config.CacheIdleSlots {
-		args = append(args, "--cache-idle-slots")
-	}
-	if s.config.CacheRAM > 0 {
-		args = append(args, "--cache-ram", fmt.Sprintf("%d", s.config.CacheRAM))
-	}
-	if s.config.ImageMinTokens > 0 {
-		args = append(args, "--image-min-tokens", fmt.Sprintf("%d", s.config.ImageMinTokens))
-	}
-	if s.config.ImageMaxTokens > 0 {
-		args = append(args, "--image-max-tokens", fmt.Sprintf("%d", s.config.ImageMaxTokens))
-	}
-	if s.config.FitTarget > 0 {
-		args = append(args, "--fit-target", fmt.Sprintf("%d", s.config.FitTarget))
-	}
-	if s.config.FitCtx > 0 {
-		args = append(args, "--fit-ctx", fmt.Sprintf("%d", s.config.FitCtx))
-	}
+	args = appendBoolArg(args, "--mlock", s.config.Mlock)
+	args = appendIntArg(args, "-t", s.config.Threads)
+	args = appendIntArg(args, "-b", s.config.BatchSize)
+	args = appendIntArg(args, "-ub", s.config.UBatchSize)
+	args = appendIntArg(args, "-c", s.config.ContextSize)
+	args = appendBoolArg(args, "--mmproj-auto", s.config.MmprojAuto)
+	args = appendBoolArg(args, "--mmproj-offload", s.config.MmprojOffload)
+	args = appendStringArg(args, "--reasoning", s.config.Reasoning)
+	args = appendIntArg(args, "--reasoning-budget", s.config.ReasoningBudget)
+	args = appendStringArg(args, "--reasoning-format", s.config.ReasoningFormat)
+	args = appendStringArg(args, "--reasoning-budget-message", s.config.ReasoningBudgetMessage)
+	args = appendBoolArg(args, "--kv-unified", s.config.KVUnified)
+	args = appendBoolArg(args, "--cache-idle-slots", s.config.CacheIdleSlots)
+	args = appendIntArg(args, "--cache-ram", s.config.CacheRAM)
+	args = appendIntArg(args, "--image-min-tokens", s.config.ImageMinTokens)
+	args = appendIntArg(args, "--image-max-tokens", s.config.ImageMaxTokens)
+	args = appendIntArg(args, "--fit-target", s.config.FitTarget)
+	args = appendIntArg(args, "--fit-ctx", s.config.FitCtx)
 	if !s.config.Mmap {
 		args = append(args, "--no-mmap")
 	}
 	if !s.config.KVOffload {
 		args = append(args, "--no-kv-offload")
 	}
-	if s.config.ContextShift {
-		args = append(args, "--context-shift")
-	}
-	if s.config.MinP > 0 {
-		args = append(args, "--min-p", fmt.Sprintf("%.2f", s.config.MinP))
-	}
+	args = appendBoolArg(args, "--context-shift", s.config.ContextShift)
+	args = appendFloatArg(args, "--min-p", s.config.MinP, "%.2f")
 	if s.config.DryMultiplier > 0 {
 		args = append(args, "--dry-multiplier", fmt.Sprintf("%.2f", s.config.DryMultiplier))
 		if s.config.DryBase > 0 {
-			args = append(args, "--dry-base", fmt.Sprintf("%.2f", s.config.DryBase))
+			args = appendFloatArg(args, "--dry-base", s.config.DryBase, "%.2f")
 		}
 		if s.config.DryAllowedLength > 0 {
-			args = append(args, "--dry-allowed-length", fmt.Sprintf("%d", s.config.DryAllowedLength))
+			args = appendIntArg(args, "--dry-allowed-length", s.config.DryAllowedLength)
 		}
 		// Dry 采样扩展参数
 		if s.config.DrySequenceBreaker != "" {
@@ -367,16 +348,12 @@ func (s *Server) Start() error {
 			}
 		}
 		if s.config.DryPenaltyLastN > 0 {
-			args = append(args, "--dry-penalty-last-n", fmt.Sprintf("%d", s.config.DryPenaltyLastN))
+			args = appendIntArg(args, "--dry-penalty-last-n", s.config.DryPenaltyLastN)
 		}
 	}
 	// 分组注意力参数
-	if s.config.GrpAttnN > 0 {
-		args = append(args, "--grp-attn-n", fmt.Sprintf("%d", s.config.GrpAttnN))
-	}
-	if s.config.GrpAttnW > 0 {
-		args = append(args, "--grp-attn-w", fmt.Sprintf("%d", s.config.GrpAttnW))
-	}
+	args = appendIntArg(args, "--grp-attn-n", s.config.GrpAttnN)
+	args = appendIntArg(args, "--grp-attn-w", s.config.GrpAttnW)
 	// Jinja2 模板引擎开关
 	if s.config.Jinja != nil {
 		if *s.config.Jinja {
@@ -394,30 +371,17 @@ func (s *Server) Start() error {
 		}
 	}
 	// 服务器指标端点
-	if s.config.Metrics {
-		args = append(args, "--metrics")
-	}
+	args = appendBoolArg(args, "--metrics", s.config.Metrics)
 	// 详细日志
-	if s.config.Verbose {
-		args = append(args, "--verbose")
-	}
+	args = appendBoolArg(args, "--verbose", s.config.Verbose)
 	// 重排序端点：配置了 reranker 模型时自动启用
 	if s.config.RerankerModelPath != "" {
 		args = append(args, "--rerank")
 	}
-	if s.config.Device != "" {
-		args = append(args, "--device", s.config.Device)
-	}
-	if s.config.Parallel > 0 {
-		args = append(args, "--parallel", fmt.Sprintf("%d", s.config.Parallel))
-	}
+	args = appendStringArg(args, "--device", s.config.Device)
+	args = appendIntArg(args, "--parallel", s.config.Parallel)
 	args = append(args, "--timeout", "900")
-	// 安全：API Key 通过环境变量传递，而非命令行参数
-	// 基于 GO-CONFIG-001 安全实践：避免命令行参数被同权限进程通过 tasklist/WMI 读取
-	// llama-server 支持 LLAMA_API_KEY 环境变量（见 llama.cpp/tools/server/README.md）
-	if s.config.APIKey != "" {
-		s.cmdEnv = append(s.cmdEnv, "LLAMA_API_KEY="+s.config.APIKey)
-	}
+	// 注意：API Key 通过环境变量 LLAMA_API_KEY 传递，相关逻辑（s.cmdEnv 修改）保留在 Start() 中
 	if s.config.SpecType != "" && !s.mtpFallbackDisabled {
 		args = append(args, "--spec-type", s.config.SpecType)
 	}
@@ -493,42 +457,22 @@ func (s *Server) Start() error {
 	}
 
 	// 启用 embedding API（RAG 知识库需要 /v1/embeddings 接口）
-	if s.config.Embedding {
-		args = append(args, "--embedding")
-	}
+	args = appendBoolArg(args, "--embedding", s.config.Embedding)
 	// 嵌入池化类型：聊天模型默认 pooling=none 不兼容 OAI embedding API，需指定 mean
-	if s.config.Pooling != "" {
-		args = append(args, "--pooling", s.config.Pooling)
-	}
+	args = appendStringArg(args, "--pooling", s.config.Pooling)
 
 	// 新增参数
-	if s.config.SwaFull {
-		args = append(args, "--swa-full")
-	}
-	if s.config.CtxCheckpoints > 0 {
-		args = append(args, "--ctx-checkpoints", fmt.Sprintf("%d", s.config.CtxCheckpoints))
-	}
-	if s.config.CheckpointMinStep > 0 {
-		args = append(args, "--checkpoint-min-step", fmt.Sprintf("%d", s.config.CheckpointMinStep))
-	}
-	if s.config.Tools != "" {
-		args = append(args, "--tools", s.config.Tools)
-	}
+	args = appendBoolArg(args, "--swa-full", s.config.SwaFull)
+	args = appendIntArg(args, "--ctx-checkpoints", s.config.CtxCheckpoints)
+	args = appendIntArg(args, "--checkpoint-min-step", s.config.CheckpointMinStep)
+	args = appendStringArg(args, "--tools", s.config.Tools)
 	if !s.config.PrefillAssistant {
 		args = append(args, "--no-prefill-assistant")
 	}
-	if s.config.SlotPromptSimilarity > 0 {
-		args = append(args, "--slot-prompt-similarity", fmt.Sprintf("%.2f", s.config.SlotPromptSimilarity))
-	}
-	if s.config.SkipChatParsing {
-		args = append(args, "--skip-chat-parsing")
-	}
-	if s.config.APIPrefix != "" {
-		args = append(args, "--api-prefix", s.config.APIPrefix)
-	}
-	if s.config.SimpleIO {
-		args = append(args, "--simple-io")
-	}
+	args = appendFloatArg(args, "--slot-prompt-similarity", s.config.SlotPromptSimilarity, "%.2f")
+	args = appendBoolArg(args, "--skip-chat-parsing", s.config.SkipChatParsing)
+	args = appendStringArg(args, "--api-prefix", s.config.APIPrefix)
+	args = appendBoolArg(args, "--simple-io", s.config.SimpleIO)
 
 	// Agent 模式：一键启用 CORS 代理 + 所有内置工具
 	// 与 UIMcpProxy 互斥（Agent 已包含 MCP CORS 代理）
@@ -539,14 +483,10 @@ func (s *Server) Start() error {
 	}
 
 	// 后端采样（实验性，将采样逻辑移到 GPU 执行）
-	if s.config.BackendSampling {
-		args = append(args, "--backend-sampling")
-	}
+	args = appendBoolArg(args, "--backend-sampling", s.config.BackendSampling)
 
 	// SSE ping 间隔（保持长连接活跃，防止代理/防火墙超时断连）
-	if s.config.SsePingInterval > 0 {
-		args = append(args, "--sse-ping-interval", fmt.Sprintf("%d", s.config.SsePingInterval))
-	}
+	args = appendIntArg(args, "--sse-ping-interval", s.config.SsePingInterval)
 
 	// LoRA 适配器：启动时加载但默认不应用（scale=0），用户可通过设置界面热切换
 	if s.config.LoraPaths != "" {
@@ -565,9 +505,7 @@ func (s *Server) Start() error {
 	}
 
 	// KV 缓存复用
-	if s.config.CacheReuse > 0 {
-		args = append(args, "--cache-reuse", fmt.Sprintf("%d", s.config.CacheReuse))
-	}
+	args = appendIntArg(args, "--cache-reuse", s.config.CacheReuse)
 
 	// Draft 模型 GPU 配置（Eagle3 等场景）
 	if s.config.SpecDraftNgl > 0 && !s.mtpFallbackDisabled {
@@ -591,32 +529,18 @@ func (s *Server) Start() error {
 		}
 	}
 	// 多模态批处理
-	if s.config.MtmdBatchMaxTokens > 0 {
-		args = append(args, "--mtmd-batch-max-tokens", fmt.Sprintf("%d", s.config.MtmdBatchMaxTokens))
-	}
+	args = appendIntArg(args, "--mtmd-batch-max-tokens", s.config.MtmdBatchMaxTokens)
 	// 自适应采样（llama.cpp 新增）
-	if s.config.AdaptiveTarget > 0 {
-		args = append(args, "--adaptive-target", fmt.Sprintf("%.4f", s.config.AdaptiveTarget))
-	}
-	if s.config.AdaptiveDecay > 0 {
-		args = append(args, "--adaptive-decay", fmt.Sprintf("%.4f", s.config.AdaptiveDecay))
-	}
+	args = appendFloatArg(args, "--adaptive-target", s.config.AdaptiveTarget, "%.4f")
+	args = appendFloatArg(args, "--adaptive-decay", s.config.AdaptiveDecay, "%.4f")
 	// 模型标签
-	if s.config.Tags != "" {
-		args = append(args, "--tags", s.config.Tags)
-	}
+	args = appendStringArg(args, "--tags", s.config.Tags)
 	// 媒体路径（多模态模型额外媒体文件目录）
-	if s.config.MediaPath != "" {
-		args = append(args, "--media-path", s.config.MediaPath)
-	}
+	args = appendStringArg(args, "--media-path", s.config.MediaPath)
 	// 离线模式（禁用所有网络请求）
-	if s.config.Offline {
-		args = append(args, "--offline")
-	}
+	args = appendBoolArg(args, "--offline", s.config.Offline)
 	// 模型重打包（启动时重新打包模型权重）
-	if s.config.Repack {
-		args = append(args, "--repack")
-	}
+	args = appendBoolArg(args, "--repack", s.config.Repack)
 	// Draft 模型线程配置
 	if s.config.SpecDraftThreads > 0 && !s.mtpFallbackDisabled {
 		args = append(args, "--spec-draft-threads", fmt.Sprintf("%d", s.config.SpecDraftThreads))
@@ -625,8 +549,29 @@ func (s *Server) Start() error {
 		args = append(args, "--spec-draft-threads-batch", fmt.Sprintf("%d", s.config.SpecDraftThreadsBatch))
 	}
 	// 默认推测解码配置
-	if s.config.SpecDefault {
-		args = append(args, "--spec-default")
+	args = appendBoolArg(args, "--spec-default", s.config.SpecDefault)
+
+	return args
+}
+
+func (s *Server) Start() error {
+	s.mu.Lock()
+
+	if s.status.Running && s.isAlive() {
+		log.Info().Msg("stopping existing model server before starting new one...")
+		s.mu.Unlock()
+		if err := s.stopInternal(); err != nil {
+			log.Error().Err(err).Msg("stop existing server before restart")
+		}
+		s.mu.Lock()
+	}
+
+	args := s.buildStartArgs()
+	// 安全：API Key 通过环境变量传递，而非命令行参数
+	// 基于 GO-CONFIG-001 安全实践：避免命令行参数被同权限进程通过 tasklist/WMI 读取
+	// llama-server 支持 LLAMA_API_KEY 环境变量（见 llama.cpp/tools/server/README.md）
+	if s.config.APIKey != "" {
+		s.cmdEnv = append(s.cmdEnv, "LLAMA_API_KEY="+s.config.APIKey)
 	}
 
 	s.cmd = exec.Command(s.config.ServerPath, args...)
@@ -877,14 +822,15 @@ func (s *Server) replaceContext() {
 
 func (s *Server) WaitForReady(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := s.healthClient
 	url := fmt.Sprintf("http://127.0.0.1:%d/health", s.config.Port)
 
 	for time.Now().Before(deadline) {
 		resp, err := client.Get(url)
 		if err == nil {
-			defer resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
+			ready := resp.StatusCode == http.StatusOK
+			resp.Body.Close()
+			if ready {
 				return nil
 			}
 		}
@@ -916,7 +862,7 @@ func (s *Server) GracefulStop(timeout time.Duration) error {
 	}
 
 	shutdownURL := apiBase + "/shutdown"
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := s.healthClient
 
 	resp, err := client.Post(shutdownURL, "application/json", nil)
 	if err != nil {

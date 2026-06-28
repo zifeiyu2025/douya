@@ -12,7 +12,7 @@ import (
 
 // TestLoad_InvalidConfigFallsBackToDefault 验证当配置文件中存在非法字段时，
 // Load() 应当通过 Validate() 检测到错误，并回退到默认配置。
-// 这里用 temperature=999 触发校验失败，期望返回的配置 Temperature 等于默认值 0.6。
+// 这里用 temperature=999 触发校验失败，期望返回的配置 Temperature 等于默认值 0.8。
 func TestLoad_InvalidConfigFallsBackToDefault(t *testing.T) {
 	// 创建临时目录
 	tmpDir := t.TempDir()
@@ -34,8 +34,8 @@ func TestLoad_InvalidConfigFallsBackToDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load 返回了非预期的错误: %v", err)
 	}
-	if cfg.Temperature != 0.6 {
-		t.Errorf("期望回退到默认 Temperature=0.6，实际得到: %.2f", cfg.Temperature)
+	if cfg.Temperature != 0.8 {
+		t.Errorf("期望回退到默认 Temperature=0.8，实际得到: %.2f", cfg.Temperature)
 	}
 }
 

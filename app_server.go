@@ -19,6 +19,15 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+const (
+	httpClientTimeout = 300 * time.Second // 普通 HTTP 请求超时
+	loadTimeoutBase   = 180 * time.Second // 模型加载基础超时
+	loadTimeoutPerGB  = 30 * time.Second  // 每 GB 额外超时
+	loadTimeoutMax    = 600 * time.Second // 模型加载最大超时
+	apiTimeoutShort   = 10 * time.Second  // 轻量 API 超时
+	apiTimeoutMedium  = 30 * time.Second  // 普通 API 超时
+)
+
 func (a *App) buildServerConfig() *llm.ServerConfig {
 	cfg := a.getConfig()
 	absServerPath := resolvePath(cfg.LlamaServerPath)
@@ -97,109 +106,109 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 	}
 
 	serverCfg := &llm.ServerConfig{
-		ModelsDir:              modelsDir,
-		ServerPath:             absServerPath,
-		Port:                   cfg.Port,
-		GPULayers:              gpuLayers,
-		Threads:                threads,
-		FlashAttn:              flashAttn,
-		CacheTypeK:             sp.CacheTypeK,
-		CacheTypeV:             sp.CacheTypeV,
-		Mlock:                  mlock,
-		MmprojAuto:             cfg.MmprojAuto,
-		MmprojOffload:          sp.MmprojOffload,
-		KVUnified:              cfg.KVUnified,
-		CacheIdleSlots:         cfg.CacheIdleSlots,
-		CacheRAM:               cfg.CacheRAM,
-		ImageMinTokens:         cfg.ImageMinTokens,
-		ImageMaxTokens:         cfg.ImageMaxTokens,
-		FitTarget:              cfg.FitTarget,
-		FitCtx:                 cfg.FitCtx,
-		Reasoning:              cfg.Reasoning,
-		ReasoningBudget:        cfg.ReasoningBudget,
-		ReasoningFormat:        reasoningFormat,
-		ReasoningBudgetMessage: cfg.ReasoningBudgetMessage,
-		APIBase:                cfg.APIBase,
-		AppDir:                 appDir(),
-		ModelsPreset:           presetPath,
-		ModelsMax:              modelsMax,
-		SleepIdleSeconds:       sleepIdle,
-		Mmap:                   cfg.Mmap,
-		KVOffload:              cfg.KVOffload,
-		ContextShift:           cfg.ContextShift,
-		MinP:                   cfg.MinP,
-		DryMultiplier:          cfg.DryMultiplier,
-		DryBase:                cfg.DryBase,
-		DryAllowedLength:       cfg.DryAllowedLength,
-		DrySequenceBreaker:     cfg.DrySequenceBreaker,
-		DryPenaltyLastN:        cfg.DryPenaltyLastN,
-		GrpAttnN:               cfg.GrpAttnN,
-		GrpAttnW:               cfg.GrpAttnW,
-		Jinja:                  cfg.Jinja,
-		CachePrompt:            cfg.CachePrompt,
-		Metrics:                cfg.Metrics,
-		Verbose:                cfg.Verbose,
-		SpecDraftThreads:       cfg.SpecDraftThreads,
-		SpecDraftThreadsBatch:  cfg.SpecDraftThreadsBatch,
-		SpecDefault:            cfg.SpecDefault,
-		Device:                 cfg.Device,
-		Parallel:               cfg.Parallel,
-		SpecType:               cfg.SpecType,
-		SpecDraftNMax:          cfg.SpecDraftNMax,
-		SpecDraftNMin:          cfg.SpecDraftNMin,
-		CacheTypeKDraft:        cfg.CacheTypeKDraft,
-		CacheTypeVDraft:        cfg.CacheTypeVDraft,
-		SpecNgramModNMin:      cfg.SpecNgramModNMin,
-		SpecNgramModNMax:      cfg.SpecNgramModNMax,
-		SpecNgramModNMatch:    cfg.SpecNgramModNMatch,
-		SpecNgramSimpleSizeN:   cfg.SpecNgramSimpleSizeN,
-		SpecNgramSimpleSizeM:   cfg.SpecNgramSimpleSizeM,
-		SpecNgramSimpleMinHits: cfg.SpecNgramSimpleMinHits,
-		SpecNgramMapKSizeN:     cfg.SpecNgramMapKSizeN,
-		SpecNgramMapKSizeM:     cfg.SpecNgramMapKSizeM,
-		SpecNgramMapKMinHits:   cfg.SpecNgramMapKMinHits,
-		SpecNgramMapK4VSizeN:   cfg.SpecNgramMapK4VSizeN,
-		SpecNgramMapK4VSizeM:   cfg.SpecNgramMapK4VSizeM,
-		SpecNgramMapK4VMinHits: cfg.SpecNgramMapK4VMinHits,
-		LookupCacheStatic:     cfg.LookupCacheStatic,
-		LookupCacheDynamic:    cfg.LookupCacheDynamic,
-		SpecDraftModel:         cfg.SpecDraftModel,
-		Embedding:              true, // 启用 embedding API（RAG 知识库需要）
-		Pooling:                "mean", // 聊天模型 pooling=none 不兼容 OAI embedding API
-		ExposeServer:           cfg.ExposeServer,
-		SwaFull:              cfg.SwaFull,
-		CtxCheckpoints:       cfg.CtxCheckpoints,
-		CheckpointMinStep:    cfg.CheckpointMinStep,
-		Tools:                cfg.Tools,
-		PrefillAssistant:     cfg.PrefillAssistant,
-		SlotPromptSimilarity: cfg.SlotPromptSimilarity,
-		SkipChatParsing:      cfg.SkipChatParsing,
-		APIPrefix:            cfg.APIPrefix,
-		SimpleIO:             cfg.SimpleIO,
-		BatchSize:            batchSize,
-		UBatchSize:           ubatchSize,
-		ContextSize:          contextSize,
-		SlotSavePath:         cfg.SlotSavePath,
-		SlotSaveEnabled:      cfg.SlotSaveEnabled,
-		CacheReuse:           cfg.CacheReuse,
-		SpecDraftNgl:         cfg.SpecDraftNgl,
-		SpecDraftDevice:      cfg.SpecDraftDevice,
-		SpecDraftPSplit:      cfg.SpecDraftPSplit,
-		SpecDraftPMin:        cfg.SpecDraftPMin,
+		ModelsDir:                modelsDir,
+		ServerPath:               absServerPath,
+		Port:                     cfg.Port,
+		GPULayers:                gpuLayers,
+		Threads:                  threads,
+		FlashAttn:                flashAttn,
+		CacheTypeK:               sp.CacheTypeK,
+		CacheTypeV:               sp.CacheTypeV,
+		Mlock:                    mlock,
+		MmprojAuto:               cfg.MmprojAuto,
+		MmprojOffload:            sp.MmprojOffload,
+		KVUnified:                cfg.KVUnified,
+		CacheIdleSlots:           cfg.CacheIdleSlots,
+		CacheRAM:                 cfg.CacheRAM,
+		ImageMinTokens:           cfg.ImageMinTokens,
+		ImageMaxTokens:           cfg.ImageMaxTokens,
+		FitTarget:                cfg.FitTarget,
+		FitCtx:                   cfg.FitCtx,
+		Reasoning:                cfg.Reasoning,
+		ReasoningBudget:          cfg.ReasoningBudget,
+		ReasoningFormat:          reasoningFormat,
+		ReasoningBudgetMessage:   cfg.ReasoningBudgetMessage,
+		APIBase:                  cfg.APIBase,
+		AppDir:                   appDir(),
+		ModelsPreset:             presetPath,
+		ModelsMax:                modelsMax,
+		SleepIdleSeconds:         sleepIdle,
+		Mmap:                     cfg.Mmap,
+		KVOffload:                cfg.KVOffload,
+		ContextShift:             cfg.ContextShift,
+		MinP:                     cfg.MinP,
+		DryMultiplier:            cfg.DryMultiplier,
+		DryBase:                  cfg.DryBase,
+		DryAllowedLength:         cfg.DryAllowedLength,
+		DrySequenceBreaker:       cfg.DrySequenceBreaker,
+		DryPenaltyLastN:          cfg.DryPenaltyLastN,
+		GrpAttnN:                 cfg.GrpAttnN,
+		GrpAttnW:                 cfg.GrpAttnW,
+		Jinja:                    cfg.Jinja,
+		CachePrompt:              cfg.CachePrompt,
+		Metrics:                  cfg.Metrics,
+		Verbose:                  cfg.Verbose,
+		SpecDraftThreads:         cfg.SpecDraftThreads,
+		SpecDraftThreadsBatch:    cfg.SpecDraftThreadsBatch,
+		SpecDefault:              cfg.SpecDefault,
+		Device:                   cfg.Device,
+		Parallel:                 cfg.Parallel,
+		SpecType:                 cfg.SpecType,
+		SpecDraftNMax:            cfg.SpecDraftNMax,
+		SpecDraftNMin:            cfg.SpecDraftNMin,
+		CacheTypeKDraft:          cfg.CacheTypeKDraft,
+		CacheTypeVDraft:          cfg.CacheTypeVDraft,
+		SpecNgramModNMin:         cfg.SpecNgramModNMin,
+		SpecNgramModNMax:         cfg.SpecNgramModNMax,
+		SpecNgramModNMatch:       cfg.SpecNgramModNMatch,
+		SpecNgramSimpleSizeN:     cfg.SpecNgramSimpleSizeN,
+		SpecNgramSimpleSizeM:     cfg.SpecNgramSimpleSizeM,
+		SpecNgramSimpleMinHits:   cfg.SpecNgramSimpleMinHits,
+		SpecNgramMapKSizeN:       cfg.SpecNgramMapKSizeN,
+		SpecNgramMapKSizeM:       cfg.SpecNgramMapKSizeM,
+		SpecNgramMapKMinHits:     cfg.SpecNgramMapKMinHits,
+		SpecNgramMapK4VSizeN:     cfg.SpecNgramMapK4VSizeN,
+		SpecNgramMapK4VSizeM:     cfg.SpecNgramMapK4VSizeM,
+		SpecNgramMapK4VMinHits:   cfg.SpecNgramMapK4VMinHits,
+		LookupCacheStatic:        cfg.LookupCacheStatic,
+		LookupCacheDynamic:       cfg.LookupCacheDynamic,
+		SpecDraftModel:           cfg.SpecDraftModel,
+		Embedding:                true,   // 启用 embedding API（RAG 知识库需要）
+		Pooling:                  "mean", // 聊天模型 pooling=none 不兼容 OAI embedding API
+		ExposeServer:             cfg.ExposeServer,
+		SwaFull:                  cfg.SwaFull,
+		CtxCheckpoints:           cfg.CtxCheckpoints,
+		CheckpointMinStep:        cfg.CheckpointMinStep,
+		Tools:                    cfg.Tools,
+		PrefillAssistant:         cfg.PrefillAssistant,
+		SlotPromptSimilarity:     cfg.SlotPromptSimilarity,
+		SkipChatParsing:          cfg.SkipChatParsing,
+		APIPrefix:                cfg.APIPrefix,
+		SimpleIO:                 cfg.SimpleIO,
+		BatchSize:                batchSize,
+		UBatchSize:               ubatchSize,
+		ContextSize:              contextSize,
+		SlotSavePath:             cfg.SlotSavePath,
+		SlotSaveEnabled:          cfg.SlotSaveEnabled,
+		CacheReuse:               cfg.CacheReuse,
+		SpecDraftNgl:             cfg.SpecDraftNgl,
+		SpecDraftDevice:          cfg.SpecDraftDevice,
+		SpecDraftPSplit:          cfg.SpecDraftPSplit,
+		SpecDraftPMin:            cfg.SpecDraftPMin,
 		SpecDraftBackendSampling: cfg.SpecDraftBackendSampling,
-		MtmdBatchMaxTokens:   cfg.MtmdBatchMaxTokens,
-		AdaptiveTarget:       cfg.AdaptiveTarget,
-		AdaptiveDecay:        cfg.AdaptiveDecay,
-		Tags:                 cfg.Tags,
-		MediaPath:            cfg.MediaPath,
-		Offline:              cfg.Offline,
-		Repack:               cfg.Repack,
-		Agent:                cfg.Agent,
-		UIMcpProxy:           cfg.UIMcpProxy,
-		BackendSampling:      cfg.BackendSampling,
-		SsePingInterval:      cfg.SsePingInterval,
-		LoraPaths:            cfg.LoraPaths,
-		RerankerModelPath:   cfg.RerankerModelPath,
+		MtmdBatchMaxTokens:       cfg.MtmdBatchMaxTokens,
+		AdaptiveTarget:           cfg.AdaptiveTarget,
+		AdaptiveDecay:            cfg.AdaptiveDecay,
+		Tags:                     cfg.Tags,
+		MediaPath:                cfg.MediaPath,
+		Offline:                  cfg.Offline,
+		Repack:                   cfg.Repack,
+		Agent:                    cfg.Agent,
+		UIMcpProxy:               cfg.UIMcpProxy,
+		BackendSampling:          cfg.BackendSampling,
+		SsePingInterval:          cfg.SsePingInterval,
+		LoraPaths:                cfg.LoraPaths,
+		RerankerModelPath:        cfg.RerankerModelPath,
 	}
 
 	if cfg.CacheTypeK != "" {
@@ -269,34 +278,22 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 
 func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 	// 推送首次启动进度：准备启动引擎
-	runtime.EventsEmit(ctx, "server:switchProgress", map[string]string{
-		"stage": "preparing",
-	})
+	a.emitSwitchProgressCtx(ctx, "preparing", "", nil)
 
 	if err := srv.Start(); err != nil {
 		zlog.Error().Err(err).Msg("start llama-server failed")
-		runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
-			Running:     false,
-			ModelReady:  false,
-			Error:       fmt.Sprintf("启动 llama-server 失败: %v", err),
-		})
+		a.emitErrorStatus(ctx, fmt.Sprintf("启动 llama-server 失败: %v", err))
 		return
 	}
 
 	if err := srv.WaitForReady(60e9); err != nil {
 		zlog.Error().Err(err).Msg("wait for server ready failed")
-		runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
-			Running:     false,
-			ModelReady:  false,
-			Error:       fmt.Sprintf("llama-server 未就绪: %v", err),
-		})
+		a.emitErrorStatus(ctx, fmt.Sprintf("llama-server 未就绪: %v", err))
 		return
 	}
 
 	// 推送首次启动进度：引擎已就绪，准备加载模型
-	runtime.EventsEmit(ctx, "server:switchProgress", map[string]string{
-		"stage": "loading",
-	})
+	a.emitSwitchProgressCtx(ctx, "loading", "", nil)
 
 	a.presetsMu.RLock()
 	presetsSnapshot := make([]llm.ModelPreset, len(a.presets))
@@ -333,10 +330,7 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 	a.currentModelMu.RUnlock()
 
 	// 推送首次启动进度：检测模型能力
-	runtime.EventsEmit(ctx, "server:switchProgress", map[string]string{
-		"stage":       "detecting",
-		"targetModel": modelForDetect,
-	})
+	a.emitSwitchProgressCtx(ctx, "detecting", modelForDetect, nil)
 
 	if err := a.service.DetectModelArchitectureForModel(modelForDetect); err != nil {
 		zlog.Error().Err(err).Msg("detect model architecture failed")
@@ -360,11 +354,7 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 		if loadErr != nil && !isAlreadyRunningError(loadErr) {
 			// 非预期错误（非 "already running"），报告失败
 			zlog.Error().Err(loadErr).Str("model", modelForDetect).Msg("[server] auto-load default model failed")
-			runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
-				Running:    false,
-				ModelReady: false,
-				Error:      fmt.Sprintf("默认模型加载失败: %v（可手动切换模型）", loadErr),
-			})
+			a.emitErrorStatus(ctx, fmt.Sprintf("默认模型加载失败: %v（可手动切换模型）", loadErr))
 		} else {
 			// LoadModel 成功或返回 "already running"（模型可能还在 LOADING 状态）
 			// 必须等待模型状态变为 loaded 才能认为就绪
@@ -388,13 +378,10 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 				case "unloaded":
 					stage = "retrying"
 				}
-				runtime.EventsEmit(ctx, "server:switchProgress", map[string]string{
-					"stage":       stage,
-					"targetModel": modelForDetect,
-				})
+				a.emitSwitchProgressCtx(ctx, stage, modelForDetect, nil)
 			}
 
-			if err := a.client.WaitForModelLoaded(ctx, modelForDetect, 300*time.Second, progressCallback); err != nil {
+			if err := a.client.WaitForModelLoaded(ctx, modelForDetect, httpClientTimeout, progressCallback); err != nil {
 				// 加载失败，尝试去掉 mmproj 重试（mmproj 不兼容会导致子进程崩溃）
 				if a.tryReloadWithoutMmproj(ctx, modelForDetect, progressCallback) {
 					// 重试成功
@@ -408,15 +395,11 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 							}
 						}()
 						// 后台继续等待，不设超时（依赖 WatchWithCallback 检测崩溃）
-						if bgErr := a.client.WaitForModelLoaded(ctx, modelForDetect, 600*time.Second, progressCallback); bgErr != nil {
+						if bgErr := a.client.WaitForModelLoaded(ctx, modelForDetect, loadTimeoutMax, progressCallback); bgErr != nil {
 							zlog.Error().Err(bgErr).Str("model", modelForDetect).Msg("[server] auto-load default model background wait also failed")
 							// 修复：将 Running 改为 false，与 Error 字段保持语义一致
-							// 此前 Running: true 会导致前端 `!status.running && status.error` 条件失效，错误被静默丢弃
-							runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
-								Running:    false,
-								ModelReady: false,
-								Error:      fmt.Sprintf("默认模型加载失败: %v（可手动切换模型）", bgErr),
-							})
+						// 此前 Running: true 会导致前端 `!status.running && status.error` 条件失效，错误被静默丢弃
+						a.emitErrorStatus(ctx, fmt.Sprintf("默认模型加载失败: %v（可手动切换模型）", bgErr))
 						} else {
 							zlog.Info().Str("model", modelForDetect).Msg("[server] default model loaded and ready (background)")
 							a.serverReady.Store(true)
@@ -478,22 +461,14 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 			loadErr := a.client.LoadModel(ctx, modelForDetect2)
 			if loadErr != nil && !isAlreadyRunningError(loadErr) {
 				zlog.Error().Err(loadErr).Str("model", modelForDetect2).Msg("[server] reload model after restart failed")
-				runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
-					Running:    false,
-					ModelReady: false,
-					Error:      fmt.Sprintf("重启后模型加载失败: %v", loadErr),
-				})
+				a.emitErrorStatus(ctx, fmt.Sprintf("重启后模型加载失败: %v", loadErr))
 			} else {
 				if loadErr != nil {
 					zlog.Info().Str("model", modelForDetect2).Msg("[server] model is already running/loading after restart, waiting for loaded state")
 				}
 				if err := a.client.WaitForModelLoaded(ctx, modelForDetect2, 120*time.Second); err != nil {
 					zlog.Error().Err(err).Str("model", modelForDetect2).Msg("[server] reload model wait after restart failed")
-					runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
-						Running:    false,
-						ModelReady: false,
-						Error:      fmt.Sprintf("重启后模型加载超时: %v", err),
-					})
+					a.emitErrorStatus(ctx, fmt.Sprintf("重启后模型加载超时: %v", err))
 				} else {
 					zlog.Info().Str("model", modelForDetect2).Msg("[server] model reloaded and ready after restart")
 					a.serverReady.Store(true)
@@ -511,115 +486,109 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 
 	// 路由模式下子进程崩溃监控：主进程不会崩溃，但子进程可能崩溃
 	// 定期检查模型状态，如果发现模型从 loaded/sleeping 变为 unloaded/failed，自动重新加载
-	go func() {
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-		consecutiveCrashes := 0
-		const maxConsecutiveCrashes = 3
+	// 监控逻辑已抽出至 watchServerHealth() 方法以降低单函数复杂度
+	go a.watchServerHealth(ctx, watchCtx)
+}
 
-		for {
-			select {
-			case <-watchCtx.Done():
-				return
-			case <-ticker.C:
+// watchServerHealth 监控服务器健康状态，崩溃时自动重启。
+// 从 startServerAndWatch() 抽出以降低单函数复杂度。
+// 作为独立 goroutine 运行，与原匿名 goroutine 逻辑等价。
+func (a *App) watchServerHealth(ctx context.Context, watchCtx context.Context) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	consecutiveCrashes := 0
+	const maxConsecutiveCrashes = 3
+
+	for {
+		select {
+		case <-watchCtx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		// 正在生成时跳过轮询，避免与生成请求争用 HTTP 连接池
+		if a.service != nil && a.service.IsGenerating() {
+			continue
+		}
+
+		// 不在切换中且 serverReady 为 true 时才检查
+		if a.isSwitching.Load() || !a.serverReady.Load() {
+			continue
+		}
+
+		a.currentModelMu.RLock()
+		modelName := a.currentModelName
+		a.currentModelMu.RUnlock()
+		if modelName == "" || a.client == nil {
+			continue
+		}
+
+		status, err := a.client.GetModelStatus(watchCtx, modelName)
+		if err != nil {
+			// 查询失败可能是暂时的网络问题，跳过
+			continue
+		}
+
+		switch status.Status {
+		case "loaded", "sleeping":
+			// 模型正常运行，重置崩溃计数
+			if consecutiveCrashes > 0 {
+				zlog.Info().Str("model", modelName).Msg("[router-monitor] model recovered, resetting crash count")
+				consecutiveCrashes = 0
+			}
+		case "unloaded", "failed":
+			consecutiveCrashes++
+			exitInfo := ""
+			if status.ExitCode != 0 {
+				exitInfo = fmt.Sprintf(" (exit_code=%d)", status.ExitCode)
+			}
+			zlog.Warn().
+				Str("model", modelName).
+				Str("status", status.Status).
+				Bool("failed", status.Failed).
+				Int("crash_count", consecutiveCrashes).
+				Msg("[router-monitor] model became unloaded/failed" + exitInfo)
+
+			// 获取 stderr 诊断信息
+			stderrHint := a.getServerStderrHint()
+			if stderrHint != "" {
+				zlog.Warn().Str("stderr_hint", stderrHint).Msg("[router-monitor] server stderr hint")
 			}
 
-			// 正在生成时跳过轮询，避免与生成请求争用 HTTP 连接池
-			if a.service != nil && a.service.IsGenerating() {
-				continue
-			}
-
-			// 不在切换中且 serverReady 为 true 时才检查
-			if a.isSwitching.Load() || !a.serverReady.Load() {
-				continue
-			}
-
-			a.currentModelMu.RLock()
-			modelName := a.currentModelName
-			a.currentModelMu.RUnlock()
-			if modelName == "" || a.client == nil {
-				continue
-			}
-
-			status, err := a.client.GetModelStatus(watchCtx, modelName)
-			if err != nil {
-				// 查询失败可能是暂时的网络问题，跳过
-				continue
-			}
-
-			switch status.Status {
-			case "loaded", "sleeping":
-				// 模型正常运行，重置崩溃计数
-				if consecutiveCrashes > 0 {
-					zlog.Info().Str("model", modelName).Msg("[router-monitor] model recovered, resetting crash count")
-					consecutiveCrashes = 0
-				}
-			case "unloaded", "failed":
-				consecutiveCrashes++
-				exitInfo := ""
-				if status.ExitCode != 0 {
-					exitInfo = fmt.Sprintf(" (exit_code=%d)", status.ExitCode)
-				}
-				zlog.Warn().
-					Str("model", modelName).
-					Str("status", status.Status).
-					Bool("failed", status.Failed).
-					Int("crash_count", consecutiveCrashes).
-					Msg("[router-monitor] model became unloaded/failed" + exitInfo)
-
-				// 获取 stderr 诊断信息
-				stderrHint := a.getServerStderrHint()
-				if stderrHint != "" {
-					zlog.Warn().Str("stderr_hint", stderrHint).Msg("[router-monitor] server stderr hint")
-				}
-
-				if consecutiveCrashes > maxConsecutiveCrashes {
-					zlog.Error().Str("model", modelName).Msg("[router-monitor] model keeps crashing, giving up auto-reload")
-					a.serverReady.Store(false)
-					runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
-					Running:    false,
-					ModelReady: false,
-					Error:      fmt.Sprintf("模型 %s 反复崩溃，请检查模型文件是否损坏或显存是否充足", modelName),
-				})
-					continue
-				}
-
-				// 自动重新加载模型
-				zlog.Info().Str("model", modelName).Msg("[router-monitor] attempting to reload crashed model")
+			if consecutiveCrashes > maxConsecutiveCrashes {
+				zlog.Error().Str("model", modelName).Msg("[router-monitor] model keeps crashing, giving up auto-reload")
 				a.serverReady.Store(false)
-				runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+				a.emitErrorStatus(ctx, fmt.Sprintf("模型 %s 反复崩溃，请检查模型文件是否损坏或显存是否充足", modelName))
+				continue
+			}
+
+			// 自动重新加载模型
+			zlog.Info().Str("model", modelName).Msg("[router-monitor] attempting to reload crashed model")
+			a.serverReady.Store(false)
+			runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
 				Running:     false,
 				ModelReady:  false,
 				Switching:   true,
 				SwitchingTo: modelName,
 			})
 
-				loadErr := a.client.LoadModel(watchCtx, modelName)
-				if loadErr != nil && !isAlreadyRunningError(loadErr) {
-					zlog.Error().Err(loadErr).Str("model", modelName).Msg("[router-monitor] reload failed")
-					runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
-						Running:    false,
-						ModelReady: false,
-						Error:      fmt.Sprintf("模型重新加载失败: %v", loadErr),
-					})
-					continue
-				}
+			loadErr := a.client.LoadModel(watchCtx, modelName)
+			if loadErr != nil && !isAlreadyRunningError(loadErr) {
+				zlog.Error().Err(loadErr).Str("model", modelName).Msg("[router-monitor] reload failed")
+				a.emitErrorStatus(ctx, fmt.Sprintf("模型重新加载失败: %v", loadErr))
+				continue
+			}
 
-				if err := a.client.WaitForModelLoaded(watchCtx, modelName, 120*time.Second); err != nil {
-					zlog.Error().Err(err).Str("model", modelName).Msg("[router-monitor] reload wait failed")
-					runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
-						Running:    false,
-						ModelReady: false,
-						Error:      fmt.Sprintf("模型重新加载超时: %v", err),
-					})
-				} else {
-					zlog.Info().Str("model", modelName).Msg("[router-monitor] model reloaded successfully")
-					a.serverReady.Store(true)
-					a.emitSwitchSuccess(modelName)
-				}
+			if err := a.client.WaitForModelLoaded(watchCtx, modelName, 120*time.Second); err != nil {
+				zlog.Error().Err(err).Str("model", modelName).Msg("[router-monitor] reload wait failed")
+				a.emitErrorStatus(ctx, fmt.Sprintf("模型重新加载超时: %v", err))
+			} else {
+				zlog.Info().Str("model", modelName).Msg("[router-monitor] model reloaded successfully")
+				a.serverReady.Store(true)
+				a.emitSwitchSuccess(modelName)
 			}
 		}
-	}()
+	}
 }
 
 func (a *App) GetServerStatus() llm.ServerStatus {
@@ -687,97 +656,60 @@ func (a *App) StopThinking() error {
 	return a.client.StopThinking(ctx, completionID)
 }
 
-// SaveSlot 保存当前 slot 的 KV 缓存到磁盘。
-// 调用 llama-server 的 POST /slots/{id}?action=save 端点（v9744+ 新格式）。
-func (a *App) SaveSlot(slotID int) error {
+// slotActionDesc 描述 slot 操作的中文动作（用于错误日志和返回信息）
+var slotActionDesc = map[string]string{
+	"save":    "保存",
+	"restore": "恢复",
+	"erase":   "删除",
+}
+
+// operateSlot 执行 slot 的 save/restore/erase 操作（v9744+ 新格式）。
+// 生活类比：就像文件夹的"另存为/打开/删除"三个按钮，背后都是调用同一个文件管理器，只是动作参数不同。
+func (a *App) operateSlot(slotID int, action string) error {
 	if a.client == nil {
 		return fmt.Errorf("客户端未初始化")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutMedium)
 	defer cancel()
 
-	url := fmt.Sprintf("%s/slots/%d?action=save", a.client.BaseURL(), slotID)
+	url := fmt.Sprintf("%s/slots/%d?action=%s", a.client.BaseURL(), slotID, action)
 	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
 	if err != nil {
-		return fmt.Errorf("创建保存 slot 请求失败: %w", err)
+		return fmt.Errorf("创建%s slot 请求失败: %w", slotActionDesc[action], err)
 	}
 	a.client.SetAuthHeader(req)
 
 	resp, err := a.client.HTTPClient().Do(req)
 	if err != nil {
-		return fmt.Errorf("保存 slot 请求失败: %w", err)
+		return fmt.Errorf("%s slot 请求失败: %w", slotActionDesc[action], err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := httputil.ReadBodyLimited(resp.Body, 1024*1024) // 限制 1MB，错误响应体通常很小
-		return fmt.Errorf("保存 slot 返回状态 %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("%s slot 返回状态 %d: %s", slotActionDesc[action], resp.StatusCode, string(body))
 	}
 
-	zlog.Info().Int("slot_id", slotID).Msg("[app] SaveSlot: KV cache saved successfully")
+	zlog.Info().Int("slot_id", slotID).Str("action", action).Msg("[app] slot operation succeeded")
 	return nil
+}
+
+// SaveSlot 保存当前 slot 的 KV 缓存到磁盘。
+// 调用 llama-server 的 POST /slots/{id}?action=save 端点（v9744+ 新格式）。
+func (a *App) SaveSlot(slotID int) error {
+	return a.operateSlot(slotID, "save")
 }
 
 // RestoreSlot 从磁盘恢复 slot 的 KV 缓存。
 // 调用 llama-server 的 POST /slots/{id}?action=restore 端点（v9744+ 新格式）。
 func (a *App) RestoreSlot(slotID int) error {
-	if a.client == nil {
-		return fmt.Errorf("客户端未初始化")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	url := fmt.Sprintf("%s/slots/%d?action=restore", a.client.BaseURL(), slotID)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
-	if err != nil {
-		return fmt.Errorf("创建恢复 slot 请求失败: %w", err)
-	}
-	a.client.SetAuthHeader(req)
-
-	resp, err := a.client.HTTPClient().Do(req)
-	if err != nil {
-		return fmt.Errorf("恢复 slot 请求失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := httputil.ReadBodyLimited(resp.Body, 1024*1024) // 限制 1MB，错误响应体通常很小
-		return fmt.Errorf("恢复 slot 返回状态 %d: %s", resp.StatusCode, string(body))
-	}
-
-	zlog.Info().Int("slot_id", slotID).Msg("[app] RestoreSlot: KV cache restored successfully")
-	return nil
+	return a.operateSlot(slotID, "restore")
 }
 
 // EraseSlot 删除指定 slot 的 KV 缓存文件。
 // 调用 llama-server 的 POST /slots/{id}?action=erase 端点（v9744+ 新增）。
 func (a *App) EraseSlot(slotID int) error {
-	if a.client == nil {
-		return fmt.Errorf("客户端未初始化")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	url := fmt.Sprintf("%s/slots/%d?action=erase", a.client.BaseURL(), slotID)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
-	if err != nil {
-		return fmt.Errorf("创建删除 slot 请求失败: %w", err)
-	}
-	a.client.SetAuthHeader(req)
-
-	resp, err := a.client.HTTPClient().Do(req)
-	if err != nil {
-		return fmt.Errorf("删除 slot 请求失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := httputil.ReadBodyLimited(resp.Body, 1024*1024)
-		return fmt.Errorf("删除 slot 返回状态 %d: %s", resp.StatusCode, string(body))
-	}
-
-	zlog.Info().Int("slot_id", slotID).Msg("[app] EraseSlot: KV cache erased successfully")
-	return nil
+	return a.operateSlot(slotID, "erase")
 }
 
 // DeleteModel 删除模型（从 llama-server 的模型列表中移除并卸载）
@@ -785,7 +717,7 @@ func (a *App) DeleteModel(modelName string) error {
 	if a.client == nil {
 		return fmt.Errorf("客户端未初始化")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutMedium)
 	defer cancel()
 	return a.client.DeleteModel(ctx, modelName)
 }
@@ -795,7 +727,7 @@ func (a *App) DownloadModel(modelName string) error {
 	if a.client == nil {
 		return fmt.Errorf("客户端未初始化")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutMedium)
 	defer cancel()
 	return a.client.DownloadModel(ctx, modelName)
 }
@@ -805,7 +737,7 @@ func (a *App) CountTokens(messages []llm.ChatMessage) (int, error) {
 	if a.client == nil {
 		return 0, fmt.Errorf("客户端未初始化")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutShort)
 	defer cancel()
 	return a.client.CountTokens(ctx, messages)
 }
@@ -815,7 +747,7 @@ func (a *App) GetLoraAdapters() ([]llm.LoraAdapter, error) {
 	if a.client == nil {
 		return nil, fmt.Errorf("客户端未初始化")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutShort)
 	defer cancel()
 	return a.client.GetLoraAdapters(ctx)
 }
@@ -825,7 +757,7 @@ func (a *App) SetLoraAdapters(adapters []llm.LoraAdapter) error {
 	if a.client == nil {
 		return fmt.Errorf("客户端未初始化")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutMedium)
 	defer cancel()
 	return a.client.SetLoraAdapters(ctx, adapters)
 }
@@ -835,7 +767,7 @@ func (a *App) GetSlots() ([]llm.SlotInfo, error) {
 	if a.client == nil {
 		return nil, fmt.Errorf("客户端未初始化")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutShort)
 	defer cancel()
 	return a.client.GetSlots(ctx)
 }
@@ -845,7 +777,7 @@ func (a *App) Tokenize(text string) ([]int, error) {
 	if a.client == nil {
 		return nil, fmt.Errorf("客户端未初始化")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutShort)
 	defer cancel()
 	return a.client.Tokenize(ctx, text)
 }
@@ -855,7 +787,7 @@ func (a *App) ApplyTemplate(messages []llm.ChatMessage) (string, error) {
 	if a.client == nil {
 		return "", fmt.Errorf("客户端未初始化")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutShort)
 	defer cancel()
 	return a.client.ApplyTemplate(ctx, messages)
 }
@@ -866,7 +798,7 @@ func (a *App) AnthropicMessages(body string) (string, error) {
 	if a.client == nil {
 		return "", fmt.Errorf("客户端未初始化")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), httpClientTimeout)
 	defer cancel()
 	respBody, err := a.client.AnthropicMessages(ctx, []byte(body))
 	if err != nil {
@@ -881,7 +813,7 @@ func (a *App) AnthropicCountTokens(body string) (string, error) {
 	if a.client == nil {
 		return "", fmt.Errorf("客户端未初始化")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutMedium)
 	defer cancel()
 	respBody, err := a.client.AnthropicCountTokens(ctx, []byte(body))
 	if err != nil {
@@ -896,7 +828,7 @@ func (a *App) BuiltInTools(body string) (string, error) {
 	if a.client == nil {
 		return "", fmt.Errorf("客户端未初始化")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), httpClientTimeout)
 	defer cancel()
 	respBody, err := a.client.BuiltInTools(ctx, []byte(body))
 	if err != nil {
@@ -1012,6 +944,20 @@ func (a *App) emitSwitchingStatus(modelName string) {
 	})
 }
 
+// emitErrorStatus 推送错误状态事件到前端。
+// 用于引擎启动失败、模型加载失败、模型崩溃等场景。
+// 生活类比：就像仪表盘上的红色报警灯，无论哪个部件出问题，都通过同一个报警灯通知驾驶员。
+//
+// 注意：ctx 参数通常是请求级 context（如 startServerAndWatch 的入参），
+// 保持与原有内联调用一致的行为；handleSwitchFailure 等无请求级 ctx 的场景传 a.ctx。
+func (a *App) emitErrorStatus(ctx context.Context, errMsg string) {
+	runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+		Running:    false,
+		ModelReady: false,
+		Error:      errMsg,
+	})
+}
+
 // emitSwitchSuccess emits a server status event indicating the model switch succeeded.
 func (a *App) emitSwitchSuccess(modelName string) {
 	caps := a.service.GetModelCapabilities()
@@ -1025,10 +971,26 @@ func (a *App) emitSwitchSuccess(modelName string) {
 
 // emitSwitchProgress emits a progress event for model switch.
 func (a *App) emitSwitchProgress(stage, targetModel string) {
-	runtime.EventsEmit(a.ctx, "server:switchProgress", map[string]interface{}{
+	a.emitSwitchProgressCtx(a.ctx, stage, targetModel, nil)
+}
+
+// emitSwitchProgressCtx 推送切换进度事件，支持自定义 context 和额外字段。
+// 生活类比：像施工进度播报，除了"当前阶段"和"目标模型"，还可以附带"备注信息"（如 VRAM 警告）。
+//
+// 参数：
+//   - ctx: 事件推送的 context（startServerAndWatch 用请求级 ctx，其他场景用 a.ctx）
+//   - stage: 阶段名称（preparing/loading/waiting/detecting/done/failed/vram-warning/spec-warning 等）
+//   - targetModel: 目标模型名（可为空）
+//   - extras: 额外字段（如 "model"、"message"），可为 nil
+func (a *App) emitSwitchProgressCtx(ctx context.Context, stage, targetModel string, extras map[string]interface{}) {
+	payload := map[string]interface{}{
 		"stage":       stage,
 		"targetModel": targetModel,
-	})
+	}
+	for k, v := range extras {
+		payload[k] = v
+	}
+	runtime.EventsEmit(ctx, "server:switchProgress", payload)
 }
 
 // tryReloadWithoutMmproj 尝试去掉 mmproj 后重新加载模型
@@ -1057,7 +1019,7 @@ func (a *App) tryReloadWithoutMmproj(ctx context.Context, modelName string, prog
 	}
 
 	// 等待模型加载
-	if err := a.client.WaitForModelLoaded(ctx, modelName, 300*time.Second, progressCallback); err != nil {
+	if err := a.client.WaitForModelLoaded(ctx, modelName, httpClientTimeout, progressCallback); err != nil {
 		zlog.Error().Err(err).Str("model", modelName).Msg("[server] retry load model (without mmproj) timed out")
 		return false
 	}
@@ -1197,9 +1159,9 @@ func (a *App) generatePresetFile() error {
 		}
 		sp := system.CalculateSmartParams(a.hwInfo, defaultModelPath)
 		globalDefaults = map[string]string{
-			"ctx-size":      fmt.Sprintf("%d", sp.ContextSize),
+			"ctx-size":       fmt.Sprintf("%d", sp.ContextSize),
 			"mmproj-offload": "1",
-			"pooling":       "mean",
+			"pooling":        "mean",
 		}
 		zlog.Info().Int("ctx-size", sp.ContextSize).Msg("[preset] global defaults")
 	}
@@ -1294,8 +1256,7 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 		zlog.Warn().Str("model", modelName).Str("vram_msg", vramMsg).Msg("[router] VRAM pre-check warning")
 		// 注意：VRAM 预检查只是警告，不阻止切换（估算可能不准确）
 		// 但将警告信息传递给前端
-		runtime.EventsEmit(a.ctx, "server:switchProgress", map[string]interface{}{
-			"stage":   "vram-warning",
+		a.emitSwitchProgressCtx(a.ctx, "vram-warning", "", map[string]interface{}{
 			"model":   modelName,
 			"message": vramMsg,
 		})
@@ -1304,8 +1265,7 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 	// SpecType 兼容性检查（不阻塞切换，只是提前警告）
 	if specMsg := a.specTypeCompatCheck(modelName); specMsg != "" {
 		zlog.Warn().Str("model", modelName).Str("spec_msg", specMsg).Msg("[router] SpecType compatibility warning")
-		runtime.EventsEmit(a.ctx, "server:switchProgress", map[string]interface{}{
-			"stage":   "spec-warning",
+		a.emitSwitchProgressCtx(a.ctx, "spec-warning", "", map[string]interface{}{
 			"model":   modelName,
 			"message": specMsg,
 		})
@@ -1463,10 +1423,10 @@ func (a *App) switchLoadModel(modelName string) (bool, string) {
 			stderrHint := a.getServerStderrHint()
 			// 根据错误内容分类：崩溃 vs 超时
 			isCrash := strings.Contains(waitErrStr, "failed to load") ||
-			strings.Contains(waitErrStr, "crashed") ||
-			strings.Contains(waitErrStr, "exit_code") ||
-			strings.Contains(waitErrStr, "VRAM released") ||
-			strings.Contains(waitErrStr, "disappeared from model list")
+				strings.Contains(waitErrStr, "crashed") ||
+				strings.Contains(waitErrStr, "exit_code") ||
+				strings.Contains(waitErrStr, "VRAM released") ||
+				strings.Contains(waitErrStr, "disappeared from model list")
 			if isCrash {
 				if stderrHint != "" {
 					return false, fmt.Sprintf("模型加载失败: %v\n\n详细信息: %s", waitErr, stderrHint)
@@ -1494,10 +1454,10 @@ func (a *App) switchLoadModel(modelName string) (bool, string) {
 			waitErrStr := waitErr.Error()
 			stderrHint := a.getServerStderrHint()
 			isCrash := strings.Contains(waitErrStr, "failed to load") ||
-			strings.Contains(waitErrStr, "crashed") ||
-			strings.Contains(waitErrStr, "exit_code") ||
-			strings.Contains(waitErrStr, "VRAM released") ||
-			strings.Contains(waitErrStr, "disappeared from model list")
+				strings.Contains(waitErrStr, "crashed") ||
+				strings.Contains(waitErrStr, "exit_code") ||
+				strings.Contains(waitErrStr, "VRAM released") ||
+				strings.Contains(waitErrStr, "disappeared from model list")
 			if isCrash {
 				if stderrHint != "" {
 					return false, fmt.Sprintf("模型加载失败: %v\n\n详细信息: %s", waitErr, stderrHint)
@@ -1599,22 +1559,16 @@ func (a *App) detectOOMError() string {
 // calculateLoadTimeout 根据模型文件大小动态计算加载超时
 // 基础 180 秒 + 每GB 30秒，上限 600 秒（10分钟）
 func (a *App) calculateLoadTimeout(modelName string) time.Duration {
-	const (
-		baseTimeout = 180 * time.Second
-		perGB       = 30 * time.Second
-		maxTimeout  = 600 * time.Second // 10分钟上限，避免前端长时间卡死
-	)
-
 	fileSize := a.getModelFileSize(modelName)
 	if fileSize <= 0 {
 		// 无法获取大小时，使用保守的 300 秒（与首次加载一致）
-		return 300 * time.Second
+		return httpClientTimeout
 	}
 
 	fileSizeGB := float64(fileSize) / (1024 * 1024 * 1024)
-	timeout := baseTimeout + time.Duration(fileSizeGB*float64(perGB))
-	if timeout > maxTimeout {
-		timeout = maxTimeout
+	timeout := loadTimeoutBase + time.Duration(fileSizeGB*float64(loadTimeoutPerGB))
+	if timeout > loadTimeoutMax {
+		timeout = loadTimeoutMax
 	}
 	return timeout
 }
@@ -1778,9 +1732,9 @@ func (a *App) handleSwitchFailure(modelName, previousModel, errMsg string) Switc
 	rollbackSuccess := false
 	if previousModel != "" && previousModel != modelName {
 		zlog.Info().Str("model", previousModel).Msg("[router] attempting to restore model")
-		restoreCtx, restoreCancel := context.WithTimeout(a.ctx, 30*time.Second)
+		restoreCtx, restoreCancel := context.WithTimeout(a.ctx, apiTimeoutMedium)
 		if restoreErr := a.client.LoadModel(restoreCtx, previousModel); restoreErr == nil {
-			_ = a.client.WaitForModelLoaded(restoreCtx, previousModel, 30*time.Second)
+			_ = a.client.WaitForModelLoaded(restoreCtx, previousModel, apiTimeoutMedium)
 			a.currentModelMu.Lock()
 			a.currentModelName = previousModel
 			a.currentModelMu.Unlock()
@@ -1789,19 +1743,11 @@ func (a *App) handleSwitchFailure(modelName, previousModel, errMsg string) Switc
 			rollbackSuccess = true
 		} else {
 			zlog.Error().Err(restoreErr).Str("model", previousModel).Msg("[router] failed to restore model")
-			runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
-				Running:    false,
-				ModelReady: false,
-				Error:      fmt.Sprintf("%s，恢复旧模型也失败", errMsg),
-			})
+			a.emitErrorStatus(a.ctx, fmt.Sprintf("%s，恢复旧模型也失败", errMsg))
 		}
 		restoreCancel()
 	} else {
-		runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
-			Running:    false,
-			ModelReady: false,
-			Error:      errMsg,
-		})
+		a.emitErrorStatus(a.ctx, errMsg)
 	}
 
 	// 回滚完成后再清除 isSwitching

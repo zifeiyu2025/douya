@@ -3,7 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"douya/internal/chat"
 	"douya/internal/config"
@@ -436,7 +440,75 @@ func (a *App) SelectImageFile() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("选择文件失败: %w", err)
 	}
-	return filePath, nil
+	// 用户取消了选择
+	if filePath == "" {
+		return "", nil
+	}
+
+	// 解析为绝对路径，便于后续比较与复制
+	srcPath, err := filepath.Abs(filePath)
+	if err != nil {
+		return "", fmt.Errorf("解析源文件路径失败: %w", err)
+	}
+
+	// 目标目录：appDir()/data/images/
+	imagesDir := filepath.Join(appDir(), "data", "images")
+
+	// 若原文件已经在 images 目录下，无需复制，直接返回相对路径
+	if absDir, absErr := filepath.Abs(imagesDir); absErr == nil {
+		if strings.HasPrefix(srcPath, absDir+string(filepath.Separator)) {
+			if rel, relErr := filepath.Rel(appDir(), srcPath); relErr == nil {
+				return filepath.ToSlash(rel), nil
+			}
+		}
+	}
+
+	// 创建目标目录（如不存在）
+	if err := os.MkdirAll(imagesDir, 0o755); err != nil {
+		return "", fmt.Errorf("创建图片目录失败: %w", err)
+	}
+
+	// 生成目标文件名：保留原扩展名，用时间戳避免冲突
+	ext := strings.ToLower(filepath.Ext(srcPath))
+	timestamp := time.Now().Format("20060102_150405")
+	dstName := "bg_" + timestamp + ext
+	dstPath := filepath.Join(imagesDir, dstName)
+	// 同一秒内选择了多张图片时，追加序号避免覆盖
+	for i := 1; ; i++ {
+		if _, statErr := os.Stat(dstPath); os.IsNotExist(statErr) {
+			break
+		}
+		dstName = fmt.Sprintf("bg_%s_%d%s", timestamp, i, ext)
+		dstPath = filepath.Join(imagesDir, dstName)
+	}
+
+	// 复制源文件到目标文件（保留原文件）
+	srcFile, err := os.Open(srcPath)
+	if err != nil {
+		return "", fmt.Errorf("打开源文件失败: %w", err)
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(dstPath)
+	if err != nil {
+		return "", fmt.Errorf("创建目标文件失败: %w", err)
+	}
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		dstFile.Close()
+		// 复制失败时清理已创建的空文件
+		_ = os.Remove(dstPath)
+		return "", fmt.Errorf("复制图片失败: %w", err)
+	}
+	if err := dstFile.Close(); err != nil {
+		return "", fmt.Errorf("保存图片失败: %w", err)
+	}
+
+	// 返回相对路径，并用正斜杠（前端会用 URL 访问，Windows 下分隔符需转为 /）
+	rel, err := filepath.Rel(appDir(), dstPath)
+	if err != nil {
+		return "", fmt.Errorf("计算相对路径失败: %w", err)
+	}
+	return filepath.ToSlash(rel), nil
 }
 
 // SelectLoraFile 打开文件对话框选择 LoRA 适配器文件

@@ -72,6 +72,7 @@ import { ArrowBackOutline } from '@vicons/ionicons5'
 import { useSettingsStore } from '../stores/settings'
 import { matchModelRef } from '../stores/settings'
 import { MODEL_REFS } from '../utils/modelRefs'
+import { showSuccess } from '../utils/showError'
 import { type Config, type SearchAPIKeys } from '../services/wails'
 import { wails } from '../services/wails'
 import defaultUserAvatar from '../assets/images/user-avatar.svg'
@@ -370,8 +371,7 @@ async function saveSearchKeys() {
         // 保存成功后清空输入框
         newOllamaApiKey.value = ''
         newTavilyApiKey.value = ''
-        message.destroyAll()
-        message.success(`${savedNames.join(' + ')} API Key 已保存`, { duration: 2500 })
+        showSuccess(message, `${savedNames.join(' + ')} API Key 已保存`)
     } catch (e) {
         console.error('Failed to save search API keys:', e)
         message.destroyAll()
@@ -392,8 +392,7 @@ async function saveServerApiKey() {
         await settingsStore.saveServerAPIKey(serverApiKey.value)
         hasServerApiKey.value = true
         serverApiKey.value = ''
-        message.destroyAll()
-        message.success('服务 API Key 已保存', { duration: 2500 })
+        showSuccess(message, '服务 API Key 已保存')
     } catch (e) {
         console.error('Failed to save server API key:', e)
         message.destroyAll()
@@ -445,8 +444,7 @@ function applyModelRef() {
   contextSizeIndex.value = idx
   formConfig.value.context_size = contextSizeSteps[idx]
   const modeLabel = useThinking ? '思考模式' : '非思考模式'
-  message.destroyAll()
-  message.success(`已应用 ${ref.name} ${modeLabel}参考参数`)
+  showSuccess(message, `已应用 ${ref.name} ${modeLabel}参考参数`)
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -475,16 +473,28 @@ function clearBackground() {
   formConfig.value.chat_background_opacity = 0.8
 }
 
-async function handleUserAvatarUpload(data: any) {
+// maxAvatarSize 头像文件最大大小（1MB）
+const maxAvatarSize = 1024 * 1024
+
+/**
+ * 处理头像上传（用户头像和 AI 头像共用）。
+ * 生活类比：像照相机拍照，无论拍用户还是拍 AI 形象，相机操作都一样，只是存到不同相册。
+ * @param data n-upload custom-request 回调传入的数据
+ * @param fieldName 要写入 formConfig 的字段名（'user_avatar' 或 'ai_avatar'）
+ */
+async function handleAvatarUpload(
+  data: any,
+  fieldName: 'user_avatar' | 'ai_avatar',
+) {
   const file = data.file.file as File
-  if (file.size > 1024 * 1024) {
+  if (file.size > maxAvatarSize) {
     message.destroyAll()
     message.error('头像图片大小不能超过 1MB')
     return
   }
   try {
     const base64 = await fileToBase64(file)
-    formConfig.value.user_avatar = base64
+    formConfig.value[fieldName] = base64
   } catch {
     message.destroyAll()
     message.error('上传失败')
@@ -493,22 +503,6 @@ async function handleUserAvatarUpload(data: any) {
 
 function clearUserAvatar() {
   formConfig.value.user_avatar = ''
-}
-
-async function handleAIAvatarUpload(data: any) {
-  const file = data.file.file as File
-  if (file.size > 1024 * 1024) {
-    message.destroyAll()
-    message.error('头像图片大小不能超过 1MB')
-    return
-  }
-  try {
-    const base64 = await fileToBase64(file)
-    formConfig.value.ai_avatar = base64
-  } catch {
-    message.destroyAll()
-    message.error('上传失败')
-  }
 }
 
 function clearAIAvatar() {
@@ -675,9 +669,8 @@ const settingsContext: SettingsContext = {
   backgroundImageUrl,
   selectBackgroundImage,
   clearBackground,
-  handleUserAvatarUpload,
+  handleAvatarUpload,
   clearUserAvatar,
-  handleAIAvatarUpload,
   clearAIAvatar,
   defaultUserAvatar,
   defaultAiAvatar,

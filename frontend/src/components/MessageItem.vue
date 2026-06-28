@@ -64,7 +64,7 @@ import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import ThinkBlock from './ThinkBlock.vue'
 import SearchStatus from './SearchStatus.vue'
- import { renderMarkdown } from '../utils/markdown'
+ import { renderMarkdown, escapeHtml } from '../utils/markdown'
  import { useMermaid } from '../composables/useMermaid'
  import { setupCodeCopyDelegation } from '../utils/codeCopy'
 import { useChatStore } from '../stores/chat'
@@ -141,7 +141,8 @@ watch(() => props.message.content, async (newContent) => {
     let html = await renderMarkdown(newContent)
     renderedContent.value = html
   } catch (_) {
-    renderedContent.value = newContent
+    // 渲染失败时转义后作为纯文本显示，避免直接赋值原始未消毒内容到 v-html（XSS 防护）
+    renderedContent.value = escapeHtml(newContent)
   }
 }, { immediate: true })
 
@@ -386,7 +387,7 @@ function regenerate() {
 .message-item.user {
   flex-direction: row-reverse;
   margin-left: auto;
-  animation: messageSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: messageSlideIn 0.4s cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .message-item:not(.user) {

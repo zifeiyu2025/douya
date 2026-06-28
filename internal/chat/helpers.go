@@ -23,6 +23,16 @@ var (
 	reAvailCtxSize  = regexp.MustCompile(`available context size \((\d+) tokens\)`)
 )
 
+// 附件 token 估算常量。
+// 历史变更记录：图片估算值曾从 1500→2500→3500 多次调整，
+// 提取为常量后调整只需改一处。
+// 生活类比：像尺子上的刻度，统一标定后所有测量都用同一标准。
+const (
+	imageTokenEstimate = 3500 // 图片附件 token 估算值
+	videoTokenEstimate = 5000 // 视频附件 token 估算值
+	audioTokenEstimate = 500  // 音频附件 token 估算值
+)
+
 // isCodeRelated returns true if the query looks like a code-related question.
 func isCodeRelated(query string) bool {
 	queryLower := strings.ToLower(query)
@@ -115,11 +125,11 @@ func EstimateTokensByLang(text string, lang string) int { return estimateTokensB
 func EstimateAttachmentTokens(attType string) int {
 	switch strings.ToLower(attType) {
 	case "image":
-		return 3500
+		return imageTokenEstimate
 	case "video":
-		return 5000
+		return videoTokenEstimate
 	case "audio":
-		return 500
+		return audioTokenEstimate
 	default:
 		return 0
 	}
@@ -130,11 +140,11 @@ func EstimateAttachmentTokens(attType string) int {
 func EstimateAttachmentTokensWithData(attType, data string) int {
 	switch strings.ToLower(attType) {
 	case "image":
-		return 3500
+		return imageTokenEstimate
 	case "video":
-		return 5000
+		return videoTokenEstimate
 	case "audio":
-		return 500
+		return audioTokenEstimate
 	case "text":
 		// att.Data 为原始文本内容，直接按语言估算
 		if data == "" {
@@ -168,13 +178,13 @@ func estimateAttachmentTokensFromJSON(attachmentsJSON string) int {
 	}
 	if err := json.Unmarshal([]byte(attachmentsJSON), &atts); err != nil {
 		if strings.Contains(strings.ToLower(attachmentsJSON), "video") {
-			return 5000
+			return videoTokenEstimate
 		}
 		if strings.Contains(strings.ToLower(attachmentsJSON), "audio") {
-			return 500
+			return audioTokenEstimate
 		}
 		if strings.Contains(strings.ToLower(attachmentsJSON), "image") {
-			return 3500
+			return imageTokenEstimate
 		}
 		return 1500
 	}
@@ -205,7 +215,7 @@ func estimateMessageTokens(m *store.Message) int {
 		} else if strings.Contains(m.Images, ",") {
 			imgCount = strings.Count(m.Images, ",") + 1
 		}
-		total += imgCount * 3500
+		total += imgCount * imageTokenEstimate
 	}
 	if m.SearchResults != "" {
 		total += estimateTokensByLang(m.SearchResults, lang)
@@ -345,20 +355,20 @@ func estimateChatMessageTokens(msg llm.ChatMessage) int {
 	case []llm.ContentPart:
 		for _, part := range v {
 			if part.Type == "image_url" {
-				total += 3500
+				total += imageTokenEstimate
 			}
 			if part.Type == "input_audio" {
-				total += 500
+				total += audioTokenEstimate
 			}
 		}
 	case []interface{}:
 		for _, item := range v {
 			if part, ok := item.(map[string]interface{}); ok {
 				if part["type"] == "image_url" {
-					total += 3500
+					total += imageTokenEstimate
 				}
 				if part["type"] == "input_audio" {
-					total += 500
+					total += audioTokenEstimate
 				}
 			}
 		}

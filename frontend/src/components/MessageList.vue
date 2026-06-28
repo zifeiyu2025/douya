@@ -3,11 +3,23 @@
     <!-- 模型切换 overlay 已移至 App.vue 统一管理，避免重复 -->
     <div v-if="(!messages || messages.length === 0) && !isGenerating" class="message-list-empty">
       <div class="welcome-container">
+        <!-- 背景装饰：旋转光环 + 网格纹理 -->
+        <div class="welcome-aura" aria-hidden="true"></div>
+        <div class="welcome-grid" aria-hidden="true"></div>
+
+        <!-- 品牌主体：带光晕脉冲的"豆芽"二字 -->
         <div class="welcome-brand">
           <span class="welcome-dou">豆</span><span class="welcome-ya">芽</span>
         </div>
-        <div class="welcome-model" v-if="currentModelDisplay">{{ currentModelDisplay }}</div>
+
+        <!-- 模型状态胶囊：左侧脉冲圆点表示就绪 -->
+        <div class="welcome-model" v-if="currentModelDisplay">
+          <span class="model-status-dot" aria-hidden="true"></span>
+          <span class="model-name">{{ currentModelDisplay }}</span>
+        </div>
+
         <div class="welcome-hint">输入消息开始对话，或选择一个话题</div>
+
         <div class="quick-actions">
           <button v-for="action in quickActions" :key="action.id" class="action-chip" @click="handleQuickAction(action)">
             <span class="chip-icon">{{ action.icon }}</span>
@@ -50,7 +62,12 @@
                 </button>
               </div>
               <div v-if="streamingContent" class="markdown-body streaming" v-html="renderedStreaming" />
-              <n-spin v-else-if="!thinkingContent && !isSearching" size="small" />
+              <!-- 等待首个 token 的指示器：三点脉冲，比 spinner 更安静、更现代 -->
+              <div v-else-if="!thinkingContent && !isSearching" class="thinking-dots" aria-label="正在思考" role="status">
+                <span class="thinking-dot"></span>
+                <span class="thinking-dot"></span>
+                <span class="thinking-dot"></span>
+              </div>
               <!-- 流式光标：AI 正在生成内容时显示闪烁竖线 -->
               <span v-if="streamingContent && isGenerating" class="streaming-cursor" aria-hidden="true"></span>
               <!-- 生成速度：仅在流式生成且有速度数据时显示，低调不抢焦点 -->
@@ -82,8 +99,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch, ref, nextTick, onMounted, onUnmounted } from 'vue'
-import { NSpin, useMessage } from 'naive-ui'
+import { computed, watch, ref, nextTick, onMounted } from 'vue'
+import { useMessage } from 'naive-ui'
 import MessageItem from './MessageItem.vue'
 import ThinkBlock from './ThinkBlock.vue'
 import SearchStatus from './SearchStatus.vue'
@@ -175,7 +192,8 @@ async function handleStopThinking() {
 // PERF-003 + Step 3: 流式 Markdown 渲染跑在 Web Worker 中，主线程零阻塞
 // - useMarkdownWorker 内部维护任务 ID 防过期、动态节流、Worker 复用
 // - Worker 失败时自动降级到主线程渲染
-const { rendered: renderedStreaming, bind: bindMarkdown } = useMarkdownWorker()
+// - 双模式：流式期间用轻量同步渲染（跳过 Worker + DOMPurify），结束后全量重渲染
+const { rendered: renderedStreaming, bind: bindMarkdown, setStreamingMode: setMarkdownStreamingMode } = useMarkdownWorker()
 bindMarkdown(() => streamingContent.value)
 
 // 滚动控制：流式期间即时滚动 + 用户滚动检测 + 回到底部按钮
@@ -207,9 +225,10 @@ watchContentChange(() => chatStore.streamingContent)
 // 思考内容变化时平滑滚动跟随
 watchContentChange(() => chatStore.thinkingContent)
 
-// 流式生成状态切换：启用/禁用增量滚动模式
+// 流式生成状态切换：启用/禁用增量滚动模式 + Markdown 双模式渲染
 watch(() => chatStore.isGenerating, (generating) => {
     setStreamingMode(generating)
+    setMarkdownStreamingMode(generating)
 })
 
 // done 事件更新消息后重新滚动
@@ -364,11 +383,53 @@ watch(() => chatStore.lastError, (err) => {
 }
 
 .welcome-container {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 20px;
-  animation: welcomeFadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  /* 交错入场：子元素按顺序淡入上移，营造层次感 */
+  animation: welcomeFadeIn 0.6s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* 背景装饰：缓慢旋转的渐变光环，呼应 AI 思考的呼吸感 */
+.welcome-aura {
+  position: absolute;
+  top: -40px;
+  left: 50%;
+  width: 320px;
+  height: 320px;
+  transform: translateX(-50%);
+  background: radial-gradient(circle, var(--accent-primary) 0%, transparent 60%);
+  opacity: 0.08;
+  filter: blur(40px);
+  border-radius: 50%;
+  animation: aura-rotate 20s linear infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes aura-rotate {
+  0% { transform: translateX(-50%) rotate(0deg) scale(1); }
+  50% { transform: translateX(-50%) rotate(180deg) scale(1.08); }
+  100% { transform: translateX(-50%) rotate(360deg) scale(1); }
+}
+
+/* 背景装饰：微妙的点阵网格，增加科技感纹理 */
+.welcome-grid {
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  width: 440px;
+  height: 280px;
+  transform: translateX(-50%);
+  background-image: radial-gradient(circle, var(--border-color) 1px, transparent 1px);
+  background-size: 24px 24px;
+  opacity: 0.4;
+  mask-image: radial-gradient(ellipse at center, black 0%, transparent 70%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
 }
 
 @keyframes welcomeFadeIn {
@@ -376,12 +437,17 @@ watch(() => chatStore.lastError, (err) => {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* 品牌主体：置于装饰层之上，带交错入场延迟 */
 .welcome-brand {
+  position: relative;
+  z-index: 1;
   font-size: 56px;
   font-weight: 800;
   letter-spacing: 4px;
   line-height: 1;
   user-select: none;
+  animation: welcomeFadeIn 0.7s cubic-bezier(0.23, 1, 0.32, 1) both;
+  animation-delay: 0.05s;
 }
 
 .welcome-dou {
@@ -390,30 +456,73 @@ watch(() => chatStore.lastError, (err) => {
 
 .welcome-ya {
   color: var(--accent-primary);
+  text-shadow: 0 0 24px color-mix(in srgb, var(--accent-primary) 40%, transparent);
 }
 
 .welcome-model {
-  font-size: 14px;
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
   color: var(--text-secondary);
   font-weight: 500;
-  padding: 4px 16px;
+  padding: 6px 14px 6px 10px;
   border-radius: 20px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
+  animation: welcomeFadeIn 0.7s cubic-bezier(0.23, 1, 0.32, 1) both;
+  animation-delay: 0.15s;
+}
+
+/* 模型状态点：脉冲呼吸，表示模型已就绪 */
+.model-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  box-shadow: 0 0 0 0 var(--accent-primary);
+  animation: status-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  flex-shrink: 0;
+}
+
+@keyframes status-pulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-primary) 50%, transparent);
+  }
+  50% {
+    opacity: 0.6;
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent-primary) 0%, transparent);
+  }
+}
+
+.model-name {
+  font-family: 'SF Mono', 'JetBrains Mono', 'Consolas', monospace;
+  letter-spacing: 0.3px;
 }
 
 .welcome-hint {
+  position: relative;
+  z-index: 1;
   font-size: 15px;
   color: var(--text-secondary);
   letter-spacing: 0.2px;
+  animation: welcomeFadeIn 0.7s cubic-bezier(0.23, 1, 0.32, 1) both;
+  animation-delay: 0.25s;
 }
 
 .quick-actions {
+  position: relative;
+  z-index: 1;
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
   justify-content: center;
   margin-top: 8px;
+  animation: welcomeFadeIn 0.7s cubic-bezier(0.23, 1, 0.32, 1) both;
+  animation-delay: 0.35s;
 }
 
 .action-chip {
@@ -523,6 +632,52 @@ watch(() => chatStore.lastError, (err) => {
   will-change: opacity;
 }
 
+/* ===== 思考点指示器（替代 n-spin）=====
+ * 三点错位脉冲：低饱和呼吸 + accent 光晕，比机械旋转更安静、更现代
+ * - 圆点尺寸 5px，间距 6px，紧凑不抢视觉焦点
+ * - 错位延迟 0/0.18/0.36s 形成横向流动感
+ * - 用 transform + opacity（GPU 友好），避免布局抖动
+ * - 暗色模式通过 --accent-primary 变量自动适配
+ */
+.thinking-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  padding: 0 2px;
+}
+
+.thinking-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  opacity: 0.35;
+  transform: scale(0.8);
+  animation: thinking-pulse 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  will-change: transform, opacity;
+}
+
+.thinking-dot:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.thinking-dot:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes thinking-pulse {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+    box-shadow: 0 0 6px 0 var(--accent-primary);
+  }
+}
+
 /* 流式 markdown 容器性能优化 */
 .markdown-body.streaming {
   contain: style;
@@ -548,6 +703,11 @@ watch(() => chatStore.lastError, (err) => {
   background: color-mix(in srgb, var(--bg-secondary) 74%, transparent);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+}
+
+/* 背景图模式下增强光环亮度，弥补背景图遮挡 */
+.has-background .welcome-aura {
+  opacity: 0.14;
 }
 
 /* 暗色模式 + 背景图 */
@@ -577,5 +737,29 @@ watch(() => chatStore.lastError, (err) => {
 .dark .welcome-model {
   background: var(--bg-tertiary);
   border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
+}
+
+/* 暗色模式下光环更明显，网格点更亮 */
+.dark .welcome-aura {
+  opacity: 0.16;
+}
+
+.dark .welcome-grid {
+  opacity: 0.5;
+}
+
+/* 尊重用户的动效偏好：关闭装饰动画，保留静态效果 */
+@media (prefers-reduced-motion: reduce) {
+  .welcome-aura,
+  .model-status-dot {
+    animation: none;
+  }
+  .welcome-brand,
+  .welcome-model,
+  .welcome-hint,
+  .quick-actions {
+    animation: none;
+    opacity: 1;
+  }
 }
 </style>

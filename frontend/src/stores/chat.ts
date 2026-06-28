@@ -357,10 +357,8 @@ export const useChatStore = defineStore('chat', () => {
         } else {
             handleTerminalEvent(convId)
         }
-        if (convId) {
-            // 终态后刷新会话列表
-            loadConversations()
-        }
+        // 会话列表的更新（标题、排序）已由 conversation_updated 事件的 handleConvUpdated 完成，
+        // 无需在此全量刷新 loadConversations()，避免不必要的数据库查询。
     }
 
     function handleError(convId: string, content: any, isCurrentConv: boolean) {
@@ -412,25 +410,38 @@ export const useChatStore = defineStore('chat', () => {
 
     function handleUserMsg(content: any, isCurrentConv: boolean) {
         if (!content || !isCurrentConv) return
-        const exists = messages.value.some((m: Message) =>
-            m.role === 'user' && m.content === content.content
-        )
-        if (!exists) {
+        // 合并原 some + findIndex 双遍历为单次遍历
+        let tempIdx = -1
+        let hasExisting = false
+        for (let i = 0; i < messages.value.length; i++) {
+            const m = messages.value[i]
+            if (m.role === 'user' && m.content === content.content) {
+                if (m.id.startsWith('temp-')) {
+                    tempIdx = i
+                    break
+                }
+                hasExisting = true
+            }
+        }
+        if (tempIdx >= 0) {
+            messages.value[tempIdx] = content
+        } else if (!hasExisting) {
             messages.value.push(content)
-        } else {
-            const idx = messages.value.findIndex((m: Message) =>
-                m.role === 'user' && m.content === content.content && m.id.startsWith('temp-')
-            )
-            if (idx >= 0) messages.value[idx] = content
         }
     }
 
     function handleConvUpdated(content: any) {
         if (!content?.id) return
-        const conv = conversations.value.find((c: Conversation) => c.id === content.id)
-        if (conv) {
-            conv.title = fixUtf8(content.title)
-            conv.updated_at = content.updated_at
+        const idx = conversations.value.findIndex((c: Conversation) => c.id === content.id)
+        if (idx === -1) return
+        // 更新字段
+        conversations.value[idx].title = fixUtf8(content.title)
+        conversations.value[idx].updated_at = content.updated_at
+        // 移到列表首位（模拟后端 ORDER BY updated_at DESC 排序）
+        // 只在不在首位时才移动，避免不必要的响应式触发
+        if (idx > 0) {
+            const [conv] = conversations.value.splice(idx, 1)
+            conversations.value.unshift(conv)
         }
     }
 
@@ -493,19 +504,20 @@ export const useChatStore = defineStore('chat', () => {
             const msg = messages.value.find((m: Message) => m.id === id)
             if (!msg) return
 
-            const idsToRemove = [id]
+            // 使用 Set 索引：filter 循环中查找为 O(1)，避免数组 includes 的 O(n) 遍历
+            const idsToRemove = new Set<string>([id])
             if (msg.role === 'user') {
                 const idx = messages.value.findIndex((m: Message) => m.id === id)
                 for (let i = idx + 1; i < messages.value.length; i++) {
                     if (messages.value[i].role === 'assistant') {
-                        idsToRemove.push(messages.value[i].id)
+                        idsToRemove.add(messages.value[i].id)
                     } else {
                         break
                     }
                 }
             }
 
-            messages.value = messages.value.filter((m: Message) => !idsToRemove.includes(m.id))
+            messages.value = messages.value.filter((m: Message) => !idsToRemove.has(m.id))
             await wails.deleteMessage(id)
         } catch (e) {
             console.error('删除消息失败:', e)

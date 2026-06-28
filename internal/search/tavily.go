@@ -13,14 +13,16 @@ import (
 )
 
 type TavilyProvider struct {
-	apiKey     string
-	httpClient *http.Client
+	BaseProvider
+	apiKey string
 }
 
 func NewTavilyProvider(apiKey string) *TavilyProvider {
 	return &TavilyProvider{
-		apiKey:     apiKey,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		BaseProvider: BaseProvider{
+			httpClient: &http.Client{Timeout: 30 * time.Second},
+		},
+		apiKey: apiKey,
 	}
 }
 
@@ -54,26 +56,13 @@ func (p *TavilyProvider) SearchWithOpts(ctx context.Context, query string, opts 
 		return nil, fmt.Errorf("tavily marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.tavily.com/search", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("tavily create request: %w", err)
+	headers := map[string]string{
+		"Content-Type":  "application/json",
+		"Authorization": "Bearer " + p.apiKey,
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
-
-	resp, err := p.httpClient.Do(httpReq)
+	respBody, err := p.doSearch(ctx, http.MethodPost, "https://api.tavily.com/search", bytes.NewReader(body), headers)
 	if err != nil {
-		return nil, fmt.Errorf("tavily request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := readBody(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("tavily read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("tavily api returned status %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("tavily: %w", err)
 	}
 
 	var result struct {

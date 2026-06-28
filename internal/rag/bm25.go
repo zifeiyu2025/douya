@@ -262,14 +262,12 @@ func (vs *VectorStore) HybridSearch(collection string, query []float64, queryTex
 		})
 	}
 
-	// 排序
-	for i := 0; i < len(results); i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[j].Score > results[i].Score {
-				results[i], results[j] = results[j], results[i]
-			}
-		}
-	}
+	// 排序：使用 sort.Slice 替代 O(n^2) 冒泡排序，降序排列
+	// 优化前为嵌套 for 循环（O(n^2)），在 RAG 检索结果较多时性能较差；
+	// 改为 sort.Slice 后复杂度降为 O(n log n)，且 sort 包已在此文件 import
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
+	})
 
 	// 最终过滤：只保留在向量或 BM25 中有有意义得分的结果
 	// 向量得分 >= minScore 或 BM25 得分 > 0 的结果保留

@@ -15,7 +15,7 @@
  * - 稳定/不稳定块拆分：stable 命中缓存时只渲染 unstable，减少 Worker 负载
  */
 import { ref, watch, onScopeDispose, type Ref } from 'vue'
-import { renderMarkdownStreaming, sanitizeHtml } from '../utils/markdown'
+import { renderMarkdownStreaming, sanitizeHtml, renderStreamingLight } from '../utils/markdown'
 import { splitStableUnstable } from '../utils/markdownStreaming'
 
 // ?worker 后缀让 Vite 把它打包成独立 worker chunk
@@ -28,14 +28,20 @@ export function useMarkdownWorker() {
     let workerFailed = false
     let currentId = 0
     let pendingContent = ''
-    let renderTimer: ReturnType<typeof setTimeout> | null = null
+    let renderTimer: ReturnType<typeof setTimeout> | null = null  // setTimeout 调度用
     let lastRenderTime = 0
     let isRendering = false
     // 稳定块缓存：stable 命中时只渲染 unstable
     let lastStable = ''
     let lastStableHtml = ''
+    // 双模式渲染：流式期间用轻量同步渲染（跳过 Worker + DOMPurify），结束后全量重渲染
+    let isStreamingMode = false
+    // 最后一次渲染的完整内容（退出流式模式时用于触发全量重渲染）
+    let lastFullContent = ''
     // pending Promise 的 reject 函数列表：worker error/terminate 时拒绝所有挂起的 Promise，避免永久挂起
     const pendingRejects: Array<(error: Error) => void> = []
+    // doRenderLight 完成后立即处理 pendingContent 的定时器
+    let pendingTimer: ReturnType<typeof setTimeout> | null = null
 
     function ensureWorker(): Worker | null {
         if (workerFailed) return null
@@ -153,36 +159,154 @@ export function useMarkdownWorker() {
     }
 
     /**
+     * 流式期间的轻量渲染（主线程同步，跳过 Worker 往返和 DOMPurify）
+     * - 只渲染 unstable 增量段，stable 复用缓存
+     * - 用 lightSanitize（正则消毒）替代 DOMPurify
+     * - 单次渲染 < 10ms，避免 Worker 异步往返延迟
+     * - 退出流式模式时会触发 doFinalRender 全量重渲染 + DOMPurify 消毒
+     */
+    async function doRenderLight(content: string) {
+        isRendering = true
+        try {
+            const { stable, unstable } = splitStableUnstable(content)
+            let stableHtml: string
+            if (stable === lastStable && lastStableHtml) {
+                // stable 命中缓存：直接复用
+                stableHtml = lastStableHtml
+            } else if (stable) {
+                // stable 不命中：轻量渲染后用 sanitizeHtml（DOMPurify）完整消毒并缓存
+                // renderStreamingLight 内部已用 lightSanitize 做第一层正则消毒，此处做第二层 DOMPurify 消毒
+                stableHtml = sanitizeHtml(await renderStreamingLight(stable))
+                lastStable = stable
+                lastStableHtml = stableHtml
+            } else {
+                stableHtml = ''
+                lastStable = ''
+                lastStableHtml = ''
+            }
+            // 渲染 unstable（可能为空），用 sanitizeHtml（DOMPurify）完整消毒
+            // 关闭流式期间的 XSS 暴露窗口：unstable 增量段也经过 DOMPurify，而非仅 lightSanitize
+            const unstableHtml = unstable ? sanitizeHtml(await renderStreamingLight(unstable)) : ''
+            rendered.value = stableHtml + unstableHtml
+            lastRenderTime = Date.now()
+            lastFullContent = content
+        } catch (err) {
+            // 降级：主线程全量渲染
+            console.warn('[markdown-worker] light render failed, fallback:', err)
+            rendered.value = await renderMarkdownStreaming(content)
+            lastRenderTime = Date.now()
+            lastFullContent = content
+        } finally {
+            isRendering = false
+            // 队列中还有内容则立即处理（setTimeout(0) 让出主线程，不走 scheduleRender 节流）
+            if (pendingContent) {
+                const next = pendingContent
+                pendingContent = ''
+                if (pendingTimer) clearTimeout(pendingTimer)
+                pendingTimer = setTimeout(() => {
+                    pendingTimer = null
+                    doRenderLight(next)
+                }, 0)
+            }
+        }
+    }
+
+    /**
+     * 流式结束后的全量重渲染（Worker + DOMPurify）
+     * - 用 Worker 渲染完整内容，DOMPurify 二次消毒
+     * - 更新 stable 缓存为 Worker 结果（保证最终结果与历史消息渲染一致）
+     */
+    async function doFinalRender(content: string) {
+        isRendering = true
+        try {
+            const w = ensureWorker()
+            let html: string
+            if (w) {
+                try {
+                    html = await renderWithWorker(w, content)
+                    // Worker 中使用 lightSanitize，主线程再用 DOMPurify 二次消毒
+                    html = sanitizeHtml(html)
+                } catch (err) {
+                    // Worker 渲染失败：降级到主线程
+                    console.warn('[markdown-worker] final render worker failed, fallback:', err)
+                    html = await renderMarkdownStreaming(content)
+                }
+            } else {
+                // Worker 不可用：主线程全量渲染
+                html = await renderMarkdownStreaming(content)
+            }
+            rendered.value = html
+            lastRenderTime = Date.now()
+            lastFullContent = content
+            // 更新 stable 缓存为最终结果，避免下次流式启动时缓存不一致
+            // 缓存经过 sanitizeHtml 消毒的结果，确保 doRenderLight 命中缓存时也是安全的
+            const { stable } = splitStableUnstable(content)
+            if (stable) {
+                lastStable = stable
+                lastStableHtml = sanitizeHtml(await renderStreamingLight(stable))
+            } else {
+                lastStable = ''
+                lastStableHtml = ''
+            }
+        } finally {
+            isRendering = false
+        }
+    }
+
+    /**
+     * 进入/退出流式模式
+     * - 进入：isStreamingMode = true，scheduleRender 改用 doRenderLight + 激进间隔
+     * - 退出：触发一次 doFinalRender 全量重渲染（Worker + DOMPurify），保证最终结果安全
+     */
+    function setStreamingMode(streaming: boolean) {
+        if (isStreamingMode === streaming) return
+        isStreamingMode = streaming
+        if (!streaming) {
+            // 退出流式模式：用最后一次内容触发全量重渲染
+            const content = pendingContent || lastFullContent
+            pendingContent = ''
+            if (content && !isRendering) {
+                doFinalRender(content)
+            }
+        }
+    }
+
+    /**
      * 动态节流：内容越长，渲染间隔越大
-     * 短内容（<2KB）80ms，中等内容（2-10KB）120ms，长内容（>10KB）200ms
-     * 间隔过短会导致 v-html 频繁替换 DOM，造成视觉抖动
+     * 流式模式：短<2KB 0ms（立即）/ 中2-10KB 8ms / 长>10KB 16ms（无 Worker 往返，可更激进）
+     * 非流式模式：短<2KB 50ms / 中2-10KB 80ms / 长>10KB 120ms（Worker 往返需要更多时间）
+     * 用单层 setTimeout 合并同帧多次到达（setTimeout 本身就能合并：每次 clearTimeout 旧定时器）
      */
     function scheduleRender(content: string) {
         if (isRendering) {
             pendingContent = content
             return
         }
-        const len = content.length
-        const interval = len > 10000 ? 200 : len > 2000 ? 120 : 80
+        // 用 setTimeout 合并同帧多次到达（替代 RAF + setTimeout 双重节流）
+        if (renderTimer) { clearTimeout(renderTimer); renderTimer = null }
+        pendingContent = content
+        const len = pendingContent.length
+        const interval = isStreamingMode
+            ? (len > 10000 ? 16 : len > 2000 ? 8 : 0)
+            : (len > 10000 ? 120 : len > 2000 ? 80 : 50)
         const elapsed = Date.now() - lastRenderTime
-        const remaining = interval - elapsed
-        if (remaining <= 0) {
-            if (renderTimer) { clearTimeout(renderTimer); renderTimer = null }
-            doRender(content)
-        } else if (!renderTimer) {
-            renderTimer = setTimeout(() => {
-                renderTimer = null
-                doRender(pendingContent || content)
-            }, remaining)
-        }
+        const remaining = Math.max(0, interval - elapsed)
+        renderTimer = setTimeout(() => {
+            renderTimer = null
+            const next = pendingContent
+            pendingContent = ''
+            isStreamingMode ? doRenderLight(next) : doRender(next)
+        }, remaining)
     }
 
     function clear() {
         if (renderTimer) { clearTimeout(renderTimer); renderTimer = null }
+        if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null }
         rendered.value = ''
         pendingContent = ''
         lastStable = ''
         lastStableHtml = ''
+        lastFullContent = ''
     }
 
     function bind(getContent: () => string) {
@@ -197,6 +321,7 @@ export function useMarkdownWorker() {
 
     onScopeDispose(() => {
         if (renderTimer) clearTimeout(renderTimer)
+        if (pendingTimer) clearTimeout(pendingTimer)
         // 先 reject 所有 pending Promise，避免 terminate 后 Promise 永久挂起
         const err = new Error('Markdown worker disposed')
         while (pendingRejects.length > 0) {
@@ -213,5 +338,6 @@ export function useMarkdownWorker() {
         rendered: rendered as Ref<string>,
         bind,
         clear,
+        setStreamingMode,
     }
 }

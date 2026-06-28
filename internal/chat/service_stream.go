@@ -18,6 +18,8 @@ import (
 	"douya/internal/store"
 )
 
+const streamRequestTimeout = 300 * time.Second // 流式请求超时
+
 var searchToolDef = llm.ToolDefinition{
 	Type: "function",
 	Function: llm.FunctionDef{
@@ -263,6 +265,81 @@ func (s *Service) savePartialContentIfAny(convID string, acc *StreamAccumulator)
 	s.emitForConv(convID, "assistant_message", storeMsgToChat(aiMsg))
 }
 
+// retryStreamAfterContextExceeded 在上下文溢出时裁剪消息并重试流式请求。
+// 生活类比：像行李超重时，先扔掉一些不重要的东西（裁剪消息），再重新办托运（重试请求）。
+//
+// 该函数统一封装了 streamWithSearch 和 handleToolCallLoop 中重复的上下文溢出重试逻辑。
+// 处理流程：
+//  1. 用 ParseExceedContextError 解析 origErr
+//  2. 若是上下文溢出：裁剪消息 → emit context_trimmed → 用 retryConvID 重试
+//     - 重试成功：返回 (false, nil)，调用方继续往下执行
+//     - 重试失败（用户取消）：emit stopped + savePartialContentIfAny，返回 (true, nil)
+//     - 重试失败（其他错误）：emit error，返回 (true, fmt.Errorf(retryErrFmt, retryErr))
+//  3. 若不是上下文溢出：emit error，返回 (true, fmt.Errorf(nonExceedErrFmt, origErr))
+//
+// 关于 retryCancel：原 handleToolCallLoop 在 for 循环内立即调用 retryCancel() 避免 defer 累积泄漏；
+// 提取为独立函数后，每次调用都会同步返回，defer retryCancel() 不会累积，因此统一使用 defer 更安全
+// （panic 时也能释放 retryCtx），且与原行为等价（StreamChatWithConvID 为同步调用，返回后 retryCtx 不再使用）。
+func (s *Service) retryStreamAfterContextExceeded(
+	cancelCtx context.Context,
+	convID string,
+	retryConvID string,
+	client *llm.Client,
+	req *llm.ChatCompletionRequest,
+	fallbackCtxSize int,
+	origErr error,
+	acc *StreamAccumulator,
+	logMsg string,
+	retryErrFmt string,
+	nonExceedErrFmt string,
+) (handled bool, err error) {
+	exceedInfo := ParseExceedContextError(origErr)
+	if exceedInfo == nil || !exceedInfo.Exceeded {
+		// 非上下文溢出错误：emit error 并返回
+		s.emitForConv(convID, "error", enhanceErrorWithHint(origErr.Error()))
+		return true, fmt.Errorf(nonExceedErrFmt, origErr)
+	}
+
+	// 上下文溢出：裁剪消息后重试
+	actualCtx := exceedInfo.ContextSize
+	if actualCtx <= 0 {
+		actualCtx = fallbackCtxSize
+	}
+	reserve := actualCtx / 10
+	if reserve < 512 {
+		reserve = 512
+	}
+	trimmed := TrimMessagesToFit(req.Messages, actualCtx, reserve)
+	req.Messages = trimmed
+
+	log.Info().Int("prompt_tokens", exceedInfo.PromptTokens).Int("context_size", actualCtx).Int("messages_after_trim", len(trimmed)).Msg(logMsg)
+
+	s.emitForConv(convID, "context_trimmed", map[string]interface{}{
+		"reason":         "exceed_context_size",
+		"prompt_tokens":  exceedInfo.PromptTokens,
+		"context_size":   actualCtx,
+		"messages_after": len(trimmed),
+	})
+
+	retryCtx, retryCancel := context.WithTimeout(cancelCtx, streamRequestTimeout)
+	defer retryCancel()
+
+	retryErr := client.StreamChatWithConvID(retryCtx, req, retryConvID, acc.callback())
+	if retryErr == nil {
+		// 重试成功，调用方继续往下执行
+		return false, nil
+	}
+
+	// 重试失败：区分用户取消和其他错误
+	if cancelCtx.Err() == context.Canceled {
+		s.savePartialContentIfAny(convID, acc)
+		s.emitForConv(convID, "stopped", nil)
+		return true, nil
+	}
+	s.emitForConv(convID, "error", enhanceErrorWithHint("上下文过长，裁剪后仍无法生成，请尝试缩短对话或新建对话"))
+	return true, fmt.Errorf(retryErrFmt, retryErr)
+}
+
 func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, llmMessages []llm.ChatMessage, acc *StreamAccumulator, maxRounds int) error {
 	// 在函数入口获取快照，避免循环中反复加锁和数据竞争
 	cfg := s.getConfigSnapshot()
@@ -414,7 +491,7 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 		s.applySamplingParams(req)
 
 		acc.resetForNextCall()
-		toolCtx, toolCancel := context.WithTimeout(cancelCtx, 300*time.Second)
+		toolCtx, toolCancel := context.WithTimeout(cancelCtx, streamRequestTimeout)
 		// tool call 每轮使用独立的 convID，避免 SSE Replay Buffer 冲突
 		toolConvID := fmt.Sprintf("%s::round%d", convID, round)
 		err := client.StreamChatWithConvID(toolCtx, req, toolConvID, acc.callback())
@@ -431,44 +508,15 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 			}
 
 			// 上下文溢出重试：截断消息后重新请求
-			exceedInfo := ParseExceedContextError(err)
-			if exceedInfo != nil && exceedInfo.Exceeded {
-				actualCtx := exceedInfo.ContextSize
-				if actualCtx <= 0 {
-					actualCtx = cfg.ContextSize
-				}
-				reserve := actualCtx / 10
-				if reserve < 512 {
-					reserve = 512
-				}
-				trimmed := TrimMessagesToFit(req.Messages, actualCtx, reserve)
-				req.Messages = trimmed
-
-				log.Info().Int("prompt_tokens", exceedInfo.PromptTokens).Int("context_size", actualCtx).Int("messages_after_trim", len(trimmed)).Msg("[chat] tool call context exceeded, trimming and retrying")
-
-				s.emitForConv(convID, "context_trimmed", map[string]interface{}{
-					"reason":         "exceed_context_size",
-					"prompt_tokens":  exceedInfo.PromptTokens,
-					"context_size":   actualCtx,
-					"messages_after": len(trimmed),
-				})
-
-				retryCtx, retryCancel := context.WithTimeout(cancelCtx, 300*time.Second)
-				defer retryCancel()
-				retryConvID := fmt.Sprintf("%s::round%d::retry", convID, round)
-				retryErr := client.StreamChatWithConvID(retryCtx, req, retryConvID, acc.callback())
-				if retryErr != nil {
-					if cancelCtx.Err() == context.Canceled {
-						s.savePartialContentIfAny(convID, acc)
-						s.emitForConv(convID, "stopped", nil)
-						return nil
-					}
-					s.emitForConv(convID, "error", enhanceErrorWithHint("上下文过长，裁剪后仍无法生成，请尝试缩短对话或新建对话"))
-				return fmt.Errorf("tool call stream (retry after context trim): %w", retryErr)
-			}
-		} else {
-			s.emitForConv(convID, "error", enhanceErrorWithHint(err.Error()))
-				return fmt.Errorf("stream chat after search: %w", err)
+			retryConvID := fmt.Sprintf("%s::round%d::retry", convID, round)
+			handled, retryErr := s.retryStreamAfterContextExceeded(
+				cancelCtx, convID, retryConvID, client, req, cfg.ContextSize, err, acc,
+				"[chat] tool call context exceeded, trimming and retrying",
+				"tool call stream (retry after context trim): %w",
+				"stream chat after search: %w",
+			)
+			if handled {
+				return retryErr
 			}
 		}
 
@@ -705,7 +753,7 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 	s.applyThinkingControl(req)
 	s.applySamplingParams(req)
 
-	streamCtx, streamCancel := context.WithTimeout(cancelCtx, 300*time.Second)
+	streamCtx, streamCancel := context.WithTimeout(cancelCtx, streamRequestTimeout)
 	defer streamCancel()
 	defer s.setCurrentCompletionID("") // 流结束后清除 completion ID
 
@@ -733,45 +781,15 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 			return fmt.Errorf("stream chat timeout")
 		}
 
-		exceedInfo := ParseExceedContextError(err)
-		if exceedInfo != nil && exceedInfo.Exceeded {
-			actualCtx := exceedInfo.ContextSize
-			if actualCtx <= 0 {
-				actualCtx = cfg.ContextSize
-			}
-			reserve := actualCtx / 10
-			if reserve < 512 {
-				reserve = 512
-			}
-			trimmed := TrimMessagesToFit(req.Messages, actualCtx, reserve)
-			req.Messages = trimmed
-
-			log.Info().Int("prompt_tokens", exceedInfo.PromptTokens).Int("context_size", actualCtx).Int("messages_after_trim", len(trimmed)).Msg("[chat] context exceeded, trimming and retrying")
-
-			s.emitForConv(convID, "context_trimmed", map[string]interface{}{
-				"reason":         "exceed_context_size",
-				"prompt_tokens":  exceedInfo.PromptTokens,
-				"context_size":   actualCtx,
-				"messages_after": len(trimmed),
-			})
-
-			retryCtx, retryCancel := context.WithTimeout(cancelCtx, 300*time.Second)
-			defer retryCancel()
-
-			retryConvID := convID + "::retry"
-			retryErr := client.StreamChatWithConvID(retryCtx, req, retryConvID, acc.callback())
-			if retryErr != nil {
-				if cancelCtx.Err() == context.Canceled {
-					s.savePartialContentIfAny(convID, acc)
-					s.emitForConv(convID, "stopped", nil)
-					return nil
-				}
-				s.emitForConv(convID, "error", enhanceErrorWithHint("上下文过长，裁剪后仍无法生成，请尝试缩短对话或新建对话"))
-				return fmt.Errorf("stream chat (retry after context trim): %w", retryErr)
-			}
-		} else {
-			s.emitForConv(convID, "error", enhanceErrorWithHint(err.Error()))
-			return fmt.Errorf("stream chat: %w", err)
+		retryConvID := convID + "::retry"
+		handled, retryErr := s.retryStreamAfterContextExceeded(
+			cancelCtx, convID, retryConvID, client, req, cfg.ContextSize, err, acc,
+			"[chat] context exceeded, trimming and retrying",
+			"stream chat (retry after context trim): %w",
+			"stream chat: %w",
+		)
+		if handled {
+			return retryErr
 		}
 	}
 

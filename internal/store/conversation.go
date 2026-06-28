@@ -21,6 +21,14 @@ type Conversation struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// withDBTimeout 在带超时的 context 中执行数据库操作。
+// 生活类比：像给每个数据库操作都装上"闹钟"，超时自动响铃，避免操作卡住永远不返回。
+func withDBTimeout(fn func(ctx context.Context) error) error {
+	ctx, cancel := context.WithTimeout(context.Background(), dbOpTimeout)
+	defer cancel()
+	return fn(ctx)
+}
+
 func CreateConversation(db *sql.DB, conv *Conversation, encKey []byte) error {
 	if conv.ID == "" {
 		conv.ID = uuid.New().String()
@@ -38,12 +46,13 @@ func CreateConversation(db *sql.DB, conv *Conversation, encKey []byte) error {
 		return fmt.Errorf("encrypt conversation title: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_, err = db.ExecContext(ctx,
-		"INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
-		conv.ID, encryptedTitle, conv.CreatedAt, conv.UpdatedAt,
-	)
+	err = withDBTimeout(func(ctx context.Context) error {
+		_, err := db.ExecContext(ctx,
+			"INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+			conv.ID, encryptedTitle, conv.CreatedAt, conv.UpdatedAt,
+		)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("create conversation: %w", err)
 	}
@@ -53,10 +62,12 @@ func CreateConversation(db *sql.DB, conv *Conversation, encKey []byte) error {
 func GetConversation(db *sql.DB, id string, encKey []byte) (*Conversation, error) {
 	conv := &Conversation{}
 	var summary sql.NullString
-	err := db.QueryRow(
-		"SELECT id, title, summary, created_at, updated_at FROM conversations WHERE id = ?",
-		id,
-	).Scan(&conv.ID, &conv.Title, &summary, &conv.CreatedAt, &conv.UpdatedAt)
+	err := withDBTimeout(func(ctx context.Context) error {
+		return db.QueryRowContext(ctx,
+			"SELECT id, title, summary, created_at, updated_at FROM conversations WHERE id = ?",
+			id,
+		).Scan(&conv.ID, &conv.Title, &summary, &conv.CreatedAt, &conv.UpdatedAt)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("get conversation: %w", err)
 	}
@@ -69,9 +80,14 @@ func GetConversation(db *sql.DB, id string, encKey []byte) (*Conversation, error
 }
 
 func ListConversations(db *sql.DB, encKey []byte) ([]*Conversation, error) {
-	rows, err := db.Query(
-		"SELECT id, title, created_at, updated_at FROM conversations ORDER BY updated_at DESC",
-	)
+	var rows *sql.Rows
+	err := withDBTimeout(func(ctx context.Context) error {
+		var err error
+		rows, err = db.QueryContext(ctx,
+			"SELECT id, title, created_at, updated_at FROM conversations ORDER BY updated_at DESC",
+		)
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list conversations: %w", err)
 	}
@@ -100,12 +116,13 @@ func UpdateConversation(db *sql.DB, conv *Conversation, encKey []byte) error {
 		return fmt.Errorf("encrypt conversation title: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_, err = db.ExecContext(ctx,
-		"UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?",
-		encryptedTitle, conv.UpdatedAt, conv.ID,
-	)
+	err = withDBTimeout(func(ctx context.Context) error {
+		_, err := db.ExecContext(ctx,
+			"UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?",
+			encryptedTitle, conv.UpdatedAt, conv.ID,
+		)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("update conversation: %w", err)
 	}
@@ -113,26 +130,27 @@ func UpdateConversation(db *sql.DB, conv *Conversation, encKey []byte) error {
 }
 
 func DeleteConversation(db *sql.DB, id string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin transaction: %w", err)
-	}
-	_, err = tx.ExecContext(ctx, "DELETE FROM messages WHERE conversation_id = ?", id)
-	if err != nil {
-		tx.Rollback()
-		return fmt.Errorf("delete messages: %w", err)
-	}
-	_, err = tx.ExecContext(ctx, "DELETE FROM conversations WHERE id = ?", id)
-	if err != nil {
-		tx.Rollback()
-		return fmt.Errorf("delete conversation: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit transaction: %w", err)
-	}
-	return nil
+	err := withDBTimeout(func(ctx context.Context) error {
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("begin transaction: %w", err)
+		}
+		_, err = tx.ExecContext(ctx, "DELETE FROM messages WHERE conversation_id = ?", id)
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("delete messages: %w", err)
+		}
+		_, err = tx.ExecContext(ctx, "DELETE FROM conversations WHERE id = ?", id)
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("delete conversation: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit transaction: %w", err)
+		}
+		return nil
+	})
+	return err
 }
 
 type AbnormalConversation struct {
@@ -197,12 +215,13 @@ func CleanupAbnormalConversations(db *sql.DB, encKey []byte) ([]*AbnormalConvers
 
 // UpdateConversationSummary 只更新对话的摘要字段
 func UpdateConversationSummary(db *sql.DB, id string, summary string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_, err := db.ExecContext(ctx,
-		"UPDATE conversations SET summary = ? WHERE id = ?",
-		summary, id,
-	)
+	err := withDBTimeout(func(ctx context.Context) error {
+		_, err := db.ExecContext(ctx,
+			"UPDATE conversations SET summary = ? WHERE id = ?",
+			summary, id,
+		)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("update conversation summary: %w", err)
 	}
@@ -212,7 +231,9 @@ func UpdateConversationSummary(db *sql.DB, id string, summary string) error {
 // GetConversationSummary 只获取对话的摘要字段
 func GetConversationSummary(db *sql.DB, id string) (string, error) {
 	var summary sql.NullString
-	err := db.QueryRow("SELECT summary FROM conversations WHERE id = ?", id).Scan(&summary)
+	err := withDBTimeout(func(ctx context.Context) error {
+		return db.QueryRowContext(ctx, "SELECT summary FROM conversations WHERE id = ?", id).Scan(&summary)
+	})
 	if err != nil {
 		return "", fmt.Errorf("get conversation summary: %w", err)
 	}

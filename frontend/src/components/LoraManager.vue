@@ -122,6 +122,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { NInputNumber, useMessage } from 'naive-ui'
 import { wails, type LoraAdapter } from '../services/wails'
+import { showError } from '../utils/showError'
 
 const props = defineProps<{
   loraPaths: string
@@ -174,7 +175,7 @@ async function handleAddPath() {
     loraPathList.value.push(filePath)
     syncPathsToString()
   } catch (err) {
-    message.error(`选择文件失败：${err instanceof Error ? err.message : String(err)}`)
+    showError(message, '选择文件失败', err)
   }
 }
 
@@ -193,7 +194,7 @@ async function handleReplacePath(index: number) {
     loraPathList.value[index] = filePath
     syncPathsToString()
   } catch (err) {
-    message.error(`选择文件失败：${err instanceof Error ? err.message : String(err)}`)
+    showError(message, '选择文件失败', err)
   }
 }
 
@@ -233,7 +234,7 @@ async function handleToggle(adapter: LoraAdapter, enabled: boolean) {
     message.success(enabled ? `已启用适配器 #${adapter.id}` : `已禁用适配器 #${adapter.id}`)
   } catch (err) {
     adapter.scale = oldScale
-    message.error(`操作失败：${err instanceof Error ? err.message : String(err)}`)
+    showError(message, '操作失败', err)
   }
 }
 
@@ -252,7 +253,7 @@ async function handleScaleChange(id: number, val: number | null) {
     message.success(`Scale 已更新为 ${newScale}`)
   } catch (err) {
     target.scale = oldScale
-    message.error(`保存失败：${err instanceof Error ? err.message : String(err)}`)
+    showError(message, '保存失败', err)
   }
 }
 

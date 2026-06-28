@@ -7,15 +7,16 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
-	"douya/internal/httputil"
-
 	"github.com/rs/zerolog/log"
+
+	"douya/internal/httputil"
 )
 
 // ---------------------------------------------------------------------------
@@ -41,6 +42,47 @@ type SearchOpts struct {
 	MaxResults        int
 	IncludeAnswer     bool
 	IncludeRawContent bool
+}
+
+// ---------------------------------------------------------------------------
+// BaseProvider —— 通用 HTTP 请求骨架
+// ---------------------------------------------------------------------------
+
+// BaseProvider 为搜索 Provider 提供通用的 HTTP 请求骨架，
+// 消除各 Provider 中重复的"构造请求 → 设置 headers → Do → 状态码检查 → readBody"逻辑。
+// 各 Provider 通过嵌入 BaseProvider 复用 doSearch 方法，并保留自己的响应解析逻辑。
+type BaseProvider struct {
+	httpClient *http.Client
+}
+
+// doSearch 执行搜索请求并返回响应体字节，消除 4 个 Provider 的重复请求骨架。
+// 通用流程：构造请求 → 设置 headers → Do → defer Close → readBody → 状态码检查
+// 各 Provider 负责自己的响应解析逻辑（JSON / HTML），因此本方法只返回原始响应体 []byte。
+func (b *BaseProvider) doSearch(ctx context.Context, method, url string, body io.Reader, headers map[string]string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	if err != nil {
+		return nil, fmt.Errorf("create request failed: %w", err)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := b.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := httputil.ReadBodyLimited(resp.Body, 10*1024*1024)
+	if err != nil {
+		return nil, fmt.Errorf("read response failed: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("search failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return respBody, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -344,12 +386,8 @@ var (
 	reMultiSpace = regexp.MustCompile(`\s+`)
 	reLink       = regexp.MustCompile(`<a[^>]+href="(https?://[^"]+)"[^>]*>`)
 	reH3         = regexp.MustCompile(`<h[1-6][^>]*>(.*?)</h[1-6]>`)
+	rePTag       = regexp.MustCompile(`<p[^>]*>(.*?)</p>`)
 )
-
-// readBody 读取 HTTP 响应体，限制最大 10MB 防止内存耗尽。
-func readBody(r io.Reader) ([]byte, error) {
-	return httputil.ReadBodyLimited(r, 10*1024*1024)
-}
 
 func stripHTML(s string) string {
 	s = reHTMLTag.ReplaceAllString(s, "")
@@ -474,8 +512,7 @@ func extractSnippetNearLink(html, link string) string {
 	region := html[linkIdx:searchEnd]
 
 	// 尝试匹配 <p> 标签内容
-	pRe := regexp.MustCompile(`<p[^>]*>(.*?)</p>`)
-	pMatches := pRe.FindAllStringSubmatch(region, -1)
+	pMatches := rePTag.FindAllStringSubmatch(region, -1)
 	for _, m := range pMatches {
 		if len(m) >= 2 {
 			text := stripHTML(m[1])

@@ -1267,3 +1267,154 @@ html, body, #app {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
+
+/* ========================================
+ * 科幻风格消息提示（覆盖 NaiveUI message 默认样式）
+ * 设计概念：AI 系统通知 - 玻璃态 + 发光色条 + 扫描线
+ * 性能原则：仅入场动画，静态状态零动画成本；transform/opacity 走 GPU 合成层
+ * ======================================== */
+
+/* 1. 消息容器基础样式：轻量玻璃态 + 单层发光边框 */
+.n-message {
+  /* 轻量玻璃态背景：blur(8px) 平衡视觉与性能 */
+  background: color-mix(in srgb, var(--bg-primary) 82%, transparent) !important;
+  backdrop-filter: blur(8px) saturate(150%);
+  -webkit-backdrop-filter: blur(8px) saturate(150%);
+
+  /* 单层发光边框 + 圆角（合并 box-shadow，减少层数） */
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 30%, transparent) !important;
+  border-radius: 10px !important;
+  box-shadow:
+    0 6px 20px -6px rgba(0, 0, 0, 0.35),
+    0 0 12px -2px color-mix(in srgb, var(--accent-primary) 35%, transparent) !important;
+
+  /* 相对定位，为扫描线和色条做准备 */
+  position: relative !important;
+  overflow: hidden !important;
+  padding-left: 18px !important;
+
+  /* CSS containment：隔离渲染，避免影响主界面重绘 */
+  contain: layout style paint;
+
+  /* 入场动画：仅 transform + opacity（GPU 友好，无 filter 动画） */
+  animation: msg-enter 0.4s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+/* 2. 顶部扫描线（入场单次播放，不循环） */
+.n-message::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    var(--msg-accent, var(--accent-primary)) 50%,
+    transparent 100%);
+  opacity: 0;
+  animation: msg-scan-once 1.2s ease-out 0.1s 1;
+  pointer-events: none;
+}
+
+/* 单次扫描动画：从左到右掠过一次后消失 */
+@keyframes msg-scan-once {
+  0% { transform: translateX(-100%); opacity: 0; }
+  40% { opacity: 0.9; }
+  100% { transform: translateX(100%); opacity: 0; }
+}
+
+/* 3. 左侧发光色条（静态发光，无动画） */
+.n-message::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 2px;
+  background: var(--msg-accent, var(--accent-primary));
+  box-shadow: 0 0 6px var(--msg-accent, var(--accent-primary));
+  border-radius: 0 2px 2px 0;
+  pointer-events: none;
+}
+
+/* 4. 各类型颜色变量覆盖（仅改颜色，不重复 box-shadow 定义） */
+.n-message.n-message--success-type {
+  --msg-accent: var(--accent-success);
+  border-color: color-mix(in srgb, var(--accent-success) 30%, transparent) !important;
+  box-shadow:
+    0 6px 20px -6px rgba(0, 0, 0, 0.35),
+    0 0 12px -2px color-mix(in srgb, var(--accent-success) 35%, transparent) !important;
+}
+
+.n-message.n-message--error-type {
+  --msg-accent: var(--accent-danger);
+  border-color: color-mix(in srgb, var(--accent-danger) 30%, transparent) !important;
+  box-shadow:
+    0 6px 20px -6px rgba(0, 0, 0, 0.35),
+    0 0 12px -2px color-mix(in srgb, var(--accent-danger) 35%, transparent) !important;
+}
+
+.n-message.n-message--warning-type {
+  --msg-accent: var(--accent-warning);
+  border-color: color-mix(in srgb, var(--accent-warning) 30%, transparent) !important;
+  box-shadow:
+    0 6px 20px -6px rgba(0, 0, 0, 0.35),
+    0 0 12px -2px color-mix(in srgb, var(--accent-warning) 35%, transparent) !important;
+}
+
+.n-message.n-message--info-type {
+  --msg-accent: var(--link-light, #6a9bcc);
+  border-color: color-mix(in srgb, var(--link-light, #6a9bcc) 30%, transparent) !important;
+  box-shadow:
+    0 6px 20px -6px rgba(0, 0, 0, 0.35),
+    0 0 12px -2px color-mix(in srgb, var(--link-light, #6a9bcc) 35%, transparent) !important;
+}
+
+/* 5. 文字颜色微调，增强可读性 */
+.n-message .n-message__content {
+  color: var(--text-primary) !important;
+  font-size: 13px !important;
+  letter-spacing: 0.2px;
+}
+
+/* 6. 图标样式：保留 NaiveUI 默认图标，颜色随类型变化（无 filter，性能更好） */
+.n-message .n-message__icon {
+  color: var(--msg-accent, var(--accent-primary)) !important;
+}
+
+/* 7. 关闭按钮（无 filter 发光，仅用 color 过渡） */
+.n-message .n-message__close {
+  color: var(--text-secondary) !important;
+  transition: color 0.2s ease;
+}
+.n-message .n-message__close:hover {
+  color: var(--msg-accent, var(--accent-primary)) !important;
+}
+
+/* 8. 深色模式微调 */
+html.dark .n-message {
+  background: color-mix(in srgb, var(--bg-tertiary) 78%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent-primary) 25%, transparent) !important;
+}
+
+/* 深色模式下 info 类型用 --link-dark 保持对比度 */
+html.dark .n-message.n-message--info-type {
+  --msg-accent: var(--link-dark, #7aaad3);
+  border-color: color-mix(in srgb, var(--link-dark, #7aaad3) 30%, transparent) !important;
+  box-shadow:
+    0 6px 20px -6px rgba(0, 0, 0, 0.35),
+    0 0 12px -2px color-mix(in srgb, var(--link-dark, #7aaad3) 35%, transparent) !important;
+}
+
+/* 9. 入场动画：从顶部下滑 + 淡入 + 轻微缩放（仅 transform + opacity，无 filter） */
+@keyframes msg-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

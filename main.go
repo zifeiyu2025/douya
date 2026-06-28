@@ -27,6 +27,9 @@ var iconData []byte
 
 type LocalFileLoader struct {
 	http.Handler
+	// baseDir 是本地文件服务的基目录，所有请求路径都会被限制在此目录之下，
+	// 防止攻击者通过绝对路径或路径遍历读取任意位置的文件。
+	baseDir string
 }
 
 // allowedFileExts 定义 LocalFileLoader 允许提供的文件扩展名白名单
@@ -45,6 +48,15 @@ func (h *LocalFileLoader) ServeHTTP(res http.ResponseWriter, req *http.Request) 
 	// 安全：清理路径并阻止路径遍历
 	// 基于 GO-PATH-001 安全实践
 	cleaned := filepath.Clean(filePath)
+
+	// 安全：拒绝绝对路径，防止攻击者构造 C:/Windows/System32/xxx.png 这类
+	// 绝对路径读取任意位置允许扩展名的文件
+	if filepath.IsAbs(cleaned) {
+		res.WriteHeader(http.StatusForbidden)
+		return
+	}
+
+	// 安全：拒绝包含 ".." 的路径遍历尝试
 	if strings.Contains(cleaned, "..") {
 		res.WriteHeader(http.StatusForbidden)
 		return
@@ -57,7 +69,22 @@ func (h *LocalFileLoader) ServeHTTP(res http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	fileData, err := os.ReadFile(cleaned)
+	// 安全：将请求路径限制在基目录之下，防止越界读取。
+	// 用 filepath.Join 拼接后再次 Clean，并用 filepath.Rel 验证最终路径
+	// 仍未逃逸出基目录（纵深防御，即使前面的检查被绕过也能拦住）。
+	finalPath := filepath.Clean(filepath.Join(h.baseDir, cleaned))
+	rel, err := filepath.Rel(h.baseDir, finalPath)
+	if err != nil {
+		res.WriteHeader(http.StatusForbidden)
+		return
+	}
+	// rel 为 ".." 或以 ".." + 路径分隔符开头，说明最终路径已逃出基目录
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		res.WriteHeader(http.StatusForbidden)
+		return
+	}
+
+	fileData, err := os.ReadFile(finalPath)
 	if err != nil {
 		res.WriteHeader(http.StatusNotFound)
 		return
@@ -164,7 +191,7 @@ func main() {
 		MinHeight: 600,
 		AssetServer: &assetserver.Options{
 			Assets:  assets,
-			Handler: &LocalFileLoader{},
+			Handler: &LocalFileLoader{baseDir: appDir()},
 		},
 		BackgroundColour: &options.RGBA{R: 30, G: 30, B: 30, A: 1},
 		OnStartup:        app.startup,

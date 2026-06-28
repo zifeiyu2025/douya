@@ -198,6 +198,7 @@ import { useSettingsStore } from '../stores/settings'
 import { wails } from '../services/wails'
 import type { Attachment } from '../services/wails'
 import TokenCounter from './TokenCounter.vue'
+import { showSuccess } from '../utils/showError'
 
 interface SpeechRecognitionEvent {
   results: SpeechRecognitionResultList
@@ -325,8 +326,7 @@ async function handleSaveKV() {
     if (chatStore.isGenerating) return
     try {
         await wails.saveSlot(0)
-        message.destroyAll()
-        message.success('KV 缓存已保存', { duration: 2000 })
+        showSuccess(message, 'KV 缓存已保存')
     } catch (e) {
         message.destroyAll()
         message.error(`保存 KV 缓存失败: ${e}`, { duration: 3000 })
@@ -336,8 +336,7 @@ async function handleSaveKV() {
 async function handleRestoreKV() {
     try {
         await wails.restoreSlot(0)
-        message.destroyAll()
-        message.success('KV 缓存已恢复', { duration: 2000 })
+        showSuccess(message, 'KV 缓存已恢复')
     } catch (e) {
         message.destroyAll()
         message.error(`恢复 KV 缓存失败: ${e}`, { duration: 3000 })

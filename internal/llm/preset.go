@@ -11,7 +11,10 @@ import (
 	"douya/internal/system"
 )
 
-var quantSuffixRe = regexp.MustCompile(`(?i)-(Q\d+(_[A-Z0-9]+)+|IQ\d+_[A-Z0-9]+|BF16|F16|F32)$`)
+var (
+	quantSuffixRe = regexp.MustCompile(`(?i)-(Q\d+(_[A-Z0-9]+)+|IQ\d+_[A-Z0-9]+|BF16|F16|F32)$`)
+	uncensoredRe  = regexp.MustCompile(`(?i)[-_]U[-_]`)
+)
 
 type ModelPreset struct {
 	Name            string
@@ -51,6 +54,28 @@ type ModelOption struct {
 	Status       string `json:"status"`
 }
 
+// writeStringField 写入字符串字段（值为空则跳过）。
+// 生活类比：像填表时，某栏没填就不写那行，避免空白行。
+func writeStringField(sb *strings.Builder, name, val string) {
+	if val != "" {
+		sb.WriteString(fmt.Sprintf("%s = %s\n", name, val))
+	}
+}
+
+// writeIntField 写入整数字段（值 <= 0 则跳过）。
+func writeIntField(sb *strings.Builder, name string, val int) {
+	if val > 0 {
+		sb.WriteString(fmt.Sprintf("%s = %d\n", name, val))
+	}
+}
+
+// writeBoolField 写入布尔字段（值为 false 则跳过，true 写入 "1"）。
+func writeBoolField(sb *strings.Builder, name string, val bool) {
+	if val {
+		sb.WriteString(fmt.Sprintf("%s = 1\n", name))
+	}
+}
+
 func GeneratePreset(presets []ModelPreset, globalDefaults map[string]string) string {
 	var sb strings.Builder
 
@@ -71,76 +96,24 @@ func GeneratePreset(presets []ModelPreset, globalDefaults map[string]string) str
 		sb.WriteString(fmt.Sprintf("[%s]\n", p.Name))
 		sb.WriteString(fmt.Sprintf("model = %s\n", p.ModelPath))
 
-		if p.MmprojPath != "" {
-			sb.WriteString(fmt.Sprintf("mmproj = %s\n", p.MmprojPath))
-		}
-
-		if p.MmprojOffload {
-			sb.WriteString("mmproj-offload = 1\n")
-		}
-
-		if p.Alias != "" {
-			sb.WriteString(fmt.Sprintf("alias = %s\n", p.Alias))
-		}
-
-		if p.CtxSize > 0 {
-			sb.WriteString(fmt.Sprintf("ctx-size = %d\n", p.CtxSize))
-		}
-
-		if p.BatchSize > 0 {
-			sb.WriteString(fmt.Sprintf("batch-size = %d\n", p.BatchSize))
-		}
-
-		if p.UBatchSize > 0 {
-			sb.WriteString(fmt.Sprintf("ubatch-size = %d\n", p.UBatchSize))
-		}
-
-		if p.Threads > 0 {
-			sb.WriteString(fmt.Sprintf("threads = %d\n", p.Threads))
-		}
-
-		if p.FlashAttn != "" {
-			sb.WriteString(fmt.Sprintf("flash-attn = %s\n", p.FlashAttn))
-		}
-
-		if p.CacheTypeK != "" {
-			sb.WriteString(fmt.Sprintf("cache-type-k = %s\n", p.CacheTypeK))
-		}
-
-		if p.CacheTypeV != "" {
-			sb.WriteString(fmt.Sprintf("cache-type-v = %s\n", p.CacheTypeV))
-		}
-
-		if p.Mlock {
-			sb.WriteString("mlock = 1\n")
-		}
-
-		if p.ImageMinTokens > 0 {
-			sb.WriteString(fmt.Sprintf("image-min-tokens = %d\n", p.ImageMinTokens))
-		}
-		if p.ImageMaxTokens > 0 {
-			sb.WriteString(fmt.Sprintf("image-max-tokens = %d\n", p.ImageMaxTokens))
-		}
-
-		if p.Reasoning != "" {
-			sb.WriteString(fmt.Sprintf("reasoning = %s\n", p.Reasoning))
-		}
-
-		if p.ReasoningBudget > 0 {
-			sb.WriteString(fmt.Sprintf("reasoning-budget = %d\n", p.ReasoningBudget))
-		}
-
-		if p.ReasoningFormat != "" {
-			sb.WriteString(fmt.Sprintf("reasoning-format = %s\n", p.ReasoningFormat))
-		}
-
-		if p.Jinja {
-			sb.WriteString("jinja = 1\n")
-		}
-
-		if p.SleepIdle > 0 {
-			sb.WriteString(fmt.Sprintf("sleep-idle-seconds = %d\n", p.SleepIdle))
-		}
+		writeStringField(&sb, "mmproj", p.MmprojPath)
+		writeBoolField(&sb, "mmproj-offload", p.MmprojOffload)
+		writeStringField(&sb, "alias", p.Alias)
+		writeIntField(&sb, "ctx-size", p.CtxSize)
+		writeIntField(&sb, "batch-size", p.BatchSize)
+		writeIntField(&sb, "ubatch-size", p.UBatchSize)
+		writeIntField(&sb, "threads", p.Threads)
+		writeStringField(&sb, "flash-attn", p.FlashAttn)
+		writeStringField(&sb, "cache-type-k", p.CacheTypeK)
+		writeStringField(&sb, "cache-type-v", p.CacheTypeV)
+		writeBoolField(&sb, "mlock", p.Mlock)
+		writeIntField(&sb, "image-min-tokens", p.ImageMinTokens)
+		writeIntField(&sb, "image-max-tokens", p.ImageMaxTokens)
+		writeStringField(&sb, "reasoning", p.Reasoning)
+		writeIntField(&sb, "reasoning-budget", p.ReasoningBudget)
+		writeStringField(&sb, "reasoning-format", p.ReasoningFormat)
+		writeBoolField(&sb, "jinja", p.Jinja)
+		writeIntField(&sb, "sleep-idle-seconds", p.SleepIdle)
 
 		sb.WriteString("\n")
 	}
@@ -211,26 +184,8 @@ func scanFlatModels(modelsDir string) ([]ModelPreset, error) {
 
 	presets := make([]ModelPreset, 0, len(modelFiles))
 	for _, mf := range modelFiles {
-		baseName := strings.TrimSuffix(mf, filepath.Ext(mf))
-		mmprojPath := findMmprojInDir(modelsDir, baseName)
-		name := DeriveModelName(baseName)
-
-		preset := ModelPreset{
-			Name:       name,
-			ModelPath:  filepath.Join("models", mf),
-			MmprojPath: mmprojPath,
-			Jinja:      true,
-			SleepIdle:  -1, // 与 llama.cpp 默认值对齐，-1 禁用空闲休眠（不写入 preset.ini，继承全局默认）
-		}
-
-		if mmprojPath != "" {
-			mmprojCaps := ReadMmprojCapabilities(mmprojPath)
-			preset.MmprojVision = mmprojCaps.HasVision
-			preset.MmprojAudio = mmprojCaps.HasAudio
-			preset.MmprojVideo = mmprojCaps.HasVideo
-		}
-
-		presets = append(presets, preset)
+		// 扁平结构：modelPath = models/<filename>，SleepIdle = -1（禁用空闲休眠）
+		presets = append(presets, buildPresetFromModelFile(modelsDir, mf, filepath.Join("models", mf), -1))
 	}
 
 	return presets, nil
@@ -266,26 +221,8 @@ func scanSubdirModels(modelsDir string) ([]ModelPreset, error) {
 		}
 
 		for _, mf := range modelFiles {
-			baseName := strings.TrimSuffix(mf, filepath.Ext(mf))
-			mmprojPath := findMmprojInDir(subdir, baseName)
-			name := DeriveModelName(baseName)
-
-			preset := ModelPreset{
-				Name:       name,
-				ModelPath:  filepath.Join("models", entry.Name(), mf),
-				MmprojPath: mmprojPath,
-				Jinja:      true,
-				SleepIdle:  120,
-			}
-
-			if mmprojPath != "" {
-				mmprojCaps := ReadMmprojCapabilities(mmprojPath)
-				preset.MmprojVision = mmprojCaps.HasVision
-				preset.MmprojAudio = mmprojCaps.HasAudio
-				preset.MmprojVideo = mmprojCaps.HasVideo
-			}
-
-			presets = append(presets, preset)
+			// 子目录结构：modelPath = models/<subdir>/<filename>，SleepIdle = 120
+			presets = append(presets, buildPresetFromModelFile(subdir, mf, filepath.Join("models", entry.Name(), mf), 120))
 		}
 	}
 
@@ -294,6 +231,36 @@ func scanSubdirModels(modelsDir string) ([]ModelPreset, error) {
 	})
 
 	return presets, nil
+}
+
+// buildPresetFromModelFile 从模型文件构建 ModelPreset。
+// 生活类比：像档案管理员根据文件名和所在目录，填好一张标准档案卡片（preset）。
+//
+// 参数：
+//   - dir: 模型文件所在目录（用于查找同目录下的 mmproj 文件）
+//   - fileName: 模型文件名（如 "gemma-3-4b.gguf"）
+//   - modelPath: preset 中存储的相对路径（如 "models/gemma-3-4b.gguf" 或 "models/sub/gemma-3-4b.gguf"）
+//   - sleepIdle: 空闲休眠参数（扁平结构 -1，子目录结构 120）
+func buildPresetFromModelFile(dir, fileName, modelPath string, sleepIdle int) ModelPreset {
+	baseName := strings.TrimSuffix(fileName, filepath.Ext(fileName))
+	mmprojPath := findMmprojInDir(dir, baseName)
+
+	preset := ModelPreset{
+		Name:       DeriveModelName(baseName),
+		ModelPath:  modelPath,
+		MmprojPath: mmprojPath,
+		Jinja:      true,
+		SleepIdle:  sleepIdle,
+	}
+
+	if mmprojPath != "" {
+		mmprojCaps := ReadMmprojCapabilities(mmprojPath)
+		preset.MmprojVision = mmprojCaps.HasVision
+		preset.MmprojAudio = mmprojCaps.HasAudio
+		preset.MmprojVideo = mmprojCaps.HasVideo
+	}
+
+	return preset
 }
 
 func findMmprojInDir(dir string, modelBaseName string) string {
@@ -401,7 +368,6 @@ func DeriveModelName(filename string) string {
 	name = quantSuffixRe.ReplaceAllString(name, "")
 
 	// Normalize "uncensored" markers: -U-, -U_, _U-, _U_
-	uncensoredRe := regexp.MustCompile(`(?i)[-_]U[-_]`)
 	name = uncensoredRe.ReplaceAllString(name, "-")
 
 	// Replace underscores with hyphens for display (common convention)

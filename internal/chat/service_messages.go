@@ -12,6 +12,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"douya/internal/config"
 	"douya/internal/llm"
 	"douya/internal/rag"
 	"douya/internal/search"
@@ -339,70 +340,7 @@ func (s *Service) buildLLMMessages(ctx context.Context, convID string, dbMsgs []
 
 	systemContent := applyDynamicSystemPrompt(cachedPrompt, searchMode, caps, now)
 
-	// 在持有读锁期间复制 RAG 状态，避免检索过程中配置被并发修改导致指针/集合不一致
-	s.ragMu.RLock()
-	ragEnabled := s.ragEnabled
-	ragVectorStore := s.ragVectorStore
-	ragEmbedder := s.ragEmbedder
-	ragCollection := s.ragCollection
-	s.ragMu.RUnlock()
-
-	var ragContext string
-	if ragEnabled && ragVectorStore != nil && ragEmbedder != nil && ragCollection != "" && currentUserContent != "" {
-		// 使用传入的 ctx 派生 RAG 超时上下文，使取消能传播到嵌入调用
-		ctxRag, cancelRag := context.WithTimeout(ctx, 5*time.Second)
-		defer cancelRag()
-		vecs, err := ragEmbedder.Embed(ctxRag, []string{currentUserContent})
-		if err == nil && len(vecs) > 0 && len(vecs[0]) > 0 {
-			topK := 0
-			if cfg != nil {
-				topK = cfg.RAGTopK
-			}
-			if topK <= 0 {
-				topK = 3
-			}
-			minScore := 0.0
-			if cfg != nil {
-				minScore = cfg.RAGMinScore
-			}
-			if minScore <= 0 {
-				minScore = 0.3
-			}
-			// 混合检索：向量语义 + BM25 关键词，RRF 融合
-			hybridResults, err2 := ragVectorStore.HybridSearch(ragCollection, vecs[0], currentUserContent, topK, minScore)
-			if err2 == nil && len(hybridResults) > 0 {
-				// RAG rerank 重排序：当配置了 reranker 模型时，对 HybridSearch 结果进行重排序
-				if cfg != nil && cfg.RerankerModelPath != "" && s.llmClient != nil {
-					rerankTopN := cfg.RerankTopN
-					if rerankTopN <= 0 {
-						rerankTopN = 5
-					}
-					documents := make([]string, len(hybridResults))
-					for i, r := range hybridResults {
-						documents[i] = r.ChunkContent
-					}
-					rerankStart := time.Now()
-					rerankResults, rerankErr := s.llmClient.Rerank(ctxRag, currentUserContent, documents, rerankTopN)
-					rerankElapsed := time.Since(rerankStart)
-					if rerankErr != nil {
-						log.Warn().Err(rerankErr).Int("before", len(hybridResults)).Msg("[rag] rerank failed, fallback to hybrid results")
-					} else {
-						log.Info().Int("before", len(hybridResults)).Int("after", len(rerankResults)).Dur("elapsed", rerankElapsed).Msg("[rag] rerank success")
-						reranked := make([]rag.HybridSearchResult, 0, len(rerankResults))
-						for _, rr := range rerankResults {
-							if rr.Index >= 0 && rr.Index < len(hybridResults) {
-								reranked = append(reranked, hybridResults[rr.Index])
-							}
-						}
-						if len(reranked) > 0 {
-							hybridResults = reranked
-						}
-					}
-				}
-				ragContext = buildRAGContext(hybridResults)
-			}
-		}
-	}
+	ragContext := s.retrieveRAGContext(ctx, cfg, currentUserContent)
 
 	estimatedTokens := estimateTokensByLang(systemContent, detectLanguage(systemContent)) + 10 // +10 for chat template overhead
 	if ragContext != "" {
@@ -491,163 +429,9 @@ func (s *Service) buildLLMMessages(ctx context.Context, convID string, dbMsgs []
 		return messages, true, nil
 	}
 
-	var history []llm.ChatMessage
+	history, trimmedMsgs := s.buildHistoryFromDB(dbMsgs, currentUserContent, currentAttachments, caps, estimatedTokens, effectiveMax)
 
-	// 记录被裁剪的消息索引（用于摘要生成）
-	var trimmedMsgs []*store.Message
-
-	for i := len(dbMsgs) - 1; i >= 0; i-- {
-		m := dbMsgs[i]
-
-		estimated := estimateMessageTokens(m)
-		if estimated == 0 {
-			estimated = 1
-		}
-		if m.ID == dbMsgs[len(dbMsgs)-1].ID && len(currentAttachments) > 0 {
-			for _, att := range currentAttachments {
-				estimated += EstimateAttachmentTokensWithData(att.Type, att.Data)
-			}
-		}
-		if estimatedTokens+estimated > effectiveMax {
-			// 收集被裁剪的消息（索引 0 到 i，即更早的消息）
-			trimmedMsgs = dbMsgs[:i+1]
-			break
-		}
-		estimatedTokens += estimated
-
-		if m.Role == "tool" {
-			msg := llm.ChatMessage{
-				Role:       "tool",
-				Content:    m.Content,
-				ToolCallID: m.ToolCallID,
-			}
-			history = append([]llm.ChatMessage{msg}, history...)
-			continue
-		}
-
-		if m.Role == "assistant" && m.ToolCalls != "" {
-			var toolCalls []llm.ToolCall
-			if err := json.Unmarshal([]byte(m.ToolCalls), &toolCalls); err == nil && len(toolCalls) > 0 {
-				msg := llm.ChatMessage{
-					Role:      "assistant",
-					Content:   m.Content,
-					ToolCalls: toolCalls,
-				}
-				history = append([]llm.ChatMessage{msg}, history...)
-				continue
-			}
-		}
-
-		content := m.Content
-		if m.Role == "user" {
-			if m.ID == dbMsgs[len(dbMsgs)-1].ID {
-				content = currentUserContent
-			}
-			if content == "" && (m.Images != "" || m.Attachments != "") {
-				content = "请描述这张图片"
-			}
-		}
-
-		var msg llm.ChatMessage
-		if m.Role == "user" && m.ID == dbMsgs[len(dbMsgs)-1].ID && len(currentAttachments) > 0 {
-			msg = buildMessageFromAttachments(m.Role, content, currentAttachments)
-		} else if m.Role == "user" && m.Attachments != "" {
-			var dbAttachments []Attachment
-			if err := json.Unmarshal([]byte(m.Attachments), &dbAttachments); err == nil && len(dbAttachments) > 0 {
-				// Phase1: Check model capabilities for historical attachments
-				supportsAll := true
-				for _, att := range dbAttachments {
-					if att.Type == "image" && !caps.ImageInput {
-						supportsAll = false
-						break
-					}
-					if att.Type == "audio" && !caps.AudioInput {
-						supportsAll = false
-						break
-					}
-				}
-				if supportsAll {
-					msg = buildMessageFromAttachments(m.Role, content, dbAttachments)
-				} else {
-					msg = llm.NewTextMessage(m.Role, content)
-				}
-			} else if m.Images != "" {
-				if caps.ImageInput {
-					var imageUrls []string
-					if err := json.Unmarshal([]byte(m.Images), &imageUrls); err == nil && len(imageUrls) > 0 {
-						msg = llm.NewVisionMessage(m.Role, content, imageUrls)
-					} else {
-						msg = llm.NewTextMessage(m.Role, content)
-					}
-				} else {
-					msg = llm.NewTextMessage(m.Role, content)
-				}
-			} else {
-				msg = llm.NewTextMessage(m.Role, content)
-			}
-		} else if m.Role == "user" && m.Images != "" {
-			if caps.ImageInput {
-				var imageUrls []string
-				if err := json.Unmarshal([]byte(m.Images), &imageUrls); err == nil && len(imageUrls) > 0 {
-					msg = llm.NewVisionMessage(m.Role, content, imageUrls)
-				} else {
-					msg = llm.NewTextMessage(m.Role, content)
-				}
-			} else {
-				msg = llm.NewTextMessage(m.Role, content)
-			}
-		} else {
-			msg = llm.NewTextMessage(m.Role, content)
-		}
-		history = append([]llm.ChatMessage{msg}, history...)
-	}
-
-	for len(history) > 0 && history[0].Role != "user" && history[0].Role != "system" {
-		history = history[1:]
-	}
-
-	var cleaned []llm.ChatMessage
-	for i := 0; i < len(history); i++ {
-		msg := history[i]
-		if msg.Role == "tool" {
-			if len(cleaned) > 0 && cleaned[len(cleaned)-1].Role == "assistant" && len(cleaned[len(cleaned)-1].ToolCalls) > 0 {
-				cleaned = append(cleaned, msg)
-			}
-			continue
-		}
-		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
-			hasFollowingTool := false
-			for j := i + 1; j < len(history); j++ {
-				if history[j].Role == "tool" && history[j].ToolCallID != "" {
-					for _, tc := range msg.ToolCalls {
-						if tc.ID == history[j].ToolCallID {
-							hasFollowingTool = true
-							break
-						}
-					}
-				}
-				if hasFollowingTool {
-					break
-				}
-			}
-			if hasFollowingTool {
-				cleaned = append(cleaned, msg)
-			}
-			continue
-		}
-		cleaned = append(cleaned, msg)
-	}
-	history = cleaned
-
-	cleaned = nil
-	for _, m := range history {
-		if len(cleaned) > 0 && cleaned[len(cleaned)-1].Role == "assistant" && m.Role == "assistant" {
-			cleaned[len(cleaned)-1] = m
-		} else {
-			cleaned = append(cleaned, m)
-		}
-	}
-	history = cleaned
+	history = cleanHistoryMessages(history)
 
 	// 构建基础消息列表（system + history）
 	baseMessages := []llm.ChatMessage{
@@ -706,6 +490,283 @@ func (s *Service) buildLLMMessages(ctx context.Context, convID string, dbMsgs []
 	}
 
 	return messages, false, nil
+}
+
+// cleanHistoryMessages 清理历史消息列表，三步操作：
+//  1. 砍掉开头非 user/system 的消息（避免以 assistant/tool 开头导致 LLM 困惑）
+//  2. 清除孤立的 tool 消息和没有后续 tool 响应的 assistant(ToolCalls) 消息
+//  3. 合并连续的 assistant 消息（保留最后一条）
+//
+// 这是一个纯函数，不依赖 Service 状态，可独立单测。
+// 生活类比：像整理对话记录时，先丢掉开头没说完的话，再清理没人回应的自言自语，最后把连续的回复合并成一条。
+func cleanHistoryMessages(history []llm.ChatMessage) []llm.ChatMessage {
+	// 步骤 1：砍掉开头非 user/system 的消息
+	for len(history) > 0 && history[0].Role != "user" && history[0].Role != "system" {
+		history = history[1:]
+	}
+
+	// 步骤 2：预建索引 ToolCallID -> 该 tool 消息在 history 中的索引
+	// 优化前为 O(N^2*M) 嵌套循环；优化后用 Map 查找表降为 O(M)
+	// 生活类比：原来像在整本书里一页页翻找某个脚注，现在先做一张"脚注编号→页码"的索引表，直接查表即可
+	toolMsgIdxByCallID := make(map[string]int)
+	for i, m := range history {
+		if m.Role == "tool" && m.ToolCallID != "" {
+			if _, exists := toolMsgIdxByCallID[m.ToolCallID]; !exists {
+				toolMsgIdxByCallID[m.ToolCallID] = i
+			}
+		}
+	}
+
+	var cleaned []llm.ChatMessage
+	for i := 0; i < len(history); i++ {
+		msg := history[i]
+		if msg.Role == "tool" {
+			// 只保留紧跟在带 ToolCalls 的 assistant 消息后的 tool 消息
+			if len(cleaned) > 0 && cleaned[len(cleaned)-1].Role == "assistant" && len(cleaned[len(cleaned)-1].ToolCalls) > 0 {
+				cleaned = append(cleaned, msg)
+			}
+			continue
+		}
+		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+			// 查表判断是否存在匹配的后续 tool 消息（索引 > i）
+			hasFollowingTool := false
+			for _, tc := range msg.ToolCalls {
+				if idx, ok := toolMsgIdxByCallID[tc.ID]; ok && idx > i {
+					hasFollowingTool = true
+					break
+				}
+			}
+			if hasFollowingTool {
+				cleaned = append(cleaned, msg)
+			}
+			continue
+		}
+		cleaned = append(cleaned, msg)
+	}
+
+	// 步骤 3：合并连续的 assistant 消息（保留最后一条，因为最后一条通常是最终回复）
+	merged := make([]llm.ChatMessage, 0, len(cleaned))
+	for _, m := range cleaned {
+		if len(merged) > 0 && merged[len(merged)-1].Role == "assistant" && m.Role == "assistant" {
+			merged[len(merged)-1] = m
+		} else {
+			merged = append(merged, m)
+		}
+	}
+	return merged
+}
+
+// retrieveRAGContext 执行 RAG 检索，返回与当前用户输入相关的上下文文本。
+// 流程：复制 RAG 状态 → 嵌入 query → HybridSearch → 可选 rerank → 拼成 ragContext 字符串。
+// 生活类比：像在图书馆查资料——先把问题翻译成检索词（嵌入），再用关键词+语义两种方式找书（HybridSearch），
+// 如果有图书管理员（reranker）还会帮你按相关性重新排序，最后把找到的资料摘抄成一张摘要卡片（ragContext）。
+//
+// 注意：内部使用独立的 5 秒超时 context，defer cancel 随调用一起释放。
+func (s *Service) retrieveRAGContext(ctx context.Context, cfg *config.Config, currentUserContent string) string {
+	// 在持有读锁期间复制 RAG 状态，避免检索过程中配置被并发修改导致指针/集合不一致
+	s.ragMu.RLock()
+	ragEnabled := s.ragEnabled
+	ragVectorStore := s.ragVectorStore
+	ragEmbedder := s.ragEmbedder
+	ragCollection := s.ragCollection
+	s.ragMu.RUnlock()
+
+	if !ragEnabled || ragVectorStore == nil || ragEmbedder == nil || ragCollection == "" || currentUserContent == "" {
+		return ""
+	}
+
+	// 使用传入的 ctx 派生 RAG 超时上下文，使取消能传播到嵌入调用
+	ctxRag, cancelRag := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelRag()
+
+	vecs, err := ragEmbedder.Embed(ctxRag, []string{currentUserContent})
+	if err != nil || len(vecs) == 0 || len(vecs[0]) == 0 {
+		return ""
+	}
+
+	topK := 0
+	if cfg != nil {
+		topK = cfg.RAGTopK
+	}
+	if topK <= 0 {
+		topK = 3
+	}
+	minScore := 0.0
+	if cfg != nil {
+		minScore = cfg.RAGMinScore
+	}
+	if minScore <= 0 {
+		minScore = 0.3
+	}
+
+	// 混合检索：向量语义 + BM25 关键词，RRF 融合
+	hybridResults, err2 := ragVectorStore.HybridSearch(ragCollection, vecs[0], currentUserContent, topK, minScore)
+	if err2 != nil || len(hybridResults) == 0 {
+		return ""
+	}
+
+	// RAG rerank 重排序：当配置了 reranker 模型时，对 HybridSearch 结果进行重排序
+	if cfg != nil && cfg.RerankerModelPath != "" && s.llmClient != nil {
+		rerankTopN := cfg.RerankTopN
+		if rerankTopN <= 0 {
+			rerankTopN = 5
+		}
+		documents := make([]string, len(hybridResults))
+		for i, r := range hybridResults {
+			documents[i] = r.ChunkContent
+		}
+		rerankStart := time.Now()
+		rerankResults, rerankErr := s.llmClient.Rerank(ctxRag, currentUserContent, documents, rerankTopN)
+		rerankElapsed := time.Since(rerankStart)
+		if rerankErr != nil {
+			log.Warn().Err(rerankErr).Int("before", len(hybridResults)).Msg("[rag] rerank failed, fallback to hybrid results")
+		} else {
+			log.Info().Int("before", len(hybridResults)).Int("after", len(rerankResults)).Dur("elapsed", rerankElapsed).Msg("[rag] rerank success")
+			reranked := make([]rag.HybridSearchResult, 0, len(rerankResults))
+			for _, rr := range rerankResults {
+				if rr.Index >= 0 && rr.Index < len(hybridResults) {
+					reranked = append(reranked, hybridResults[rr.Index])
+				}
+			}
+			if len(reranked) > 0 {
+				hybridResults = reranked
+			}
+		}
+	}
+
+	return buildRAGContext(hybridResults)
+}
+
+// buildHistoryFromDB 从数据库消息构建 LLM 历史消息列表。
+// 反向遍历 dbMsgs（从最新到最旧），逐条转换为 llm.ChatMessage，累计 tokens 超出预算则停止。
+// 生活类比：像整理一摞聊天记录，从最新的往前翻，把每条翻译成 LLM 能懂的格式，
+// 翻到装不下为止，没翻完的就标记为"需要摘要"（trimmedMsgs）。
+//
+// 参数：
+//   - initialTokens: system+RAG 已占用的 tokens，作为累加起点
+//   - effectiveMax: 有效 token 上限（maxContext - reserve）
+//
+// 返回：
+//   - history: 转换后的历史消息（正序，即最旧在前最新在后）
+//   - trimmedMsgs: 被裁剪的消息（超限未能放入 history 的更早消息），用于后续摘要生成
+func (s *Service) buildHistoryFromDB(dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment, caps llm.ModelCapabilities, initialTokens, effectiveMax int) ([]llm.ChatMessage, []*store.Message) {
+	var history []llm.ChatMessage
+	var trimmedMsgs []*store.Message
+	estimatedTokens := initialTokens
+
+	if len(dbMsgs) == 0 {
+		return history, trimmedMsgs
+	}
+
+	lastMsgID := dbMsgs[len(dbMsgs)-1].ID
+
+	for i := len(dbMsgs) - 1; i >= 0; i-- {
+		m := dbMsgs[i]
+
+		estimated := estimateMessageTokens(m)
+		if estimated == 0 {
+			estimated = 1
+		}
+		if m.ID == lastMsgID && len(currentAttachments) > 0 {
+			for _, att := range currentAttachments {
+				estimated += EstimateAttachmentTokensWithData(att.Type, att.Data)
+			}
+		}
+		if estimatedTokens+estimated > effectiveMax {
+			// 收集被裁剪的消息（索引 0 到 i，即更早的消息）
+			trimmedMsgs = dbMsgs[:i+1]
+			break
+		}
+		estimatedTokens += estimated
+
+		if m.Role == "tool" {
+			msg := llm.ChatMessage{
+				Role:       "tool",
+				Content:    m.Content,
+				ToolCallID: m.ToolCallID,
+			}
+			history = append([]llm.ChatMessage{msg}, history...)
+			continue
+		}
+
+		if m.Role == "assistant" && m.ToolCalls != "" {
+			var toolCalls []llm.ToolCall
+			if err := json.Unmarshal([]byte(m.ToolCalls), &toolCalls); err == nil && len(toolCalls) > 0 {
+				msg := llm.ChatMessage{
+					Role:      "assistant",
+					Content:   m.Content,
+					ToolCalls: toolCalls,
+				}
+				history = append([]llm.ChatMessage{msg}, history...)
+				continue
+			}
+		}
+
+		content := m.Content
+		if m.Role == "user" {
+			if m.ID == lastMsgID {
+				content = currentUserContent
+			}
+			if content == "" && (m.Images != "" || m.Attachments != "") {
+				content = "请描述这张图片"
+			}
+		}
+
+		var msg llm.ChatMessage
+		if m.Role == "user" && m.ID == lastMsgID && len(currentAttachments) > 0 {
+			msg = buildMessageFromAttachments(m.Role, content, currentAttachments)
+		} else if m.Role == "user" && m.Attachments != "" {
+			var dbAttachments []Attachment
+			if err := json.Unmarshal([]byte(m.Attachments), &dbAttachments); err == nil && len(dbAttachments) > 0 {
+				// Phase1: Check model capabilities for historical attachments
+				supportsAll := true
+				for _, att := range dbAttachments {
+					if att.Type == "image" && !caps.ImageInput {
+						supportsAll = false
+						break
+					}
+					if att.Type == "audio" && !caps.AudioInput {
+						supportsAll = false
+						break
+					}
+				}
+				if supportsAll {
+					msg = buildMessageFromAttachments(m.Role, content, dbAttachments)
+				} else {
+					msg = llm.NewTextMessage(m.Role, content)
+				}
+			} else if m.Images != "" {
+				if caps.ImageInput {
+					var imageUrls []string
+					if err := json.Unmarshal([]byte(m.Images), &imageUrls); err == nil && len(imageUrls) > 0 {
+						msg = llm.NewVisionMessage(m.Role, content, imageUrls)
+					} else {
+						msg = llm.NewTextMessage(m.Role, content)
+					}
+				} else {
+					msg = llm.NewTextMessage(m.Role, content)
+				}
+			} else {
+				msg = llm.NewTextMessage(m.Role, content)
+			}
+		} else if m.Role == "user" && m.Images != "" {
+			if caps.ImageInput {
+				var imageUrls []string
+				if err := json.Unmarshal([]byte(m.Images), &imageUrls); err == nil && len(imageUrls) > 0 {
+					msg = llm.NewVisionMessage(m.Role, content, imageUrls)
+				} else {
+					msg = llm.NewTextMessage(m.Role, content)
+				}
+			} else {
+				msg = llm.NewTextMessage(m.Role, content)
+			}
+		} else {
+			msg = llm.NewTextMessage(m.Role, content)
+		}
+		history = append([]llm.ChatMessage{msg}, history...)
+	}
+
+	return history, trimmedMsgs
 }
 
 // 测试导出函数

@@ -4,13 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"time"
 
 	"douya/internal/secrets"
 )
 
 func GetSetting(db *sql.DB, key string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), dbOpTimeout)
 	defer cancel()
 	var value string
 	err := db.QueryRowContext(ctx,
@@ -27,7 +26,7 @@ func GetSetting(db *sql.DB, key string) (string, error) {
 }
 
 func SetSetting(db *sql.DB, key, value string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), dbOpTimeout)
 	defer cancel()
 	_, err := db.ExecContext(ctx,
 		"INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",

@@ -332,7 +332,9 @@ func bytesToVector(b []byte, dim int) ([]float64, error) {
 		return nil, fmt.Errorf("expected %d bytes, got %d", dim*8, len(b))
 	}
 	v := make([]float64, dim)
-	binary.Read(bytes.NewReader(b), binary.LittleEndian, v)
+	if err := binary.Read(bytes.NewReader(b), binary.LittleEndian, v); err != nil {
+		return nil, fmt.Errorf("failed to decode vector: %w", err)
+	}
 	return v, nil
 }
 
