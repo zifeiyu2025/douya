@@ -42,3 +42,7 @@ Thumbs.db
 # Misc
 *.md5
 focus_*.ps1
+
+# Release artifacts
+*.zip
+security_best_practices_report.md
