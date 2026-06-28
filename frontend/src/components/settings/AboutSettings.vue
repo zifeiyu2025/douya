@@ -138,7 +138,7 @@ import appIcon from '../../assets/images/appicon.png'
 const GITHUB_URL = 'https://github.com/zifeiyu2025/douya'
 
 const message = useMessage()
-const currentVersion = ref('0.9.0')
+const currentVersion = ref('0.10.2')
 const updateStatus = ref<'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'installing' | 'error'>('idle')
 const updateInfo = ref<UpdateInfo | null>(null)
 const downloadPercent = ref(0)
@@ -149,7 +149,7 @@ async function loadVersion() {
     currentVersion.value = await wails.getAppVersion()
   } catch {
     // 后端方法未就绪时使用 package.json 中的版本
-    currentVersion.value = '0.9.0'
+    currentVersion.value = '0.10.2'
   }
 }
 
