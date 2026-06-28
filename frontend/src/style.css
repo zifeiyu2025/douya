@@ -248,7 +248,7 @@ html.dark {
   inset: 0;
   pointer-events: none;
   z-index: 0;
-  opacity: 0.4;
+  opacity: 0.15;
   background-image:
     linear-gradient(to right,
       color-mix(in srgb, var(--accent-primary) 8%, transparent) 1px,
@@ -263,9 +263,9 @@ html.dark {
   will-change: background-position;
 }
 
-/* 用户启用自定义聊天背景时，网格层淡化避免冲突 */
+/* 用户启用自定义聊天背景时，网格层进一步淡化避免冲突 */
 .app-layout:has(.chat-background-active)::after {
-  opacity: 0.15;
+  opacity: 0.08;
 }
 
 /* 尊重用户的减少动画偏好：网格静止 */

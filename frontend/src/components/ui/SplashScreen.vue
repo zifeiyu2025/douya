@@ -124,7 +124,10 @@ const stageText = computed(() => {
   z-index: 1;
 }
 
-/* Logo 区域 */
+/* Logo 区域
+ * 注意：不在 .splash-logo 上用 filter:drop-shadow，否则会模糊整个 SVG 包括内部 <image>
+ * 发光效果改到具体的 circle 元素上（.logo-spinner-ring / .logo-complete-ring）
+ */
 .splash-logo {
   display: flex;
   align-items: center;
@@ -132,18 +135,14 @@ const stageText = computed(() => {
   color: var(--accent-primary);
   transition: color var(--transition-normal);
   animation: logo-enter 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
-  /* SVG 发光效果 */
-  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent-primary) 50%, transparent));
 }
 
 .splash-logo.is-done {
   color: var(--accent-success);
-  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent-success) 60%, transparent));
 }
 
 .splash-logo.is-failed {
   color: var(--accent-danger);
-  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent-danger) 60%, transparent));
 }
 
 @keyframes logo-enter {
@@ -160,6 +159,8 @@ const stageText = computed(() => {
 .logo-spinner-ring {
   transform-origin: 36px 36px;
   animation: spin 1.4s linear infinite;
+  /* 仅圆环发光，不影响内部 Logo 图像 */
+  filter: drop-shadow(0 0 4px currentColor);
 }
 
 /* 完成圆环动画 */
@@ -167,6 +168,8 @@ const stageText = computed(() => {
   stroke-dasharray: 214;
   stroke-dashoffset: 214;
   animation: draw-circle 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  /* 完成时圆环发光 */
+  filter: drop-shadow(0 0 6px currentColor);
 }
 
 @keyframes draw-circle {

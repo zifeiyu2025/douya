@@ -300,10 +300,16 @@ async function handleExport(id: string, format: string) {
   animation: gradient-flow 4s linear infinite;
 }
 
-/* logo-ya 保留纯色（兼容旧结构，渐变已在 .logo-text 整体应用） */
+/* logo-dou / logo-ya：继承父元素渐变流光
+ * 旧代码用 -webkit-text-fill-color: initial 在某些 WebView 下不生效，导致文字透明消失
+ * 改为继承父元素的 background + background-clip:text，让子元素也参与渐变
+ */
 .logo-dou,
 .logo-ya {
-  -webkit-text-fill-color: initial;
+  background: inherit;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 /* ===== 会话列表 stagger 入场 =====
