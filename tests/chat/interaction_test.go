@@ -1827,9 +1827,8 @@ func TestSendMessage_SystemPromptContainsSearchGuidance(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		bodyBytes, _ := io.ReadAll(r.Body)
+		json.Unmarshal(bodyBytes, &req)
 		receivedMessages = req.Messages
 
 		sseData := makeSSEData([]string{
@@ -1853,6 +1852,9 @@ func TestSendMessage_SystemPromptContainsSearchGuidance(t *testing.T) {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
 
+	if len(receivedMessages) == 0 {
+		t.Fatalf("expected receivedMessages to be non-empty, got 0 messages")
+	}
 	systemMsg := receivedMessages[0]
 	if systemMsg.Role != "system" {
 		t.Fatalf("expected first message to be system, got '%s'", systemMsg.Role)

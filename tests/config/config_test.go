@@ -17,14 +17,14 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.ContextSize != 8192 {
 		t.Fatalf("expected ContextSize=8192, got %d", cfg.ContextSize)
 	}
-	if cfg.Temperature != 0.6 {
-		t.Fatalf("expected Temperature=0.6, got %f", cfg.Temperature)
+	if cfg.Temperature != 0.8 {
+		t.Fatalf("expected Temperature=0.8, got %f", cfg.Temperature)
 	}
 	if cfg.TopP != 0.95 {
 		t.Fatalf("expected TopP=0.95, got %f", cfg.TopP)
 	}
-	if cfg.TopK != 20 {
-		t.Fatalf("expected TopK=20, got %d", cfg.TopK)
+	if cfg.TopK != 40 {
+		t.Fatalf("expected TopK=40, got %d", cfg.TopK)
 	}
 	if cfg.RepeatPenalty != 1.0 {
 		t.Fatalf("expected RepeatPenalty=1.0, got %f", cfg.RepeatPenalty)
