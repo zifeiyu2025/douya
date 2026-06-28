@@ -80,32 +80,33 @@ func GetConversation(db *sql.DB, id string, encKey []byte) (*Conversation, error
 }
 
 func ListConversations(db *sql.DB, encKey []byte) ([]*Conversation, error) {
-	var rows *sql.Rows
+	var convs []*Conversation
 	err := withDBTimeout(func(ctx context.Context) error {
-		var err error
-		rows, err = db.QueryContext(ctx,
+		// 整个查询+遍历必须放在同一个 context 内
+		// 原因：withDBTimeout 的 defer cancel() 会在 fn 返回后取消 context，
+		// 若 rows.Next() 在 context 取消后才执行，会返回 "context canceled" 错误
+		rows, err := db.QueryContext(ctx,
 			"SELECT id, title, created_at, updated_at FROM conversations ORDER BY updated_at DESC",
 		)
-		return err
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list conversations: %w", err)
-	}
-	defer rows.Close()
-	var convs []*Conversation
-	for rows.Next() {
-		conv := &Conversation{}
-		if err := rows.Scan(&conv.ID, &conv.Title, &conv.CreatedAt, &conv.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan conversation: %w", err)
+		if err != nil {
+			return fmt.Errorf("list conversations: %w", err)
 		}
-		// 解密标题
-		conv.Title = decryptField(conv.Title, encKey)
-		convs = append(convs, conv)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate conversations: %w", err)
-	}
-	return convs, nil
+		defer rows.Close()
+		for rows.Next() {
+			conv := &Conversation{}
+			if err := rows.Scan(&conv.ID, &conv.Title, &conv.CreatedAt, &conv.UpdatedAt); err != nil {
+				return fmt.Errorf("scan conversation: %w", err)
+			}
+			// 解密标题
+			conv.Title = decryptField(conv.Title, encKey)
+			convs = append(convs, conv)
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("iterate conversations: %w", err)
+		}
+		return nil
+	})
+	return convs, err
 }
 
 func UpdateConversation(db *sql.DB, conv *Conversation, encKey []byte) error {

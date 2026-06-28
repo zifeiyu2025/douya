@@ -257,6 +257,37 @@ func appendBoolArg(args []string, flag string, val bool) []string {
 	return args
 }
 
+// resolvePath 将相对路径解析为相对于 AppDir 的绝对路径。
+// 生活类比：像快递员根据"当前所在楼层"补全收件地址，无论包裹来自哪里都能找到正确位置。
+// 已是绝对路径则原样返回，避免重复处理。
+func (s *Server) resolvePath(p string) string {
+	if p == "" {
+		return ""
+	}
+	p = filepath.Clean(p)
+	if filepath.IsAbs(p) {
+		return p
+	}
+	return filepath.Join(s.config.AppDir, p)
+}
+
+// resolveCommaPaths 解析逗号分隔的路径列表，逐个转换为绝对路径。
+// 用于 LoraPaths 等多路径字段。
+func (s *Server) resolveCommaPaths(paths string) string {
+	if paths == "" {
+		return ""
+	}
+	parts := strings.Split(paths, ",")
+	resolved := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			resolved = append(resolved, s.resolvePath(p))
+		}
+	}
+	return strings.Join(resolved, ",")
+}
+
 // buildStartArgs 根据配置组装 llama-server 启动命令行参数。
 // 从 Start() 抽出以降低单函数复杂度。
 // 这是纯函数：只读 s.config 和 s.mtpFallbackDisabled，不修改任何状态，无副作用。
@@ -446,14 +477,14 @@ func (s *Server) buildStartArgs() []string {
 	}
 	// lookup-cache 仅在 ngram-cache 模式下传递
 	if s.config.LookupCacheStatic != "" && s.config.SpecType == "ngram-cache" {
-		args = append(args, "--lookup-cache-static", s.config.LookupCacheStatic)
+		args = append(args, "--lookup-cache-static", s.resolvePath(s.config.LookupCacheStatic))
 	}
 	if s.config.LookupCacheDynamic != "" && s.config.SpecType == "ngram-cache" {
 		args = append(args, "--lookup-cache-dynamic", s.config.LookupCacheDynamic)
 	}
 	// draft 模型路径：仅在 draft-eagle3/draft-simple 模式下传递
 	if s.config.SpecDraftModel != "" && (s.config.SpecType == "draft-eagle3" || s.config.SpecType == "draft-simple") {
-		args = append(args, "--spec-draft-model", s.config.SpecDraftModel)
+		args = append(args, "--spec-draft-model", s.resolvePath(s.config.SpecDraftModel))
 	}
 
 	// 启用 embedding API（RAG 知识库需要 /v1/embeddings 接口）
@@ -535,8 +566,15 @@ func (s *Server) buildStartArgs() []string {
 	args = appendFloatArg(args, "--adaptive-decay", s.config.AdaptiveDecay, "%.4f")
 	// 模型标签
 	args = appendStringArg(args, "--tags", s.config.Tags)
-	// 媒体路径（多模态模型额外媒体文件目录）
-	args = appendStringArg(args, "--media-path", s.config.MediaPath)
+	// 媒体路径（多模态模型额外媒体文件目录）：仅在目录实际存在时传递，避免指向不存在的目录导致启动失败
+	if s.config.MediaPath != "" {
+		resolvedMediaPath := s.resolvePath(s.config.MediaPath)
+		if info, err := os.Stat(resolvedMediaPath); err == nil && info.IsDir() {
+			args = append(args, "--media-path", resolvedMediaPath)
+		} else {
+			log.Warn().Str("media_path", resolvedMediaPath).Msg("[server] media-path directory does not exist, skipping --media-path")
+		}
+	}
 	// 离线模式（禁用所有网络请求）
 	args = appendBoolArg(args, "--offline", s.config.Offline)
 	// 模型重打包（启动时重新打包模型权重）

@@ -70,6 +70,9 @@ type App struct {
 	encKey           []byte
 	hidden           atomic.Bool
 	exiting          atomic.Bool
+	serverLoadFailed atomic.Bool // 模型加载彻底失败后锁定状态，防止监控循环覆盖错误状态
+	lastServerError  string      // 最后一次服务器/模型加载错误信息
+	lastServerErrMu  sync.RWMutex
 }
 
 func NewApp() *App {

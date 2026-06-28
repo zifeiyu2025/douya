@@ -30,6 +30,7 @@ export type ModelSwitchState =
     | { phase: 'ready_after_switch'; startedAt: number; targetModel: string }
     | { phase: 'failed'; error: string; targetModel: string; rolledBack: boolean; rollbackSuccess: boolean; startedAt: number }
     | { phase: 'timeout'; targetModel: string; startedAt: number }
+    | { phase: 'first_load_failed'; error: string; targetModel: string; startedAt: number }
 
 /** 模型能力标志 */
 export type ModelCapabilityKey = 'image_input' | 'audio_input' | 'video_input' | 'text_input' | 'reasoning'

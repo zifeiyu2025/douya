@@ -18,11 +18,13 @@ import (
 // 同时取消 context 作为兜底确保连接断开。
 // 生活类比：就像挂断电话，先礼貌地说"再见"让对方停止说话，然后挂断线路
 func (s *Service) StopGeneration() {
+	// 快速加锁拷贝状态后立即释放，避免网络 I/O 阻塞 SendMessage 的 defer 清理
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
 	convID := s.currentConvID
 	cancelFn := s.currentCancel
+	s.currentCancel = nil
+	s.currentConvID = ""
+	s.mutex.Unlock()
 
 	// 优先调用 DELETE 端点优雅停止（基于 SSE Replay Buffer 功能）
 	if convID != "" {
@@ -39,7 +41,6 @@ func (s *Service) StopGeneration() {
 	// 兜底：取消 context 确保连接断开
 	if cancelFn != nil {
 		cancelFn()
-		s.currentCancel = nil
 	}
 }
 

@@ -28,6 +28,20 @@ const (
 	apiTimeoutMedium  = 30 * time.Second  // 普通 API 超时
 )
 
+// resolveMediaPath 解析媒体路径并检查目录是否存在，不存在则返回空字符串
+// 防止 llama-server 因 --media-path 指向不存在的目录而启动失败
+func (a *App) resolveMediaPath(mediaPath string) string {
+	if mediaPath == "" {
+		return ""
+	}
+	resolved := resolvePath(mediaPath)
+	if info, err := os.Stat(resolved); err != nil || !info.IsDir() {
+		zlog.Warn().Str("media_path", resolved).Msg("[config] media path directory does not exist, skipping")
+		return ""
+	}
+	return resolved
+}
+
 func (a *App) buildServerConfig() *llm.ServerConfig {
 	cfg := a.getConfig()
 	absServerPath := resolvePath(cfg.LlamaServerPath)
@@ -74,6 +88,48 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		mlock = *cfg.Mlock
 	}
 
+	// MmprojOffload：用户设置优先（config.json 中 mmproj_offload=true 则启用，false 则用智能参数）
+	// 生活类比：就像用户手动调节了空调风向，就听用户的，没调过就用自动模式
+	mmprojOffload := sp.MmprojOffload
+	if cfg.MmprojOffload {
+		mmprojOffload = true
+	}
+
+	// 推测解码参数：用户设置优先，未配置时用智能参数自动启用
+	// 生活类比：就像汽车自动挡，用户没手动换挡就用自动模式，根据路况自动选择最佳挡位
+	specType := cfg.SpecType
+	if specType == "" {
+		specType = sp.SpecType
+	}
+	specDraftNMax := cfg.SpecDraftNMax
+	if specDraftNMax <= 0 {
+		specDraftNMax = sp.SpecDraftNMax
+	}
+	specDraftNMin := cfg.SpecDraftNMin
+	if specDraftNMin <= 0 {
+		specDraftNMin = sp.SpecDraftNMin
+	}
+	cacheTypeKDraft := cfg.CacheTypeKDraft
+	if cacheTypeKDraft == "" {
+		cacheTypeKDraft = sp.CacheTypeKDraft
+	}
+	cacheTypeVDraft := cfg.CacheTypeVDraft
+	if cacheTypeVDraft == "" {
+		cacheTypeVDraft = sp.CacheTypeVDraft
+	}
+	ngramModNMin := cfg.SpecNgramModNMin
+	if ngramModNMin <= 0 {
+		ngramModNMin = sp.NgramModNMin
+	}
+	ngramModNMax := cfg.SpecNgramModNMax
+	if ngramModNMax <= 0 {
+		ngramModNMax = sp.NgramModNMax
+	}
+	ngramModNMatch := cfg.SpecNgramModNMatch
+	if ngramModNMatch <= 0 {
+		ngramModNMatch = sp.NgramModNMatch
+	}
+
 	// 线程数：用户设置优先
 	threads := sp.Threads
 	if cfg.Threads > 0 {
@@ -116,7 +172,7 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		CacheTypeV:               sp.CacheTypeV,
 		Mlock:                    mlock,
 		MmprojAuto:               cfg.MmprojAuto,
-		MmprojOffload:            sp.MmprojOffload,
+		MmprojOffload:            mmprojOffload,
 		KVUnified:                cfg.KVUnified,
 		CacheIdleSlots:           cfg.CacheIdleSlots,
 		CacheRAM:                 cfg.CacheRAM,
@@ -153,14 +209,14 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		SpecDefault:              cfg.SpecDefault,
 		Device:                   cfg.Device,
 		Parallel:                 cfg.Parallel,
-		SpecType:                 cfg.SpecType,
-		SpecDraftNMax:            cfg.SpecDraftNMax,
-		SpecDraftNMin:            cfg.SpecDraftNMin,
-		CacheTypeKDraft:          cfg.CacheTypeKDraft,
-		CacheTypeVDraft:          cfg.CacheTypeVDraft,
-		SpecNgramModNMin:         cfg.SpecNgramModNMin,
-		SpecNgramModNMax:         cfg.SpecNgramModNMax,
-		SpecNgramModNMatch:       cfg.SpecNgramModNMatch,
+		SpecType:                 specType,
+		SpecDraftNMax:            specDraftNMax,
+		SpecDraftNMin:            specDraftNMin,
+		CacheTypeKDraft:          cacheTypeKDraft,
+		CacheTypeVDraft:          cacheTypeVDraft,
+		SpecNgramModNMin:         ngramModNMin,
+		SpecNgramModNMax:         ngramModNMax,
+		SpecNgramModNMatch:       ngramModNMatch,
 		SpecNgramSimpleSizeN:     cfg.SpecNgramSimpleSizeN,
 		SpecNgramSimpleSizeM:     cfg.SpecNgramSimpleSizeM,
 		SpecNgramSimpleMinHits:   cfg.SpecNgramSimpleMinHits,
@@ -200,7 +256,7 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		AdaptiveTarget:           cfg.AdaptiveTarget,
 		AdaptiveDecay:            cfg.AdaptiveDecay,
 		Tags:                     cfg.Tags,
-		MediaPath:                cfg.MediaPath,
+		MediaPath:                a.resolveMediaPath(cfg.MediaPath),
 		Offline:                  cfg.Offline,
 		Repack:                   cfg.Repack,
 		Agent:                    cfg.Agent,
@@ -428,6 +484,10 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 	a.watchCancel = watchCancel
 	a.serverMu.Unlock()
 	go srv.WatchWithCallback(watchCtx, func(status llm.ServerStatus) {
+		// 启动/加载已彻底失败，不再让监控循环覆盖错误状态
+		if a.serverLoadFailed.Load() {
+			return
+		}
 		if a.isSwitching.Load() {
 			return
 		}
@@ -504,6 +564,11 @@ func (a *App) watchServerHealth(ctx context.Context, watchCtx context.Context) {
 		case <-watchCtx.Done():
 			return
 		case <-ticker.C:
+		}
+
+		// 启动/加载已彻底失败，停止健康监控，避免覆盖错误状态
+		if a.serverLoadFailed.Load() {
+			return
 		}
 
 		// 正在生成时跳过轮询，避免与生成请求争用 HTTP 连接池
@@ -592,6 +657,17 @@ func (a *App) watchServerHealth(ctx context.Context, watchCtx context.Context) {
 }
 
 func (a *App) GetServerStatus() llm.ServerStatus {
+	// 若已记录启动/加载失败，优先返回持久化错误状态，避免监控循环覆盖
+	if a.serverLoadFailed.Load() {
+		a.lastServerErrMu.RLock()
+		errMsg := a.lastServerError
+		a.lastServerErrMu.RUnlock()
+		return llm.ServerStatus{
+			Running:    false,
+			ModelReady: false,
+			Error:      errMsg,
+		}
+	}
 	a.serverMu.Lock()
 	srv := a.server
 	a.serverMu.Unlock()
@@ -951,6 +1027,10 @@ func (a *App) emitSwitchingStatus(modelName string) {
 // 注意：ctx 参数通常是请求级 context（如 startServerAndWatch 的入参），
 // 保持与原有内联调用一致的行为；handleSwitchFailure 等无请求级 ctx 的场景传 a.ctx。
 func (a *App) emitErrorStatus(ctx context.Context, errMsg string) {
+	a.lastServerErrMu.Lock()
+	a.lastServerError = errMsg
+	a.lastServerErrMu.Unlock()
+	a.serverLoadFailed.Store(true)
 	runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
 		Running:    false,
 		ModelReady: false,
@@ -1675,7 +1755,9 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 
 	// 模型切换后重置 LoRA 适配器为未应用状态（scale=0）
 	// 用户可在设置界面重新启用需要的适配器
-	if a.client != nil {
+	// 仅在配置了 LoRA 路径时才调用，否则 llama-server 未加载任何适配器，
+	// 调用 /lora-adapters 端点会返回 400 错误（model name is missing）
+	if a.client != nil && a.getConfig().LoraPaths != "" {
 		loraCtx, loraCancel := context.WithTimeout(a.ctx, 5*time.Second)
 		if adapters, err := a.client.GetLoraAdapters(loraCtx); err == nil && len(adapters) > 0 {
 			// 将所有适配器的 scale 设为 0（保留列表，不删除）

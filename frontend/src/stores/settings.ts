@@ -93,7 +93,7 @@ export const useSettingsStore = defineStore('settings', () => {
         if (s.phase === 'first_load' || s.phase === 'switching' || s.phase === 'ready_after_switch' || s.phase === 'timeout') {
             return formatModelName(s.targetModel).display
         }
-        if (s.phase === 'failed') {
+        if (s.phase === 'failed' || s.phase === 'first_load_failed') {
             return formatModelName(s.targetModel).display
         }
         return ''
@@ -107,7 +107,9 @@ export const useSettingsStore = defineStore('settings', () => {
         const s = switchState.value
         return s.phase === 'switching' ? s.previousModel : ''
     })
-    const modelLoadFailed = computed(() => switchState.value.phase === 'failed')
+    const modelLoadFailed = computed(() =>
+        switchState.value.phase === 'failed' || switchState.value.phase === 'first_load_failed'
+    )
 
     /** SwitchProgress（兼容旧接口） */
     const switchProgress = computed<SwitchProgress>(() => {
@@ -160,11 +162,27 @@ export const useSettingsStore = defineStore('settings', () => {
                 rolledBack: false,
             }
         }
+        if (s.phase === 'first_load_failed') {
+            return {
+                ...base,
+                stage: 'failed',
+                targetModel: formatModelName(s.targetModel).display,
+                errorMessage: s.error,
+                startTime: s.startedAt,
+                endTime: Date.now(),
+                rolledBack: false,
+            }
+        }
         return base
     })
 
     const isFirstLoad = computed(() => {
-        return !hasEverBeenReady.value && !serverStatus.value.model_ready && !serverStatus.value.error && !isModelSwitching.value
+        const phase = switchState.value.phase
+        return !hasEverBeenReady.value
+            && !serverStatus.value.model_ready
+            && !serverStatus.value.error
+            && phase !== 'first_load_failed'
+            && !isModelSwitching.value
     })
 
     // ----- 状态机转换函数 -----
@@ -217,6 +235,18 @@ export const useSettingsStore = defineStore('settings', () => {
         }
         if (prev && !rolledBack) {
             currentModel.value = prev
+        }
+    }
+
+    /** 首次启动加载失败（终态，不自动恢复） */
+    function finishFirstLoadFailure(err: string, targetModel: string) {
+        const s = switchState.value
+        const startedAt = 'startedAt' in s ? s.startedAt : Date.now()
+        switchState.value = {
+            phase: 'first_load_failed',
+            error: err,
+            targetModel: targetModel || '',
+            startedAt,
         }
     }
 
@@ -350,8 +380,8 @@ export const useSettingsStore = defineStore('settings', () => {
         }
     })
     watch(() => switchState.value.phase, (phase) => {
-        // phase 进入 done(ready_after_switch)/failed/timeout 时停止轮询
-        if (phase === 'ready_after_switch' || phase === 'failed' || phase === 'timeout') {
+        // phase 进入 done(ready_after_switch)/failed/timeout/first_load_failed 时停止轮询
+        if (phase === 'ready_after_switch' || phase === 'failed' || phase === 'timeout' || phase === 'first_load_failed') {
             stopStartupPolling()
         }
     })
@@ -543,8 +573,11 @@ export const useSettingsStore = defineStore('settings', () => {
             // 后端错误事件触发 failed 状态（仅在 first_load/switching 阶段，避免 idle 时误标记失败）
             if (status.running === false && status.error) {
                 const phase = switchState.value.phase
-                if (phase === 'first_load' || phase === 'switching') {
-                    const prev = phase === 'switching' && 'previousModel' in switchState.value
+                if (phase === 'first_load') {
+                    // 首次启动加载失败进入终态，不自动恢复，避免无限"初始化中"
+                    finishFirstLoadFailure(status.error, currentModel.value)
+                } else if (phase === 'switching') {
+                    const prev = 'previousModel' in switchState.value
                         ? switchState.value.previousModel
                         : currentModel.value
                     finishFailure(status.error, prev, false, false)

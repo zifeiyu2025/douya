@@ -179,8 +179,11 @@ export const useChatStore = defineStore('chat', () => {
             if (!currentConversationId.value && conversations.value.length > 0) {
                 await selectConversation(conversations.value[0].id)
             }
+            // 加载成功后清除错误
+            lastError.value = ''
         } catch (e) {
             console.error('加载会话列表失败:', e)
+            lastError.value = e instanceof Error ? e.message : String(e || '加载会话列表失败')
         } finally {
             isLoadingConversations.value = false
         }
@@ -625,6 +628,7 @@ export const useChatStore = defineStore('chat', () => {
         }
         clearTimers()
 
+        // 兜底：若 stopped 事件未到达，2 秒后强制清除生成状态
         addTimer(() => {
             const convId = generatingConvId.value
             if (convId) {
@@ -632,7 +636,7 @@ export const useChatStore = defineStore('chat', () => {
                 clearConvState(state)
             }
             generatingConvId.value = ''
-        }, 5000)
+        }, 2000)
     }
 
     // 新建对话：懒创建模式，只清空当前会话状态

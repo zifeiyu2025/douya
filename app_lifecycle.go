@@ -148,6 +148,9 @@ func (a *App) startup(ctx context.Context) {
 		a.ragDS = rag.NewDocumentStore(ragVS.DB())
 		// 嵌入模型：优先使用专用嵌入模型，否则使用当前聊天模型
 		embedModel := cfg.EmbeddingModel
+		if embedModel != "" {
+			embedModel = resolvePath(embedModel)
+		}
 		if embedModel == "" {
 			a.currentModelMu.RLock()
 			embedModel = a.currentModelName

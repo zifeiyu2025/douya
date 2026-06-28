@@ -208,6 +208,7 @@ func (a *StreamAccumulator) resetForNextCall() {
 	a.ThinkingStartTime = time.Time{}
 	a.ThinkingDuration = 0
 	a.ThinkingDone = false
+	a.CompletionID = "" // 重置 completion ID，让下一轮流式请求能捕获新的 ID
 }
 
 func clampDuration(d float64) float64 {
@@ -344,6 +345,7 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 	// 在函数入口获取快照，避免循环中反复加锁和数据竞争
 	cfg := s.getConfigSnapshot()
 	client := s.getClientSnapshot()
+	defer s.setCurrentCompletionID("") // 工具调用循环结束后清除 completion ID
 	hitMaxRounds := false
 	for round := 0; round < maxRounds; round++ {
 		hitMaxRounds = round == maxRounds-1
@@ -494,7 +496,19 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 		toolCtx, toolCancel := context.WithTimeout(cancelCtx, streamRequestTimeout)
 		// tool call 每轮使用独立的 convID，避免 SSE Replay Buffer 冲突
 		toolConvID := fmt.Sprintf("%s::round%d", convID, round)
-		err := client.StreamChatWithConvID(toolCtx, req, toolConvID, acc.callback())
+		// 包装 callback：在收到 completion ID 时同步到 Service，供 StopThinking 使用
+		toolInner := acc.callback()
+		toolWrapped := func(chunk llm.SSEChunk) error {
+			err := toolInner(chunk)
+			if err != nil {
+				return err
+			}
+			if acc.CompletionID != "" {
+				s.setCurrentCompletionID(acc.CompletionID)
+			}
+			return nil
+		}
+		err := client.StreamChatWithConvID(toolCtx, req, toolConvID, toolWrapped)
 		toolCancel()
 		if err != nil {
 			if cancelCtx.Err() == context.Canceled {
@@ -760,10 +774,16 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 	// 包装 callback，在收到 completion ID 时同步到 Service（供 StopThinking 使用）
 	innerCallback := acc.callback()
 	wrappedCallback := func(chunk llm.SSEChunk) error {
-		if chunk.ID != "" && acc.CompletionID != "" {
+		// 先调用 innerCallback 让它缓存 chunk.ID 到 acc.CompletionID
+		err := innerCallback(chunk)
+		if err != nil {
+			return err
+		}
+		// 再同步到 Service，确保首个带 ID 的 chunk 也能立即被 StopThinking 使用
+		if acc.CompletionID != "" {
 			s.setCurrentCompletionID(acc.CompletionID)
 		}
-		return innerCallback(chunk)
+		return nil
 	}
 
 	// 启用 SSE Replay Buffer：传入 convID 让 llama-server 缓冲 SSE 字节

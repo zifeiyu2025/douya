@@ -303,6 +303,8 @@ const toggleConsole = () => {
 // SplashScreen 逻辑
 const modelLoadTimeout = computed(() => settingsStore.switchState.phase === 'timeout')
 const showSplash = computed(() => {
+  // 首次启动已彻底失败，仍显示启动屏展示错误（但不转圈）
+  if (settingsStore.switchState.phase === 'first_load_failed') return true
   // 首次加载未就绪时显示 splash（无论 failed 还是 timeout 都仍显示）
   // SplashScreen 组件会根据 stage 决定是否转圈（timeout/failed 均映射为 'failed' stage，停止转圈）
   if (!settingsStore.hasEverBeenReady) return true
@@ -311,7 +313,10 @@ const showSplash = computed(() => {
   return false
 })
 
-const splashStage = computed(() => settingsStore.switchProgress.stage)
+const splashStage = computed(() => {
+  if (settingsStore.switchState.phase === 'first_load_failed') return 'failed'
+  return settingsStore.switchProgress.stage
+})
 
 const splashModelName = computed(() => {
   const name = settingsStore.switchProgress.targetModel || settingsStore.currentModel
@@ -658,19 +663,23 @@ async function updateMaximizedState() {
 }
 
 onMounted(async () => {
+  // 1. 最早注册所有事件监听器，确保不遗漏后端推送的早期事件
   chatStore.initStreamListener()
   settingsStore.initStatusListener()
   settingsStore.initSwitchProgressListener()
   settingsStore.initMmprojUnavailableListener()
   settingsStore.initModelLoadProgressListener()
-  chatStore.loadConversations()
-  await settingsStore.loadConfig()
 
-  // 首次启动：当后端 ready 标志位置位（server:status 推送 running=true）后重新加载会话列表
-  // 原因：onMounted 同步调用 loadConversations 时 a.ready 可能仍为 false，会被后端拒掉
+  // 2. 所有 watch 必须在 await 之前注册
+  //    原因：await 期间后端可能已推送状态变化，延迟注册会错过首次事件导致无限转圈或会话列表不加载
+
+  // 模型加载成功（model_ready=true）后加载会话列表
+  // - 用 model_ready 而非 running：running 在 LoadModel 之前就为 true，但模型尚未就绪
+  // - model_ready 只在模型真正加载完成后置 true，失败时永远为 false（符合"失败后不加载"）
+  // - immediate: 捕获 watch 注册时已有的状态（await 期间可能已变化）
   let hasLoadedOnReady = false
-  watch(() => settingsStore.serverStatus.running, (running) => {
-    if (running && !hasLoadedOnReady) {
+  watch(() => settingsStore.serverStatus.model_ready, (ready) => {
+    if (ready && !hasLoadedOnReady) {
       hasLoadedOnReady = true
       chatStore.loadConversations()
     }
@@ -683,6 +692,10 @@ onMounted(async () => {
     if (!errorVal || hasShownStartupError) return
     // 仅在首次加载阶段（从未就绪过）弹出 dialog，避免与手动切换模型的提示重复
     if (settingsStore.hasEverBeenReady) return
+    // 仅在 first_load/switching 阶段弹窗，避免 idle 阶段（后端引擎尚未启动）
+    // 的 "server not initialized" 等早期错误触发误弹窗
+    const phase = settingsStore.switchState.phase
+    if (phase !== 'first_load' && phase !== 'switching') return
     hasShownStartupError = true
     const guidance = classifyError(errorVal)
     if (guidance) {
@@ -693,8 +706,19 @@ onMounted(async () => {
         positiveText: '知道了',
         style: { whiteSpace: 'pre-wrap' },
       })
+    } else {
+      // 未匹配到已知错误分类时，也弹窗显示原始错误信息
+      discreteDialog.error({
+        title: '模型加载失败',
+        content: `启动引擎时发生错误，请根据以下信息排查：\n\n错误详情：${errorVal}\n\n可尝试：\n1. 查看设置中的模型路径和参数配置是否正确\n2. 检查 runtime/ 和 models/ 目录文件是否完整\n3. 查看控制台日志获取更多详细信息`,
+        positiveText: '知道了',
+        style: { whiteSpace: 'pre-wrap' },
+      })
     }
-  })
+  }, { immediate: true })
+
+  // 3. 加载配置（await 可能耗时，但 watch 已注册，不会错过期间的事件）
+  await settingsStore.loadConfig()
 
   wails.onAbnormalCleanup((data) => {
     chatStore.loadConversations()

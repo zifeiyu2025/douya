@@ -179,7 +179,8 @@ async function handleStopThinking() {
     await wails.stopThinking()
     // 成功后由 store 在收到后续正文 token 时将 isThinking 置 false，按钮自动隐藏
   } catch (e) {
-    message.error('直接回答请求失败，请重试')
+    const errMsg = e instanceof Error ? e.message : String(e || '直接回答请求失败')
+    message.error(`直接回答失败：${errMsg}`)
     console.error('停止思考失败:', e)
   } finally {
     isStoppingThinking.value = false

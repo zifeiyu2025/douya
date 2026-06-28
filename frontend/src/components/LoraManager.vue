@@ -210,6 +210,13 @@ watch(() => props.loraPaths, (newVal) => {
 
 // 加载 LoRA 适配器列表
 async function loadAdapters() {
+  // 未配置 LoRA 路径时，llama-server 不会加载任何适配器，
+  // 调用 /lora-adapters 端点会返回 400 错误（model name is missing）
+  if (parsePaths(props.loraPaths).length === 0) {
+    adapters.value = []
+    errorMsg.value = ''
+    return
+  }
   loading.value = true
   errorMsg.value = ''
   try {

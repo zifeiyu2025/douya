@@ -649,15 +649,20 @@ function scheduleAutoSave() {
   if (genParamsSaveTimer) {
     clearTimeout(genParamsSaveTimer)
   }
+  // 300ms 防抖：用户感知为即时保存，同时避免快速输入时频繁写盘
   genParamsSaveTimer = setTimeout(() => {
     autoSave()
-  }, 1500)
+  }, 300)
 }
 
 onUnmounted(() => {
+  // 离开设置页时如有未保存的修改，立即同步保存，避免丢失
   if (genParamsSaveTimer) {
     clearTimeout(genParamsSaveTimer)
     genParamsSaveTimer = null
+    if (genParamsDirty.value) {
+      autoSave()
+    }
   }
 })
 
