@@ -1,5 +1,5 @@
 <template>
-  <div class="think-block">
+  <div class="think-block" :class="{ 'is-thinking': isThinking }">
     <div class="think-block-header" @click="expanded = !expanded">
       <n-icon size="18" :class="{ rotated: expanded }">
         <ChevronForwardOutline />
@@ -10,6 +10,8 @@
       <span v-else>思考过程</span>
     </div>
     <div v-if="expanded" class="think-block-content">
+      <!-- 左边缘脉络流光：仅思考中显示，沿边缘上下流动 -->
+      <div class="think-vein" aria-hidden="true"></div>
       <div class="think-block-content-inner markdown-body" v-html="renderedContent" />
     </div>
   </div>
@@ -117,13 +119,58 @@ const formattedDuration = computed(() => {
 
 .think-block-content {
   margin-top: 8px;
-  padding: 12px 16px;
+  padding: 12px 16px 12px 18px;
   background: var(--bg-tertiary);
   border-radius: var(--border-radius-md);
   border: 1px solid var(--border-color);
   font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.65;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 左边缘脉络流光条
+ * - 默认（思考完成）：静态淡色条作为视觉装饰
+ * - 思考中（is-thinking）：accent 色高亮 + 上下流动的渐变光带
+ */
+.think-vein {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--border-color);
+  opacity: 0.6;
+  transition: background 0.3s ease, opacity 0.3s ease;
+}
+
+.think-block.is-thinking .think-vein {
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    var(--accent-warning) 30%,
+    color-mix(in srgb, var(--accent-warning) 60%, white) 50%,
+    var(--accent-warning) 70%,
+    transparent 100%
+  );
+  background-size: 100% 200%;
+  opacity: 1;
+  animation: vein-flow 2s ease-in-out infinite;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent-warning) 60%, transparent);
+  will-change: background-position;
+}
+
+@keyframes vein-flow {
+  0% { background-position: 0 -100%; }
+  100% { background-position: 0 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .think-block.is-thinking .think-vein {
+    animation: none;
+    background: var(--accent-warning);
+  }
 }
 
 .thinking-dots span {

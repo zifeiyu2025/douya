@@ -220,12 +220,59 @@ html.dark {
   100% { transform: translateY(0); opacity: 1; }
 }
 
+/* ===== HUD 网格底纹 =====
+ * 极淡的科技感网格线作为页面氛围层
+ * - 两条 linear-gradient 组合（横+竖）形成网格
+ * - opacity 极低（0.025），不干扰阅读
+ * - 颜色跟随 accent-primary 自动适配主题
+ * - background-attachment: fixed 避免滚动时网格跟随移动
+ */
+@keyframes hud-grid-drift {
+  0% { background-position: 0 0, 0 0; }
+  100% { background-position: 40px 40px, 40px 40px; }
+}
+
 /* ===== 性能优化：CSS containment 隔离 =====
  * contain: layout style 限制浏览器重排范围
  * content-visibility 仅对非视口元素使用，避免流式容器高度抖动
  */
 .app-layout {
   contain: layout style;
+  position: relative;
+}
+
+/* HUD 网格背景层：叠加在用户自定义背景之上、所有内容之下 */
+.app-layout::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.4;
+  background-image:
+    linear-gradient(to right,
+      color-mix(in srgb, var(--accent-primary) 8%, transparent) 1px,
+      transparent 1px),
+    linear-gradient(to bottom,
+      color-mix(in srgb, var(--accent-primary) 8%, transparent) 1px,
+      transparent 1px);
+  background-size: 40px 40px, 40px 40px;
+  background-position: 0 0, 0 0;
+  /* 极慢漂移，营造科技感氛围但不分散注意力 */
+  animation: hud-grid-drift 60s linear infinite;
+  will-change: background-position;
+}
+
+/* 用户启用自定义聊天背景时，网格层淡化避免冲突 */
+.app-layout:has(.chat-background-active)::after {
+  opacity: 0.15;
+}
+
+/* 尊重用户的减少动画偏好：网格静止 */
+@media (prefers-reduced-motion: reduce) {
+  .app-layout::after {
+    animation: none;
+  }
 }
 
 .sidebar {
@@ -861,6 +908,50 @@ html, body, #app {
   overflow: hidden;
   background: var(--bg-code);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+/* 代码块顶部光扫效果
+ * - 默认隐藏，hover 时显示一道横向流光掠过顶部
+ * - 用 ::after 伪元素 + transform 动画，性能优于 background-position
+ * - 仅 hover 触发，避免常驻动画分散阅读注意力
+ */
+.markdown-body pre::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--accent-primary) 80%, transparent) 50%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  will-change: transform;
+}
+
+.markdown-body pre:hover::after {
+  opacity: 1;
+  animation: code-sweep 1.6s ease-in-out;
+}
+
+@keyframes code-sweep {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(0%); }
+  100% { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .markdown-body pre::after,
+  .markdown-body pre:hover::after {
+    animation: none;
+    opacity: 0;
+  }
 }
 
 .markdown-body pre .code-header {
