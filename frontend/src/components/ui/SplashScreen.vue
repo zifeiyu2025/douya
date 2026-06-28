@@ -1,6 +1,34 @@
 <template>
   <Transition name="splash" @after-leave="$emit('complete')">
-    <div v-if="visible" class="splash-screen">
+    <div v-if="visible" class="splash-screen" style="--wails-draggable:drag">
+      <!-- SVG 装饰层：网格 + 多层弧线，全部在 SVG 内部，不遮挡文字 -->
+      <svg class="splash-deco" width="400" height="400" viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <!-- 同心圆装饰 -->
+        <circle cx="200" cy="200" r="180" stroke="currentColor" stroke-width="1" opacity="0.05" />
+        <circle cx="200" cy="200" r="140" stroke="currentColor" stroke-width="1" opacity="0.08" />
+        <circle cx="200" cy="200" r="100" stroke="currentColor" stroke-width="1" opacity="0.1" />
+
+        <!-- 外层旋转弧线（慢速） -->
+        <circle cx="200" cy="200" r="180" stroke="currentColor" stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-dasharray="60 360"
+          class="deco-ring-outer" opacity="0.4" />
+
+        <!-- 中层旋转弧线（中速，反向） -->
+        <circle cx="200" cy="200" r="140" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round"
+          stroke-dasharray="40 280"
+          class="deco-ring-mid" opacity="0.5" />
+
+        <!-- 网格点缀（四个角的十字标记） -->
+        <g opacity="0.15" stroke="currentColor" stroke-width="1">
+          <path d="M40 40 L40 55 M40 40 L55 40" />
+          <path d="M360 40 L360 55 M360 40 L345 40" />
+          <path d="M40 360 L40 345 M40 360 L55 360" />
+          <path d="M360 360 L360 345 M360 360 L345 360" />
+        </g>
+      </svg>
+
       <div class="splash-content">
         <!-- Logo + 旋转弧线 -->
         <div class="splash-logo" :class="{ 'is-done': stage === 'done', 'is-failed': stage === 'failed' }">
@@ -25,6 +53,12 @@
         <div class="splash-brand">
           <div class="splash-title">豆芽</div>
           <div class="splash-subtitle">本地 AI 聊天助手</div>
+        </div>
+
+        <!-- 进度条（加载中显示） -->
+        <div v-if="stage !== 'done' && stage !== 'failed'" class="splash-progress-bar">
+          <div class="splash-progress-fill" :class="{ 'indeterminate': progress <= 0 }"
+               :style="progress > 0 ? { width: progress + '%' } : {}"></div>
         </div>
 
         <!-- 状态文字 -->
@@ -75,6 +109,7 @@ const stageText = computed(() => {
 </script>
 
 <style scoped>
+/* 整个启动屏支持窗口拖动（--wails-draggable:drag 在 template 内联） */
 .splash-screen {
   position: fixed;
   inset: 0;
@@ -84,25 +119,55 @@ const stageText = computed(() => {
   justify-content: center;
   background: var(--bg-primary);
   overflow: hidden;
+  /* 微妙的径向渐变背景，营造氛围（不影响文字可见性） */
+  background-image: radial-gradient(circle at 50% 50%, rgba(7, 193, 96, 0.04) 0%, transparent 70%);
 }
 
-/* ===== 扫描线已移除 =====
- * 原本用 .splash-scanline 做扫描线效果，但 opacity:0.4 遮挡了"豆芽"文字
- * 已移除以恢复文字可见性
+/* ===== SVG 装饰层 =====
+ * 全部在 SVG 内部，不用 absolute 覆盖层，避免 WebView2 堆叠 bug
+ * currentColor 跟随 .splash-screen 的 color（继承 accent-primary）
  */
+.splash-deco {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--accent-primary);
+  pointer-events: none;
+  /* 装饰层在内容之下（DOM 顺序 + 默认堆叠） */
+  z-index: 0;
+}
+
+/* 外层弧线：60s 慢速旋转 */
+.deco-ring-outer {
+  transform-origin: 200px 200px;
+  animation: spin 60s linear infinite;
+  will-change: transform;
+}
+
+/* 中层弧线：40s 反向旋转 */
+.deco-ring-mid {
+  transform-origin: 200px 200px;
+  animation: spin-reverse 40s linear infinite;
+  will-change: transform;
+}
+
+@keyframes spin-reverse {
+  to { transform: rotate(-360deg); }
+}
 
 .splash-content {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 28px;
+  gap: 24px;
   position: relative;
   z-index: 1;
 }
 
 /* Logo 区域
- * 注意：不在 .splash-logo 上用 filter:drop-shadow，否则会模糊整个 SVG 包括内部 <image>
- * 发光效果改到具体的 circle 元素上（.logo-spinner-ring / .logo-complete-ring）
+ * 不在 .splash-logo 上用 filter:drop-shadow，否则会模糊整个 SVG 包括内部 <image>
+ * 发光效果改到具体的 circle 元素上
  */
 .splash-logo {
   display: flex;
@@ -144,7 +209,6 @@ const stageText = computed(() => {
   stroke-dasharray: 214;
   stroke-dashoffset: 214;
   animation: draw-circle 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-  /* 完成时圆环发光 */
   filter: drop-shadow(0 0 6px currentColor);
 }
 
@@ -154,7 +218,7 @@ const stageText = computed(() => {
   }
 }
 
-/* ===== 品牌标识：发光文字 ===== */
+/* ===== 品牌标识 ===== */
 .splash-brand {
   display: flex;
   flex-direction: column;
@@ -180,7 +244,7 @@ const stageText = computed(() => {
   color: var(--accent-primary);
   letter-spacing: 6px;
   padding-left: 6px;
-  /* text-shadow 的 color-mix 在旧版 WebView2 可能失效，改用纯色阴影 */
+  /* 纯色 rgba 阴影，避免 color-mix 兼容性问题 */
   text-shadow: 0 0 12px rgba(7, 193, 96, 0.4);
   animation: title-glow 2.5s ease-in-out infinite;
 }
@@ -199,6 +263,52 @@ const stageText = computed(() => {
   color: var(--text-secondary);
   letter-spacing: 3px;
   padding-left: 3px;
+}
+
+/* ===== 进度条 =====
+ * 现代科技感：细线条 + 渐变填充 + 不定模式
+ */
+.splash-progress-bar {
+  width: 200px;
+  height: 2px;
+  background: var(--border-color);
+  border-radius: 1px;
+  overflow: hidden;
+  animation: progress-enter 0.4s ease 0.4s both;
+}
+
+@keyframes progress-enter {
+  from {
+    opacity: 0;
+    transform: scaleX(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+.splash-progress-fill {
+  height: 100%;
+  background: var(--accent-primary);
+  border-radius: 1px;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 6px rgba(7, 193, 96, 0.5);
+}
+
+/* 不定模式（progress <= 0 时）：左右循环滑动 */
+.splash-progress-fill.indeterminate {
+  width: 30% !important;
+  animation: indeterminate-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes indeterminate-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
 }
 
 /* 状态文字 */
@@ -261,5 +371,16 @@ const stageText = computed(() => {
 .splash-leave-to {
   opacity: 0;
   transform: translateY(-16px);
+}
+
+/* 尊重用户的减少动画偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .deco-ring-outer,
+  .deco-ring-mid,
+  .logo-spinner-ring,
+  .splash-title,
+  .splash-progress-fill.indeterminate {
+    animation: none;
+  }
 }
 </style>

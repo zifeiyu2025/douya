@@ -2,6 +2,16 @@
   <div class="sidebar" :class="{ collapsed }">
     <div class="sidebar-header" style="--wails-draggable:drag">
       <div class="sidebar-logo">
+        <!-- SVG 装饰图标：豆芽抽象造型 -->
+        <svg class="logo-icon" width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <!-- 外圈装饰 -->
+          <circle cx="14" cy="14" r="13" stroke="currentColor" stroke-width="1.5" opacity="0.2" />
+          <!-- 两片叶子（豆芽造型） -->
+          <path d="M14 20 Q10 14 6 10 Q9 8 12 11 Q14 14 14 20 Z" fill="currentColor" opacity="0.85" />
+          <path d="M14 20 Q18 14 22 10 Q19 8 16 11 Q14 14 14 20 Z" fill="currentColor" opacity="0.6" />
+          <!-- 茎 -->
+          <path d="M14 20 L14 24" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+        </svg>
         <div class="logo-text">
           <span class="logo-dou">Dou</span><span class="logo-ya">Ya</span>
         </div>
@@ -235,7 +245,20 @@ async function handleExport(id: string, format: string) {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 10px;
   position: relative;
+}
+
+/* SVG 图标：跟随主色，hover 时缓慢旋转 */
+.logo-icon {
+  color: var(--accent-primary);
+  flex-shrink: 0;
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  filter: drop-shadow(0 0 4px rgba(7, 193, 96, 0.3));
+}
+
+.sidebar-logo:hover .logo-icon {
+  transform: rotate(360deg);
 }
 
 .loading-container {

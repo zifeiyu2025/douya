@@ -690,9 +690,18 @@ html, body, #app {
   z-index: 1;
 }
 
+/* ===== 现代科技滚动条 =====
+ * 默认细且半透明，hover 时变粗变色，不抢视觉焦点
+ */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
+  transition: width 0.2s ease;
+}
+
+::-webkit-scrollbar:hover {
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -700,21 +709,21 @@ html, body, #app {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cdcdcd;
-  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
   transition: background var(--transition-fast);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #b5b5b5;
+  background: rgba(7, 193, 96, 0.5);
 }
 
 .dark ::-webkit-scrollbar-thumb {
-  background: #555555;
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .dark ::-webkit-scrollbar-thumb:hover {
-  background: #666666;
+  background: rgba(134, 230, 171, 0.5);
 }
 
 .katex-display {
