@@ -50,9 +50,9 @@ type Service struct {
 	ragCollection  string
 	ragEnabled     bool
 	// prompt_tokens 反馈校准
-	lastPromptTokens   int // 最近一次实际 prompt_tokens（来自 llama-server usage）
+	lastPromptTokens    int // 最近一次实际 prompt_tokens（来自 llama-server usage）
 	lastEstimatedTokens int // 对应的估算值
-	tokenCalibMu       sync.RWMutex
+	tokenCalibMu        sync.RWMutex
 	// 当前流式聊天的 completion ID，用于 /v1/chat/completions/control 实时控制
 	currentCompletionID string
 	completionIDMu      sync.RWMutex
@@ -144,7 +144,7 @@ func (s *Service) SetRAGEnabled(enabled bool) {
 	s.ragEnabled = enabled
 }
 
-func (s *Service) emit(eventType string, content interface{}) {
+func (s *Service) emit(eventType string, content any) {
 	if s.wailsCtx != nil {
 		runtime.EventsEmit(s.wailsCtx, "chat:stream", StreamEvent{
 			Type:    eventType,
@@ -153,7 +153,7 @@ func (s *Service) emit(eventType string, content interface{}) {
 	}
 }
 
-func (s *Service) emitForConv(convID string, eventType string, content interface{}) {
+func (s *Service) emitForConv(convID string, eventType string, content any) {
 	if s.wailsCtx != nil {
 		runtime.EventsEmit(s.wailsCtx, "chat:stream", StreamEvent{
 			Type:           eventType,
@@ -195,8 +195,8 @@ func storeMsgToChat(m *store.Message) *Message {
 type CompressResult struct {
 	ShortSummary string `json:"shortSummary"` // 新生成的短期摘要
 	LongSummary  string `json:"longSummary"`  // 新生成的长期摘要（可能为空，仅在触发合并时有值）
-	TrimmedCount int    `json:"trimmedCount"`  // 被裁剪的早期消息数
-	Message      string `json:"message"`       // 状态提示信息（如"压缩成功"/"消息较少，无需压缩"）
+	TrimmedCount int    `json:"trimmedCount"` // 被裁剪的早期消息数
+	Message      string `json:"message"`      // 状态提示信息（如"压缩成功"/"消息较少，无需压缩"）
 }
 
 // CompressConversation 手动触发对话压缩（P2-A3）。
@@ -312,6 +312,6 @@ func (s *Service) CompressConversation(convID string) (*CompressResult, error) {
 }
 
 // 测试导出函数
-func StoreMsgToChat(m *store.Message) *Message { return storeMsgToChat(m) }    // Exported for testing
-func GetDB(s *Service) *sql.DB                           { return s.db }                     // Exported for testing
-func SetCurrentCancel(s *Service, fn context.CancelFunc) { s.currentCancel = fn }            // Exported for testing
+func StoreMsgToChat(m *store.Message) *Message           { return storeMsgToChat(m) } // Exported for testing
+func GetDB(s *Service) *sql.DB                           { return s.db }              // Exported for testing
+func SetCurrentCancel(s *Service, fn context.CancelFunc) { s.currentCancel = fn }     // Exported for testing

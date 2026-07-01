@@ -1,6 +1,6 @@
 module douya
 
-go 1.25.0
+go 1.26.0
 
 require (
 	fyne.io/systray v1.12.2

@@ -5,13 +5,13 @@ package llm
 
 import (
 	"fmt"
+	"github.com/rs/zerolog/log"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
-	"github.com/rs/zerolog/log"
 )
 
 // waitForVRAMRelease blocks until nvidia-smi reports no llama-server GPU usage.
@@ -43,8 +43,8 @@ func checkVRAMFree() (bool, error) {
 		// nvidia-smi not present or no GPU — treat as VRAM free
 		return true, err
 	}
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(strings.TrimSpace(string(output)), "\n")
+	for line := range lines {
 		if strings.Contains(line, "llama-server") {
 			return false, nil
 		}

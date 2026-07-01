@@ -21,25 +21,25 @@ const (
 )
 
 type SmartParams struct {
-	GPULayers     int
-	Threads       int
-	BatchSize     int
-	UBatchSize    int
-	FlashAttn     bool
-	CacheTypeK    string
-	CacheTypeV    string
-	Mlock         bool
-	MmprojOffload bool
-	ContextSize   int
-	SpecType         string
-	SpecDraftNMax    int
-	SpecDraftNMin    int
-	CacheTypeKDraft  string
-	CacheTypeVDraft  string
-	NgramModNMin     int
-	NgramModNMax     int
-	NgramModNMatch   int
-	SupportsEagle3   bool // 模型支持 Eagle3 推测解码（需用户配置 draft 模型才启用）
+	GPULayers       int
+	Threads         int
+	BatchSize       int
+	UBatchSize      int
+	FlashAttn       bool
+	CacheTypeK      string
+	CacheTypeV      string
+	Mlock           bool
+	MmprojOffload   bool
+	ContextSize     int
+	SpecType        string
+	SpecDraftNMax   int
+	SpecDraftNMin   int
+	CacheTypeKDraft string
+	CacheTypeVDraft string
+	NgramModNMin    int
+	NgramModNMax    int
+	NgramModNMatch  int
+	SupportsEagle3  bool // 模型支持 Eagle3 推测解码（需用户配置 draft 模型才启用）
 	// 推理模式自动推荐
 	ReasoningMode   string // "on"/"off"/"auto"，检测到推理模型时自动设置为 "auto"
 	ReasoningBudget int    // 推理 token 预算，-1=无限（默认），0=立即结束，N>0=预算
@@ -91,10 +91,7 @@ func CalculateSmartParams(hw *HardwareInfo, resolvedModelPath string) *SmartPara
 	if physicalCores < 1 {
 		physicalCores = hw.CPUCores
 	}
-	p.Threads = physicalCores - 2
-	if p.Threads < 2 {
-		p.Threads = 2
-	}
+	p.Threads = max(physicalCores-2, 2)
 
 	p.FlashAttn = hw.HasGPU
 	_, meta := DetectModelTier(resolvedModelPath)
@@ -237,7 +234,7 @@ func calculateContextSize(hw *HardwareInfo, resolvedModelPath string) int {
 
 		// 安全余量 15%（给临时缓冲区、CUDA 内核等）
 		safetyMargin := 0.15
-		availableForKV := vramBytes * (1.0 - safetyMargin) - modelBytes
+		availableForKV := vramBytes*(1.0-safetyMargin) - modelBytes
 
 		if availableForKV <= 0 {
 			// 显存不足以加载模型，返回最小上下文
@@ -255,10 +252,7 @@ func calculateContextSize(hw *HardwareInfo, resolvedModelPath string) int {
 		maxCtx := int(availableForKV / float64(kvCostPerToken))
 
 		// 对齐到 256 的整数倍
-		maxCtx = (maxCtx / 256) * 256
-		if maxCtx < 2048 {
-			maxCtx = 2048
-		}
+		maxCtx = max((maxCtx/256)*256, 2048)
 
 		// 不超过模型原生上下文长度
 		if meta.ContextLength > 0 && maxCtx > meta.ContextLength {

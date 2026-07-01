@@ -30,7 +30,7 @@ func TestEmbedding_SingleString(t *testing.T) {
 				{Object: "embedding", Embedding: []float64{0.1, 0.2, 0.3}, Index: 0},
 			},
 			Model: "all-minilm",
-			Usage:  Usage{PromptTokens: 4, TotalTokens: 4},
+			Usage: Usage{PromptTokens: 4, TotalTokens: 4},
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
@@ -59,7 +59,7 @@ func TestEmbedding_MultipleStrings(t *testing.T) {
 		var req EmbeddingRequest
 		json.NewDecoder(r.Body).Decode(&req)
 
-		inputs, ok := req.Input.([]interface{})
+		inputs, ok := req.Input.([]any)
 		if !ok {
 			t.Errorf("expected array input, got %T", req.Input)
 		}
@@ -138,7 +138,7 @@ func TestEmbedding_ModelFieldInRequest(t *testing.T) {
 }
 
 func TestEmbedding_ModelFieldEmpty(t *testing.T) {
-	var rawBody map[string]interface{}
+	var rawBody map[string]any
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&rawBody)
 

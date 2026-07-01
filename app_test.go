@@ -102,7 +102,7 @@ func TestApp_ExitingFlag_IsAtomic(t *testing.T) {
 	const goroutines = 100
 
 	done := make(chan struct{})
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		go func() {
 			if app.tryStartExit() {
 				successes.Add(1)
@@ -111,7 +111,7 @@ func TestApp_ExitingFlag_IsAtomic(t *testing.T) {
 		}()
 	}
 
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		<-done
 	}
 

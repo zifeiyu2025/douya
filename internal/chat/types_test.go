@@ -112,7 +112,7 @@ func TestStreamEvent_ToolCallStart(t *testing.T) {
 func TestStreamEvent_TokenSpeed(t *testing.T) {
 	orig := StreamEvent{
 		Type: EventTokenSpeed,
-		Content: map[string]interface{}{
+		Content: map[string]any{
 			"tokensPerSecond":   42.5,
 			"predictedN":        100,
 			"tokens_per_second": 42.5,
@@ -140,7 +140,7 @@ func TestStreamEvent_TokenSpeed(t *testing.T) {
 func TestStreamEvent_PromptProgress(t *testing.T) {
 	orig := StreamEvent{
 		Type: EventPromptProgress,
-		Content: map[string]interface{}{
+		Content: map[string]any{
 			"total":     1024,
 			"cache":     512,
 			"processed": 768,
@@ -169,7 +169,7 @@ func TestStreamEvent_PromptProgress(t *testing.T) {
 func TestStreamEvent_ContextTrimmed(t *testing.T) {
 	orig := StreamEvent{
 		Type: EventContextTrimmed,
-		Content: map[string]interface{}{
+		Content: map[string]any{
 			"reason":         "exceed_context_size",
 			"prompt_tokens":  9000,
 			"context_size":   8192,

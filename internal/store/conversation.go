@@ -14,14 +14,14 @@ import (
 )
 
 type Conversation struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Summary   string    `json:"summary,omitempty"` // 短期摘要（每次压缩都更新）
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Summary string `json:"summary,omitempty"` // 短期摘要（每次压缩都更新）
 	// P1-C1: 摘要分层管理
 	// LongSummary 长期摘要：每 N 次压缩合并一次（N=5），保留跨多次压缩的关键事实/决策/实体
 	// CompressCount 压缩次数计数：用于触发长期摘要合并和重置（C2）
-	LongSummary   string `json:"long_summary,omitempty"`
-	CompressCount int    `json:"compress_count,omitempty"`
+	LongSummary   string    `json:"long_summary,omitempty"`
+	CompressCount int       `json:"compress_count,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
@@ -201,8 +201,8 @@ func DeleteConversationsBatch(db *sql.DB, ids []string) error {
 }
 
 type AbnormalConversation struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
+	ID     string `json:"id"`
+	Title  string `json:"title"`
 	Reason string `json:"reason"`
 }
 
@@ -301,15 +301,15 @@ func UpdateConversationSummary(db *sql.DB, id string, summary string) error {
 func UpdateConversationLayeredSummary(db *sql.DB, id string, shortSummary, longSummary string) error {
 	err := withDBTimeout(func(ctx context.Context) error {
 		var query string
-		var args []interface{}
+		var args []any
 		if longSummary != "" {
 			// 同时更新短期+长期摘要
 			query = "UPDATE conversations SET summary = ?, long_summary = ?, compress_count = compress_count + 1 WHERE id = ?"
-			args = []interface{}{shortSummary, longSummary, id}
+			args = []any{shortSummary, longSummary, id}
 		} else {
 			// 仅更新短期摘要（长期摘要保持不变）
 			query = "UPDATE conversations SET summary = ?, compress_count = compress_count + 1 WHERE id = ?"
-			args = []interface{}{shortSummary, id}
+			args = []any{shortSummary, id}
 		}
 		_, err := db.ExecContext(ctx, query, args...)
 		return err

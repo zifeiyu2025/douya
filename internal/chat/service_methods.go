@@ -386,7 +386,7 @@ func (s *Service) exportPlainText(conv *store.Conversation, msgs []*store.Messag
 func (s *Service) exportCSV(_ *store.Conversation, msgs []*store.Message) (string, error) {
 	var sb strings.Builder
 	sb.WriteString("instruction,input,output\n")
-	for i := 0; i < len(msgs); i++ {
+	for i := range msgs {
 		if msgs[i].Role != "user" {
 			continue
 		}

@@ -30,8 +30,8 @@ const (
 	// 业务层在 service_stream.go 用 streamRequestTimeout=300s 通过 context.WithTimeout
 	// 包裹请求，context 必然先于此 900s 触发。900s 仅作为防御性兜底，防止
 	// 业务层忘记设置 context 超时时请求永久挂起。两处常量语义不同，不要混淆。
-	streamTimeout     = 900 * time.Second // 流式请求兜底超时（业务层 300s 优先生效）
-	pollTimeout       = 3 * time.Second   // 轮询超时
+	streamTimeout     = 900 * time.Second      // 流式请求兜底超时（业务层 300s 优先生效）
+	pollTimeout       = 3 * time.Second        // 轮询超时
 	pollRetryInterval = 300 * time.Millisecond // 轮询重试间隔
 )
 
@@ -41,13 +41,13 @@ func readBody(r io.Reader) ([]byte, error) {
 }
 
 type Client struct {
-	baseURL       string
-	apiKey        string
-	httpClient    *http.Client
-	streamClient  *http.Client
-	pollClient    *http.Client // 复用的轮询客户端，用于 WaitForModelLoaded 等轮询场景
-	currentModel  string
-	modelMu       sync.RWMutex
+	baseURL      string
+	apiKey       string
+	httpClient   *http.Client
+	streamClient *http.Client
+	pollClient   *http.Client // 复用的轮询客户端，用于 WaitForModelLoaded 等轮询场景
+	currentModel string
+	modelMu      sync.RWMutex
 }
 
 func (c *Client) BaseURL() string {
@@ -375,7 +375,7 @@ func (c *Client) healthCheckOnce(ctx context.Context, endpoint string) error {
 // 请求体格式（v9744+）：{"id": "chatcmpl-xxx", "action": "reasoning_end", "model": "xxx"}
 // 前提：原始聊天请求必须带 reasoning_control: true，否则此端点无效。
 func (c *Client) StopThinking(ctx context.Context, completionID string) error {
-	body, err := json.Marshal(map[string]interface{}{
+	body, err := json.Marshal(map[string]any{
 		"id":     completionID,
 		"action": "reasoning_end",
 		"model":  c.GetCurrentModel(),
@@ -640,7 +640,7 @@ func parseCapabilitiesRaw(raw json.RawMessage) []string {
 		return strArr
 	}
 
-	var objArr []map[string]interface{}
+	var objArr []map[string]any
 	if err := json.Unmarshal(raw, &objArr); err == nil {
 		var result []string
 		for _, obj := range objArr {
@@ -675,23 +675,23 @@ type ServerProps struct {
 		Video  bool `json:"video"`
 	} `json:"modalities"`
 	ChatTemplateCaps    ChatTemplateCaps `json:"chat_template_caps"`
-	ChatTemplateToolUse string          `json:"chat_template_tool_use"`
-	BuildInfo           string          `json:"build_info,omitempty"`
-	IsSleeping          bool            `json:"is_sleeping,omitempty"`
-	CorsProxyEnabled    bool            `json:"cors_proxy_enabled,omitempty"`
+	ChatTemplateToolUse string           `json:"chat_template_tool_use"`
+	BuildInfo           string           `json:"build_info,omitempty"`
+	IsSleeping          bool             `json:"is_sleeping,omitempty"`
+	CorsProxyEnabled    bool             `json:"cors_proxy_enabled,omitempty"`
 }
 
 // ChatTemplateCaps 对应 llama.cpp 最新版 /props 返回的 chat_template_caps 字段
 // 包含模型模板能力声明，用于判断工具调用、推理保留等能力
 type ChatTemplateCaps struct {
-	SupportsTools              bool `json:"supports_tools"`
-	SupportsToolCalls          bool `json:"supports_tool_calls"`
-	SupportsSystemRole         bool `json:"supports_system_role"`
-	SupportsParallelToolCalls  bool `json:"supports_parallel_tool_calls"`
-	SupportsPreserveReasoning  bool `json:"supports_preserve_reasoning"`
-	SupportsStringContent      bool `json:"supports_string_content"`
-	SupportsTypedContent       bool `json:"supports_typed_content"`
-	SupportsObjectArguments    bool `json:"supports_object_arguments"`
+	SupportsTools             bool `json:"supports_tools"`
+	SupportsToolCalls         bool `json:"supports_tool_calls"`
+	SupportsSystemRole        bool `json:"supports_system_role"`
+	SupportsParallelToolCalls bool `json:"supports_parallel_tool_calls"`
+	SupportsPreserveReasoning bool `json:"supports_preserve_reasoning"`
+	SupportsStringContent     bool `json:"supports_string_content"`
+	SupportsTypedContent      bool `json:"supports_typed_content"`
+	SupportsObjectArguments   bool `json:"supports_object_arguments"`
 }
 
 func (c *Client) GetServerProps(ctx context.Context, modelName string) (*ServerProps, error) {
@@ -746,8 +746,12 @@ func (c *Client) LoadModel(ctx context.Context, modelName string) error {
 		return err
 	}
 
-	// 项目约定：LoadModel 必须记录响应体内容以确认请求被接受
-	log.Info().Str("model", modelName).Str("body", string(respBody)).Msg("[client] LoadModel response")
+	// 安全实践：响应体可能含模型加载状态/内部路径，降级为 Debug 并截断到 500 字符，与 GetServerProps 保持一致
+	bodySnippet := string(respBody)
+	if len(bodySnippet) > 500 {
+		bodySnippet = bodySnippet[:500] + "...(truncated)"
+	}
+	log.Debug().Str("model", modelName).Str("body", bodySnippet).Msg("[client] LoadModel response")
 	return nil
 }
 
@@ -936,7 +940,7 @@ func (c *Client) DownloadModel(ctx context.Context, modelName string) error {
 // CountTokens 调用 /v1/chat/completions/input_tokens 估算消息的 token 数量
 func (c *Client) CountTokens(ctx context.Context, messages []ChatMessage) (int, error) {
 	// v9744+ 要求在请求体中包含 model 字段
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"messages": messages,
 		"model":    c.GetCurrentModel(),
 	}
@@ -963,7 +967,7 @@ func (c *Client) CountTokens(ctx context.Context, messages []ChatMessage) (int, 
 // CountTokensViaInputTokens 通过 /v1/chat/completions/input_tokens 端点获取精确 token 计数
 // 比 /tokenize 更精确，因为会经过完整的 chat template 处理
 func (c *Client) CountTokensViaInputTokens(ctx context.Context, messages []ChatMessage) (int, error) {
-	body, err := json.Marshal(map[string]interface{}{
+	body, err := json.Marshal(map[string]any{
 		"messages": messages,
 	})
 	if err != nil {
@@ -1044,7 +1048,7 @@ func (c *Client) GetSlots(ctx context.Context) ([]SlotInfo, error) {
 // Tokenize 调用 /tokenize 对文本进行分词，返回 token ID 列表
 func (c *Client) Tokenize(ctx context.Context, text string) ([]int, error) {
 	// v9744+ 要求在请求体中包含 model 字段
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"content": text,
 		"model":   c.GetCurrentModel(),
 	}
@@ -1071,7 +1075,7 @@ func (c *Client) Tokenize(ctx context.Context, text string) ([]int, error) {
 // ApplyTemplate 调用 /apply-template 应用聊天模板，返回格式化后的 prompt
 func (c *Client) ApplyTemplate(ctx context.Context, messages []ChatMessage) (string, error) {
 	// v9744+ 要求在请求体中包含 model 字段
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"messages": messages,
 		"model":    c.GetCurrentModel(),
 	}

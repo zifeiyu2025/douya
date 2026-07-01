@@ -31,36 +31,55 @@ func limitedReadAll(rc io.Reader, limit int64) ([]byte, error) {
 }
 
 var textExtensions = map[string]bool{
-	".txt":  true,
-	".md":   true,
-	".csv":  true,
-	".json": true,
-	".xml":  true,
-	".html": true,
-	".yaml": true,
-	".yml":  true,
-	".toml": true,
-	".ini":  true,
-	".cfg":  true,
-	".log":  true,
-	".sql":  true,
+	".txt":        true,
+	".md":         true,
+	".csv":        true,
+	".json":       true,
+	".xml":        true,
+	".html":       true,
+	".htm":        true,
+	".yaml":       true,
+	".yml":        true,
+	".toml":       true,
+	".ini":        true,
+	".cfg":        true,
+	".log":        true,
+	".sql":        true,
+	".adoc":       true, // AsciiDoc
+	".tex":        true, // LaTeX
+	".bib":        true, // BibTeX
+	".properties": true, // Java properties
 }
 
 var codeExtensions = map[string]bool{
-	".go":   true,
-	".py":   true,
-	".js":   true,
-	".ts":   true,
-	".java": true,
-	".c":    true,
-	".cpp":  true,
-	".h":    true,
-	".rs":   true,
-	".sh":   true,
-	".rb":   true,
-	".php":  true,
-	".swift": true,
-	".kt":   true,
+	".go":      true,
+	".py":      true,
+	".js":      true,
+	".jsx":     true, // React
+	".ts":      true,
+	".tsx":     true, // React + TypeScript
+	".vue":     true, // Vue SFC
+	".svelte":  true, // Svelte
+	".java":    true,
+	".c":       true,
+	".cpp":     true,
+	".h":       true,
+	".hpp":     true,
+	".rs":      true,
+	".sh":      true,
+	".bat":     true, // Windows batch
+	".rb":      true,
+	".php":     true,
+	".swift":   true,
+	".kt":      true,
+	".cs":      true, // C#
+	".dart":    true, // Dart
+	".r":       true, // R language
+	".scala":   true,
+	".hs":      true, // Haskell
+	".cu":      true, // CUDA
+	".cuh":     true,
+	".comp":    true, // Vulkan compute shader
 }
 
 func ParseFileFromBytes(data []byte, fileName string) (string, error) {

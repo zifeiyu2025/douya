@@ -11,12 +11,7 @@ vi.mock('../utils/markdown', () => ({
     renderMarkdown: vi.fn(async (content: string) => (
         `<pre class="hljs"><div class="code-header"><button class="code-copy-btn">复制</button></div><code>${content}</code></pre>`
     )),
-}))
-
-vi.mock('../composables/useMermaid', () => ({
-    useMermaid: () => ({
-        refreshObservation: vi.fn(),
-    }),
+    escapeHtml: vi.fn((text: string) => text),
 }))
 
 vi.mock('naive-ui', () => ({

@@ -246,8 +246,7 @@ func TestClientEmbedder_ConcurrentSetModel(t *testing.T) {
 	embedder := &ClientEmbedder{Client: client}
 	embedder.SetModel("initial-model")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// 并发写入 goroutine：不断切换模型名
 	go func() {
@@ -269,7 +268,7 @@ func TestClientEmbedder_ConcurrentSetModel(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for i := 0; i < 50; i++ {
+		for range 50 {
 			_, err := embedder.Embed(context.Background(), []string{"test"})
 			if err != nil {
 				embedErr = err

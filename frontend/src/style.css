@@ -176,12 +176,6 @@ html.dark {
   50%, 100% { opacity: 0; }
 }
 
-/* 流式光标呼吸（替代硬闪烁，营造"正在思考"的拟人感） */
-@keyframes cursor-breathe {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.2; }
-}
-
 /* 会话项 stagger 入场（上滑 + 淡入） */
 @keyframes item-slide-in {
   from {
@@ -301,7 +295,7 @@ html, body, #app {
   background-position: center;
   background-repeat: no-repeat;
   background-attachment: fixed;
-  opacity: var(--chat-background-opacity, 0.8);
+  opacity: var(--chat-background-opacity, 0.9);
   z-index: 0;
   pointer-events: none;
   transition: opacity 0.4s ease;
@@ -452,15 +446,15 @@ html, body, #app {
 
 /* 主头部 — 轻透毛玻璃 */
 .has-background .main-header {
-  background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: color-mix(in srgb, var(--bg-primary) 45%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border-bottom-color: color-mix(in srgb, var(--border-color) 55%, transparent);
 }
 
 /* 服务状态标签 */
 .has-background .server-status {
-  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+  background: color-mix(in srgb, var(--bg-secondary) 45%, transparent);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border-color: color-mix(in srgb, var(--border-color) 45%, transparent);
@@ -468,9 +462,9 @@ html, body, #app {
 
 /* 侧边栏主体 — 半透明毛玻璃 */
 .has-background .sidebar {
-  background: color-mix(in srgb, var(--bg-sidebar) 76%, transparent);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  background: color-mix(in srgb, var(--bg-sidebar) 45%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-right-color: color-mix(in srgb, var(--border-color) 50%, transparent);
 }
 
@@ -494,15 +488,15 @@ html, body, #app {
 }
 
 .has-background .conversation-item:hover {
-  background: color-mix(in srgb, var(--bg-hover) 65%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--bg-hover) 40%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .has-background .conversation-item.active {
-  background: color-mix(in srgb, var(--bg-active) 68%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--bg-active) 42%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 /* 对话头像 — 背景图模式下保持辨识度 */
@@ -516,9 +510,62 @@ html, body, #app {
   background: transparent;
 }
 
+/* 消息气泡 — 背景图模式下半透明+毛玻璃，让背景透出 */
+/* 用三层 class 选择器(特异性0,0,3,0)覆盖组件 scoped 样式(0,0,2,0) */
+.has-background .message-item .ai-bubble,
+.has-background .message-item .user-bubble {
+  background: color-mix(in srgb, var(--bg-ai-msg) 55%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-color: color-mix(in srgb, var(--border-color) 45%, transparent);
+}
+
+/* 暗色模式 + 背景图：气泡更通透 */
+.dark .has-background .message-item .ai-bubble,
+.dark .has-background .message-item .user-bubble {
+  background: color-mix(in srgb, var(--bg-ai-msg) 60%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+/* 回到底部按钮 — 半透明毛玻璃 */
+.app-layout.has-background .scroll-to-bottom-btn {
+  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* 上下文菜单 / 附件菜单 — 半透明毛玻璃（菜单需保证可读，比例略高） */
+.app-layout.has-background .ctx-menu,
+.app-layout.has-background .attach-menu {
+  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* 附件预览项 — 半透明 */
+.app-layout.has-background .attachment-preview-item {
+  background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* 代码块 — 半透明（覆盖 .hljs 的 !important 需用 !important） */
+.has-background .hljs {
+  background: color-mix(in srgb, var(--bg-code) 70%, transparent) !important;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.has-background .markdown-body pre {
+  background: color-mix(in srgb, var(--bg-code) 65%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
 /* 侧边栏底部按钮在毛玻璃上的hover */
 .has-background .sidebar-footer .footer-btn:hover {
-  background: color-mix(in srgb, var(--bg-hover) 65%, transparent);
+  background: color-mix(in srgb, var(--bg-hover) 40%, transparent);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
 }
@@ -732,16 +779,6 @@ html, body, #app {
 
 .dark ::-webkit-scrollbar-thumb:hover {
   background: color-mix(in srgb, var(--accent-primary) 50%, transparent);
-}
-
-.katex-display {
-  margin: 12px 0;
-  overflow-x: auto;
-}
-
-.mermaid {
-  margin: 12px 0;
-  text-align: center;
 }
 
 /* highlight.js 代码高亮主题 - 亮色模式在 markdown.ts 中导入 */
@@ -993,9 +1030,9 @@ html, body, #app {
 
 /* 背景图模式下进一步增强毛玻璃效果 */
 .has-background .n-dropdown-menu {
-  background: color-mix(in srgb, var(--bg-tertiary) 75%, transparent) !important;
-  backdrop-filter: blur(20px) !important;
-  -webkit-backdrop-filter: blur(20px) !important;
+  background: color-mix(in srgb, var(--bg-tertiary) 65%, transparent) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
 }
 
 .dark.has-background .n-dropdown-menu {
@@ -1119,22 +1156,22 @@ html, body, #app {
 
 /* ===== 知识库界面背景图样式 */
 .has-background .knowledge-container {
-  background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border-radius: 12px;
 }
 
 .has-background .knowledge-header {
-  background: color-mix(in srgb, var(--bg-primary) 85%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .has-background .doc-icon-box {
-  background: color-mix(in srgb, var(--bg-primary) 90%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: color-mix(in srgb, var(--bg-primary) 60%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 
 /* 深色模式下知识库的知识库界面样式 */
@@ -1158,22 +1195,22 @@ html, body, #app {
 
 /* ===== 设置界面背景图样式 ===== */
 .has-background .settings-container {
-  background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border-radius: 12px;
 }
 
 .has-background .settings-header {
-  background: color-mix(in srgb, var(--bg-primary) 85%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .has-background .model-ref-card {
-  background: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 
 /* ========================================
@@ -1233,9 +1270,9 @@ html, body, #app {
 
 /* 背景图模式下增强毛玻璃效果（与右键菜单一致） */
 .has-background .n-modal {
-  background: color-mix(in srgb, var(--bg-tertiary) 75%, transparent) !important;
-  backdrop-filter: blur(20px) !important;
-  -webkit-backdrop-filter: blur(20px) !important;
+  background: color-mix(in srgb, var(--bg-tertiary) 65%, transparent) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
 }
 
 .dark.has-background .n-modal {
@@ -1424,24 +1461,4 @@ html.dark .n-message.n-message--info-type {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
-}
-
-/* 10. 流式渲染：新增节点淡入 + 浮现（对标千问飘逸感）
-   morphdom DOM Diff 保留未变化节点，新增节点通过 onBeforeNodeAdded 添加 .stream-node-enter 类
-   动画只作用于新增节点，未变化节点不受影响（v-html 方案无法实现此效果）
-   曲线选择 cubic-bezier(0.16, 1, 0.3, 1)（expo-out）：开始快、结束极慢，视觉上"飘"而非"蹦"
-   时长 0.13s：更快的浮现节奏，配合本地模型高速生成，视觉上敏捷而不堆叠
-   位移 6px + scale(0.96)：更大的初始位移和缩放，浮现感更强烈 */
-@keyframes streamNodeEnter {
-  from {
-    opacity: 0;
-    transform: translateY(6px) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-.stream-node-enter {
-  animation: streamNodeEnter 0.13s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }

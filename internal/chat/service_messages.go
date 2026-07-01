@@ -5,6 +5,7 @@ package chat
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -90,12 +91,13 @@ func truncateSearchContext(searchContext string, ctxSize int) string {
 	if ctxSize <= 0 {
 		ctxSize = 4096
 	}
-	searchTokenEstimate := len([]rune(searchContext)) * 3
+	// 安全实践：中文 token 估算系数从 3 调整为 2，与 estimateTokensByLang 保持一致，避免过度截断丢失关键信息
+	searchTokenEstimate := len([]rune(searchContext)) * 2
 	maxSearchTokens := ctxSize / 3
 	if searchTokenEstimate > maxSearchTokens {
 		runes := []rune(searchContext)
-		if maxSearchTokens/3 < len(runes) {
-			searchContext = string(runes[:maxSearchTokens/3]) + "\n..."
+		if maxSearchTokens/2 < len(runes) {
+			searchContext = string(runes[:maxSearchTokens/2]) + "\n..."
 		}
 	}
 	return searchContext
@@ -105,6 +107,55 @@ func truncateSearchContext(searchContext string, ctxSize int) string {
 // 避免超大文件直接撑爆上下文。约 24000 字符 ≈ 12000-16000 token。
 const maxAttachmentTextRunes = 24000
 
+// maxAttachmentBytes 单个聊天附件解码后的最大字节数（200MB），与 RAG 上传通道对齐。
+// 安全实践：防止恶意超大文件撑爆内存。
+const maxAttachmentBytes = 200 * 1024 * 1024
+
+// allowedAttachmentMIMETypes 聊天附件允许的 MIME 类型白名单。
+// 安全实践：与 app_rag.go 的 allowedDocMIMETypes 保持一致，防止伪造 MIME 注入恶意内容。
+var allowedAttachmentMIMETypes = map[string]bool{
+	"image/jpeg": true, "image/png": true, "image/gif": true, "image/webp": true, "image/bmp": true,
+	"audio/wav": true, "audio/mpeg": true, "audio/mp3": true, "audio/mp4": true, "audio/x-m4a": true,
+	"video/mp4": true, "video/mpeg": true, "video/webm": true, "video/quicktime": true,
+	"text/plain": true, "text/markdown": true, "text/csv": true,
+	"application/json": true, "application/xml": true, "text/xml": true,
+	"text/html": true, "text/yaml": true, "application/x-yaml": true,
+	"application/pdf": true,
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": true,
+}
+
+// validateAttachment 校验聊天附件的 MIME 类型与解码后大小。
+// 返回解码后的字节数（若为 base64 编码类型）或 -1（非 base64 类型），以及校验是否通过。
+func validateAttachment(att Attachment) (decodedLen int, ok bool) {
+	// MIME 白名单校验（空 MIME 允许通过，兼容旧前端）
+	if att.MimeType != "" && !allowedAttachmentMIMETypes[att.MimeType] {
+		log.Warn().Str("name", att.Name).Str("mime", att.MimeType).Msg("[chat] attachment rejected: MIME type not in whitelist")
+		return 0, false
+	}
+	// 大小校验：base64 编码类型需校验解码后字节数
+	switch att.Type {
+	case "image", "audio", "video":
+		// Data 为 base64 data URL，估算解码后大小
+		if decoded := base64.StdEncoding.DecodedLen(len(att.Data)); decoded > maxAttachmentBytes {
+			log.Warn().Str("name", att.Name).Int("decoded_bytes", decoded).Msg("[chat] attachment rejected: exceeds 200MB limit")
+			return decoded, false
+		}
+		return len(att.Data), true
+	case "pdf", "docx":
+		decoded, err := base64.StdEncoding.DecodeString(att.Data)
+		if err != nil {
+			return 0, false
+		}
+		if len(decoded) > maxAttachmentBytes {
+			log.Warn().Str("name", att.Name).Int("decoded_bytes", len(decoded)).Msg("[chat] attachment rejected: exceeds 200MB limit")
+			return len(decoded), false
+		}
+		return len(decoded), true
+	default:
+		return -1, true
+	}
+}
+
 func buildMessageFromAttachments(role, content string, attachments []Attachment) llm.ChatMessage {
 	var imageUrls []string
 	var audios []llm.InputAudio
@@ -112,6 +163,11 @@ func buildMessageFromAttachments(role, content string, attachments []Attachment)
 	var textParts []string
 
 	for _, att := range attachments {
+		// 安全实践：入口处统一校验 MIME 白名单与 200MB 大小上限，与 RAG UploadDocument 对齐
+		if _, ok := validateAttachment(att); !ok {
+			textParts = append(textParts, fmt.Sprintf("--- 附件: %s (%s) ---\n[附件被拒绝：类型或大小超出限制]\n--- 附件结束 ---", att.Name, att.MimeType))
+			continue
+		}
 		switch att.Type {
 		case "image":
 			imageUrls = append(imageUrls, att.Data)
@@ -121,9 +177,32 @@ func buildMessageFromAttachments(role, content string, attachments []Attachment)
 			// llama.cpp 新增 input_video 独立类型，不再混入 image_url
 			videos = append(videos, llm.InputVideo{URL: att.Data, Format: att.Format})
 		case "pdf":
-			pdfText := extractPDFText([]byte(att.Data))
+			// 前端传入的 att.Data 是 base64 编码字符串，必须先解码为 PDF 原始字节
+			pdfRaw, err := base64.StdEncoding.DecodeString(att.Data)
+			if err != nil {
+				log.Warn().Err(err).Str("name", att.Name).Msg("PDF base64 解码失败")
+				textParts = append(textParts, fmt.Sprintf("--- 附件: %s (%s) ---\n[PDF文件无法解析]\n--- 附件结束 ---", att.Name, att.MimeType))
+				continue
+			}
+			pdfText := extractPDFText(pdfRaw)
 			pdfText = truncateAttachmentText(pdfText, att.Name)
 			textParts = append(textParts, fmt.Sprintf("--- 附件: %s (%s) ---\n%s\n--- 附件结束 ---", att.Name, att.MimeType, pdfText))
+		case "docx":
+			// 复用 RAG 的 parseDOCX（含 zip bomb 防御）
+			docxRaw, err := base64.StdEncoding.DecodeString(att.Data)
+			if err != nil {
+				log.Warn().Err(err).Str("name", att.Name).Msg("DOCX base64 解码失败")
+				textParts = append(textParts, fmt.Sprintf("--- 附件: %s (%s) ---\n[DOCX文件无法解析]\n--- 附件结束 ---", att.Name, att.MimeType))
+				continue
+			}
+			docxText, err := rag.ParseFileFromBytes(docxRaw, att.Name)
+			if err != nil {
+				log.Warn().Err(err).Str("name", att.Name).Msg("DOCX 解析失败")
+				textParts = append(textParts, fmt.Sprintf("--- 附件: %s (%s) ---\n[DOCX文件无法解析: %v]\n--- 附件结束 ---", att.Name, att.MimeType, err))
+				continue
+			}
+			docxText = truncateAttachmentText(docxText, att.Name)
+			textParts = append(textParts, fmt.Sprintf("--- 附件: %s (%s) ---\n%s\n--- 附件结束 ---", att.Name, att.MimeType, docxText))
 		case "text":
 			truncated := truncateAttachmentText(att.Data, att.Name)
 			textParts = append(textParts, fmt.Sprintf("--- 附件: %s (%s) ---\n%s\n--- 附件结束 ---", att.Name, att.MimeType, truncated))
@@ -370,10 +449,7 @@ func (s *Service) buildLLMMessages(ctx context.Context, convID string, dbMsgs []
 		estimatedTokens = int(float64(estimatedTokens) * calibRatio)
 	}
 
-	reserve := maxContext / 10
-	if reserve < 512 {
-		reserve = 512
-	}
+	reserve := max(maxContext/10, 512)
 	// P1-A1: 主动压缩阈值 - 当估算接近上限时提前压缩，避免到溢出边缘才动。
 	// 默认 0.8，effectiveMax = 80% * maxContext（而非 90%），为后续对话留出更多空间。
 	// 生活类比：油表剩 20% 就去加油，而不是等红灯亮了才找加油站。

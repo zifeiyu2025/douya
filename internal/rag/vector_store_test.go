@@ -728,7 +728,7 @@ func TestVectorIndex_BadgerIndex_Search(t *testing.T) {
 	// 生成 vectorCount 个确定性向量（unitVector 保证不同 seed 产生不同方向）
 	ids := make([]string, vectorCount)
 	vecs := make([][]float64, vectorCount)
-	for i := 0; i < vectorCount; i++ {
+	for i := range vectorCount {
 		ids[i] = fmt.Sprintf("v%d", i)
 		vecs[i] = unitVector(dim, i, 0.01)
 	}
@@ -791,7 +791,7 @@ func TestVectorIndex_BadgerIndex_TopKConsistent(t *testing.T) {
 	// 生成 vectorCount 个确定性向量
 	ids := make([]string, vectorCount)
 	vecs := make([][]float64, vectorCount)
-	for i := 0; i < vectorCount; i++ {
+	for i := range vectorCount {
 		ids[i] = fmt.Sprintf("v%d", i)
 		vecs[i] = unitVector(dim, i, 0.01)
 	}
@@ -829,7 +829,7 @@ func TestVectorIndex_BadgerIndex_TopKConsistent(t *testing.T) {
 
 	// 2. 手动构建 memIndex，用同一批向量检索
 	memIdx := newMemIndex(dim)
-	for i := 0; i < vectorCount; i++ {
+	for i := range vectorCount {
 		memIdx.insert(ids[i], vecs[i])
 	}
 	memResults, err := memIdx.Search(context.Background(), query, topK)
@@ -841,7 +841,7 @@ func TestVectorIndex_BadgerIndex_TopKConsistent(t *testing.T) {
 	}
 
 	// 3. 逐位比较 top-K 的 ID 和分数
-	for i := 0; i < topK; i++ {
+	for i := range topK {
 		if badgerResults[i].ID != memResults[i].ID {
 			t.Errorf("top-%d ID 不一致：badger=%q mem=%q", i+1, badgerResults[i].ID, memResults[i].ID)
 		}
@@ -874,8 +874,8 @@ func TestLoadChunksBatch(t *testing.T) {
 	// 直接写入 chunk 文本和元数据到 Badger，模拟 document_pipeline 的写入
 	// 元数据使用预制 JSON 字符串，避免引入 encoding/json 依赖
 	docs := []struct {
-		id      string
-		content string
+		id       string
+		content  string
 		metaJSON string
 	}{
 		{"chunk1", "Hello 世界", "{\"doc_id\":\"d1\",\"chunk_idx\":\"0\"}"},
@@ -964,7 +964,7 @@ func TestGetOrLoadIndex_NoCrossCollectionBlock(t *testing.T) {
 	// 向 colA 添加较多向量(使构建有一定耗时)，向 colB 添加少量向量
 	idsA := make([]string, 50)
 	vecsA := make([][]float64, 50)
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		idsA[i] = fmt.Sprintf("a%d", i)
 		vecsA[i] = unitVector(dim, i, 0.01)
 	}
@@ -974,7 +974,7 @@ func TestGetOrLoadIndex_NoCrossCollectionBlock(t *testing.T) {
 
 	idsB := make([]string, 5)
 	vecsB := make([][]float64, 5)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		idsB[i] = fmt.Sprintf("b%d", i)
 		vecsB[i] = unitVector(dim, i+100, 0.01)
 	}
@@ -1058,7 +1058,7 @@ func TestAddVectorsDeleteDocument_BM25NoResidue(t *testing.T) {
 	}
 
 	// 预先写入 5 个文档的 chunk 文本和向量（含共同关键词"苹果"）
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		id := fmt.Sprintf("doc%d_0", i)
 		writeChunk("bm25_race", id, fmt.Sprintf("苹果文档%d的独特内容", i))
 		vec := unitVector(dim, i, 0.01)
@@ -1070,7 +1070,7 @@ func TestAddVectorsDeleteDocument_BM25NoResidue(t *testing.T) {
 	// 并发删除 doc0、doc1、doc2（保留 doc3、doc4）
 	// collectionLock 确保三个 DeleteDocument 互斥执行，BM25 清理不会遗漏
 	var wg sync.WaitGroup
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -1217,7 +1217,7 @@ func TestBadgerIndex_LRUCache(t *testing.T) {
 
 	ids := make([]string, vectorCount)
 	vecs := make([][]float64, vectorCount)
-	for i := 0; i < vectorCount; i++ {
+	for i := range vectorCount {
 		ids[i] = fmt.Sprintf("v%d", i)
 		vecs[i] = unitVector(dim, i, 0.01)
 	}
@@ -1303,7 +1303,7 @@ func TestClose_ReleasesIndexResources(t *testing.T) {
 
 	ids := make([]string, 5)
 	vecs := make([][]float64, 5)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		ids[i] = fmt.Sprintf("v%d", i)
 		vecs[i] = unitVector(dim, i, 0.01)
 	}
@@ -1364,7 +1364,7 @@ func TestBadgerSearch_ScanLimit(t *testing.T) {
 
 	ids := make([]string, vectorCount)
 	vecs := make([][]float64, vectorCount)
-	for i := 0; i < vectorCount; i++ {
+	for i := range vectorCount {
 		ids[i] = fmt.Sprintf("v%d", i)
 		vecs[i] = unitVector(dim, i, 0.01)
 	}
@@ -1426,7 +1426,7 @@ func TestBadgerSearch_CtxCanceled(t *testing.T) {
 
 	ids := make([]string, vectorCount)
 	vecs := make([][]float64, vectorCount)
-	for i := 0; i < vectorCount; i++ {
+	for i := range vectorCount {
 		ids[i] = fmt.Sprintf("v%d", i)
 		vecs[i] = unitVector(dim, i, 0.01)
 	}
@@ -1473,7 +1473,7 @@ func TestBadgerSearch_CtxCanceled(t *testing.T) {
 // memIndex.Search 在 ctx 已取消时返回 context.Canceled。
 func TestMemIndex_CtxCanceled(t *testing.T) {
 	mi := newMemIndex(4)
-	for i := 0; i < 2000; i++ {
+	for i := range 2000 {
 		mi.insert(fmt.Sprintf("v%d", i), unitVector(4, i, 0.01))
 	}
 

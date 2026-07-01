@@ -31,11 +31,11 @@ type InputVideo struct {
 }
 
 type ChatMessage struct {
-	Role             string        `json:"role"`
-	Content          interface{}   `json:"content"`
-	ReasoningContent string        `json:"reasoning_content,omitempty"`
-	ToolCalls        []ToolCall    `json:"tool_calls,omitempty"`
-	ToolCallID       string        `json:"tool_call_id,omitempty"`
+	Role             string     `json:"role"`
+	Content          any        `json:"content"`
+	ReasoningContent string     `json:"reasoning_content,omitempty"`
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string     `json:"tool_call_id,omitempty"`
 }
 
 func (m *ChatMessage) ContentString() string {
@@ -48,9 +48,9 @@ func (m *ChatMessage) ContentString() string {
 				return part.Text
 			}
 		}
-	case []interface{}:
+	case []any:
 		for _, item := range v {
-			if part, ok := item.(map[string]interface{}); ok {
+			if part, ok := item.(map[string]any); ok {
 				if part["type"] == "text" {
 					if text, ok := part["text"].(string); ok {
 						return text
@@ -141,9 +141,9 @@ func NewMultimodalMessage(role, text string, imageURLs []string, audios []InputA
 }
 
 type ToolCall struct {
-	Index   int         `json:"index"`
-	ID      string      `json:"id"`
-	Type    string      `json:"type"`
+	Index    int          `json:"index"`
+	ID       string       `json:"id"`
+	Type     string       `json:"type"`
 	Function FunctionCall `json:"function"`
 }
 
@@ -153,56 +153,56 @@ type FunctionCall struct {
 }
 
 type ToolDefinition struct {
-	Type     string       `json:"type"`
+	Type     string      `json:"type"`
 	Function FunctionDef `json:"function"`
 }
 
 type FunctionDef struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters"`
 }
 
 type ChatCompletionRequest struct {
-	Model         string           `json:"model"`
-	Messages      []ChatMessage    `json:"messages"`
-	Stream        bool             `json:"stream"`
-	MaxTokens     int              `json:"max_tokens,omitempty"`
-	Temperature   float64          `json:"temperature,omitempty"`
-	TopP          float64          `json:"top_p,omitempty"`
-	TopK          int              `json:"top_k,omitempty"`
-	RepeatPenalty float64          `json:"repeat_penalty,omitempty"`
-	Reasoning     string           `json:"reasoning,omitempty"`
-	ReasoningBudget int            `json:"reasoning_budget,omitempty"`
-	ReasoningControl bool           `json:"reasoning_control,omitempty"`
+	Model            string        `json:"model"`
+	Messages         []ChatMessage `json:"messages"`
+	Stream           bool          `json:"stream"`
+	MaxTokens        int           `json:"max_tokens,omitempty"`
+	Temperature      float64       `json:"temperature,omitempty"`
+	TopP             float64       `json:"top_p,omitempty"`
+	TopK             int           `json:"top_k,omitempty"`
+	RepeatPenalty    float64       `json:"repeat_penalty,omitempty"`
+	Reasoning        string        `json:"reasoning,omitempty"`
+	ReasoningBudget  int           `json:"reasoning_budget,omitempty"`
+	ReasoningControl bool          `json:"reasoning_control,omitempty"`
 	// 请求级 reasoning 扩展字段（v9744+）
-	ReasoningFormat         string `json:"reasoning_format,omitempty"`          // 请求级覆盖思考格式：none/deepseek/deepseek-legacy
-	ReasoningBudgetStartTag string `json:"reasoning_budget_start_tag,omitempty"` // 思考预算区间起始标记
-	ReasoningBudgetEndTag   string `json:"reasoning_budget_end_tag,omitempty"`   // 思考预算区间结束标记
-	ReasoningInContent      *bool  `json:"reasoning_in_content,omitempty"`       // deepseek-legacy 流式时是否在 content 中保留 think 标签
-	TimingsPerToken bool           `json:"timings_per_token,omitempty"` // 每个 token 返回 timings 数据，用于实时速度显示
-	ReturnProgress bool           `json:"return_progress,omitempty"`  // 在流式响应中返回 prompt 处理进度
-	Tools         []ToolDefinition       `json:"tools,omitempty"`
-	ChatTemplateKwargs map[string]interface{} `json:"chat_template_kwargs,omitempty"`
-	StreamOptions *StreamOptions          `json:"stream_options,omitempty"`
+	ReasoningFormat         string           `json:"reasoning_format,omitempty"`           // 请求级覆盖思考格式：none/deepseek/deepseek-legacy
+	ReasoningBudgetStartTag string           `json:"reasoning_budget_start_tag,omitempty"` // 思考预算区间起始标记
+	ReasoningBudgetEndTag   string           `json:"reasoning_budget_end_tag,omitempty"`   // 思考预算区间结束标记
+	ReasoningInContent      *bool            `json:"reasoning_in_content,omitempty"`       // deepseek-legacy 流式时是否在 content 中保留 think 标签
+	TimingsPerToken         bool             `json:"timings_per_token,omitempty"`          // 每个 token 返回 timings 数据，用于实时速度显示
+	ReturnProgress          bool             `json:"return_progress,omitempty"`            // 在流式响应中返回 prompt 处理进度
+	Tools                   []ToolDefinition `json:"tools,omitempty"`
+	ChatTemplateKwargs      map[string]any   `json:"chat_template_kwargs,omitempty"`
+	StreamOptions           *StreamOptions   `json:"stream_options,omitempty"`
 	// llama.cpp 新增请求参数
-	NCacheReuse         int                    `json:"n_cache_reuse,omitempty"`          // 请求级 KV 缓存复用块大小
-	TMaxPredictMs       int                    `json:"t_max_predict_ms,omitempty"`       // 预测时间限制（毫秒）
-	Echo                bool                   `json:"echo,omitempty"`                   // 是否回显输入
-	ParseToolCalls      bool                   `json:"parse_tool_calls,omitempty"`       // 是否解析工具调用
-	GrammarLazy         bool                   `json:"grammar_lazy,omitempty"`           // 懒惰语法（仅在需要时应用 grammar）
-	GrammarTriggers     []GrammarTrigger       `json:"grammar_triggers,omitempty"`       // 语法触发器
-	ContinueFinalMessage bool                  `json:"continue_final_message,omitempty"` // 继续最终消息
-	GenerationPrompt    string                 `json:"generation_prompt,omitempty"`       // 生成提示
-	PostSamplingProbs   bool                   `json:"post_sampling_probs,omitempty"`    // 后采样概率
+	NCacheReuse          int              `json:"n_cache_reuse,omitempty"`          // 请求级 KV 缓存复用块大小
+	TMaxPredictMs        int              `json:"t_max_predict_ms,omitempty"`       // 预测时间限制（毫秒）
+	Echo                 bool             `json:"echo,omitempty"`                   // 是否回显输入
+	ParseToolCalls       bool             `json:"parse_tool_calls,omitempty"`       // 是否解析工具调用
+	GrammarLazy          bool             `json:"grammar_lazy,omitempty"`           // 懒惰语法（仅在需要时应用 grammar）
+	GrammarTriggers      []GrammarTrigger `json:"grammar_triggers,omitempty"`       // 语法触发器
+	ContinueFinalMessage bool             `json:"continue_final_message,omitempty"` // 继续最终消息
+	GenerationPrompt     string           `json:"generation_prompt,omitempty"`      // 生成提示
+	PostSamplingProbs    bool             `json:"post_sampling_probs,omitempty"`    // 后采样概率
 	// 请求级采样扩展字段（llama.cpp 新增）
-	Samplers        []string `json:"samplers,omitempty"`          // 自定义采样器顺序（如 ["top_k","top_p","temperature"]）
-	IgnoreEos       bool     `json:"ignore_eos,omitempty"`        // 忽略 EOS 继续生成
-	Verbose         bool     `json:"verbose,omitempty"`           // 响应中包含调试信息
-	AdaptiveTarget  float64  `json:"adaptive_target,omitempty"`   // 请求级自适应采样目标（0=禁用）
-	AdaptiveDecay   float64  `json:"adaptive_decay,omitempty"`    // 请求级自适应采样衰减（0=禁用）
+	Samplers       []string `json:"samplers,omitempty"`        // 自定义采样器顺序（如 ["top_k","top_p","temperature"]）
+	IgnoreEos      bool     `json:"ignore_eos,omitempty"`      // 忽略 EOS 继续生成
+	Verbose        bool     `json:"verbose,omitempty"`         // 响应中包含调试信息
+	AdaptiveTarget float64  `json:"adaptive_target,omitempty"` // 请求级自适应采样目标（0=禁用）
+	AdaptiveDecay  float64  `json:"adaptive_decay,omitempty"`  // 请求级自适应采样衰减（0=禁用）
 	// Anthropic 风格 thinking 参数兼容（llama.cpp 自动转换为 reasoning_budget_tokens）
-	Thinking            *AnthropicThinking     `json:"thinking,omitempty"`
+	Thinking *AnthropicThinking `json:"thinking,omitempty"`
 }
 
 // AnthropicThinking Anthropic 风格的思考参数，llama-server 会自动转换为 reasoning_budget_tokens
@@ -274,49 +274,49 @@ type SSEChoice struct {
 }
 
 type ServerStatus struct {
-	Running        bool               `json:"running"`
-	ModelReady     bool               `json:"model_ready,omitempty"`
-	Error          string             `json:"error,omitempty"`
-	Switching      bool               `json:"switching,omitempty"`
-	SwitchingTo    string             `json:"switching_to,omitempty"`
-	CurrentModel   string             `json:"current_model,omitempty"`
-	Capabilities   *ModelCapabilities `json:"capabilities,omitempty"`
+	Running      bool               `json:"running"`
+	ModelReady   bool               `json:"model_ready,omitempty"`
+	Error        string             `json:"error,omitempty"`
+	Switching    bool               `json:"switching,omitempty"`
+	SwitchingTo  string             `json:"switching_to,omitempty"`
+	CurrentModel string             `json:"current_model,omitempty"`
+	Capabilities *ModelCapabilities `json:"capabilities,omitempty"`
 }
 
 const (
-	ThinkingModeNone     = "none"
-	ThinkingModeTemplate = "template"
+	ThinkingModeNone      = "none"
+	ThinkingModeTemplate  = "template"
 	ThinkingModeReasoning = "reasoning"
 )
 
 type ModelCapabilities struct {
-	ImageInput        bool    `json:"image_input"`
-	AudioInput        bool    `json:"audio_input"`
-	VideoInput        bool    `json:"video_input"`
-	TextInput         bool    `json:"text_input"`
-	Reasoning         bool    `json:"reasoning"`
-	MmprojLoaded      bool    `json:"mmproj_loaded"`
-	HasMTP            bool    `json:"has_mtp"`
-	ThinkingMode      string  `json:"thinking_mode"`
-	SoftSwitchSupport bool    `json:"soft_switch_support"` // 是否支持 /think /no_think 软开关（目前仅 Qwen3）
-	NParams           float64 `json:"n_params"`
-	ToolCallSupport   bool    `json:"tool_call_support"` // 模型是否支持 tool call
-	SupportsPreserveReasoning bool `json:"supports_preserve_reasoning"` // 模型是否支持 --reasoning-preserve
+	ImageInput                bool    `json:"image_input"`
+	AudioInput                bool    `json:"audio_input"`
+	VideoInput                bool    `json:"video_input"`
+	TextInput                 bool    `json:"text_input"`
+	Reasoning                 bool    `json:"reasoning"`
+	MmprojLoaded              bool    `json:"mmproj_loaded"`
+	HasMTP                    bool    `json:"has_mtp"`
+	ThinkingMode              string  `json:"thinking_mode"`
+	SoftSwitchSupport         bool    `json:"soft_switch_support"` // 是否支持 /think /no_think 软开关（目前仅 Qwen3）
+	NParams                   float64 `json:"n_params"`
+	ToolCallSupport           bool    `json:"tool_call_support"`           // 模型是否支持 tool call
+	SupportsPreserveReasoning bool    `json:"supports_preserve_reasoning"` // 模型是否支持 --reasoning-preserve
 }
 
 // EmbeddingRequest represents a request to /v1/embeddings
 type EmbeddingRequest struct {
-	Model          string      `json:"model,omitempty"`
-	Input          interface{} `json:"input"` // string or []string
-	EncodingFormat string      `json:"encoding_format,omitempty"` // "float" or "base64"
+	Model          string `json:"model,omitempty"`
+	Input          any    `json:"input"`                     // string or []string
+	EncodingFormat string `json:"encoding_format,omitempty"` // "float" or "base64"
 }
 
 // EmbeddingResponse represents a response from /v1/embeddings
 type EmbeddingResponse struct {
-	Object string     `json:"object"`
+	Object string      `json:"object"`
 	Data   []Embedding `json:"data"`
-	Model string     `json:"model"`
-	Usage  Usage      `json:"usage"`
+	Model  string      `json:"model"`
+	Usage  Usage       `json:"usage"`
 }
 
 // Embedding represents a single embedding vector
@@ -334,18 +334,18 @@ type Usage struct {
 
 // RerankRequest 表示 /v1/rerank 端点的请求体
 type RerankRequest struct {
-	Model    string   `json:"model,omitempty"`     // 可选，指定 reranker 模型
-	Query    string   `json:"query"`               // 查询文本
-	Documents []string `json:"documents"`           // 候选文档列表
-	TopN     int      `json:"top_n,omitempty"`      // 返回的 top-N 结果数
+	Model     string   `json:"model,omitempty"` // 可选，指定 reranker 模型
+	Query     string   `json:"query"`           // 查询文本
+	Documents []string `json:"documents"`       // 候选文档列表
+	TopN      int      `json:"top_n,omitempty"` // 返回的 top-N 结果数
 }
 
 // RerankResult 表示单个重排序结果
 type RerankResult struct {
-	Index          int     `json:"index"`            // 原始文档列表中的索引
-	RelevanceScore float64 `json:"relevance_score"`  // 相关性分数（越高越相关）
+	Index          int     `json:"index"`           // 原始文档列表中的索引
+	RelevanceScore float64 `json:"relevance_score"` // 相关性分数（越高越相关）
 	Document       struct {
-		Text string `json:"text"`                     // 文档文本
+		Text string `json:"text"` // 文档文本
 	} `json:"document"`
 }
 
@@ -374,17 +374,17 @@ type LoraAdapter struct {
 // 旧版事件名 status_change / download_finished 仍兼容解析
 // value 范围 0-1，需乘以 100 转为百分比
 type ModelLoadEvent struct {
-	Model  string              `json:"model"`
-	Event  string              `json:"event"`
-	Data   ModelLoadEventData  `json:"data"`
-	Status string              // 从 Data.Status 或顶层 status 推导
-	ProgressPercent float64    // 0-100 百分比，从 Data.Progress.Value 转换
+	Model           string             `json:"model"`
+	Event           string             `json:"event"`
+	Data            ModelLoadEventData `json:"data"`
+	Status          string             // 从 Data.Status 或顶层 status 推导
+	ProgressPercent float64            // 0-100 百分比，从 Data.Progress.Value 转换
 }
 
 // ModelLoadEventData /models/sse 事件中的 data 字段
 type ModelLoadEventData struct {
-	Status   string              `json:"status"`
-	Progress *ModelLoadProgress  `json:"progress"`
+	Status   string             `json:"status"`
+	Progress *ModelLoadProgress `json:"progress"`
 }
 
 // ModelLoadProgress 加载进度信息
@@ -396,14 +396,12 @@ type ModelLoadProgress struct {
 
 // SlotInfo slot 状态信息（用于 /slots 端点）
 type SlotInfo struct {
-	ID          int    `json:"id"`
-	Task        string `json:"task"`
-	NPrompt     int    `json:"n_prompt"`
-	NPredicted  int    `json:"n_predicted"`
-	NGpuLayers  int    `json:"n_gpu_layers"`
-	Model       string `json:"model"`
-	NCacheTokens int   `json:"n_cache_tokens"`
-	CacheShift  bool   `json:"cache_shift"`
+	ID           int    `json:"id"`
+	Task         string `json:"task"`
+	NPrompt      int    `json:"n_prompt"`
+	NPredicted   int    `json:"n_predicted"`
+	NGpuLayers   int    `json:"n_gpu_layers"`
+	Model        string `json:"model"`
+	NCacheTokens int    `json:"n_cache_tokens"`
+	CacheShift   bool   `json:"cache_shift"`
 }
-
-

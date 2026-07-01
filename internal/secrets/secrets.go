@@ -11,13 +11,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"os/exec"
-	"os/user"
 	"path/filepath"
 	"runtime"
 	"sync"
 
 	zlog "github.com/rs/zerolog/log"
+
+	"douya/internal/pathutil"
 )
 
 // CipherCache 按 key 哈希缓存 cipher.AEAD 实例，避免每次加密/解密都重新创建。
@@ -149,8 +149,9 @@ func LoadOrCreateKey(keyPath string) ([]byte, error) {
 	// 因此额外调用 icacls 收紧 ACL，移除继承权限并仅授予当前用户读写。
 	// 失败仅记录告警，不阻止写入——密钥文件已写入成功，ACL 收紧失败不应导致启动中断。
 	// 非 Windows 平台：保持原 0600 行为不变。
+	// 安全实践：复用 pathutil.RestrictACLWindows，统一文件权限收紧逻辑（见安全审查 #20）
 	if runtime.GOOS == "windows" {
-		if err := restrictKeyFileACLWindows(keyPath); err != nil {
+		if err := pathutil.RestrictACLWindows(keyPath); err != nil {
 			zlog.Warn().Err(err).Str("key_path", keyPath).Msg("[secrets] restrict key file ACL failed on Windows")
 		}
 	}
@@ -158,32 +159,8 @@ func LoadOrCreateKey(keyPath string) ([]byte, error) {
 	return key, nil
 }
 
-// restrictKeyFileACLWindows 在 Windows 上通过 icacls 命令限制密钥文件的访问权限，
-// 移除继承的权限并仅授予当前用户读写权限。
-// 生活类比：就像给保险柜换一把只有你能开的锁，并把其他人以前配的钥匙全部作废——
-// 即使有人能物理访问到这个文件，没有你的用户身份也读不了、改不了。
-//
-// 命令格式：icacls "<keyPath>" /inheritance:r /grant:r "<username>:(R,W)"
-//   - /inheritance:r  移除从父目录继承的所有权限
-//   - /grant:r         替换式授予（覆盖而非追加）指定用户的权限
-//   - (R,W)            仅授予读(Read)和写(Write)权限
-func restrictKeyFileACLWindows(keyPath string) error {
-	// 获取当前用户名，用于在 ACL 中授予该用户读写权限
-	u, err := user.Current()
-	if err != nil {
-		return fmt.Errorf("获取当前用户失败: %w", err)
-	}
-	username := u.Username
-
-	// 拼接并执行 icacls 命令
-	// 注意：exec.Command 会自动处理参数转义，无需手动加引号
-	cmd := exec.Command("icacls", keyPath, "/inheritance:r", "/grant:r", fmt.Sprintf("%s:(R,W)", username))
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("icacls 限制密钥文件权限失败: %w, 命令输出: %s", err, string(output))
-	}
-	return nil
-}
+// restrictKeyFileACLWindows 已迁移至 internal/pathutil/pathutil.go 的 RestrictACLWindows，
+// 统一文件权限收紧逻辑，供 secrets/config/logger/store 复用（见安全审查 #20）。
 
 // Encrypt 使用 AES-GCM 加密明文，返回 base64 编码的密文
 // 改用 CipherCache 缓存 AEAD 实例，避免每次调用都重新创建 cipher

@@ -1,39 +1,45 @@
 /**
- * useMorphRender 测试
+ * useMorphRender 测试（轻量版，v-html 方案）
  *
- * 核心验证点（对标千问 morphdom DOM Diff 方案）：
+ * 核心验证点：
  * 1. 首次渲染：HTML 写入容器
- * 2. 增量更新：未变化节点保留同一引用（morphdom 核心 value）
- * 3. 新增节点添加 stream-node-enter 淡入动画类
- * 4. RAF 合帧：多次快速更新只触发一次渲染
- * 5. clear() 清空容器
- * 6. finalizeRender 用完整 renderMarkdown 做最终渲染
+ * 2. 内容更新：HTML 更新为新内容
+ * 3. RAF 合帧：多次快速更新只触发一次渲染
+ * 4. clear() 清空容器
+ * 5. finalizeRender 用完整 renderMarkdown 做最终渲染
+ * 6. 空内容触发 clear
+ * 7. 容器未绑定时安全跳过
+ * 8. 容器延迟挂载补偿渲染
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { effectScope, ref, nextTick } from 'vue'
 import { useMorphRender } from '../composables/useMorphRender'
 
-// mock renderStreamingSync：按 \n\n 分段为 <p>，\n 转 <br>，模拟真实流式渲染
-vi.mock('../utils/streamingRender', () => ({
-    renderStreamingSync: vi.fn((text: string) => {
-        if (!text) return ''
-        const paragraphs = text.split(/\n{2,}/)
-        return paragraphs
-            .filter(p => p.trim())
-            .map(p => {
-                const lines = p.trim().split('\n')
-                return `<p>${lines.join('<br>')}</p>`
-            })
-            .join('')
-    }),
+// mock marked：简单地将文本按 \n\n 分段为 <p>
+vi.mock('marked', () => ({
+    marked: {
+        parse: vi.fn((text: string) => {
+            if (!text) return ''
+            const paragraphs = text.split(/\n{2,}/)
+            return paragraphs
+                .filter(p => p.trim())
+                .map(p => `<p>${p}</p>`)
+                .join('')
+        }),
+        use: vi.fn(),
+        Renderer: vi.fn(() => ({})),
+    },
+}))
+
+// mock lightSanitize：直接返回原 HTML（测试环境无 XSS 风险）
+vi.mock('../utils/lightSanitize', () => ({
+    lightSanitize: vi.fn((html: string) => html),
+    isSafeUrl: vi.fn((url: string) => true),
 }))
 
 vi.mock('../utils/markdown', () => ({
     renderMarkdown: vi.fn(async (text: string) => `<article>${text}</article>`),
     escapeHtml: vi.fn((text: string) => text),
-    renderMermaidBlocksInElement: vi.fn(),
-    renderMathInElement: vi.fn(),
-    MermaidTheme: { Light: 'default', Dark: 'dark' },
 }))
 
 describe('useMorphRender', () => {
@@ -73,7 +79,7 @@ describe('useMorphRender', () => {
         cbs.forEach((cb) => cb())
     }
 
-    it('首次渲染：HTML 写入容器，生成正确的 DOM 结构', async () => {
+    it('首次渲染：HTML 写入容器', async () => {
         const { containerRef, bind } = scope.run(() => useMorphRender())!
         containerRef.value = container
         const source = ref('Hello')
@@ -87,7 +93,7 @@ describe('useMorphRender', () => {
         expect(p?.textContent).toBe('Hello')
     })
 
-    it('增量更新：未变化节点保留同一引用（morphdom DOM Diff 核心）', async () => {
+    it('内容更新：HTML 更新为新内容', async () => {
         const { containerRef, bind } = scope.run(() => useMorphRender())!
         containerRef.value = container
         const source = ref('A')
@@ -96,43 +102,17 @@ describe('useMorphRender', () => {
         await nextTick()
         flushRaf()
 
-        const firstP = container.querySelector('p')
-        expect(firstP?.textContent).toBe('A')
+        expect(container.querySelector('p')?.textContent).toBe('A')
 
-        // 从 <p>A</p> 变成 <p>A</p><p>B</p>（追加新段落）
+        // 更新内容
         source.value = 'A\n\nB'
         await nextTick()
         flushRaf()
 
         const paragraphs = container.querySelectorAll('p')
         expect(paragraphs.length).toBe(2)
-        expect(paragraphs[0]).toBe(firstP) // 同一引用，未销毁
+        expect(paragraphs[0].textContent).toBe('A')
         expect(paragraphs[1].textContent).toBe('B')
-    })
-
-    it('新增节点添加 stream-node-enter 淡入动画类', async () => {
-        const { containerRef, bind } = scope.run(() => useMorphRender())!
-        containerRef.value = container
-        const source = ref('A')
-        bind(() => source.value)
-
-        await nextTick()
-        flushRaf()
-
-        // 首次渲染：直接 innerHTML，不加淡入类（避免首次全部淡入）
-        const firstP = container.querySelector('p')
-        expect(firstP?.classList.contains('stream-node-enter')).toBe(false)
-
-        // 追加新段落
-        source.value = 'A\n\nB'
-        await nextTick()
-        flushRaf()
-
-        const paragraphs = container.querySelectorAll('p')
-        // 第一个 p 保留，不加淡入类
-        expect(paragraphs[0].classList.contains('stream-node-enter')).toBe(false)
-        // 第二个 p 是新增的，加淡入类
-        expect(paragraphs[1].classList.contains('stream-node-enter')).toBe(true)
     })
 
     it('RAF 合帧：多次快速更新只调度一次 RAF', async () => {
@@ -170,26 +150,6 @@ describe('useMorphRender', () => {
         clear()
         expect(container.innerHTML).toBe('')
         expect(container.childNodes.length).toBe(0)
-    })
-
-    it('clear 后再次渲染视为首次渲染（不加淡入类）', async () => {
-        const { containerRef, bind, clear } = scope.run(() => useMorphRender())!
-        containerRef.value = container
-        const source = ref('A')
-        bind(() => source.value)
-
-        await nextTick()
-        flushRaf()
-        clear()
-
-        // 重新渲染
-        source.value = 'B'
-        await nextTick()
-        flushRaf()
-
-        const p = container.querySelector('p')
-        expect(p?.textContent).toBe('B')
-        expect(p?.classList.contains('stream-node-enter')).toBe(false)
     })
 
     it('finalizeRender 用完整 renderMarkdown 做最终渲染', async () => {
@@ -257,40 +217,67 @@ describe('useMorphRender', () => {
         expect(container.querySelector('p')?.textContent).toBe('首 token')
     })
 
-    it('回归测试：换行边界变化不导致 HTML 结构重组闪烁', async () => {
-        // 场景：流式输出 "A\nB" → "A\nB\n" 时
-        // 旧方案（stable/unstable 拆分）会生成不同 HTML 结构：
-        //   "A\nB"  → stable="A\n" + unstable="B" → <p>A</p><p>B</p>
-        //   "A\nB\n" → stable="A\nB\n" + unstable="" → <p>A<br>B</p>
-        // morphdom diff 时删除 <p>B</p> + 修改 <p>A</p>，导致闪烁
-        // 新方案（全量渲染）保证相同内容生成相同 HTML：
-        //   "A\nB"  → <p>A<br>B</p>
-        //   "A\nB\n" → <p>A<br>B</p>（trim 后相同）
-        // morphdom diff 无变化，无闪烁
+    // 回归测试：修复段落从 N 增长到 N+1 时 DOM 顺序错乱
+    // 旧 bug：第一行渲染后，第三行先出现在 unstable-block，第二行被新建在末尾，
+    // 导致顺序变成 A、C、B
+    it('段落连续增长时保持 DOM 顺序（1段→2段→3段→4段）', async () => {
         const { containerRef, bind } = scope.run(() => useMorphRender())!
         containerRef.value = container
         const source = ref('')
         bind(() => source.value)
 
-        // 第一帧：渲染 "A\nB"
-        source.value = 'A\nB'
+        // 帧1：1段
+        source.value = 'A'
+        await nextTick()
+        flushRaf()
+        expect(container.textContent).toBe('A')
+
+        // 帧2：2段
+        source.value = 'A\n\nB'
+        await nextTick()
+        flushRaf()
+        // 验证：第一行 A 在前，第二行 B 在后
+        const ps2 = container.querySelectorAll('p')
+        expect(ps2.length).toBe(2)
+        expect(ps2[0].textContent).toBe('A')
+        expect(ps2[1].textContent).toBe('B')
+
+        // 帧3：3段（bug 触发点：原本会变成 A、C、B）
+        source.value = 'A\n\nB\n\nC'
+        await nextTick()
+        flushRaf()
+        const ps3 = container.querySelectorAll('p')
+        expect(ps3.length).toBe(3)
+        // 关键断言：DOM 顺序必须与逻辑顺序一致
+        expect(Array.from(ps3).map(p => p.textContent)).toEqual(['A', 'B', 'C'])
+
+        // 帧4：4段（再次增长，验证连续提升的稳定性）
+        source.value = 'A\n\nB\n\nC\n\nD'
+        await nextTick()
+        flushRaf()
+        const ps4 = container.querySelectorAll('p')
+        expect(ps4.length).toBe(4)
+        expect(Array.from(ps4).map(p => p.textContent)).toEqual(['A', 'B', 'C', 'D'])
+    })
+
+    // 回归测试：跨帧跳跃增长（从1段直接跳到3段）也应保持顺序
+    it('跳跃增长时保持 DOM 顺序（1段→3段）', async () => {
+        const { containerRef, bind } = scope.run(() => useMorphRender())!
+        containerRef.value = container
+        const source = ref('')
+        bind(() => source.value)
+
+        source.value = 'A'
         await nextTick()
         flushRaf()
 
-        const firstP = container.querySelector('p')
-        expect(firstP).not.toBeNull()
-        const htmlAfterFirst = container.innerHTML
-
-        // 第二帧：渲染 "A\nB\n"（边界变化）
-        source.value = 'A\nB\n'
+        // 直接跳到3段（跳过中间态）
+        source.value = 'A\n\nB\n\nC'
         await nextTick()
         flushRaf()
 
-        // HTML 结构应保持不变（全量渲染保证一致性）
-        expect(container.innerHTML).toBe(htmlAfterFirst)
-
-        // 第一个 <p> 节点应保留同一引用（未被销毁重建）
-        const secondP = container.querySelector('p')
-        expect(secondP).toBe(firstP)
+        const ps = container.querySelectorAll('p')
+        expect(ps.length).toBe(3)
+        expect(Array.from(ps).map(p => p.textContent)).toEqual(['A', 'B', 'C'])
     })
 })

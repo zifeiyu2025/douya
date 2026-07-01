@@ -135,7 +135,7 @@ func TestCircuitBreakerOpenSkipsProvider(t *testing.T) {
 	chain := search.NewSearchChain(p)
 	chain.Providers()[0].FailureThreshold = 3
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		chain.Search(context.Background(), "test")
 	}
 
@@ -164,7 +164,7 @@ func TestCircuitBreakerHalfOpenAfterResetTimeout(t *testing.T) {
 	chain.Providers()[0].FailureThreshold = 3
 	chain.Providers()[0].ResetTimeout = 10 * time.Millisecond
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		chain.Search(context.Background(), "test")
 	}
 
@@ -203,7 +203,7 @@ func TestHalfOpenSuccessRestoresClosed(t *testing.T) {
 	chain.Providers()[0].FailureThreshold = 3
 	chain.Providers()[0].ResetTimeout = 10 * time.Millisecond
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		chain.Search(context.Background(), "test")
 	}
 
@@ -234,7 +234,7 @@ func TestHalfOpenFailureBackToOpen(t *testing.T) {
 	chain.Providers()[0].FailureThreshold = 3
 	chain.Providers()[0].ResetTimeout = 10 * time.Millisecond
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		chain.Search(context.Background(), "test")
 	}
 
@@ -446,7 +446,7 @@ func TestChainFallback_WithCircuitBreaker(t *testing.T) {
 	chain := search.NewSearchChain(p1, p2)
 	chain.Providers()[0].FailureThreshold = 2
 
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		resp := chain.Search(context.Background(), "test")
 		if resp.Engine != "successProvider" {
 			t.Errorf("expected fallback to successProvider, got %s", resp.Engine)

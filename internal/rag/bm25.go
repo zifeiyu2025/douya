@@ -2,6 +2,7 @@ package rag
 
 import (
 	"encoding/json"
+	"maps"
 	"math"
 	"regexp"
 	"sort"
@@ -15,10 +16,10 @@ import (
 // BM25Index 实现轻量级 BM25 关键词检索
 // 用于与向量检索混合，提升精确关键词匹配的召回率
 type BM25Index struct {
-	documents []bm25Doc    // 文档集合
-	avgDL     float64      // 平均文档长度
-	k1        float64      // 词频饱和参数（默认 1.5）
-	b         float64      // 文档长度归一化参数（默认 0.75）
+	documents []bm25Doc          // 文档集合
+	avgDL     float64            // 平均文档长度
+	k1        float64            // 词频饱和参数（默认 1.5）
+	b         float64            // 文档长度归一化参数（默认 0.75）
 	idf       map[string]float64 // 逆文档频率
 	mu        sync.RWMutex       // 保护 documents/avgDL/idf 的并发读写
 }
@@ -48,7 +49,7 @@ func tokenize(text string) []string {
 	runs := []rune(text)
 	var current []rune
 
-	for i := 0; i < len(runs); i++ {
+	for i := range runs {
 		r := runs[i]
 		if unicode.Is(unicode.Han, r) {
 			// 中文字符：先输出当前积累的英文词
@@ -161,7 +162,9 @@ func (idx *BM25Index) RemoveByPrefix(prefix string) int {
 	if len(idx.documents) == 0 {
 		return 0
 	}
-	kept := idx.documents[:0] // 原地复用底层数组
+	// 原地复用底层数组：安全，因为已持有 mu.Lock（独占访问），且遍历原数组、写入同底层数组头部，
+	// 写入指针始终 <= 读取指针，不会覆盖未读元素。见安全审查 #30。
+	kept := idx.documents[:0]
 	removed := 0
 	for _, d := range idx.documents {
 		if strings.HasPrefix(d.id, prefix) {
@@ -334,9 +337,9 @@ type BM25Result struct {
 // HybridSearchResult 混合检索结果
 type HybridSearchResult struct {
 	ID           string
-	Score        float64           // RRF 融合分数
-	VectorScore  float64           // 向量余弦相似度
-	BM25Score    float64           // BM25 分数
+	Score        float64 // RRF 融合分数
+	VectorScore  float64 // 向量余弦相似度
+	BM25Score    float64 // BM25 分数
 	ChunkContent string
 	Metadata     map[string]string
 }
@@ -396,12 +399,8 @@ func (vs *VectorStore) HybridSearch(collection string, query []float64, queryTex
 	// 生活类比：与其每借一本书就跑一趟柜台（N 次事务），不如列好清单一次性借回（单事务）
 	if len(idsToLoad) > 0 {
 		loadedContents, loadedMetas, _ := vs.loadChunksBatch(collection, idsToLoad)
-		for id, content := range loadedContents {
-			chunkContents[id] = content
-		}
-		for id, meta := range loadedMetas {
-			metadatas[id] = meta
-		}
+		maps.Copy(chunkContents, loadedContents)
+		maps.Copy(metadatas, loadedMetas)
 	}
 
 	// 如果向量检索失败且 BM25 无结果，返回错误

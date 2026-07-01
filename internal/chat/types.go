@@ -24,7 +24,7 @@ type Message struct {
 	Attachments      []AttachmentSummary `json:"attachments,omitempty"`
 	CreatedAt        string              `json:"created_at"`
 	TokensPerSecond  float64             `json:"tokens_per_second,omitempty"` // 生成速度（tokens/s），仅事件传递，不存数据库
-	PredictedN       int                 `json:"predicted_n,omitempty"`      // 生成的 token 数，仅事件传递，不存数据库
+	PredictedN       int                 `json:"predicted_n,omitempty"`       // 生成的 token 数，仅事件传递，不存数据库
 }
 
 type AttachmentSummary struct {
@@ -50,32 +50,32 @@ type SendMessageParams struct {
 }
 
 type StreamEvent struct {
-	Type           string      `json:"type"`
-	Content        interface{} `json:"content"`
-	ConversationID string      `json:"conversation_id"`
+	Type           string `json:"type"`
+	Content        any    `json:"content"`
+	ConversationID string `json:"conversation_id"`
 }
 
 // ===== 事件类型常量（任务 31.4） =====
 // 统一管理事件类型字符串，避免发送侧/接收侧拼写不一致。
 // 与前端 frontend/src/types/chat.ts 的 StreamEvent 联合类型成员一一对应。
 const (
-	EventToken              = "token"               // token 增量，content: string
-	EventThinking           = "thinking"            // 思考增量，content: string
-	EventToolCallStart      = "tool_call_start"     // 工具调用开始，content: ToolCallStartContent
-	EventSearchStart        = "search_start"        // 搜索开始，content: string
-	EventSearchResult       = "search_result"       // 搜索结果，content: []search.SearchResult
-	EventTokenSpeed         = "token_speed"         // 生成速度，content: TokenSpeedContent
-	EventPromptProgress     = "prompt_progress"     // 提示词进度，content: PromptProgressContent
-	EventContextTrimmed     = "context_trimmed"     // 上下文裁剪，content: ContextTrimmedContent
-	EventDone               = "done"                // 生成完成，content: nil
-	EventStopped            = "stopped"             // 生成停止，content: nil
-	EventError              = "error"               // 错误，content: string
+	EventToken               = "token"                // token 增量，content: string
+	EventThinking            = "thinking"             // 思考增量，content: string
+	EventToolCallStart       = "tool_call_start"      // 工具调用开始，content: ToolCallStartContent
+	EventSearchStart         = "search_start"         // 搜索开始，content: string
+	EventSearchResult        = "search_result"        // 搜索结果，content: []search.SearchResult
+	EventTokenSpeed          = "token_speed"          // 生成速度，content: TokenSpeedContent
+	EventPromptProgress      = "prompt_progress"      // 提示词进度，content: PromptProgressContent
+	EventContextTrimmed      = "context_trimmed"      // 上下文裁剪，content: ContextTrimmedContent
+	EventDone                = "done"                 // 生成完成，content: nil
+	EventStopped             = "stopped"              // 生成停止，content: nil
+	EventError               = "error"                // 错误，content: string
 	EventConversationCreated = "conversation_created" // 会话创建，content: Conversation
-	EventAssistantMessage   = "assistant_message"   // 助手消息，content: Message
-	EventUserMessage        = "user_message"        // 用户消息，content: Message
+	EventAssistantMessage    = "assistant_message"    // 助手消息，content: Message
+	EventUserMessage         = "user_message"         // 用户消息，content: Message
 	EventConversationUpdated = "conversation_updated" // 会话更新，content: Conversation
 	EventConversationDeleted = "conversation_deleted" // 会话删除，content: string | { id: string }
-	EventMessageDeleted     = "message_deleted"     // 消息删除，content: string | { id: string }
+	EventMessageDeleted      = "message_deleted"      // 消息删除，content: string | { id: string }
 )
 
 // ===== 类型化 Content struct（任务 31.4） =====
@@ -107,10 +107,10 @@ type PromptProgressContent struct {
 
 // ContextTrimmedContent 上下文裁剪事件的内容
 type ContextTrimmedContent struct {
-	Reason       string `json:"reason"`        // 裁剪原因
-	PromptTokens int    `json:"prompt_tokens"` // 裁剪前 prompt token 数
-	ContextSize  int    `json:"context_size"`  // 上下文长度
-	MessagesAfter int   `json:"messages_after"` // 裁剪后消息数
+	Reason        string `json:"reason"`         // 裁剪原因
+	PromptTokens  int    `json:"prompt_tokens"`  // 裁剪前 prompt token 数
+	ContextSize   int    `json:"context_size"`   // 上下文长度
+	MessagesAfter int    `json:"messages_after"` // 裁剪后消息数
 }
 
 // DeletedContent 删除事件的内容（conversation_deleted / message_deleted 通用）
@@ -125,7 +125,7 @@ type DeletedContent struct {
 // 注意：当前为类型契约文档，发送侧尚未强制使用 struct，后续渐进迁移。
 
 // decodeContent 将 Content 经 JSON 往返解码到目标 struct 指针
-func decodeContent(content interface{}, target interface{}) error {
+func decodeContent(content any, target any) error {
 	data, err := json.Marshal(content)
 	if err != nil {
 		return err

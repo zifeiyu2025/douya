@@ -20,7 +20,7 @@ type TavilyProvider struct {
 func NewTavilyProvider(apiKey string) *TavilyProvider {
 	return &TavilyProvider{
 		BaseProvider: BaseProvider{
-			httpClient: &http.Client{Timeout: 30 * time.Second},
+			httpClient: newSearchHTTPClient(30 * time.Second),
 		},
 		apiKey: apiKey,
 	}
@@ -44,7 +44,7 @@ func (p *TavilyProvider) SearchWithOpts(ctx context.Context, query string, opts 
 		maxResults = 10
 	}
 
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"query":               query,
 		"max_results":         maxResults,
 		"include_answer":      opts.IncludeAnswer,
@@ -66,7 +66,7 @@ func (p *TavilyProvider) SearchWithOpts(ctx context.Context, query string, opts 
 	}
 
 	var result struct {
-		Answer string `json:"answer"`
+		Answer  string `json:"answer"`
 		Results []struct {
 			Title   string  `json:"title"`
 			URL     string  `json:"url"`

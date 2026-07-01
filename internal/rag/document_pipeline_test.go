@@ -147,12 +147,12 @@ func TestChunkDocument_Separators(t *testing.T) {
 		t.Errorf("期望至少 1 个块，实际得到 %d 个", len(chunks))
 	}
 	// 文本不太长，可能合为 1 个块
-	totalContent := ""
+	var totalContent strings.Builder
 	for _, c := range chunks {
-		totalContent += c.Content
+		totalContent.WriteString(c.Content)
 	}
 	// 所有原始内容应被保留（可能有空格/换行差异）
-	if !strings.Contains(totalContent, "第一段") || !strings.Contains(totalContent, "第二段") {
+	if !strings.Contains(totalContent.String(), "第一段") || !strings.Contains(totalContent.String(), "第二段") {
 		t.Errorf("分块后丢失了原始内容")
 	}
 }
@@ -188,7 +188,6 @@ func TestTakeOverlap(t *testing.T) {
 		t.Errorf("takeOverlap 结果 %q 不是文本末尾", result)
 	}
 }
-
 
 // helperCreateVectorStore 创建基于临时目录的 VectorStore，返回 vs 和 cleanup。
 func helperCreateVectorStore(t *testing.T) (*VectorStore, func()) {
@@ -268,7 +267,7 @@ func TestIngestDocumentWithMeta_ManyChunksBatchWrite(t *testing.T) {
 	embedder := &mockEmbedder{dim: 8}
 	// 构造 100+ chunk 的文本：每段是一个独特短句，用 \n\n 分隔
 	var sb strings.Builder
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		if i > 0 {
 			sb.WriteString("\n\n")
 		}
@@ -359,7 +358,7 @@ func TestIngestDocumentWithMeta_PartialFailureWithinThreshold(t *testing.T) {
 	embedder := &mockEmbedder{dim: 8}
 	// 构造足够多 chunk 使 1 个失败占比 < 10%（至少 11 个 chunk）
 	var sb strings.Builder
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		if i > 0 {
 			sb.WriteString("\n\n")
 		}
@@ -401,7 +400,7 @@ func TestIngestDocumentWithMeta_ConcurrentIngestDeleteNoOrphans(t *testing.T) {
 	collection := "test_concurrent"
 
 	// 阶段1：串行摄入 10 个文档，确保基础数据存在
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		docID := fmt.Sprintf("pre_%d", i)
 		text := fmt.Sprintf("这是预置文档%d的独特内容，用于并发删除测试。", i)
 		_, err := IngestDocumentWithMeta(context.Background(), vs, nil, embedder,
@@ -413,7 +412,7 @@ func TestIngestDocumentWithMeta_ConcurrentIngestDeleteNoOrphans(t *testing.T) {
 
 	// 阶段2：并发摄入新文档 + 删除部分预置文档
 	var wg sync.WaitGroup
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -423,7 +422,7 @@ func TestIngestDocumentWithMeta_ConcurrentIngestDeleteNoOrphans(t *testing.T) {
 			}
 		}(i)
 	}
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -499,7 +498,7 @@ func TestIngestDocumentWithMeta_ExceedsMaxChunks(t *testing.T) {
 	// 策略：每段是一个独特短词，用 \n\n 分隔，chunkSize=2 使每段约 1 chunk
 	// estimateTokens("wordN") 约 5*0.7=3.5 取整为 3，chunkSize=2 时每段独立成 chunk
 	var sb strings.Builder
-	for i := 0; i < 10001; i++ {
+	for i := range 10001 {
 		if i > 0 {
 			sb.WriteString("\n\n")
 		}

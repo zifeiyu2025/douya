@@ -36,11 +36,9 @@ func TestConfigSnapshot_NoDataRace(t *testing.T) {
 	n := 200
 
 	// 写者 goroutine：反复调用 UpdateConfig 更新配置
-	for i := 0; i < 4; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < n; j++ {
+	for range 4 {
+		wg.Go(func() {
+			for j := range n {
 				s.UpdateConfig(&config.Config{
 					ContextSize:        4096 + j,
 					Temperature:        0.5 + float64(j)*0.01,
@@ -48,22 +46,20 @@ func TestConfigSnapshot_NoDataRace(t *testing.T) {
 					ThinkingSoftSwitch: "auto",
 				})
 			}
-		}()
+		})
 	}
 
 	// 读者 goroutine：反复调用读取 s.config 的方法
 	// 修复前：GetThinkingSoftSwitch 和 calcMaxTokens 直接读取 s.config（无锁）
 	// 修复后：它们通过 getConfigSnapshot() 在锁保护下读取
-	for i := 0; i < 4; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < n; j++ {
+	for range 4 {
+		wg.Go(func() {
+			for range n {
 				// 这两个方法在修复前会无锁读取 s.config 的多个字段
 				_ = s.GetThinkingSoftSwitch()
 				_ = s.calcMaxTokens(100)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

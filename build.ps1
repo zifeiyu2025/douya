@@ -31,7 +31,11 @@ if ($LASTEXITCODE -ne 0) { throw "前端构建失败" }
 
 Write-Host "[2/5] 执行 Wails 构建..." -ForegroundColor Yellow
 Set-Location $ProjectRoot
-$wailsExe = "D:\Program Files\GoTools\bin\wails.exe"
+# 定位 wails.exe：环境变量 WAILS_EXE 优先（支持 CI/自定义路径），
+# 回退到项目约定的 D:\Program Files\GoTools\bin\wails.exe（项目记忆硬约束），
+# 再回退到 GOPATH/bin 和 PATH
+$wailsExe = $env:WAILS_EXE
+if (-not $wailsExe -or -not (Test-Path $wailsExe)) { $wailsExe = "D:\Program Files\GoTools\bin\wails.exe" }
 if (-not (Test-Path $wailsExe)) { $wailsExe = Join-Path (go env GOPATH) "bin\wails.exe" }
 if (-not (Test-Path $wailsExe)) { $wailsExe = "wails" }
 & $wailsExe build

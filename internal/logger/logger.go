@@ -62,6 +62,8 @@ func openLogFile(logDir string) (io.Writer, string) {
 	fileName := fmt.Sprintf("douya-%s.log", time.Now().Format(logFileDateFormat))
 	logPath := filepath.Join(logDir, fileName)
 
+	// 注：日志文件不收紧 ACL（icacls），本地单用户应用收益有限且可能导致运行时权限问题。
+	// 见安全审查 #21（已评估，风险可接受）。
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[logger] 打开日志文件失败: %v\n", err)

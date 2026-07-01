@@ -388,9 +388,9 @@ func estimateChatMessageTokens(msg llm.ChatMessage) int {
 				total += audioTokenEstimate
 			}
 		}
-	case []interface{}:
+	case []any:
 		for _, item := range v {
-			if part, ok := item.(map[string]interface{}); ok {
+			if part, ok := item.(map[string]any); ok {
 				if part["type"] == "image_url" {
 					total += imageTokenEstimate
 				}
@@ -462,10 +462,7 @@ func TrimMessagesToFit(messages []llm.ChatMessage, maxTokens int, reserve int) [
 	if len(messages) <= 2 {
 		return messages
 	}
-	effectiveMax := maxTokens - reserve
-	if effectiveMax < 100 {
-		effectiveMax = 100
-	}
+	effectiveMax := max(maxTokens-reserve, 100)
 
 	total := 0
 	for _, msg := range messages {
@@ -604,10 +601,10 @@ type CompressContextResult struct {
 // selectImportantMessages P3-B2: 从被裁剪消息中按评分挑选高价值消息填充预算。
 //
 // 策略（与 TrimMessagesToFit 的"必保+按分填充"逻辑一致，但用于已裁剪列表的回收）：
-//   1. 计算每条消息评分（复用 ScoreChatMessage）
-//   2. 必保消息（评分>=5）强制保留，即使超预算也保留
-//   3. 非必保消息按分数降序+原索引升序，累加 token 填充预算
-//   4. 选中的消息按原索引升序返回，保持时序合法性
+//  1. 计算每条消息评分（复用 ScoreChatMessage）
+//  2. 必保消息（评分>=5）强制保留，即使超预算也保留
+//  3. 非必保消息按分数降序+原索引升序，累加 token 填充预算
+//  4. 选中的消息按原索引升序返回，保持时序合法性
 //
 // 生活类比：像整理旧书架，先把"必藏经典"（高评分）全部留下，
 // 再用剩余空间按"推荐指数"挑几本"值得一读"的书，最后按出版年份排好。
@@ -723,10 +720,7 @@ func CompressContext(
 	}
 
 	// 2. 计算滑动窗口大小
-	windowSize := CalcSlidingWindowSize(contextSize)
-	if windowSize > len(rest) {
-		windowSize = len(rest)
-	}
+	windowSize := min(CalcSlidingWindowSize(contextSize), len(rest))
 
 	// 3. 保留窗口内的最近消息
 	windowStart := len(rest) - windowSize
@@ -736,13 +730,7 @@ func CompressContext(
 	// P3-B2: 3a. 从被裁剪消息中回收高分历史消息
 	// 高分历史预算 = 上下文大小的 20%（上限 1000，下限 200），避免挤占最近窗口
 	// 生活类比：像从旧书堆里挑几本"必藏经典"放到书桌显眼处，而不是全扔进仓库
-	importantBudget := contextSize / 5
-	if importantBudget > 1000 {
-		importantBudget = 1000
-	}
-	if importantBudget < 200 {
-		importantBudget = 200
-	}
+	importantBudget := max(min(contextSize/5, 1000), 200)
 	importantMsgs := selectImportantMessages(trimmed, importantBudget)
 
 	// 4. 构建结果消息列表
@@ -801,6 +789,8 @@ func CompressContext(
 		capturedExistingSummary := existingSummary
 		capturedLongSummary := existingLongSummary
 		capturedCompressCount := compressCount
+		// 注：此处未使用 trackedGo，因为该 goroutine 为短生命周期且已有 defer recover()，
+		// summarizeCtx 超时会自动退出。见安全审查 #26。
 		go func() {
 			// 防止 panic 导致整个进程崩溃（异步 goroutine 的 panic 无法被外层 recover 捕获）
 			defer func() {
@@ -865,8 +855,8 @@ func DetectLanguage(content string) string { return detectLanguage(content) }
 
 // SearchResultInstruction is the exported version for testing.
 func SearchResultInstruction(lang string) string { return searchResultInstruction(lang) }
-func IsCodeRelated(query string) bool          { return isCodeRelated(query) } // Exported for testing
-func EstimateMessageTokens(m *store.Message) int         { return estimateMessageTokens(m) } // Exported for testing
+func IsCodeRelated(query string) bool            { return isCodeRelated(query) }     // Exported for testing
+func EstimateMessageTokens(m *store.Message) int { return estimateMessageTokens(m) } // Exported for testing
 func (s *Service) doSearch(ctx context.Context, query string) *search.SearchResponse {
 	// 在锁保护下获取搜索链快照，避免数据竞争
 	chain := s.getSearchChainSnapshot()

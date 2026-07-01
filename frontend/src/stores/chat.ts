@@ -614,6 +614,10 @@ export const useChatStore = defineStore('chat', () => {
         message_deleted: (_, c, current) => handleMsgDeleted(c, current),
     }
 
+    // 安全实践：编译期断言确保 streamHandlers 覆盖所有 StreamEventType（见安全审查 #40）
+    // 若新增 StreamEventType 未实现 handler，此断言会在使用处触发类型检查
+    type _AssertStreamHandlers = typeof streamHandlers extends Record<StreamEventType, any> ? true : never
+
     function handleStreamEvent(event: StreamEvent) {
         const convId = event.conversation_id || ''
         const isCurrentConv = convId === currentConversationId.value

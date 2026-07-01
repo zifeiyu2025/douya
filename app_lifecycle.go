@@ -50,16 +50,17 @@ func (a *App) startup(ctx context.Context) {
 	a.setConfig(loadedCfg)
 
 	if missingPaths := a.validatePaths(); len(missingPaths) > 0 {
-		msg := "以下关键文件或目录缺失：\n\n"
+		var msg strings.Builder
+		msg.WriteString("以下关键文件或目录缺失：\n\n")
 		for _, p := range missingPaths {
-			msg += "❌ " + p + "\n"
+			msg.WriteString("❌ " + p + "\n")
 		}
-		msg += fmt.Sprintf("\n应用根目录: %s\n请确保所有文件位于正确位置。", appDir())
+		msg.WriteString(fmt.Sprintf("\n应用根目录: %s\n请确保所有文件位于正确位置。", appDir()))
 		zlog.Error().Interface("paths", missingPaths).Msg("[startup] missing paths")
 		runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 			Type:    runtime.ErrorDialog,
 			Title:   "关键文件缺失",
-			Message: msg,
+			Message: msg.String(),
 		})
 		// 关键文件缺失，终止启动流程
 		// 尽力通知前端（前端可能还未注册监听器，但轮询机制会恢复状态）
@@ -102,7 +103,7 @@ func (a *App) startup(ctx context.Context) {
 
 	if raw, rawErr := config.LoadRaw(cfgPath); rawErr == nil {
 		if se, ok := raw["search_engines"]; ok {
-			if seMap, ok := se.(map[string]interface{}); ok {
+			if seMap, ok := se.(map[string]any); ok {
 				migrated := false
 				setFn := func(key, value string) error {
 					if a.encKey != nil {
@@ -240,6 +241,8 @@ func (a *App) startup(ctx context.Context) {
 
 	a.ready.Store(true)
 
+	// 注：此处未使用 trackedGo，因为该 goroutine 为短生命周期且已有 defer recover()，
+	// 完成后即退出，无需 ctx 取消。见安全审查 #26。
 	go func() {
 		// 防止 panic 导致整个进程崩溃（启动清理涉及 DB 操作和消息解密，可能 panic）
 		defer func() {
@@ -259,7 +262,7 @@ func (a *App) startup(ctx context.Context) {
 			a.cleanupResult = removed
 			a.cleanupResultMu.Unlock()
 
-			runtime.EventsEmit(ctx, "chat:abnormal_cleanup", map[string]interface{}{
+			runtime.EventsEmit(ctx, "chat:abnormal_cleanup", map[string]any{
 				"count":   len(removed),
 				"removed": removed,
 			})
@@ -424,7 +427,7 @@ func (a *App) GracefulExit() {
 			if a.service != nil {
 				a.service.StopGeneration()
 			}
-			runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]interface{}{
+			runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]any{
 				"stage":   "stopping_generation",
 				"message": "正在停止生成...",
 			})
@@ -438,7 +441,7 @@ func (a *App) GracefulExit() {
 			a.serverMu.Unlock()
 
 			if srv != nil {
-				runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]interface{}{
+				runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]any{
 					"stage":   "stopping_server",
 					"message": "正在关闭服务...",
 				})
@@ -449,7 +452,7 @@ func (a *App) GracefulExit() {
 			}
 
 			if a.ragVS != nil {
-				runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]interface{}{
+				runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]any{
 					"stage":   "closing_rag",
 					"message": "正在关闭知识库...",
 				})
@@ -459,7 +462,7 @@ func (a *App) GracefulExit() {
 			}
 
 			if a.db != nil {
-				runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]interface{}{
+				runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]any{
 					"stage":   "closing_db",
 					"message": "正在关闭数据库...",
 				})
@@ -468,7 +471,7 @@ func (a *App) GracefulExit() {
 				}
 			}
 
-			runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]interface{}{
+			runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]any{
 				"stage":   "done",
 				"message": "再见 👋",
 			})

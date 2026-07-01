@@ -302,7 +302,7 @@ func TestLoad_LegacyVersionMigratesToV1(t *testing.T) {
 
 	// 构造一份旧版本配置：无 version 字段（Version=0），使用旧版 thinking 字段
 	// 故意不包含 version 和 reasoning 字段，模拟历史配置
-	legacyData := map[string]interface{}{
+	legacyData := map[string]any{
 		"port":                 8080,
 		"context_size":         8192,
 		"temperature":          0.8,

@@ -33,10 +33,10 @@ var searchToolDef = llm.ToolDefinition{
 	Function: llm.FunctionDef{
 		Name:        "search",
 		Description: "搜索互联网获取实时信息。当用户问题涉及以下情况时调用：1.时事新闻、最新动态；2.具体数据、统计、价格等时效性信息；3.你不确定或可能已变化的事实；4.需要验证的信息。无需调用的情况：数学计算、代码编写、文学创作、闲聊问候等。调用是内部流程，不要在回答中提及。",
-		Parameters: map[string]interface{}{
+		Parameters: map[string]any{
 			"type": "object",
-			"properties": map[string]interface{}{
-				"query": map[string]interface{}{
+			"properties": map[string]any{
+				"query": map[string]any{
 					"type":        "string",
 					"description": "精简搜索词，语言与用户问题一致",
 				},
@@ -51,9 +51,9 @@ type StreamAccumulator struct {
 	FullThinking               strings.Builder
 	FinishReason               string
 	ToolCallMap                map[int]*llm.ToolCall
-	EmitFn                     func(string, interface{})
+	EmitFn                     func(string, any)
 	ConvID                     string
-	EmitForConvFn              func(string, string, interface{})
+	EmitForConvFn              func(string, string, any)
 	PendingBytes               string
 	PendingThink               string
 	LastSearchJSON             string
@@ -62,18 +62,18 @@ type StreamAccumulator struct {
 	ThinkingDone               bool
 	FirstRoundThinking         string
 	FirstRoundThinkingDuration float64
-	PromptTokens               int     // 来自 SSE 流式响应的 usage 字段
-	CompletionID               string  // 来自 SSE 流式响应的 id 字段，用于 /v1/chat/completions/control
-	TokensPerSecond            float64 // 来自 SSE 流式响应的 timings.predicted_per_second
-	PredictedN                 int     // 来自 SSE 流式响应的 timings.predicted_n
-	OnTimings                  func(timings llm.SSETimings) // 当收到 timings 数据时的回调，用于实时推送速度
-	OnPromptProgress          func(progress llm.SSEPromptProgress) // 当收到 prompt_progress 数据时的回调
+	PromptTokens               int                                  // 来自 SSE 流式响应的 usage 字段
+	CompletionID               string                               // 来自 SSE 流式响应的 id 字段，用于 /v1/chat/completions/control
+	TokensPerSecond            float64                              // 来自 SSE 流式响应的 timings.predicted_per_second
+	PredictedN                 int                                  // 来自 SSE 流式响应的 timings.predicted_n
+	OnTimings                  func(timings llm.SSETimings)         // 当收到 timings 数据时的回调，用于实时推送速度
+	OnPromptProgress           func(progress llm.SSEPromptProgress) // 当收到 prompt_progress 数据时的回调
 }
 
 // 流式响应缓冲区最大大小（10MB）
 const maxStreamBufferSize = 10 * 1024 * 1024
 
-func NewStreamAccumulator(convID string, emitFn func(string, interface{}), emitForConvFn func(string, string, interface{})) *StreamAccumulator {
+func NewStreamAccumulator(convID string, emitFn func(string, any), emitForConvFn func(string, string, any)) *StreamAccumulator {
 	return &StreamAccumulator{
 		ToolCallMap:   make(map[int]*llm.ToolCall),
 		EmitFn:        emitFn,
@@ -235,13 +235,7 @@ func (s *Service) calcMaxTokens(promptTokens int) int {
 		ctxSize = 4096
 	}
 	// 可用生成空间 = 上下文大小 - prompt 占用
-	maxTokens := ctxSize - promptTokens
-	if maxTokens > 16384 {
-		maxTokens = 16384
-	}
-	if maxTokens < 512 {
-		maxTokens = 512
-	}
+	maxTokens := max(min(ctxSize-promptTokens, 16384), 512)
 	return maxTokens
 }
 
@@ -314,16 +308,13 @@ func (s *Service) retryStreamAfterContextExceeded(
 	if actualCtx <= 0 {
 		actualCtx = fallbackCtxSize
 	}
-	reserve := actualCtx / 10
-	if reserve < 512 {
-		reserve = 512
-	}
+	reserve := max(actualCtx/10, 512)
 	trimmed := TrimMessagesToFit(req.Messages, actualCtx, reserve)
 	req.Messages = trimmed
 
 	log.Info().Int("prompt_tokens", exceedInfo.PromptTokens).Int("context_size", actualCtx).Int("messages_after_trim", len(trimmed)).Msg(logMsg)
 
-	s.emitForConv(convID, "context_trimmed", map[string]interface{}{
+	s.emitForConv(convID, "context_trimmed", map[string]any{
 		"reason":         "exceed_context_size",
 		"prompt_tokens":  exceedInfo.PromptTokens,
 		"context_size":   actualCtx,
@@ -361,7 +352,7 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 	// 注意：当 CompressContext 修改 llmMessages 时，需重新计算 totalTokens。
 	totalTokens := estimateMessagesTokens(llmMessages)
 
-	for round := 0; round < maxRounds; round++ {
+	for round := range maxRounds {
 		hitMaxRounds = round == maxRounds-1
 
 		accumulatedToolCalls := acc.toolCalls()
@@ -507,7 +498,7 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 			totalTokens = estimateMessagesTokens(llmMessages)
 			log.Info().Int("estimated", estimatedTotal).Int("context_size", contextLimit).Int("messages_after", len(llmMessages)).Msg("[chat] tool call preventive trim")
 
-			s.emitForConv(convID, "context_trimmed", map[string]interface{}{
+			s.emitForConv(convID, "context_trimmed", map[string]any{
 				"reason":         "tool_call_preventive_trim",
 				"estimated":      estimatedTotal,
 				"context_size":   contextLimit,
@@ -727,7 +718,7 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 	}
 
 	if trimmed {
-		s.emitForConv(convID, "context_trimmed", map[string]interface{}{
+		s.emitForConv(convID, "context_trimmed", map[string]any{
 			"reason": "preventive_trim",
 		})
 	}
@@ -753,7 +744,7 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 			return
 		}
 		lastSpeedEmit = now
-		s.emitForConv(convID, "token_speed", map[string]interface{}{
+		s.emitForConv(convID, "token_speed", map[string]any{
 			"tokensPerSecond":   timings.PredictedPerSecond,
 			"predictedN":        timings.PredictedN,
 			"tokens_per_second": timings.PredictedPerSecond, // 兼容原 generation_speed 消费者
@@ -768,7 +759,7 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 			return
 		}
 		lastProgressEmit = now
-		s.emitForConv(convID, "prompt_progress", map[string]interface{}{
+		s.emitForConv(convID, "prompt_progress", map[string]any{
 			"total":     progress.Total,
 			"cache":     progress.Cache,
 			"processed": progress.Processed,
@@ -985,10 +976,10 @@ func generateConversationTitle(content string) string {
 }
 
 // 测试导出函数
-func ClampDuration(d float64) float64 { return clampDuration(d) }  // Exported for testing
+func ClampDuration(d float64) float64                { return clampDuration(d) }              // Exported for testing
 func CalcMaxTokens(s *Service, promptTokens int) int { return s.calcMaxTokens(promptTokens) } // Exported for testing
 func DoSearch(s *Service, ctx context.Context, query string) *search.SearchResponse { // Exported for testing
 	return s.doSearch(ctx, query)
 }
-func ResetForNextCall(a *StreamAccumulator)              { a.resetForNextCall() } // Exported for testing
-func GetFirstRoundThinking(a *StreamAccumulator) string  { return a.FirstRoundThinking }
+func ResetForNextCall(a *StreamAccumulator)             { a.resetForNextCall() } // Exported for testing
+func GetFirstRoundThinking(a *StreamAccumulator) string { return a.FirstRoundThinking }

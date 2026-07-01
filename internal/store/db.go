@@ -7,16 +7,19 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-
-	"github.com/rs/zerolog/log"
 	"path/filepath"
 	"strings"
+
+	"github.com/rs/zerolog/log"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
 func Init(dbPath string, encKey []byte) (*sql.DB, error) {
 	dir := filepath.Dir(dbPath)
+	// 注：数据库目录不收紧 ACL（icacls），SQLite WAL 模式需要目录写权限创建 -wal/-shm 文件。
+	// 数据本身已用 AES-GCM 加密，目录权限收紧收益有限且可能导致 SQLite 功能异常。
+	// 见安全审查 #22（已评估，风险可接受）。
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
 	}
@@ -165,7 +168,7 @@ func GetTableColumns(db *sql.DB, tableName string) (map[string]bool, error) {
 		var cid int
 		var name, ctype string
 		var notnull int
-		var dfltValue interface{}
+		var dfltValue any
 		var pk int
 		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
 			return nil, err
@@ -281,9 +284,9 @@ func migrateMessages(db *sql.DB, encKey []byte) error {
 
 	// pendingUpdate 表示一条待更新的消息（已加密完成）
 	type pendingUpdate struct {
-		id                                         string
-		encContent, encThinking, encSearch         string
-		encImages, encAttachments, encToolCalls    string
+		id                                      string
+		encContent, encThinking, encSearch      string
+		encImages, encAttachments, encToolCalls string
 	}
 
 	for {

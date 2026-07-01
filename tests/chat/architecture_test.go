@@ -96,7 +96,7 @@ func TestEstimateMessageTokens_ZeroReturnsOne(t *testing.T) {
 }
 
 func TestStreamAccumulator_ResetForNextCall_PreservesAccumulatedState(t *testing.T) {
-	acc := chat.NewStreamAccumulator("conv1", func(string, interface{}) {}, func(string, string, interface{}) {})
+	acc := chat.NewStreamAccumulator("conv1", func(string, any) {}, func(string, string, any) {})
 	acc.FullContent.WriteString("first response")
 	acc.FullThinking.WriteString("first thinking")
 	acc.LastSearchJSON = `{"results":[1]}`
@@ -123,7 +123,7 @@ func TestStreamAccumulator_ResetForNextCall_PreservesAccumulatedState(t *testing
 }
 
 func TestStreamAccumulator_ThinkingDurationCalculation(t *testing.T) {
-	acc := chat.NewStreamAccumulator("conv1", func(string, interface{}) {}, func(string, string, interface{}) {})
+	acc := chat.NewStreamAccumulator("conv1", func(string, any) {}, func(string, string, any) {})
 
 	if acc.ThinkingDuration != 0 {
 		t.Errorf("initial ThinkingDuration should be 0, got %f", acc.ThinkingDuration)

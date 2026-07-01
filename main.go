@@ -50,10 +50,10 @@ type fileCacheEntry struct {
 // 不引入外部依赖，限制最大项数和最大字节数，超限时淘汰最久未访问的条目
 type fileLRUCache struct {
 	mu       sync.Mutex
-	maxItems int           // 最大条目数
-	maxSize  int           // 最大总字节数
-	curSize  int           // 当前总字节数
-	ll       *list.List    // 双向链表，front 为最近访问
+	maxItems int        // 最大条目数
+	maxSize  int        // 最大总字节数
+	curSize  int        // 当前总字节数
+	ll       *list.List // 双向链表，front 为最近访问
 	items    map[string]*list.Element
 }
 
@@ -297,7 +297,7 @@ func main() {
 		MinWidth:  800,
 		MinHeight: 600,
 		AssetServer: &assetserver.Options{
-			Assets:  assets,
+			Assets: assets,
 			Handler: &LocalFileLoader{
 				baseDir: appDir(),
 				// LRU 缓存：最多 100 个文件，总大小上限 50MB，超限淘汰最久未访问的
@@ -308,7 +308,7 @@ func main() {
 		OnStartup:        app.startup,
 		OnShutdown:       app.shutdown,
 		OnBeforeClose:    app.beforeClose,
-		Bind: []interface{}{
+		Bind: []any{
 			app,
 		},
 		Frameless: true,

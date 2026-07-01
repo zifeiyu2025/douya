@@ -57,7 +57,7 @@ func TestClampDuration_JustOver3600(t *testing.T) {
 }
 
 func TestResetForNextCall_ClearsAllFields(t *testing.T) {
-	acc := chat.NewStreamAccumulator("", func(string, interface{}) {}, func(string, string, interface{}) {})
+	acc := chat.NewStreamAccumulator("", func(string, any) {}, func(string, string, any) {})
 	acc.FullContent.WriteString("hello")
 	acc.FullThinking.WriteString("think")
 	acc.FinishReason = "stop"
@@ -104,7 +104,7 @@ func TestResetForNextCall_ClearsAllFields(t *testing.T) {
 }
 
 func TestResetForNextCall_PreservesFirstRoundThinking(t *testing.T) {
-	acc := chat.NewStreamAccumulator("", func(string, interface{}) {}, func(string, string, interface{}) {})
+	acc := chat.NewStreamAccumulator("", func(string, any) {}, func(string, string, any) {})
 	acc.FullThinking.WriteString("first round deep thought")
 	acc.ThinkingDuration = 7.5
 
@@ -119,7 +119,7 @@ func TestResetForNextCall_PreservesFirstRoundThinking(t *testing.T) {
 }
 
 func TestResetForNextCall_EmptyThinkingDoesNotOverwriteFirstRound(t *testing.T) {
-	acc := chat.NewStreamAccumulator("", func(string, interface{}) {}, func(string, string, interface{}) {})
+	acc := chat.NewStreamAccumulator("", func(string, any) {}, func(string, string, any) {})
 	acc.FirstRoundThinking = "original thinking"
 	acc.FirstRoundThinkingDuration = 3.0
 
@@ -134,7 +134,7 @@ func TestResetForNextCall_EmptyThinkingDoesNotOverwriteFirstRound(t *testing.T) 
 }
 
 func TestStreamAccumulator_ThinkingDuration_ZeroStartTimeNoPanic(t *testing.T) {
-	acc := chat.NewStreamAccumulator("", func(string, interface{}) {}, func(string, string, interface{}) {})
+	acc := chat.NewStreamAccumulator("", func(string, any) {}, func(string, string, any) {})
 
 	if !acc.ThinkingStartTime.IsZero() {
 		t.Fatal("thinkingStartTime should be zero initially")
@@ -481,14 +481,14 @@ func TestSendMessage_ImageAttachment_NoDuplicate(t *testing.T) {
 		t.Fatalf("expected last message role 'user', got '%s'", lastMsg.Role)
 	}
 
-	contentParts, ok := lastMsg.Content.([]interface{})
+	contentParts, ok := lastMsg.Content.([]any)
 	if !ok {
 		t.Fatalf("expected content to be []interface{} for image message, got %T", lastMsg.Content)
 	}
 
 	imageCount := 0
 	for _, part := range contentParts {
-		if partMap, ok := part.(map[string]interface{}); ok {
+		if partMap, ok := part.(map[string]any); ok {
 			if partMap["type"] == "image_url" {
 				imageCount++
 			}
@@ -549,12 +549,12 @@ func TestSendMessage_PDFAttachment_SentAsDataURL(t *testing.T) {
 	}
 
 	hasPDFImageURL := false
-	contentParts, ok := lastMsg.Content.([]interface{})
+	contentParts, ok := lastMsg.Content.([]any)
 	if ok {
 		for _, part := range contentParts {
-			if partMap, ok := part.(map[string]interface{}); ok {
+			if partMap, ok := part.(map[string]any); ok {
 				if partMap["type"] == "image_url" {
-					if imageURL, ok := partMap["image_url"].(map[string]interface{}); ok {
+					if imageURL, ok := partMap["image_url"].(map[string]any); ok {
 						if url, ok := imageURL["url"].(string); ok && strings.HasPrefix(url, "data:application/pdf") {
 							hasPDFImageURL = true
 						}
@@ -711,9 +711,9 @@ func TestSendMessage_HistoryAttachmentsRestored(t *testing.T) {
 	hasImageInHistory := false
 	for _, m := range secondRoundMessages {
 		if m.Role == "user" {
-			if parts, ok := m.Content.([]interface{}); ok {
+			if parts, ok := m.Content.([]any); ok {
 				for _, part := range parts {
-					if partMap, ok := part.(map[string]interface{}); ok {
+					if partMap, ok := part.(map[string]any); ok {
 						if partMap["type"] == "image_url" {
 							hasImageInHistory = true
 						}
@@ -773,14 +773,14 @@ func TestSendMessage_ImageOnly_AlwaysHasTextContentPart(t *testing.T) {
 		t.Fatalf("expected last message role 'user', got '%s'", lastMsg.Role)
 	}
 
-	contentParts, ok := lastMsg.Content.([]interface{})
+	contentParts, ok := lastMsg.Content.([]any)
 	if !ok {
 		t.Fatalf("expected content to be []interface{} for image message, got %T", lastMsg.Content)
 	}
 
 	hasTextPart := false
 	for _, part := range contentParts {
-		if partMap, ok := part.(map[string]interface{}); ok {
+		if partMap, ok := part.(map[string]any); ok {
 			if partMap["type"] == "text" {
 				hasTextPart = true
 			}

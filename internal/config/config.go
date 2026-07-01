@@ -14,32 +14,32 @@ import (
 type Config struct {
 	// Version 配置 schema 版本号，用于版本化迁移。
 	// 0 表示旧版本（无此字段的历史配置），加载时按迁移链升级到当前版本。
-	Version         int     `json:"version"`
-	ModelPath       string  `json:"model_path"`
-	MmprojAuto      bool    `json:"mmproj_auto"`
-	MmprojOffload   bool    `json:"mmproj_offload"`
-	LlamaServerPath string  `json:"llama_server_path"`
-	APIBase         string  `json:"api_base"`
-	Port            int     `json:"port"`
-	ContextSize     int     `json:"context_size"`
+	Version         int    `json:"version"`
+	ModelPath       string `json:"model_path"`
+	MmprojAuto      bool   `json:"mmproj_auto"`
+	MmprojOffload   bool   `json:"mmproj_offload"`
+	LlamaServerPath string `json:"llama_server_path"`
+	APIBase         string `json:"api_base"`
+	Port            int    `json:"port"`
+	ContextSize     int    `json:"context_size"`
 	// ProactiveCompressThreshold 主动压缩阈值：当估算 token 占比 >= 该阈值时，
 	// 提前触发上下文压缩（不等溢出），为后续对话留出空间。
 	// 默认 0.8（80%），范围 0.5-0.95。值越小越激进（更早压缩）。
 	ProactiveCompressThreshold float64 `json:"proactive_compress_threshold"`
-	Temperature     float64 `json:"temperature"`
-	TopP            float64 `json:"top_p"`
-	TopK            int     `json:"top_k"`
-	RepeatPenalty   float64 `json:"repeat_penalty"`
-	KVUnified       bool    `json:"kv_unified"`
-	CacheIdleSlots  bool    `json:"cache_idle_slots"`
-	CacheRAM        int     `json:"cache_ram"`
-	ImageMinTokens  int     `json:"image_min_tokens"`
-	ImageMaxTokens  int     `json:"image_max_tokens"`
-	FitTarget       int     `json:"fit_target"`
-	FitCtx          int     `json:"fit_ctx"`
-	Reasoning       string  `json:"reasoning"`
-	ReasoningBudget int     `json:"reasoning_budget"`
-	ReasoningFormat string  `json:"reasoning_format"`
+	Temperature                float64 `json:"temperature"`
+	TopP                       float64 `json:"top_p"`
+	TopK                       int     `json:"top_k"`
+	RepeatPenalty              float64 `json:"repeat_penalty"`
+	KVUnified                  bool    `json:"kv_unified"`
+	CacheIdleSlots             bool    `json:"cache_idle_slots"`
+	CacheRAM                   int     `json:"cache_ram"`
+	ImageMinTokens             int     `json:"image_min_tokens"`
+	ImageMaxTokens             int     `json:"image_max_tokens"`
+	FitTarget                  int     `json:"fit_target"`
+	FitCtx                     int     `json:"fit_ctx"`
+	Reasoning                  string  `json:"reasoning"`
+	ReasoningBudget            int     `json:"reasoning_budget"`
+	ReasoningFormat            string  `json:"reasoning_format"`
 	// 推理内容保留开关（nil=不传递，true=--reasoning-preserve，false=--no-reasoning-preserve）
 	ReasoningPreserve     *bool   `json:"reasoning_preserve"`
 	SystemPrompt          string  `json:"system_prompt"`
@@ -177,143 +177,145 @@ type Config struct {
 
 func DefaultConfig() *Config {
 	return &Config{
-		Version:                  1, // 当前配置 schema 版本号
-		ModelPath:                "",
-		MmprojAuto:               true,
-		MmprojOffload:            true,
-		LlamaServerPath:          "runtime/llama-server.exe",
-		APIBase:                  "http://127.0.0.1:8080",
-		Port:                     8080,
-		ContextSize:              8192,
+		Version:                    1, // 当前配置 schema 版本号
+		ModelPath:                  "",
+		MmprojAuto:                 true,
+		MmprojOffload:              true,
+		LlamaServerPath:            "runtime/llama-server.exe",
+		APIBase:                    "http://127.0.0.1:8080",
+		Port:                       8080,
+		ContextSize:                8192,
 		ProactiveCompressThreshold: 0.8, // P1-A1: 80% 时主动压缩，为后续对话留出 20% 空间
-		Temperature:              0.8, // 与 llama.cpp 默认值对齐
-		TopP:                     0.95,
-		TopK:                     40, // 与 llama.cpp 默认值对齐
-		RepeatPenalty:            1,
-		KVUnified:                false,
-		CacheIdleSlots:           true, // 与 llama.cpp 默认值对齐，空闲 slot 缓存保留
-		CacheRAM:                 0,
-		ImageMinTokens:           0,
-		ImageMaxTokens:           0,
-		FitTarget:                0,
-		FitCtx:                   0,
-		Reasoning:                "off",
-		ReasoningBudget:          0,
-		ReasoningFormat:          "",
-		SystemPrompt:             "",
-		SystemPromptMode:         "append", // 默认使用追加模式
-		ChatBackground:           "",
-		ChatBackgroundOpacity:    0.8,
-		UserAvatar:               "",
-		AiAvatar:                 "",
-		SearchMode:               "off",
-		ThinkingEnabled:          true,
-		ThinkingSoftSwitch:       "auto",
-		SleepIdleSeconds:         -1, // 与 llama.cpp 默认值对齐，-1 禁用空闲休眠
-		ModelsMax:                1,
-		RAGEnabled:               false,
-		RAGActiveKB:              "default",
-		RAGTopK:                  3,
-		RAGMinScore:              0.3,
-		RAGChunkSize:             512,
-		RAGChunkOverlap:          64,
-		ReasoningBudgetMessage:   "",
-		ReasoningBudgetStartTag:  "",
-		ReasoningBudgetEndTag:    "",
-		Mmap:                     true,
-		KVOffload:                true,
-		ContextShift:             false,
-		MinP:                     0.05,
-		DryMultiplier:            0,
-		DryBase:                  1.75,
-		DryAllowedLength:         2,
-		DrySequenceBreaker:       "",
-		DryPenaltyLastN:          0,
-		GrpAttnN:                 0,
-		GrpAttnW:                 0,
-		Jinja:                    nil,
-		CachePrompt:              boolPtr(true), // 显式启用 prompt 缓存，多轮对话时复用前缀 KV，降低首 token 延迟
-		Metrics:                  false,
-		Verbose:                  false,
-		SpecDraftThreads:         0,
-		SpecDraftThreadsBatch:    0,
-		SpecDefault:              false,
-		Device:                   "",
-		Parallel:                 0,
-		CacheTypeK:               "",
-		CacheTypeV:               "",
-		SpecType:                 "",
-		SpecDraftNMax:            0,
-		SpecDraftNMin:            0,
-		CacheTypeKDraft:          "",
-		CacheTypeVDraft:          "",
-		ServerAPIKeyEnabled:      true,
-		ExposeServer:             false,
-		SwaFull:                  false,
-		CtxCheckpoints:           32,  // 与 llama.cpp 默认值对齐，长上下文检查点回滚
-		CheckpointMinStep:        256, // 与 llama.cpp 默认值对齐，检查点最小步长
-		Tools:                    "",
-		PrefillAssistant:         true,
-		SlotPromptSimilarity:     0.1, // 与 llama.cpp 默认值对齐，slot 缓存 prompt 相似度阈值
-		SkipChatParsing:          false,
-		APIPrefix:                "",
-		SimpleIO:                 false,
-		GPULayers:                0,
-		FlashAttn:                nil,
-		Mlock:                    nil,
-		Threads:                  0,
-		ThreadsHTTP:              0,
-		BatchSize:                0,
-		CloseAction:              "ask",
-		RerankerModelPath:        "",
-		RerankTopN:               5,
-		SlotSavePath:             "",
-		SlotSaveEnabled:          false,
-		SpecDraftNgl:             0,
-		SpecDraftDevice:          "",
-		SpecDraftPSplit:          0,
-		SpecDraftPMin:            0,
-		SpecDraftBackendSampling: nil,
-		MtmdBatchMaxTokens:       0,
-		AdaptiveTarget:           0,
-		AdaptiveDecay:            0,
-		Samplers:                 "",
-		IgnoreEos:                false,
-		Tags:                     "",
-		MediaPath:                "",
-		Offline:                  false,
-		Repack:                   false,
-		EmbeddingModel:           "",
-		SpecNgramModNMin:         0,
-		SpecNgramModNMax:         0,
-		SpecNgramModNMatch:       0,
-		SpecNgramSimpleSizeN:     0,
-		SpecNgramSimpleSizeM:     0,
-		SpecNgramSimpleMinHits:   0,
-		SpecNgramMapKSizeN:       0,
-		SpecNgramMapKSizeM:       0,
-		SpecNgramMapKMinHits:     0,
-		SpecNgramMapK4VSizeN:     0,
-		SpecNgramMapK4VSizeM:     0,
-		SpecNgramMapK4VMinHits:   0,
-		LookupCacheStatic:        "",
-		LookupCacheDynamic:       "",
-		SpecDraftModel:           "",
-		CacheReuse:               0,
-		Agent:                    false,
-		UIMcpProxy:               false,
-		BackendSampling:          false,
-		SsePingInterval:          0,
-		LoraPaths:                "",
-		DirectIO:                 false,
-		CPUMoe:                   false,
-		NCpuMoe:                  0,
-		OpOffload:                nil,
+		Temperature:                0.8, // 与 llama.cpp 默认值对齐
+		TopP:                       0.95,
+		TopK:                       40, // 与 llama.cpp 默认值对齐
+		RepeatPenalty:              1,
+		KVUnified:                  false,
+		CacheIdleSlots:             true, // 与 llama.cpp 默认值对齐，空闲 slot 缓存保留
+		CacheRAM:                   0,
+		ImageMinTokens:             0,
+		ImageMaxTokens:             0,
+		FitTarget:                  0,
+		FitCtx:                     0,
+		Reasoning:                  "off",
+		ReasoningBudget:            0,
+		ReasoningFormat:            "",
+		SystemPrompt:               "",
+		SystemPromptMode:           "append", // 默认使用追加模式
+		ChatBackground:             "",
+		ChatBackgroundOpacity:      0.9,
+		UserAvatar:                 "",
+		AiAvatar:                   "",
+		SearchMode:                 "off",
+		ThinkingEnabled:            true,
+		ThinkingSoftSwitch:         "auto",
+		SleepIdleSeconds:           -1, // 与 llama.cpp 默认值对齐，-1 禁用空闲休眠
+		ModelsMax:                  1,
+		RAGEnabled:                 false,
+		RAGActiveKB:                "default",
+		RAGTopK:                    3,
+		RAGMinScore:                0.3,
+		RAGChunkSize:               512,
+		RAGChunkOverlap:            64,
+		ReasoningBudgetMessage:     "",
+		ReasoningBudgetStartTag:    "",
+		ReasoningBudgetEndTag:      "",
+		Mmap:                       true,
+		KVOffload:                  true,
+		ContextShift:               false,
+		MinP:                       0.05,
+		DryMultiplier:              0,
+		DryBase:                    1.75,
+		DryAllowedLength:           2,
+		DrySequenceBreaker:         "",
+		DryPenaltyLastN:            0,
+		GrpAttnN:                   0,
+		GrpAttnW:                   0,
+		Jinja:                      nil,
+		CachePrompt:                new(true), // 显式启用 prompt 缓存，多轮对话时复用前缀 KV，降低首 token 延迟
+		Metrics:                    false,
+		Verbose:                    false,
+		SpecDraftThreads:           0,
+		SpecDraftThreadsBatch:      0,
+		SpecDefault:                false,
+		Device:                     "",
+		Parallel:                   0,
+		CacheTypeK:                 "",
+		CacheTypeV:                 "",
+		SpecType:                   "",
+		SpecDraftNMax:              0,
+		SpecDraftNMin:              0,
+		CacheTypeKDraft:            "",
+		CacheTypeVDraft:            "",
+		ServerAPIKeyEnabled:        true,
+		ExposeServer:               false,
+		SwaFull:                    false,
+		CtxCheckpoints:             32,  // 与 llama.cpp 默认值对齐，长上下文检查点回滚
+		CheckpointMinStep:          256, // 与 llama.cpp 默认值对齐，检查点最小步长
+		Tools:                      "",
+		PrefillAssistant:           true,
+		SlotPromptSimilarity:       0.1, // 与 llama.cpp 默认值对齐，slot 缓存 prompt 相似度阈值
+		SkipChatParsing:            false,
+		APIPrefix:                  "",
+		SimpleIO:                   false,
+		GPULayers:                  0,
+		FlashAttn:                  nil,
+		Mlock:                      nil,
+		Threads:                    0,
+		ThreadsHTTP:                0,
+		BatchSize:                  0,
+		CloseAction:                "ask",
+		RerankerModelPath:          "",
+		RerankTopN:                 5,
+		SlotSavePath:               "",
+		SlotSaveEnabled:            false,
+		SpecDraftNgl:               0,
+		SpecDraftDevice:            "",
+		SpecDraftPSplit:            0,
+		SpecDraftPMin:              0,
+		SpecDraftBackendSampling:   nil,
+		MtmdBatchMaxTokens:         0,
+		AdaptiveTarget:             0,
+		AdaptiveDecay:              0,
+		Samplers:                   "",
+		IgnoreEos:                  false,
+		Tags:                       "",
+		MediaPath:                  "",
+		Offline:                    false,
+		Repack:                     false,
+		EmbeddingModel:             "",
+		SpecNgramModNMin:           0,
+		SpecNgramModNMax:           0,
+		SpecNgramModNMatch:         0,
+		SpecNgramSimpleSizeN:       0,
+		SpecNgramSimpleSizeM:       0,
+		SpecNgramSimpleMinHits:     0,
+		SpecNgramMapKSizeN:         0,
+		SpecNgramMapKSizeM:         0,
+		SpecNgramMapKMinHits:       0,
+		SpecNgramMapK4VSizeN:       0,
+		SpecNgramMapK4VSizeM:       0,
+		SpecNgramMapK4VMinHits:     0,
+		LookupCacheStatic:          "",
+		LookupCacheDynamic:         "",
+		SpecDraftModel:             "",
+		CacheReuse:                 0,
+		Agent:                      false,
+		UIMcpProxy:                 false,
+		BackendSampling:            false,
+		SsePingInterval:            0,
+		LoraPaths:                  "",
+		DirectIO:                   false,
+		CPUMoe:                     false,
+		NCpuMoe:                    0,
+		OpOffload:                  nil,
 	}
 }
 
 // boolPtr 返回指向 b 的指针，用于 *bool 类型配置字段的默认值
-func boolPtr(b bool) *bool { return &b }
+//
+//go:fix inline
+func boolPtr(b bool) *bool { return new(b) }
 
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
@@ -459,7 +461,7 @@ func (c *Config) migrateLegacyThinking(data []byte) {
 	}
 }
 
-func LoadRaw(path string) (map[string]interface{}, error) {
+func LoadRaw(path string) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -471,7 +473,7 @@ func LoadRaw(path string) (map[string]interface{}, error) {
 			data = []byte(inner)
 		}
 	}
-	var raw map[string]interface{}
+	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, err
 	}
@@ -483,6 +485,8 @@ func Save(path string, cfg *Config) error {
 	if err != nil {
 		return err
 	}
+	// 注：配置文件不收紧 ACL（icacls），本地单用户应用收益有限且可能导致运行时权限问题。
+	// 敏感数据（API Key）已用 AES-GCM 加密存储。见安全审查 #6（已评估，风险可接受）。
 	return os.WriteFile(path, data, 0644)
 }
 
@@ -557,6 +561,10 @@ func (c *Config) Validate() error {
 	// GrpAttnN/GrpAttnW：分组注意力需同时非零或同时为零
 	if (c.GrpAttnN == 0) != (c.GrpAttnW == 0) {
 		return fmt.Errorf("invalid grp_attn_n/grp_attn_w: n=%d w=%d (grp_attn_n 和 grp_attn_w 必须同时非零或同时为零)", c.GrpAttnN, c.GrpAttnW)
+	}
+	// 安全实践：后端采样与推理预算互斥，启用后端采样时推理预算需禁用（-1 或 0）
+	if c.BackendSampling && c.ReasoningBudget > 0 {
+		return fmt.Errorf("backend_sampling and reasoning_budget are mutually exclusive (backend_sampling=true requires reasoning_budget <= 0, got %d)", c.ReasoningBudget)
 	}
 	// RerankTopN 重排序返回数必须 > 0
 	if c.RerankTopN <= 0 {

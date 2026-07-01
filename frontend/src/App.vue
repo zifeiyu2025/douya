@@ -196,7 +196,7 @@ const sidebarCollapsed = defineModel<boolean>('sidebarCollapsed', { default: fal
 
 const mainAreaStyle = computed(() => {
   if (settingsStore.config.chat_background) {
-    const opacity = settingsStore.config.chat_background_opacity ?? 0.8
+    const opacity = settingsStore.config.chat_background_opacity ?? 0.9
     const bg = settingsStore.config.chat_background
     let bgUrl: string
     if (bg.startsWith('data:')) {

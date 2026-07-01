@@ -7,8 +7,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -52,6 +54,38 @@ type SearchOpts struct {
 // 各 Provider 通过嵌入 BaseProvider 复用 doSearch 方法，并保留自己的响应解析逻辑。
 type BaseProvider struct {
 	httpClient *http.Client
+}
+
+// newSearchHTTPClient 创建带安全重定向策略的搜索 HTTP 客户端。
+// 安全实践：限制重定向目标，禁止跳转至内网/回环地址，防止 SSRF（见安全审查 #25）。
+func newSearchHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			host := req.URL.Hostname()
+			if isPrivateOrLoopback(host) {
+				return fmt.Errorf("redirect to private/loopback address blocked: %s", host)
+			}
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
+}
+
+// isPrivateOrLoopback 判断主机是否为内网/回环/链路本地/未指定地址。
+// 无法解析的主机名视为公网（可能是本地域名），返回 false。
+func isPrivateOrLoopback(host string) bool {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		ips, err := net.LookupIP(host)
+		if err != nil || len(ips) == 0 {
+			return false // 无法解析，允许（可能是本地域名）
+		}
+		ip = ips[0]
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified()
 }
 
 // doSearch 执行搜索请求并返回响应体字节，消除 4 个 Provider 的重复请求骨架。
@@ -372,13 +406,10 @@ func (c *SearchChain) SearchWithCategory(ctx context.Context, query string, cate
 
 // callWithRetry 对单个 provider 执行带指数退避的重试调用。
 func (c *SearchChain) callWithRetry(ctx context.Context, pw *ProviderWithCircuit, query string, opts SearchOpts) (*SearchResponse, error) {
-	maxAttempts := pw.MaxRetries + 1
-	if maxAttempts < 1 {
-		maxAttempts = 1
-	}
+	maxAttempts := max(pw.MaxRetries+1, 1)
 
 	var lastErr error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
+	for attempt := range maxAttempts {
 		if attempt > 0 {
 			backoff := time.Duration(1<<(attempt-1)) * 200 * time.Millisecond
 			select {
@@ -408,12 +439,7 @@ func matchCategory(pw *ProviderWithCircuit, category string) bool {
 	if len(pw.categories) == 0 {
 		return true
 	}
-	for _, cat := range pw.categories {
-		if cat == category {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(pw.categories, category)
 }
 
 // isSearchEngineSelfLink 判断是否为搜索引擎自身的链接

@@ -35,18 +35,16 @@ export default defineConfig({
                 // [\\/] 兼容 Windows 反斜杠路径分隔符；groups 按顺序匹配第一个命中的
                 codeSplitting: {
                     groups: [
-                        // mermaid 图表库（含 cytoscape、d3 依赖）
-                        { name: 'lib-mermaid', test: /node_modules[\\/](mermaid|cytoscape|.*d3.*)/ },
-                        // KaTeX 数学公式渲染
-                        { name: 'lib-katex', test: /node_modules[\\/]katex/ },
-                        // 代码高亮（lowlight + highlight.js）
-                        { name: 'lib-highlight', test: /node_modules[\\/](lowlight|highlight\.js)/ },
+                        // Markdown 解析（marked）
+                        { name: 'lib-markdown', test: /node_modules[\\/]marked/ },
+                        // 代码高亮（highlight.js）
+                        { name: 'lib-highlight', test: /node_modules[\\/]highlight\.js/ },
                         // Naive UI 组件库及其依赖
                         { name: 'lib-naive-ui', test: /node_modules[\\/](naive-ui|@css-render|@juggle|date-fns|evtd)/ },
-                        // Markdown 处理链（rehype/remark/micromark 等）
-                        { name: 'lib-markdown', test: /node_modules[\\/](rehype|remark|unist-util|mdast|hast|micromark|bail|is-plain-obj|trough|vfile|zwitch)/ },
                         // HTML 消毒库
                         { name: 'lib-sanitize', test: /node_modules[\\/]dompurify/ },
+                        // HEIC 图片解码库（~2.9MB，仅上传 HEIC 时懒加载）
+                        { name: 'lib-heic', test: /node_modules[\\/]heic-to/ },
                         // Vue 生态核心（@vue/*、pinia、vue-router、vue 本体）
                         { name: 'lib-vue', test: /node_modules[\\/](@vue[\\/]|pinia|vue-router|vue@|vue[\\/])/ },
                         // 图标库
@@ -66,10 +64,9 @@ export default defineConfig({
             'vue-router',
             'naive-ui',
             'dompurify',
+            'marked',
+            'highlight.js',
         ],
-    },
-    worker: {
-        format: 'es',
     },
     test: {
         environment: 'happy-dom',

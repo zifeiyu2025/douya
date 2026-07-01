@@ -15,14 +15,14 @@ import (
 type ggufKV struct {
 	key       string
 	valueType uint32
-	value     interface{}
+	value     any
 }
 
 // ggufBuilder 帮助构建测试用的 GGUF 文件
 // 生活类比：就像一个填表机，我们往里面塞键值对，它最后输出一个二进制文件
 type ggufBuilder struct {
-	version  uint32
-	kvs      []ggufKV
+	version uint32
+	kvs     []ggufKV
 }
 
 // newGGUFBuilder 创建一个新的 GGUF 构建器，默认版本为 3
@@ -606,10 +606,10 @@ func TestParseGGUFMetadata_ChatTemplate(t *testing.T) {
 // TestToInt 测试 toInt 辅助函数对所有数值类型的处理
 func TestToInt(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   interface{}
-		want    int
-		wantOk  bool
+		name   string
+		input  any
+		want   int
+		wantOk bool
 	}{
 		{"uint8", uint8(42), 42, true},
 		{"int8", int8(-42), -42, true},
@@ -644,7 +644,7 @@ func TestToInt(t *testing.T) {
 func TestToInt64(t *testing.T) {
 	tests := []struct {
 		name   string
-		input  interface{}
+		input  any
 		want   int64
 		wantOk bool
 	}{

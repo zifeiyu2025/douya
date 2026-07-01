@@ -2048,19 +2048,19 @@ func TestSendMessage_ToolDefinitionHasRichDescription(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/models" {
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"object": "list",
-				"data": []map[string]interface{}{
+				"data": []map[string]any{
 					{
 						"id":   "test-strong-model-30b",
-						"meta": map[string]interface{}{"n_params": float64(30e9)},
+						"meta": map[string]any{"n_params": float64(30e9)},
 					},
 				},
 			})
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/v1/models/") || r.URL.Path == "/props" {
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"chat_template_tool_use": "default",
 			})
 			return

@@ -73,6 +73,7 @@ import { useSettingsStore } from '../stores/settings'
 import { matchModelRef } from '../stores/settings'
 import { MODEL_REFS } from '../utils/modelRefs'
 import { showSuccess } from '../utils/showError'
+import { logError } from '../utils/logger'  // 安全实践（#34）：用 logError 替代 console.error，避免泄漏后端细节
 import { type Config, type SearchAPIKeys, DEFAULT_CONFIG } from '../services/wails'
 import { wails } from '../services/wails'
 import defaultUserAvatar from '../assets/images/user-avatar.svg'
@@ -257,7 +258,7 @@ async function saveSearchKeys() {
         newTavilyApiKey.value = ''
         showSuccess(message, `${savedNames.join(' + ')} API Key 已保存`)
     } catch (e) {
-        console.error('Failed to save search API keys:', e)
+        logError('Failed to save search API keys', e)
         message.destroyAll()
         message.error('API Key 保存失败，请重试', { duration: 4000 })
     } finally {
@@ -278,7 +279,7 @@ async function saveServerApiKey() {
         serverApiKey.value = ''
         showSuccess(message, '服务 API Key 已保存')
     } catch (e) {
-        console.error('Failed to save server API key:', e)
+        logError('Failed to save server API key', e)
         message.destroyAll()
         message.error('服务 API Key 保存失败，请重试', { duration: 4000 })
     } finally {
@@ -354,7 +355,7 @@ async function selectBackgroundImage() {
 
 function clearBackground() {
   formConfig.value.chat_background = ''
-  formConfig.value.chat_background_opacity = 0.8
+  formConfig.value.chat_background_opacity = 0.9
 }
 
 // maxAvatarSize 头像文件最大大小（1MB）

@@ -109,7 +109,7 @@ func TestIncrementalTokenCounting_MultipleRounds(t *testing.T) {
 	totalTokens := estimateMessagesTokens(messages)
 
 	// 模拟 3 轮 tool call
-	for round := 0; round < 3; round++ {
+	for round := range 3 {
 		prevMsgCount := len(messages)
 
 		// 每轮新增 assistant(tool_calls) + tool 消息

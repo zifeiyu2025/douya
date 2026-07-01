@@ -94,8 +94,6 @@
                 <span class="thinking-dot"></span>
                 <span class="thinking-dot"></span>
               </div>
-              <!-- 流式光标：AI 正在生成内容时显示闪烁竖线 -->
-              <span v-if="streamingContent && isGenerating" class="streaming-cursor" aria-hidden="true"></span>
               <!-- 生成速度：仅在流式生成且有速度数据时显示，低调不抢焦点 -->
               <div v-if="generationSpeed > 0" class="generation-speed">
                 {{ generationSpeed.toFixed(1) }} token/s
@@ -125,7 +123,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch, ref, nextTick, onMounted } from 'vue'
+import { computed, watch, ref, nextTick, onMounted, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import MessageItem from './MessageItem.vue'
 import ThinkBlock from './ThinkBlock.vue'
@@ -141,6 +139,8 @@ import { useScrollToBottom } from '../composables/useScrollToBottom'
 import { useVirtualScroll } from '../composables/useVirtualScroll'
 import { formatModelName } from '../utils/model'
 import { setupCodeCopyDelegation } from '../utils/codeCopy'
+import { isSafeUrl } from '../utils/lightSanitize'
+import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
 import defaultAiAvatar from '../assets/images/appicon.png'
 // 任务 38：虚拟滚动组件（局部导入便于 vue-tsc 类型解析；插件已在 main.ts 全局注册）
 import { DynamicScroller, DynamicScrollerItem } from 'vue-virtual-scroller'
@@ -279,6 +279,8 @@ watch(
     () => {
         if (enableVirtualScroll.value && scrollerRef.value) {
             // DynamicScroller 的 $el 即其内部 RecycleScroller 的滚动根节点
+            // 注：DynamicScroller 的 $el 类型未在 vue-virtual-scroller 类型声明中导出，
+            // 此处用 as any 绕过，见安全审查 #39。后续可扩展 shims-vue-virtual-scroller.d.ts。
             const el = (scrollerRef.value as any)?.$el as HTMLElement | undefined
             containerRef.value = el ?? messageListRef.value
         } else {
@@ -288,14 +290,36 @@ watch(
     { flush: 'sync', immediate: true }
 )
 
+// 安全实践（#17）：拦截 Markdown 正文中的链接点击，走系统默认浏览器，防止 webview 内部导航
+const handleLinkClick = (e: MouseEvent) => {
+    const target = e.target as HTMLElement
+    const anchor = target.closest('a[target="_blank"]') as HTMLAnchorElement | null
+    if (anchor && anchor.href) {
+        e.preventDefault()
+        // 校验协议安全后再打开
+        if (isSafeUrl(anchor.href)) {
+            BrowserOpenURL(anchor.href)
+        }
+    }
+}
+
 onMounted(() => {
     const el = messageListRef.value
     if (el) {
         // 事件委托：只在容器绑定一次，动态新增按钮自动响应
         // 虚拟模式下 DynamicScroller 的子项也在 .message-list 内，事件仍可冒泡到此
         setupCodeCopyDelegation(el)
+        // 安全实践（#17）：委托 markdown-body 中的链接点击，走系统默认浏览器
+        el.addEventListener('click', handleLinkClick)
     }
     startObserver()
+})
+
+onUnmounted(() => {
+    const el = messageListRef.value
+    if (el) {
+        el.removeEventListener('click', handleLinkClick)
+    }
 })
 
 // 新消息时滚动到底部
@@ -381,7 +405,11 @@ watch(() => chatStore.lastError, (err) => {
 }
 
 .ai-bubble {
-  width: 100%;
+  /* 自适应宽度：与 MessageItem.vue 的 .ai-bubble 保持一致
+     流式期间气泡随内容增长由窄变宽，视觉更自然 */
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
   border: 1px solid var(--border-color);
 }
 
@@ -703,23 +731,6 @@ watch(() => chatStore.lastError, (err) => {
 .scroll-bottom-fade-leave-to {
   opacity: 0;
   transform: translateY(12px);
-}
-
-/* ===== AI 流式光标 =====
- * 呼吸竖线，AI 生成时跟随文字末尾
- * 用 ease-in-out 呼吸替代 step-end 硬闪烁，营造"正在思考"的拟人感
- * 用 inline-block + animation，GPU 友好
- */
-.streaming-cursor {
-  display: inline-block;
-  width: 8px;
-  height: 1.1em;
-  margin-left: 2px;
-  vertical-align: text-bottom;
-  background: var(--accent-primary);
-  border-radius: 1px;
-  animation: cursor-breathe 1.2s ease-in-out infinite;
-  will-change: opacity;
 }
 
 /* ===== 思考点指示器（替代 n-spin）=====

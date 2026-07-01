@@ -9,13 +9,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"sync/atomic"
 
 	"douya/internal/chat"
 	"douya/internal/config"
 	"douya/internal/llm"
+	"douya/internal/pathutil"
 	"douya/internal/rag"
 	"douya/internal/system"
 
@@ -100,16 +100,14 @@ func NewApp() *App {
 // shutdownInternal 会在关闭底层资源前 g.Wait() 等待所有被跟踪 goroutine 退出。
 // 短期一次性 goroutine 不必走此路径，直接 go func() 即可（建议自行加 recover）。
 func (a *App) trackedGo(fn func()) {
-	a.g.Add(1)
-	go func() {
-		defer a.g.Done()
+	a.g.Go(func() {
 		defer func() {
 			if r := recover(); r != nil {
 				zlog.Warn().Interface("panic", r).Msg("[goroutine] tracked goroutine panic recovered")
 			}
 		}()
 		fn()
-	}()
+	})
 }
 
 var cachedAppDir string
@@ -135,7 +133,7 @@ func appDir() string {
 
 	// 向上查找最多 3 层（覆盖 release/bin/ → release/ 这类结构）
 	dir := exeDir
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			break
@@ -160,7 +158,7 @@ func appDir() string {
 			return false
 		}
 		// 解析为通用 map 检测 model_path 字段
-		var raw map[string]interface{}
+		var raw map[string]any
 		if err := json.Unmarshal(data, &raw); err != nil {
 			// 尝试双重序列化容错
 			if len(data) > 0 && data[0] == '"' {
@@ -228,29 +226,18 @@ func appDir() string {
 }
 
 func resolvePath(p string) string {
-	// 清理路径，防止路径遍历
-	p = filepath.Clean(p)
-	if filepath.IsAbs(p) {
-		return p
-	}
+	// 安全实践：复用 pathutil.ResolveInBase 统一路径遍历防护，避免多处实现不一致（见安全审查 #20）
 	baseDir := appDir()
-	candidate := filepath.Join(baseDir, p)
-	// 验证结果路径仍在基准目录内
-	// 基于 GO-PATH-001 安全实践：使用分隔符前缀避免兄弟目录绕过
-	absCandidate, err := filepath.Abs(candidate)
-	if err == nil {
-		// 检查路径是否在 baseDir 内（精确匹配 baseDir 或以 baseDir+分隔符开头）
-		// 避免如 baseDir="C:\app" 时 "C:\app-evil" 通过 HasPrefix 检查
-		if absCandidate != baseDir && !strings.HasPrefix(absCandidate, baseDir+string(filepath.Separator)) {
-			zlog.Warn().Str("path", p).Str("baseDir", baseDir).Msg("[resolvePath] path traversal detected")
-			return filepath.Join(baseDir, filepath.Base(p))
-		}
+	resolved := pathutil.ResolveInBase(baseDir, p)
+	if resolved == "" {
+		return ""
 	}
-	if _, err := os.Stat(candidate); err == nil {
-		return candidate
+	// ResolveInBase 已处理绝对路径和遍历校验，这里补充 Stat 检查文件是否存在
+	if _, err := os.Stat(resolved); err == nil {
+		return resolved
 	}
 	// 文件不存在时仍基于 appDir() 返回，让调用方得到清晰的"文件不存在"错误
-	return filepath.Join(baseDir, p)
+	return resolved
 }
 
 // SmartParamsInfo 返回当前模型+硬件的智能参数推荐值和模型元数据

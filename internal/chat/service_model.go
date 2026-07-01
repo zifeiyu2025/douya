@@ -104,6 +104,8 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 		infoCh <- infoResult{info, err}
 	}()
 
+	// 注：此处未使用 trackedGo，因为该 goroutine 为短生命周期且已有 defer recover()，
+	// 通过 propsCh 返回结果，ctx 超时会自动退出。见安全审查 #26。
 	go func() {
 		// 防止 panic 导致 propsCh 永不写入、调用方永久阻塞
 		defer func() {
@@ -217,17 +219,17 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 
 	s.modelCapsMu.Lock()
 	s.modelCaps = llm.ModelCapabilities{
-		ImageInput:        caps.ImageInput,
-		AudioInput:        caps.AudioInput,
-		VideoInput:        caps.VideoInput,
-		TextInput:         caps.TextInput,
-		Reasoning:         supportsReasoning,
-		MmprojLoaded:      mmprojLoaded,
-		HasMTP:            s.detectHasMTP(),
-		ThinkingMode:      thinkingMode,
-		SoftSwitchSupport: softSwitchSupport,
-		NParams:           s.resolveNParams(info.Meta.NParams),
-		ToolCallSupport:         caps.ToolCallSupport,
+		ImageInput:                caps.ImageInput,
+		AudioInput:                caps.AudioInput,
+		VideoInput:                caps.VideoInput,
+		TextInput:                 caps.TextInput,
+		Reasoning:                 supportsReasoning,
+		MmprojLoaded:              mmprojLoaded,
+		HasMTP:                    s.detectHasMTP(),
+		ThinkingMode:              thinkingMode,
+		SoftSwitchSupport:         softSwitchSupport,
+		NParams:                   s.resolveNParams(info.Meta.NParams),
+		ToolCallSupport:           caps.ToolCallSupport,
 		SupportsPreserveReasoning: supportsPreserveReasoning,
 	}
 	s.modelCapsMu.Unlock()
@@ -432,9 +434,11 @@ func (s *Service) applyThinkingControl(req *llm.ChatCompletionRequest) {
 	// - --reasoning auto 时 default_template_kwargs 为空，模板可能无法正确插入思考标记
 	// - 请求级 kwargs 会覆盖服务端默认值，确保模板行为一致
 	// 对于 ThinkingModeReasoning 模型（DeepSeek），思考由服务端 reasoning 参数控制，无需 kwargs
+	// 安全实践：Reasoning="on"/"auto" → true，Reasoning="off" → false（遵循项目记忆的有意决策，
+	// 确保模板在 auto 模式下也能正确插入思考标记，经实际验证比让服务端自行决策更稳定）
 	if mode == llm.ThinkingModeTemplate {
 		if req.ChatTemplateKwargs == nil {
-			req.ChatTemplateKwargs = make(map[string]interface{})
+			req.ChatTemplateKwargs = make(map[string]any)
 		}
 		// 根据 Reasoning 配置决定 enable_thinking 值，避免 --reasoning off 时被覆盖为 true
 		enableThinking := true

@@ -40,7 +40,7 @@ func ParseGGUFMetadataCached(path string) (*GGUFMetadata, error) {
 
 // InvalidateGGUFCache 清除所有 GGUF 元数据缓存（模型重载时调用）
 func InvalidateGGUFCache() {
-	ggufCache.Range(func(k, v interface{}) bool {
+	ggufCache.Range(func(k, v any) bool {
 		ggufCache.Delete(k)
 		return true
 	})
@@ -63,22 +63,22 @@ const (
 )
 
 type GGUFMetadata struct {
-	Architecture         string
-	BlockCount           int
-	EmbeddingLength      int
-	ContextLength        int
-	FileSize             int64
-	ExpertCount          int
-	ExpertUsed           int
-	HasMTP               bool
-	HasReasoning         bool
-	SupportsEagle3       bool // 模型是否支持 Eagle3 推测解码（如 Qwen3.5/3.6）
-	SizeLabel            string
-	NParams              int64
-	ChatTemplate         string
-	ChatTemplateToolUse  string
-	KVHeadCount          int
-	HeadDimKV            int
+	Architecture        string
+	BlockCount          int
+	EmbeddingLength     int
+	ContextLength       int
+	FileSize            int64
+	ExpertCount         int
+	ExpertUsed          int
+	HasMTP              bool
+	HasReasoning        bool
+	SupportsEagle3      bool // 模型是否支持 Eagle3 推测解码（如 Qwen3.5/3.6）
+	SizeLabel           string
+	NParams             int64
+	ChatTemplate        string
+	ChatTemplateToolUse string
+	KVHeadCount         int
+	HeadDimKV           int
 }
 
 func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
@@ -167,8 +167,11 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 		lowerArch := strings.ToLower(meta.Architecture)
 		// Template 模式：通过 chat template 的 enable_thinking 控制
 		archTemplateKeywords := []string{"gemma2", "gemma4", "qwen3", "llama4", "phi4", "qwen3moe", "qwen3next", "qwen3vl", "qwen3vlmoe", "gemma3n", "mistral3", "mistral4", "granite_speech", "glm4", "chatglm4", "glm4moe", "cohere2moe", "tiny-aya", "qwen35", "qwen35moe", "qwen36", "ernie4-5", "ernie4-5-moe", "minimax-m2", "minicpm5", "smollm3", "hunyuan-moe", "hunyuan-dense", "step35", "kimi-linear", "arcee", "dots1", "dream", "smallthinker"}
+		// 安全实践：使用精确匹配避免未来架构误匹配（见安全审查 #29）
+		// archTemplateKeywords 中的关键词均为完整架构名（如 "qwen3"、"qwen3moe" 是不同架构），
+		// 无需前缀/子串匹配
 		for _, kw := range archTemplateKeywords {
-			if strings.Contains(lowerArch, kw) {
+			if lowerArch == kw {
 				meta.HasReasoning = true
 				break
 			}
@@ -269,7 +272,7 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 	return meta, nil
 }
 
-func ParseGGUFKV(path string) (map[string]interface{}, error) {
+func ParseGGUFKV(path string) (map[string]any, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open gguf: %w", err)
@@ -303,8 +306,8 @@ func ParseGGUFKV(path string) (map[string]interface{}, error) {
 		return nil, fmt.Errorf("read n_kv: %w", err)
 	}
 
-	kvMap := make(map[string]interface{}, nKV)
-	for i := uint64(0); i < nKV; i++ {
+	kvMap := make(map[string]any, nKV)
+	for range nKV {
 		key, err := r.readString()
 		if err != nil {
 			break
@@ -396,7 +399,7 @@ func (g *ggufReader) readString() (string, error) {
 	return string(buf), nil
 }
 
-func (g *ggufReader) readValue(valueType uint32) (interface{}, error) {
+func (g *ggufReader) readValue(valueType uint32) (any, error) {
 	switch valueType {
 	case ggufTypeUINT8:
 		return g.readUint8()
@@ -440,7 +443,7 @@ func (g *ggufReader) readValue(valueType uint32) (interface{}, error) {
 }
 
 func (g *ggufReader) skipArrayElements(elemType uint32, count uint64) error {
-	for i := uint64(0); i < count; i++ {
+	for range count {
 		switch elemType {
 		case ggufTypeUINT8, ggufTypeINT8, ggufTypeBOOL:
 			if _, err := g.readUint8(); err != nil {
@@ -481,7 +484,7 @@ func (g *ggufReader) skipArrayElements(elemType uint32, count uint64) error {
 	return nil
 }
 
-func toInt(v interface{}) (int, bool) {
+func toInt(v any) (int, bool) {
 	switch n := v.(type) {
 	case uint8:
 		return int(n), true
@@ -504,7 +507,7 @@ func toInt(v interface{}) (int, bool) {
 	}
 }
 
-func toInt64(v interface{}) (int64, bool) {
+func toInt64(v any) (int64, bool) {
 	switch n := v.(type) {
 	case uint8:
 		return int64(n), true

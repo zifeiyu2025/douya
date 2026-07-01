@@ -89,7 +89,7 @@ func TestBM25Index_Search(t *testing.T) {
 		// doc1、doc2、doc5 包含"机器学习"关键词，应排在前面
 		topIDs := make(map[string]bool)
 		topN := min(len(results), 3)
-		for i := 0; i < topN; i++ {
+		for i := range topN {
 			topIDs[results[i].ID] = true
 		}
 		// 至少 2 个包含"机器学习"的文档应在前 3
@@ -124,7 +124,7 @@ func TestBM25Index_NoMatch(t *testing.T) {
 
 func TestBM25Index_TopK(t *testing.T) {
 	idx := NewBM25Index()
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		idx.AddDocument(string(rune('A'+i%26)), "机器学习测试文档内容")
 	}
 	results := idx.Search("机器学习", 3)
@@ -137,9 +137,9 @@ func TestBM25Index_TopK(t *testing.T) {
 
 func TestParseChunkID(t *testing.T) {
 	tests := []struct {
-		id       string
-		wantDoc  string
-		wantIdx  int
+		id      string
+		wantDoc string
+		wantIdx int
 	}{
 		{"doc_1234567890_000001", "doc_1234567890", 1},
 		{"doc_1234567890_000002", "doc_1234567890", 2},

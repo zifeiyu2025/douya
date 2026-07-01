@@ -271,11 +271,11 @@ type scoredPos struct {
 // minHeap 实现最小堆接口，用于维护 topK 结果
 type minHeap []scoredPos
 
-func (h minHeap) Len() int            { return len(h) }
-func (h minHeap) Less(i, j int) bool   { return h[i].score < h[j].score } // 最小堆
-func (h minHeap) Swap(i, j int)        { h[i], h[j] = h[j], h[i] }
-func (h *minHeap) Push(x interface{})  { *h = append(*h, x.(scoredPos)) }
-func (h *minHeap) Pop() interface{} {
+func (h minHeap) Len() int           { return len(h) }
+func (h minHeap) Less(i, j int) bool { return h[i].score < h[j].score } // 最小堆
+func (h minHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *minHeap) Push(x any)        { *h = append(*h, x.(scoredPos)) }
+func (h *minHeap) Pop() any {
 	old := *h
 	n := len(old)
 	x := old[n-1]
@@ -308,7 +308,7 @@ func cosineSimilarityPreNorm(query, vec []float64, queryNorm float64) float64 {
 		dot += query[i] * vec[i]
 	}
 	vecNorm := cosineNorm(vec)
-	return dot / (queryNorm * vecNorm + 1e-12)
+	return dot / (queryNorm*vecNorm + 1e-12)
 }
 
 // ---------------------------------------------------------------------------
@@ -586,10 +586,10 @@ type minHeapResult []scoredResult
 func (h minHeapResult) Len() int           { return len(h) }
 func (h minHeapResult) Less(i, j int) bool { return h[i].score < h[j].score } // 最小堆
 func (h minHeapResult) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h *minHeapResult) Push(x interface{}) {
+func (h *minHeapResult) Push(x any) {
 	*h = append(*h, x.(scoredResult))
 }
-func (h *minHeapResult) Pop() interface{} {
+func (h *minHeapResult) Pop() any {
 	old := *h
 	n := len(old)
 	x := old[n-1]
@@ -651,13 +651,13 @@ func (vs *VectorStore) rebuildBM25Index() {
 			// key 形如 "chunk:<collection>:<docID_chunkIdx>"，去掉 "chunk:" 前缀后得到 "<collection>:<docID_chunkIdx>"
 			rest := string(item.Key()[len(prefix):])
 			// collection 名不含冒号（CreateCollection 已校验），按第一个冒号切分
-			sep := strings.Index(rest, ":")
-			if sep < 0 {
+			before, after, ok := strings.Cut(rest, ":")
+			if !ok {
 				legacyCount++
 				continue
 			}
-			collection := rest[:sep]
-			id := rest[sep+1:]
+			collection := before
+			id := after
 			val, err := item.ValueCopy(nil)
 			if err != nil {
 				continue
@@ -1122,41 +1122,52 @@ func (vs *VectorStore) Search(collection string, query []float64, topK int) ([]S
 		return nil, fmt.Errorf("%w: query dim %d, expected %d", ErrVectorDimMismatch, len(query), meta.Dim)
 	}
 
+	// 修复 #12: 在调用 getOrLoadIndex 之前获取 collectionLock，消除
+	//   "getOrLoadIndex 释放 vs.mu 后、collectionLock.Lock 前" 的竞态窗口
+	//   （并发 AddVectors 可能使索引引用指向旧对象）。
+	// 修复 #9:  锁内只执行 idx.Search 获取 ID 列表，db.View 批量读取
+	//   chunk 内容移出 collectionLock，避免锁持有时间过长。
+	// 锁顺序 collectionLock → vs.mu 与 AddVectors/DeleteDocument 一致，无死锁风险。
+	mu := vs.collectionLock(collection)
+	mu.Lock()
+
 	idx, err := vs.getOrLoadIndex(collection)
 	if err != nil {
+		mu.Unlock()
 		return nil, err
 	}
 
-	mu := vs.collectionLock(collection)
-	mu.Lock()
-	defer mu.Unlock()
-
 	// 任务 34:为索引检索设置 5 秒超时,防止单次检索耗时过长
 	searchCtx, searchCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer searchCancel()
-
 	// 通过 vectorIndex 接口检索，memIndex 和 badgerIndex 均返回带 ID 的 SearchResult
 	out, err := idx.Search(searchCtx, query, topK)
+	searchCancel()
+	mu.Unlock()
+
 	if err != nil {
 		return nil, fmt.Errorf("search index: %w", err)
 	}
 
-	// 批量读取所有 chunk 内容和 metadata，避免 N+1 查询
-	err = vs.db.View(func(txn *badger.Txn) error {
+	// 批量读取所有 chunk 内容和 metadata，避免 N+1 查询（已移出 collectionLock）。
+	// 生活类比：先在锁保护下从索引柜查到书目编号清单，再带着清单去书架慢慢取书，
+	// 不必一直占着索引柜。结果按 out 的原顺序回填，scores 保持对齐。
+	if len(out) > 0 {
+		ids := make([]string, len(out))
 		for i := range out {
-			if item, err := txn.Get(chunkKey(collection, out[i].ID)); err == nil {
-				if val, err := item.ValueCopy(nil); err == nil {
-					out[i].ChunkContent = string(val)
+			ids[i] = out[i].ID
+		}
+		contents, metas, loadErr := vs.loadChunksBatch(collection, ids)
+		if loadErr == nil {
+			for i := range out {
+				if content, ok := contents[out[i].ID]; ok {
+					out[i].ChunkContent = content
 				}
-			}
-			if item, err := txn.Get(chunkMetaKey(collection, out[i].ID)); err == nil {
-				if val, err := item.ValueCopy(nil); err == nil && len(val) > 0 {
-					_ = json.Unmarshal(val, &out[i].Metadata)
+				if m, ok := metas[out[i].ID]; ok {
+					out[i].Metadata = m
 				}
 			}
 		}
-		return nil
-	})
+	}
 
 	log.Debug().Str("collection", collection).Int("topK", topK).Int("found", len(out)).Msg("search complete")
 	return out, nil
@@ -1525,7 +1536,7 @@ func (vs *VectorStore) Close() error {
 
 type badgerLogAdapter struct{}
 
-func (*badgerLogAdapter) Errorf(f string, v ...interface{})   { log.Error().Msgf("[badger] "+f, v...) }
-func (*badgerLogAdapter) Warningf(f string, v ...interface{}) { log.Warn().Msgf("[badger] "+f, v...) }
-func (*badgerLogAdapter) Infof(f string, v ...interface{})     { log.Info().Msgf("[badger] "+f, v...) }
-func (*badgerLogAdapter) Debugf(f string, v ...interface{})    { log.Debug().Msgf("[badger] "+f, v...) }
+func (*badgerLogAdapter) Errorf(f string, v ...any)   { log.Error().Msgf("[badger] "+f, v...) }
+func (*badgerLogAdapter) Warningf(f string, v ...any) { log.Warn().Msgf("[badger] "+f, v...) }
+func (*badgerLogAdapter) Infof(f string, v ...any)    { log.Info().Msgf("[badger] "+f, v...) }
+func (*badgerLogAdapter) Debugf(f string, v ...any)   { log.Debug().Msgf("[badger] "+f, v...) }

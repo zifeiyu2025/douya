@@ -110,6 +110,15 @@
                 <span>PDF</span>
                 <span v-if="!capabilities.text_input" class="unsupported-tag">不支持</span>
               </button>
+              <button
+                class="attach-menu-item"
+                :class="{ disabled: !capabilities.text_input }"
+                @click="triggerFileUpload('docx')"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 15v-3"/><path d="M12 15v-3"/><path d="M15 15v-3"/><path d="M9 18h6"/></svg>
+                <span>Word</span>
+                <span v-if="!capabilities.text_input" class="unsupported-tag">不支持</span>
+              </button>
             </div>
           </div>
           <input ref="fileInputRef" type="file" class="hidden-file-input" @change="handleFileSelect" />
@@ -208,6 +217,7 @@ import { wails } from '../services/wails'
 import type { Attachment } from '../services/wails'
 import TokenCounter from './TokenCounter.vue'
 import { showSuccess } from '../utils/showError'
+import { processImagePipeline } from '../utils/imageProcess'
 
 interface SpeechRecognitionEvent {
   results: SpeechRecognitionResultList
@@ -523,12 +533,29 @@ function handlePaste(e: ClipboardEvent) {
   }
 }
 
+// 安全实践：检测文本内容是否含大量不可打印字符（可能是伪造的文本文件），见安全审查 #37
+function isLikelyBinaryContent(text: string): boolean {
+  if (text.length === 0) return false
+  let nonPrintable = 0
+  const sample = text.slice(0, 1000)  // 仅检查前 1000 字符
+  for (const ch of sample) {
+    const code = ch.charCodeAt(0)
+    // 允许换行、回车、制表符
+    if (code !== 10 && code !== 13 && code !== 9 && code < 32) {
+      nonPrintable++
+    }
+  }
+  return nonPrintable / sample.length > 0.1  // 不可打印字符超过 10% 判定为二进制
+}
+
 function detectFileType(file: File): string | null {
   // 优先按 MIME type 判断
   if (file.type.startsWith('image/')) return 'image'
   if (file.type.startsWith('audio/')) return 'audio'
   if (file.type.startsWith('video/')) return 'video'
   if (file.type === 'application/pdf') return 'pdf'
+  // Word 文档 MIME（Officedocument.wordprocessingml.document）
+  if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'docx'
 
   // 文本类型：按 MIME type 判断
   const textMimes = ['text/plain', 'text/markdown', 'text/csv', 'application/json', 'text/html', 'text/css', 'text/javascript', 'application/xml']
@@ -540,6 +567,7 @@ function detectFileType(file: File): string | null {
   if (AUDIO_ACCEPT.includes(`.${ext}`)) return 'audio'
   if (VIDEO_ACCEPT.includes(`.${ext}`)) return 'video'
   if (ext === 'pdf') return 'pdf'
+  if (ext === 'docx') return 'docx'
   if (TEXT_ACCEPT.includes(`.${ext}`)) return 'text'
 
   return null
@@ -562,7 +590,7 @@ function checkCapability(type: string): boolean {
     message.warning('当前模型不支持视频输入')
     return false
   }
-  if ((type === 'text' || type === 'pdf') && !capabilities.value.text_input) {
+  if ((type === 'text' || type === 'pdf' || type === 'docx') && !capabilities.value.text_input) {
     message.warning('当前模型不支持文本文件输入')
     return false
   }
@@ -574,6 +602,7 @@ function processFileByType(type: string, file: File) {
     case 'image': processImageFile(file); break
     case 'audio': processAudioFile(file); break
     case 'pdf': processPdfFile(file); break
+    case 'docx': processDocxFile(file); break
     case 'video': processVideoFile(file); break
     case 'text': processTextFile(file); break
   }
@@ -594,14 +623,16 @@ function typeLabel(type: string): string {
     case 'text': return '文本'
     case 'video': return '视频'
     case 'pdf': return 'PDF'
+    case 'docx': return 'DOCX'
     default: return type
   }
 }
 
-const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.gif,.webp,.bmp,.svg'
+const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.gif,.webp,.bmp,.svg,.heic,.heif'
 const AUDIO_ACCEPT = '.wav,.mp3,.ogg,.flac,.aac,.m4a,.wma'
-const TEXT_ACCEPT = '.txt,.md,.csv,.json,.xml,.html,.css,.js,.ts,.py,.go,.java,.c,.cpp,.h,.rs,.sh,.yaml,.yml,.toml,.ini,.cfg,.log,.sql'
+const TEXT_ACCEPT = '.txt,.md,.csv,.json,.xml,.html,.htm,.css,.js,.jsx,.ts,.tsx,.vue,.svelte,.py,.go,.java,.c,.cpp,.h,.hpp,.rs,.sh,.bat,.yaml,.yml,.toml,.ini,.cfg,.log,.sql,.adoc,.tex,.bib,.cs,.kt,.swift,.dart,.r,.scala,.hs,.cu,.cuh,.comp,.properties'
 const PDF_ACCEPT = '.pdf'
+const DOCX_ACCEPT = '.docx'
 const VIDEO_ACCEPT = '.mp4,.webm,.avi,.mov,.mkv,.wmv,.flv'
 
 // 文件大小限制（单位：MB）
@@ -609,6 +640,7 @@ const MAX_IMAGE_SIZE = 20
 const MAX_AUDIO_SIZE = 50
 const MAX_VIDEO_SIZE = 100
 const MAX_PDF_SIZE = 50
+const MAX_DOCX_SIZE = 50
 const MAX_TEXT_SIZE = 10
 
 function checkFileSize(file: File, maxSizeMB: number, label: string): boolean {
@@ -645,6 +677,7 @@ function getAcceptForType(type: string): string {
     case 'audio': return AUDIO_ACCEPT
     case 'text': return TEXT_ACCEPT
     case 'pdf': return PDF_ACCEPT
+    case 'docx': return DOCX_ACCEPT
     case 'video': return VIDEO_ACCEPT
     default: return ''
   }
@@ -678,6 +711,8 @@ function handleFileSelect(e: Event) {
       processAudioFile(file)
     } else if (type === 'pdf') {
       processPdfFile(file)
+    } else if (type === 'docx') {
+      processDocxFile(file)
     } else if (type === 'video') {
       processVideoFile(file)
     } else {
@@ -687,7 +722,7 @@ function handleFileSelect(e: Event) {
   input.value = ''
 }
 
-function processImageFile(file: File) {
+async function processImageFile(file: File) {
   if (!file.type.startsWith('image/')) {
     message.error('请选择图片文件')
     return
@@ -697,20 +732,21 @@ function processImageFile(file: File) {
     return
   }
   if (!checkFileSize(file, MAX_IMAGE_SIZE, '图片')) return
-  readFileWithErrorHandling(
-    file,
-    (reader) => reader.readAsDataURL(file),
-    (result) => {
-      // shallowRef 需替换整个数组才能触发响应式（任务 23）
-      attachments.value = [...attachments.value, {
-        type: 'image',
-        name: file.name,
-        mime_type: file.type,
-        data: result,
-      }]
-    },
-    '图片'
-  )
+
+  try {
+    // 图片预处理流水线：格式归一化（SVG/WebP→PNG）+ EXIF 方向修正 + 兆像素限制
+    const { dataUrl, mimeType } = await processImagePipeline(file)
+    // shallowRef 需替换整个数组才能触发响应式（任务 23）
+    attachments.value = [...attachments.value, {
+      type: 'image',
+      name: file.name,
+      mime_type: mimeType,
+      data: dataUrl,
+    }]
+  } catch (err) {
+    console.error('图片预处理失败:', err)
+    message.error('图片处理失败，请重试或更换图片')
+  }
 }
 
 function processAudioFile(file: File) {
@@ -753,6 +789,25 @@ function processPdfFile(file: File) {
   )
 }
 
+function processDocxFile(file: File) {
+  if (!checkFileSize(file, MAX_DOCX_SIZE, 'DOCX')) return
+  readFileWithErrorHandling(
+    file,
+    (reader) => reader.readAsDataURL(file),
+    (result) => {
+      const base64 = result.split(',')[1]
+      // shallowRef 需替换整个数组才能触发响应式（任务 23）
+      attachments.value = [...attachments.value, {
+        type: 'docx',
+        name: file.name,
+        mime_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        data: base64,
+      }]
+    },
+    'DOCX'
+  )
+}
+
 function processVideoFile(file: File) {
   if (!checkFileSize(file, MAX_VIDEO_SIZE, '视频')) return
   readFileWithErrorHandling(
@@ -778,6 +833,11 @@ function processTextFile(file: File) {
     file,
     (reader) => reader.readAsText(file),
     (result) => {
+      // 安全实践：检测文本内容是否含大量不可打印字符（可能是伪造的文本文件），见安全审查 #37
+      if (isLikelyBinaryContent(result)) {
+        message.warning(`文件 ${file.name} 内容似乎不是文本，可能为二进制文件`)
+        return
+      }
       // shallowRef 需替换整个数组才能触发响应式（任务 23）
       attachments.value = [...attachments.value, {
         type: 'text',
@@ -1557,9 +1617,9 @@ onUnmounted(() => {
 
 <style>
 .has-background .chat-input-container {
-  background: color-mix(in srgb, var(--bg-secondary) 85%, transparent) !important;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: color-mix(in srgb, var(--bg-secondary) 45%, transparent) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .has-background .input-area {

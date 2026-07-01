@@ -77,8 +77,8 @@ func TestContractDefaultConfigSpotChecks(t *testing.T) {
 	// 以下是 TS 侧历史曾与 Go 不一致的字段，作为重点回归锚点
 	spotChecks := []struct {
 		name string
-		got  interface{}
-		want interface{}
+		got  any
+		want any
 	}{
 		// 采样参数（与 llama.cpp 默认值对齐）
 		{"temperature", cfg.Temperature, 0.8},

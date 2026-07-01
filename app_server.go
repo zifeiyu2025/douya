@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -163,37 +164,37 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 	}
 
 	serverCfg := &llm.ServerConfig{
-		ModelsDir:                modelsDir,
-		ServerPath:               absServerPath,
-		Port:                     cfg.Port,
-		GPULayers:                gpuLayers,
-		Threads:                  threads,
-		FlashAttn:                flashAttn,
-		CacheTypeK:               sp.CacheTypeK,
-		CacheTypeV:               sp.CacheTypeV,
-		Mlock:                    mlock,
-		MmprojAuto:               cfg.MmprojAuto,
-		MmprojOffload:            mmprojOffload,
-		KVUnified:                cfg.KVUnified,
-		CacheIdleSlots:           cfg.CacheIdleSlots,
-		CacheRAM:                 cfg.CacheRAM,
-		ImageMinTokens:           cfg.ImageMinTokens,
-		ImageMaxTokens:           cfg.ImageMaxTokens,
-		FitTarget:                cfg.FitTarget,
-		FitCtx:                   cfg.FitCtx,
-		Reasoning:                cfg.Reasoning,
-		ReasoningBudget:          cfg.ReasoningBudget,
-		ReasoningFormat:          reasoningFormat,
-		ReasoningBudgetMessage:   cfg.ReasoningBudgetMessage,
-		ReasoningPreserve:        cfg.ReasoningPreserve,
-		APIBase:                  cfg.APIBase,
-		AppDir:                   appDir(),
-		ModelsPreset:             presetPath,
-		ModelsMax:                modelsMax,
-		SleepIdleSeconds:         sleepIdle,
-		Mmap:                     cfg.Mmap,
-		KVOffload:                cfg.KVOffload,
-		ContextShift:             cfg.ContextShift,
+		ModelsDir:              modelsDir,
+		ServerPath:             absServerPath,
+		Port:                   cfg.Port,
+		GPULayers:              gpuLayers,
+		Threads:                threads,
+		FlashAttn:              flashAttn,
+		CacheTypeK:             sp.CacheTypeK,
+		CacheTypeV:             sp.CacheTypeV,
+		Mlock:                  mlock,
+		MmprojAuto:             cfg.MmprojAuto,
+		MmprojOffload:          mmprojOffload,
+		KVUnified:              cfg.KVUnified,
+		CacheIdleSlots:         cfg.CacheIdleSlots,
+		CacheRAM:               cfg.CacheRAM,
+		ImageMinTokens:         cfg.ImageMinTokens,
+		ImageMaxTokens:         cfg.ImageMaxTokens,
+		FitTarget:              cfg.FitTarget,
+		FitCtx:                 cfg.FitCtx,
+		Reasoning:              cfg.Reasoning,
+		ReasoningBudget:        cfg.ReasoningBudget,
+		ReasoningFormat:        reasoningFormat,
+		ReasoningBudgetMessage: cfg.ReasoningBudgetMessage,
+		ReasoningPreserve:      cfg.ReasoningPreserve,
+		APIBase:                cfg.APIBase,
+		AppDir:                 appDir(),
+		ModelsPreset:           presetPath,
+		ModelsMax:              modelsMax,
+		SleepIdleSeconds:       sleepIdle,
+		Mmap:                   cfg.Mmap,
+		KVOffload:              cfg.KVOffload,
+		ContextShift:           cfg.ContextShift,
 		// P0-B3: 启用 context-shift 时保护 system prompt 不被移位。
 		// 512 是保守值，足够覆盖豆芽的 system prompt（约 200-400 token）。
 		// 若用户 system prompt 较长，可后续在高级设置中暴露 KeepSize 配置。
@@ -1071,7 +1072,7 @@ func (a *App) tryWatchModelLoadProgress(ctx context.Context, modelName string) c
 
 		err := a.client.WatchModelLoadProgress(sseCtx, modelName, func(event llm.ModelLoadEvent) {
 			// 推送实时加载进度到前端
-			runtime.EventsEmit(ctx, "modelLoadProgress", map[string]interface{}{
+			runtime.EventsEmit(ctx, "modelLoadProgress", map[string]any{
 				"model":    event.Model,
 				"status":   event.Status,
 				"progress": event.ProgressPercent,
@@ -1139,14 +1140,12 @@ func (a *App) emitSwitchProgress(stage, targetModel string) {
 //   - stage: 阶段名称（preparing/loading/waiting/detecting/done/failed/vram-warning/spec-warning 等）
 //   - targetModel: 目标模型名（可为空）
 //   - extras: 额外字段（如 "model"、"message"），可为 nil
-func (a *App) emitSwitchProgressCtx(ctx context.Context, stage, targetModel string, extras map[string]interface{}) {
-	payload := map[string]interface{}{
+func (a *App) emitSwitchProgressCtx(ctx context.Context, stage, targetModel string, extras map[string]any) {
+	payload := map[string]any{
 		"stage":       stage,
 		"targetModel": targetModel,
 	}
-	for k, v := range extras {
-		payload[k] = v
-	}
+	maps.Copy(payload, extras)
 	runtime.EventsEmit(ctx, "server:switchProgress", payload)
 }
 
@@ -1413,7 +1412,7 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 		zlog.Warn().Str("model", modelName).Str("vram_msg", vramMsg).Msg("[router] VRAM pre-check warning")
 		// 注意：VRAM 预检查只是警告，不阻止切换（估算可能不准确）
 		// 但将警告信息传递给前端
-		a.emitSwitchProgressCtx(a.ctx, "vram-warning", "", map[string]interface{}{
+		a.emitSwitchProgressCtx(a.ctx, "vram-warning", "", map[string]any{
 			"model":   modelName,
 			"message": vramMsg,
 		})
@@ -1422,7 +1421,7 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 	// SpecType 兼容性检查（不阻塞切换，只是提前警告）
 	if specMsg := a.specTypeCompatCheck(modelName); specMsg != "" {
 		zlog.Warn().Str("model", modelName).Str("spec_msg", specMsg).Msg("[router] SpecType compatibility warning")
-		a.emitSwitchProgressCtx(a.ctx, "spec-warning", "", map[string]interface{}{
+		a.emitSwitchProgressCtx(a.ctx, "spec-warning", "", map[string]any{
 			"model":   modelName,
 			"message": specMsg,
 		})
@@ -1723,10 +1722,7 @@ func (a *App) calculateLoadTimeout(modelName string) time.Duration {
 	}
 
 	fileSizeGB := float64(fileSize) / (1024 * 1024 * 1024)
-	timeout := loadTimeoutBase + time.Duration(fileSizeGB*float64(loadTimeoutPerGB))
-	if timeout > loadTimeoutMax {
-		timeout = loadTimeoutMax
-	}
+	timeout := min(loadTimeoutBase+time.Duration(fileSizeGB*float64(loadTimeoutPerGB)), loadTimeoutMax)
 	return timeout
 }
 
@@ -1753,7 +1749,7 @@ func (a *App) switchWaitReady(modelName string) string {
 	defer propsCancel()
 	backoffs := []time.Duration{200 * time.Millisecond, 400 * time.Millisecond, 600 * time.Millisecond, 800 * time.Millisecond, time.Second}
 	var lastProps *llm.ServerProps
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		props, propsErr := a.client.GetServerProps(propsCtx, modelName)
 		if propsErr == nil {
 			lastProps = props

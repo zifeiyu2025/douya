@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 
 	pdf "github.com/ledongthuc/pdf"
 )
@@ -45,26 +46,49 @@ func ExtractTextWithFallback(data []byte, fallback string) string {
 }
 
 // ExtractTextWithLib 使用 ledongthuc/pdf 库提取 PDF 文本。
-// 单页解析失败不中断，继续下一页。
+// 并行解析各页，按页码顺序合并结果。单页解析失败不中断，继续其他页。
+// 注：ledongthuc/pdf 的 Reader 字段在 NewReader 后只读，resolve 每次创建独立
+// buffer 和 SectionReader，并发访问不同页面是安全的。
 func ExtractTextWithLib(data []byte) (string, error) {
 	reader, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return "", fmt.Errorf("pdf reader: %w", err)
 	}
 
-	var buf strings.Builder
 	pageCount := reader.NumPage()
+	if pageCount == 0 {
+		return "", fmt.Errorf("no pages in PDF")
+	}
+
+	// 并行解析各页，结果存入按页码索引的数组以保证顺序
+	pages := make([]string, pageCount)
+	var wg sync.WaitGroup
 	for i := 1; i <= pageCount; i++ {
-		page := reader.Page(i)
-		if page.V.IsNull() {
-			continue
-		}
-		content, err := page.GetPlainText(nil)
-		if err != nil {
-			// 单页解析失败不中断，继续下一页
-			continue
-		}
-		text := strings.TrimSpace(content)
+		wg.Add(1)
+		go func(pageNum int) {
+			defer wg.Done()
+			defer func() {
+				// 防御性 recover：单页 panic 不影响其他页
+				if r := recover(); r != nil {
+					// 页面解析异常，保留空字符串
+				}
+			}()
+			page := reader.Page(pageNum)
+			if page.V.IsNull() {
+				return
+			}
+			content, err := page.GetPlainText(nil)
+			if err != nil {
+				return
+			}
+			pages[pageNum-1] = strings.TrimSpace(content)
+		}(i)
+	}
+	wg.Wait()
+
+	// 按顺序合并非空页
+	var buf strings.Builder
+	for _, text := range pages {
 		if text != "" {
 			if buf.Len() > 0 {
 				buf.WriteString("\n")

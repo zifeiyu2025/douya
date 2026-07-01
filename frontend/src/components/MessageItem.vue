@@ -65,8 +65,7 @@ import { useMessage } from 'naive-ui'
 import ThinkBlock from './ThinkBlock.vue'
 import SearchStatus from './SearchStatus.vue'
  import { renderMarkdown, escapeHtml } from '../utils/markdown'
- import { useMermaid } from '../composables/useMermaid'
- import { setupCodeCopyDelegation } from '../utils/codeCopy'
+import { setupCodeCopyDelegation } from '../utils/codeCopy'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import type { Message, AttachmentSummary } from '../services/wails'
@@ -167,9 +166,6 @@ const findPreviousUserMessage = () => {
 const rootRef = ref<HTMLElement>()
 let cleanupCodeCopyDelegation: (() => void) | null = null
 
-// 使用 IntersectionObserver 懒加载 mermaid（仅进入视口才下载 2.84MB chunk）
-const { refreshObservation } = useMermaid(rootRef)
-
 onMounted(() => {
     const el = rootRef.value
     if (el) {
@@ -178,15 +174,6 @@ onMounted(() => {
     document.addEventListener('mousedown', handleDocumentMouseDown)
     // scroll 监听器改为按需注册（见下方 watch(selectionBtnVisible)），
     // 避免每个 MessageItem 实例都常驻全局 scroll 监听导致长会话滚动卡顿
-})
-
-watch(renderedContent, async () => {
-    await Promise.resolve()
-    const el = rootRef.value
-    if (el) {
-        // 内容更新后重新观察新出现的 .mermaid 元素
-        refreshObservation()
-    }
 })
 
 async function copyContent() {
@@ -475,9 +462,9 @@ function regenerate() {
 }
 
 .ai-bubble {
-  /* width: 100% 让 AI 气泡撑满 wrapper，不受内容宽度限制
-     渲染完毕后短内容也撑满可用空间，与 wrapper 的 max-width: 100% 配合 */
-  width: 100%;
+  /* 自适应宽度：短内容窄气泡，长内容撑开至 max-width
+     width: auto 让气泡 shrink-to-fit 内容宽度（配合 wrapper 的 align-items: flex-start） */
+  width: auto;
   max-width: 100%;
   min-width: 0;
   background: var(--bg-ai-msg);

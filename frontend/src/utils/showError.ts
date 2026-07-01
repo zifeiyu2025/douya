@@ -34,7 +34,10 @@ export function extractErrorMessage(e: unknown): string {
  */
 export function showError(message: MessageApiInjection, prefix: string, e: unknown): void {
   message.destroyAll()
-  message.error(`${prefix}：${extractErrorMessage(e)}`)
+  // 安全实践：避免后端错误原文直接展示给用户，截断过长内容（见安全审查 #35）
+  const detail = extractErrorMessage(e)
+  const safeDetail = detail.length > 200 ? detail.slice(0, 200) + '...' : detail
+  message.error(`${prefix}：${safeDetail}`)
 }
 
 /**

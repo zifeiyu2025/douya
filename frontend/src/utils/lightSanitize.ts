@@ -47,6 +47,9 @@ const DANGEROUS_ATTR_PATTERNS: RegExp[] = [
     /(?:j\s*a\s*v\s*a\s*s\s*c\s*r\s*i\s*p\s*t|v\s*b\s*s\s*c\s*r\s*i\s*p\s*t|d\s*a\s*t\s*a\s*:\s*t\s*e\s*x\s*t\s*\/\s*h\s*t\s*m\s*l)\s*:/gi,
     // HTML 实体编码的 javascript:，例如 &#106;avascript:
     /&#[xX]?[0-9a-fA-F]+;?\s*:\s*\/\s*\/\s*/gi,
+    // 安全实践：匹配实体编码的 javascript:/vbscript: 协议（无 //），见安全审查 #33
+    // 原正则仅匹配 &#106;avascript://（带 //），遗漏 javascript:（无 //）
+    /&#[xX]?[0-9a-fA-F]+;?\s*:\s*(?:javascript|vbscript|data:text\/html)/gi,
     // SVG <use> 外链可能引入脚本
     /<use[^>]*\s+href\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)[^>]*>/gi,
     /<use[^>]*\s+xlink:href\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)[^>]*>/gi,
@@ -71,14 +74,25 @@ export function lightSanitize(html: string): string {
 }
 
 /**
- * 校验 URL 是否安全（仅允许 http: / https: 协议）
- * 用于搜索结果、外部链接等场景
+ * 校验 URL 是否安全（协议白名单）
+ * 用于搜索结果、Markdown 链接渲染等场景
+ *
+ * 修复（安全审查 #15）：显式协议白名单，拒绝 javascript: / vbscript: /
+ * data:text/html 等危险伪协议。允许的安全协议：
+ *   - http(s):  常规网页
+ *   - mailto:   邮件
+ *   - tel:      电话
+ *   - #         页面内锚点
  */
 export function isSafeUrl(url: string): boolean {
     if (!url || typeof url !== 'string') return false
     const trimmed = url.trim().toLowerCase()
-    // 拒绝空链接和纯锚点
-    if (!trimmed || trimmed.startsWith('#')) return false
-    // 仅允许 http: 和 https: 协议
-    return trimmed.startsWith('http://') || trimmed.startsWith('https://')
+    if (!trimmed) return false
+    // 锚点：页面内跳转，无 XSS 风险
+    if (trimmed.startsWith('#')) return true
+    // 常规网页 / 邮件 / 电话协议
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return true
+    if (trimmed.startsWith('mailto:')) return true
+    if (trimmed.startsWith('tel:')) return true
+    return false
 }

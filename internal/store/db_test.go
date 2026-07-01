@@ -364,7 +364,7 @@ func TestMigrateMessages_Batch(t *testing.T) {
 
 	// 插入 250 条未加密消息（超过 batchSize=100，覆盖 3 批）
 	const total = 250
-	for i := 0; i < total; i++ {
+	for i := range total {
 		id := fmt.Sprintf("msg-%03d", i)
 		content := fmt.Sprintf("明文消息内容 %d", i)
 		if _, err := db.Exec("INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, datetime('now'))",

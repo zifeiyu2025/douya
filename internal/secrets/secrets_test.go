@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"douya/internal/pathutil"
 )
 
 // TestAESCipherImplementsCipher 验证 AESCipher 实现了 Cipher 接口，
@@ -69,15 +71,16 @@ type noopCipherImpl struct{}
 func (noopCipherImpl) Encrypt(plaintext string) (string, error) { return plaintext, nil }
 func (noopCipherImpl) Decrypt(ciphertext string) (string, error) { return ciphertext, nil }
 
-// TestRestrictKeyFileACLWindows_NonWindows 验证非 Windows 平台 restrictKeyFileACLWindows 的行为。
+// TestRestrictKeyFileACLWindows_NonWindows 验证非 Windows 平台 pathutil.RestrictACLWindows 的行为。
 // Windows 平台跳过该测试（避免实际执行 icacls 影响测试环境）。
 // 生活类比：在 Linux 上找不到 Windows 专用的"保险柜锁匠"(icacls)，自然应当报错。
+// 注：restrictKeyFileACLWindows 已迁移至 internal/pathutil/pathutil.go 的 RestrictACLWindows（见安全审查 #20）
 func TestRestrictKeyFileACLWindows_NonWindows(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows 平台跳过 icacls 测试，避免影响测试环境")
 	}
-	// 非 Windows 平台 icacls 命令不存在，restrictKeyFileACLWindows 应返回错误
-	err := restrictKeyFileACLWindows("/tmp/nonexistent_douya_key_test")
+	// 非 Windows 平台 icacls 命令不存在，pathutil.RestrictACLWindows 应返回错误
+	err := pathutil.RestrictACLWindows("/tmp/nonexistent_douya_key_test")
 	if err == nil {
 		t.Fatal("非 Windows 平台 icacls 不存在，期望返回错误，实际返回 nil")
 	}

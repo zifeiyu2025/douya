@@ -6,6 +6,8 @@ package llm
 import (
 	"context"
 	"fmt"
+	"github.com/UserExistsError/conpty"
+	"github.com/rs/zerolog/log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -14,8 +16,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
-	"github.com/UserExistsError/conpty"
-	"github.com/rs/zerolog/log"
+
+	"douya/internal/pathutil"
 )
 
 const vramCheckInterval = 500 * time.Millisecond
@@ -42,69 +44,69 @@ func isValidCacheType(t string) bool {
 }
 
 type ServerConfig struct {
-	ModelsDir        string
-	MmprojAuto       bool
-	MmprojOffload    bool
-	ServerPath       string
-	Port             int
-	GPULayers        string
-	Threads          int
-	FlashAttn        string // "on"/"off"/"auto"，对应 llama.cpp --flash-attn 参数
-	CacheTypeK       string
-	CacheTypeV       string
-	Mlock            bool
-	KVUnified        bool
-	CacheIdleSlots   bool
-	CacheRAM         int
-	ImageMinTokens   int
-	ImageMaxTokens   int
-	FitTarget        int
-	FitCtx           int
-	Reasoning        string
-	ReasoningBudget  int
-	ReasoningFormat  string
+	ModelsDir              string
+	MmprojAuto             bool
+	MmprojOffload          bool
+	ServerPath             string
+	Port                   int
+	GPULayers              string
+	Threads                int
+	FlashAttn              string // "on"/"off"/"auto"，对应 llama.cpp --flash-attn 参数
+	CacheTypeK             string
+	CacheTypeV             string
+	Mlock                  bool
+	KVUnified              bool
+	CacheIdleSlots         bool
+	CacheRAM               int
+	ImageMinTokens         int
+	ImageMaxTokens         int
+	FitTarget              int
+	FitCtx                 int
+	Reasoning              string
+	ReasoningBudget        int
+	ReasoningFormat        string
 	ReasoningBudgetMessage string
-	ReasoningPreserve      *bool  // 推理内容保留开关（nil=不传递，true=--reasoning-preserve，false=--no-reasoning-preserve）
-	APIBase          string
-	AppDir           string
-	ModelsPreset     string
-	ModelsMax        int
-	SleepIdleSeconds int
-	Mmap             bool
-	KVOffload        bool
-	ContextShift     bool
+	ReasoningPreserve      *bool // 推理内容保留开关（nil=不传递，true=--reasoning-preserve，false=--no-reasoning-preserve）
+	APIBase                string
+	AppDir                 string
+	ModelsPreset           string
+	ModelsMax              int
+	SleepIdleSeconds       int
+	Mmap                   bool
+	KVOffload              bool
+	ContextShift           bool
 	// KeepSize 保护初始 prompt 中前 N 个 token 不被 context-shift 移位（通常用于保护 system prompt）。
 	// 仅当 ContextShift=true 且 KeepSize>0 时传递 --keep 给 llama-server。
 	// 默认 0=不传递；app_server.go 会赋一个保守默认值（512）。
-	KeepSize         int
-	MinP             float64
-	DryMultiplier    float64
-	DryBase          float64
-	DryAllowedLength int
-	DrySequenceBreaker string
-	DryPenaltyLastN    int
-	GrpAttnN          int
-	GrpAttnW          int
-	Jinja             *bool  // Jinja2 模板引擎开关
-	CachePrompt       *bool  // Prompt 缓存控制
-	Metrics           bool   // 服务器指标端点开关
-	Verbose           bool   // 详细日志开关
-	SpecDraftThreads      int  // Draft 模型线程数
-	SpecDraftThreadsBatch int  // Draft 模型批处理线程数
-	SpecDefault           bool // 使用默认推测解码配置
-	Device           string
-	Parallel         int
-	APIKey           string
-	ServerAPIKeyEnabled bool // 是否启用服务 API Key 验证（暴露到局域网时强制要求）
+	KeepSize              int
+	MinP                  float64
+	DryMultiplier         float64
+	DryBase               float64
+	DryAllowedLength      int
+	DrySequenceBreaker    string
+	DryPenaltyLastN       int
+	GrpAttnN              int
+	GrpAttnW              int
+	Jinja                 *bool // Jinja2 模板引擎开关
+	CachePrompt           *bool // Prompt 缓存控制
+	Metrics               bool  // 服务器指标端点开关
+	Verbose               bool  // 详细日志开关
+	SpecDraftThreads      int   // Draft 模型线程数
+	SpecDraftThreadsBatch int   // Draft 模型批处理线程数
+	SpecDefault           bool  // 使用默认推测解码配置
+	Device                string
+	Parallel              int
+	APIKey                string
+	ServerAPIKeyEnabled   bool // 是否启用服务 API Key 验证（暴露到局域网时强制要求）
 
-	SpecType         string
-	SpecDraftNMax    int
-	SpecDraftNMin    int
-	CacheTypeKDraft  string
-	CacheTypeVDraft  string
-	SpecNgramModNMin   int
-	SpecNgramModNMax   int
-	SpecNgramModNMatch int
+	SpecType               string
+	SpecDraftNMax          int
+	SpecDraftNMin          int
+	CacheTypeKDraft        string
+	CacheTypeVDraft        string
+	SpecNgramModNMin       int
+	SpecNgramModNMax       int
+	SpecNgramModNMatch     int
 	SpecNgramSimpleSizeN   int
 	SpecNgramSimpleSizeM   int
 	SpecNgramSimpleMinHits int
@@ -114,36 +116,36 @@ type ServerConfig struct {
 	SpecNgramMapK4VSizeN   int
 	SpecNgramMapK4VSizeM   int
 	SpecNgramMapK4VMinHits int
-	LookupCacheStatic  string
-	LookupCacheDynamic string
-	SpecDraftModel     string
-	Embedding          bool   // 启用 /v1/embeddings API（RAG 知识库需要）
-	Pooling            string // 嵌入池化类型（mean/cls），解决聊天模型 pooling=none 不兼容 OAI embedding API
-	ExposeServer       bool   // 暴露服务器地址，允许局域网访问
-	SwaFull              bool
-	CtxCheckpoints       int
-	CheckpointMinStep    int
-	Tools                string
-	PrefillAssistant     bool
-	SlotPromptSimilarity float64
-	SkipChatParsing      bool
-	APIPrefix            string
-	SimpleIO             bool
-	BatchSize            int
-	UBatchSize           int
-	ThreadsHTTP          int    // HTTP 请求处理线程数（0=使用 llama-server 默认值）
-	ContextSize          int
+	LookupCacheStatic      string
+	LookupCacheDynamic     string
+	SpecDraftModel         string
+	Embedding              bool   // 启用 /v1/embeddings API（RAG 知识库需要）
+	Pooling                string // 嵌入池化类型（mean/cls），解决聊天模型 pooling=none 不兼容 OAI embedding API
+	ExposeServer           bool   // 暴露服务器地址，允许局域网访问
+	SwaFull                bool
+	CtxCheckpoints         int
+	CheckpointMinStep      int
+	Tools                  string
+	PrefillAssistant       bool
+	SlotPromptSimilarity   float64
+	SkipChatParsing        bool
+	APIPrefix              string
+	SimpleIO               bool
+	BatchSize              int
+	UBatchSize             int
+	ThreadsHTTP            int // HTTP 请求处理线程数（0=使用 llama-server 默认值）
+	ContextSize            int
 	// KV 缓存持久化
 	SlotSavePath    string // 启用后传递 --slot-save-path
 	SlotSaveEnabled bool
-	CacheReuse      int    // KV 缓存复用块大小（0=禁用）
+	CacheReuse      int // KV 缓存复用块大小（0=禁用）
 	// Draft 模型 GPU 配置（Eagle3 等场景）
 	SpecDraftNgl    int    // draft 模型 GPU 层数
 	SpecDraftDevice string // draft 模型设备（如 "cuda:0"）
 	// Draft 模型推测解码参数
-	SpecDraftPSplit     float64 // 推测解码 split 概率（默认 0.10）
-	SpecDraftPMin       float64 // 最小推测解码概率（默认 0.00）
-	SpecDraftBackendSampling *bool // draft 模型后端采样（nil=默认启用）
+	SpecDraftPSplit          float64 // 推测解码 split 概率（默认 0.10）
+	SpecDraftPMin            float64 // 最小推测解码概率（默认 0.00）
+	SpecDraftBackendSampling *bool   // draft 模型后端采样（nil=默认启用）
 	// 多模态批处理
 	MtmdBatchMaxTokens int // 图像编码每个 batch 的最大 token 数（默认 1024）
 	// 自适应采样（llama.cpp 新增，动态调整采样参数）
@@ -179,32 +181,32 @@ type ServerConfig struct {
 }
 
 type Server struct {
-	cmd                  *exec.Cmd
-	pty                  *conpty.ConPty // ConPTY 伪控制台（非 nil 表示使用 ConPTY 模式）
-	config               *ServerConfig
-	status               ServerStatus
-	ctx                  context.Context
-	cancel               context.CancelFunc
-	mu                   sync.RWMutex
-	job                  *JobObject
-	stderrBuf            *RingBuffer
-	mtpFallbackDisabled  bool
-	lastStartTime        time.Time
-	cmdEnv               []string                  // 安全传递给子进程的环境变量（如 API Key）
-	onLog                func(line string)          // 日志行回调（用于实时推送到前端）
-	onTerminalData       func(data []byte)          // 终端原始字节流回调（用于 xterm.js 渲染）
-	healthClient         *http.Client               // 复用的健康检查 HTTP 客户端（WaitForReady/GracefulStop 共用）
-	permanentFailure    bool                        // 永久失败标志：服务器反复崩溃后不再自动重启
-	maxRestartAttempts  int                         // 最大重启尝试次数（默认 10，可配置便于测试）
-	initialBackoff      time.Duration               // 初始退避时间（默认 2s，可配置便于测试）
-	pollInterval        time.Duration               // 轮询间隔（默认 1s，可配置便于测试）
+	cmd                 *exec.Cmd
+	pty                 *conpty.ConPty // ConPTY 伪控制台（非 nil 表示使用 ConPTY 模式）
+	config              *ServerConfig
+	status              ServerStatus
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	mu                  sync.RWMutex
+	job                 *JobObject
+	stderrBuf           *RingBuffer
+	mtpFallbackDisabled bool
+	lastStartTime       time.Time
+	cmdEnv              []string          // 安全传递给子进程的环境变量（如 API Key）
+	onLog               func(line string) // 日志行回调（用于实时推送到前端）
+	onTerminalData      func(data []byte) // 终端原始字节流回调（用于 xterm.js 渲染）
+	healthClient        *http.Client      // 复用的健康检查 HTTP 客户端（WaitForReady/GracefulStop 共用）
+	permanentFailure    bool              // 永久失败标志：服务器反复崩溃后不再自动重启
+	maxRestartAttempts  int               // 最大重启尝试次数（默认 10，可配置便于测试）
+	initialBackoff      time.Duration     // 初始退避时间（默认 2s，可配置便于测试）
+	pollInterval        time.Duration     // 轮询间隔（默认 1s，可配置便于测试）
 }
 
 func NewServer(cfg *ServerConfig) *Server {
 	return &Server{
-		config:       cfg,
-		status:       ServerStatus{Running: false},
-		healthClient: &http.Client{Timeout: healthCheckTimeout},
+		config:             cfg,
+		status:             ServerStatus{Running: false},
+		healthClient:       &http.Client{Timeout: healthCheckTimeout},
 		maxRestartAttempts: 10,
 		initialBackoff:     2 * time.Second,
 		pollInterval:       1 * time.Second,
@@ -281,17 +283,10 @@ func appendBoolArg(args []string, flag string, val bool) []string {
 }
 
 // resolvePath 将相对路径解析为相对于 AppDir 的绝对路径。
-// 生活类比：像快递员根据"当前所在楼层"补全收件地址，无论包裹来自哪里都能找到正确位置。
 // 已是绝对路径则原样返回，避免重复处理。
+// 安全实践：复用 pathutil.ResolveInBase 统一路径遍历防护，与 app.go 的 resolvePath 实现对齐（见安全审查 #1/#20）
 func (s *Server) resolvePath(p string) string {
-	if p == "" {
-		return ""
-	}
-	p = filepath.Clean(p)
-	if filepath.IsAbs(p) {
-		return p
-	}
-	return filepath.Join(s.config.AppDir, p)
+	return pathutil.ResolveInBase(s.config.AppDir, p)
 }
 
 // resolveCommaPaths 解析逗号分隔的路径列表，逐个转换为绝对路径。
@@ -367,7 +362,12 @@ func (s *Server) buildStartArgs() []string {
 	args = appendBoolArg(args, "--mmproj-auto", s.config.MmprojAuto)
 	args = appendBoolArg(args, "--mmproj-offload", s.config.MmprojOffload)
 	args = appendStringArg(args, "--reasoning", s.config.Reasoning)
-	args = appendIntArg(args, "--reasoning-budget", s.config.ReasoningBudget)
+	// 安全实践：后端采样与推理预算互斥，仅前端 UI 联动不够，后端需强制跳过
+	if s.config.BackendSampling && s.config.ReasoningBudget > 0 {
+		log.Warn().Int("reasoning_budget", s.config.ReasoningBudget).Msg("[server] backend_sampling is enabled, skipping --reasoning-budget (mutually exclusive)")
+	} else {
+		args = appendIntArg(args, "--reasoning-budget", s.config.ReasoningBudget)
+	}
 	args = appendStringArg(args, "--reasoning-format", s.config.ReasoningFormat)
 	args = appendStringArg(args, "--reasoning-budget-message", s.config.ReasoningBudgetMessage)
 	// 推理内容保留开关（v9840+，nil=不传递，使用服务器默认值）
@@ -408,7 +408,7 @@ func (s *Server) buildStartArgs() []string {
 		}
 		// Dry 采样扩展参数
 		if s.config.DrySequenceBreaker != "" {
-			for _, breaker := range strings.Split(s.config.DrySequenceBreaker, ",") {
+			for breaker := range strings.SplitSeq(s.config.DrySequenceBreaker, ",") {
 				breaker = strings.TrimSpace(breaker)
 				if breaker != "" {
 					args = append(args, "--dry-sequence-breaker", breaker)
@@ -450,78 +450,81 @@ func (s *Server) buildStartArgs() []string {
 	args = appendIntArg(args, "--parallel", s.config.Parallel)
 	args = append(args, "--timeout", "900")
 	// 注意：API Key 通过环境变量 LLAMA_API_KEY 传递，相关逻辑（s.cmdEnv 修改）保留在 Start() 中
-	if s.config.SpecType != "" && !s.mtpFallbackDisabled {
-		args = append(args, "--spec-type", s.config.SpecType)
-	}
-	if s.config.SpecDraftNMax > 0 && !s.mtpFallbackDisabled {
-		args = append(args, "--spec-draft-n-max", fmt.Sprintf("%d", s.config.SpecDraftNMax))
-	}
-	if s.config.SpecDraftNMin > 0 && !s.mtpFallbackDisabled {
-		args = append(args, "--spec-draft-n-min", fmt.Sprintf("%d", s.config.SpecDraftNMin))
-	}
-	if s.config.CacheTypeKDraft != "" && !s.mtpFallbackDisabled {
-		if isValidCacheType(s.config.CacheTypeKDraft) {
-			args = append(args, "--spec-draft-type-k", s.config.CacheTypeKDraft)
-		} else {
-			log.Warn().Str("type", s.config.CacheTypeKDraft).Msg("[server] unsupported cache type, skipping --spec-draft-type-k (removed q2_k/q3_k/q4_k/q5_k/q6_k/iq4_xs)")
+	// 安全实践：启用默认推测配置(spec_default)时，推测类型选择需禁用且其他推测参数将被忽略（互斥）
+	if !s.config.SpecDefault {
+		if s.config.SpecType != "" && !s.mtpFallbackDisabled {
+			args = append(args, "--spec-type", s.config.SpecType)
 		}
-	}
-	if s.config.CacheTypeVDraft != "" && !s.mtpFallbackDisabled {
-		if isValidCacheType(s.config.CacheTypeVDraft) {
-			args = append(args, "--spec-draft-type-v", s.config.CacheTypeVDraft)
-		} else {
-			log.Warn().Str("type", s.config.CacheTypeVDraft).Msg("[server] unsupported cache type, skipping --spec-draft-type-v (removed q2_k/q3_k/q4_k/q5_k/q6_k/iq4_xs)")
+		if s.config.SpecDraftNMax > 0 && !s.mtpFallbackDisabled {
+			args = append(args, "--spec-draft-n-max", fmt.Sprintf("%d", s.config.SpecDraftNMax))
 		}
-	}
-	if s.config.SpecNgramModNMin > 0 && s.config.SpecType == "ngram-mod" {
-		args = append(args, "--spec-ngram-mod-n-min", fmt.Sprintf("%d", s.config.SpecNgramModNMin))
-	}
-	if s.config.SpecNgramModNMax > 0 && s.config.SpecType == "ngram-mod" {
-		args = append(args, "--spec-ngram-mod-n-max", fmt.Sprintf("%d", s.config.SpecNgramModNMax))
-	}
-	if s.config.SpecNgramModNMatch > 0 && s.config.SpecType == "ngram-mod" {
-		args = append(args, "--spec-ngram-mod-n-match", fmt.Sprintf("%d", s.config.SpecNgramModNMatch))
-	}
-	// ngram-simple 子参数
-	if s.config.SpecNgramSimpleSizeN > 0 && s.config.SpecType == "ngram-simple" {
-		args = append(args, "--spec-ngram-simple-size-n", fmt.Sprintf("%d", s.config.SpecNgramSimpleSizeN))
-	}
-	if s.config.SpecNgramSimpleSizeM > 0 && s.config.SpecType == "ngram-simple" {
-		args = append(args, "--spec-ngram-simple-size-m", fmt.Sprintf("%d", s.config.SpecNgramSimpleSizeM))
-	}
-	if s.config.SpecNgramSimpleMinHits > 0 && s.config.SpecType == "ngram-simple" {
-		args = append(args, "--spec-ngram-simple-min-hits", fmt.Sprintf("%d", s.config.SpecNgramSimpleMinHits))
-	}
-	// ngram-map-k 子参数
-	if s.config.SpecNgramMapKSizeN > 0 && s.config.SpecType == "ngram-map-k" {
-		args = append(args, "--spec-ngram-map-k-size-n", fmt.Sprintf("%d", s.config.SpecNgramMapKSizeN))
-	}
-	if s.config.SpecNgramMapKSizeM > 0 && s.config.SpecType == "ngram-map-k" {
-		args = append(args, "--spec-ngram-map-k-size-m", fmt.Sprintf("%d", s.config.SpecNgramMapKSizeM))
-	}
-	if s.config.SpecNgramMapKMinHits > 0 && s.config.SpecType == "ngram-map-k" {
-		args = append(args, "--spec-ngram-map-k-min-hits", fmt.Sprintf("%d", s.config.SpecNgramMapKMinHits))
-	}
-	// ngram-map-k4v 子参数
-	if s.config.SpecNgramMapK4VSizeN > 0 && s.config.SpecType == "ngram-map-k4v" {
-		args = append(args, "--spec-ngram-map-k4v-size-n", fmt.Sprintf("%d", s.config.SpecNgramMapK4VSizeN))
-	}
-	if s.config.SpecNgramMapK4VSizeM > 0 && s.config.SpecType == "ngram-map-k4v" {
-		args = append(args, "--spec-ngram-map-k4v-size-m", fmt.Sprintf("%d", s.config.SpecNgramMapK4VSizeM))
-	}
-	if s.config.SpecNgramMapK4VMinHits > 0 && s.config.SpecType == "ngram-map-k4v" {
-		args = append(args, "--spec-ngram-map-k4v-min-hits", fmt.Sprintf("%d", s.config.SpecNgramMapK4VMinHits))
-	}
-	// lookup-cache 仅在 ngram-cache 模式下传递
-	if s.config.LookupCacheStatic != "" && s.config.SpecType == "ngram-cache" {
-		args = append(args, "--lookup-cache-static", s.resolvePath(s.config.LookupCacheStatic))
-	}
-	if s.config.LookupCacheDynamic != "" && s.config.SpecType == "ngram-cache" {
-		args = append(args, "--lookup-cache-dynamic", s.config.LookupCacheDynamic)
-	}
-	// draft 模型路径：在 draft-eagle3/draft-dflash/draft-simple 模式下传递
-	if s.config.SpecDraftModel != "" && (s.config.SpecType == "draft-eagle3" || s.config.SpecType == "draft-dflash" || s.config.SpecType == "draft-simple") {
-		args = append(args, "--spec-draft-model", s.resolvePath(s.config.SpecDraftModel))
+		if s.config.SpecDraftNMin > 0 && !s.mtpFallbackDisabled {
+			args = append(args, "--spec-draft-n-min", fmt.Sprintf("%d", s.config.SpecDraftNMin))
+		}
+		if s.config.CacheTypeKDraft != "" && !s.mtpFallbackDisabled {
+			if isValidCacheType(s.config.CacheTypeKDraft) {
+				args = append(args, "--spec-draft-type-k", s.config.CacheTypeKDraft)
+			} else {
+				log.Warn().Str("type", s.config.CacheTypeKDraft).Msg("[server] unsupported cache type, skipping --spec-draft-type-k (removed q2_k/q3_k/q4_k/q5_k/q6_k/iq4_xs)")
+			}
+		}
+		if s.config.CacheTypeVDraft != "" && !s.mtpFallbackDisabled {
+			if isValidCacheType(s.config.CacheTypeVDraft) {
+				args = append(args, "--spec-draft-type-v", s.config.CacheTypeVDraft)
+			} else {
+				log.Warn().Str("type", s.config.CacheTypeVDraft).Msg("[server] unsupported cache type, skipping --spec-draft-type-v (removed q2_k/q3_k/q4_k/q5_k/q6_k/iq4_xs)")
+			}
+		}
+		if s.config.SpecNgramModNMin > 0 && s.config.SpecType == "ngram-mod" {
+			args = append(args, "--spec-ngram-mod-n-min", fmt.Sprintf("%d", s.config.SpecNgramModNMin))
+		}
+		if s.config.SpecNgramModNMax > 0 && s.config.SpecType == "ngram-mod" {
+			args = append(args, "--spec-ngram-mod-n-max", fmt.Sprintf("%d", s.config.SpecNgramModNMax))
+		}
+		if s.config.SpecNgramModNMatch > 0 && s.config.SpecType == "ngram-mod" {
+			args = append(args, "--spec-ngram-mod-n-match", fmt.Sprintf("%d", s.config.SpecNgramModNMatch))
+		}
+		// ngram-simple 子参数
+		if s.config.SpecNgramSimpleSizeN > 0 && s.config.SpecType == "ngram-simple" {
+			args = append(args, "--spec-ngram-simple-size-n", fmt.Sprintf("%d", s.config.SpecNgramSimpleSizeN))
+		}
+		if s.config.SpecNgramSimpleSizeM > 0 && s.config.SpecType == "ngram-simple" {
+			args = append(args, "--spec-ngram-simple-size-m", fmt.Sprintf("%d", s.config.SpecNgramSimpleSizeM))
+		}
+		if s.config.SpecNgramSimpleMinHits > 0 && s.config.SpecType == "ngram-simple" {
+			args = append(args, "--spec-ngram-simple-min-hits", fmt.Sprintf("%d", s.config.SpecNgramSimpleMinHits))
+		}
+		// ngram-map-k 子参数
+		if s.config.SpecNgramMapKSizeN > 0 && s.config.SpecType == "ngram-map-k" {
+			args = append(args, "--spec-ngram-map-k-size-n", fmt.Sprintf("%d", s.config.SpecNgramMapKSizeN))
+		}
+		if s.config.SpecNgramMapKSizeM > 0 && s.config.SpecType == "ngram-map-k" {
+			args = append(args, "--spec-ngram-map-k-size-m", fmt.Sprintf("%d", s.config.SpecNgramMapKSizeM))
+		}
+		if s.config.SpecNgramMapKMinHits > 0 && s.config.SpecType == "ngram-map-k" {
+			args = append(args, "--spec-ngram-map-k-min-hits", fmt.Sprintf("%d", s.config.SpecNgramMapKMinHits))
+		}
+		// ngram-map-k4v 子参数
+		if s.config.SpecNgramMapK4VSizeN > 0 && s.config.SpecType == "ngram-map-k4v" {
+			args = append(args, "--spec-ngram-map-k4v-size-n", fmt.Sprintf("%d", s.config.SpecNgramMapK4VSizeN))
+		}
+		if s.config.SpecNgramMapK4VSizeM > 0 && s.config.SpecType == "ngram-map-k4v" {
+			args = append(args, "--spec-ngram-map-k4v-size-m", fmt.Sprintf("%d", s.config.SpecNgramMapK4VSizeM))
+		}
+		if s.config.SpecNgramMapK4VMinHits > 0 && s.config.SpecType == "ngram-map-k4v" {
+			args = append(args, "--spec-ngram-map-k4v-min-hits", fmt.Sprintf("%d", s.config.SpecNgramMapK4VMinHits))
+		}
+		// lookup-cache 仅在 ngram-cache 模式下传递
+		if s.config.LookupCacheStatic != "" && s.config.SpecType == "ngram-cache" {
+			args = append(args, "--lookup-cache-static", s.resolvePath(s.config.LookupCacheStatic))
+		}
+		if s.config.LookupCacheDynamic != "" && s.config.SpecType == "ngram-cache" {
+			args = append(args, "--lookup-cache-dynamic", s.config.LookupCacheDynamic)
+		}
+		// draft 模型路径：在 draft-eagle3/draft-dflash/draft-simple 模式下传递
+		if s.config.SpecDraftModel != "" && (s.config.SpecType == "draft-eagle3" || s.config.SpecType == "draft-dflash" || s.config.SpecType == "draft-simple") {
+			args = append(args, "--spec-draft-model", s.resolvePath(s.config.SpecDraftModel))
+		}
 	}
 
 	// 启用 embedding API（RAG 知识库需要 /v1/embeddings 接口）
@@ -558,7 +561,7 @@ func (s *Server) buildStartArgs() []string {
 
 	// LoRA 适配器：启动时加载但默认不应用（scale=0），用户可通过设置界面热切换
 	if s.config.LoraPaths != "" {
-		for _, p := range strings.Split(s.config.LoraPaths, ",") {
+		for p := range strings.SplitSeq(s.config.LoraPaths, ",") {
 			p = strings.TrimSpace(p)
 			if p != "" {
 				args = append(args, "--lora", p)
@@ -1187,10 +1190,7 @@ func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(Serv
 
 			backoff := currentBackoff
 			restartCount++
-			currentBackoff = currentBackoff * 2
-			if currentBackoff > maxBackoff {
-				currentBackoff = maxBackoff
-			}
+			currentBackoff = min(currentBackoff*2, maxBackoff)
 
 			// 推测解码崩溃回退：若推测解码已启用且服务器崩溃，自动禁用推测解码
 			// 窗口设为 120 秒以覆盖大模型加载时间（加载期间崩溃也视为推测解码问题）

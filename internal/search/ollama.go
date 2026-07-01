@@ -17,7 +17,7 @@ type OllamaProvider struct {
 func NewOllamaProvider(apiKey string) *OllamaProvider {
 	return &OllamaProvider{
 		BaseProvider: BaseProvider{
-			httpClient: &http.Client{Timeout: 20 * time.Second},
+			httpClient: newSearchHTTPClient(20 * time.Second),
 		},
 		apiKey: apiKey,
 	}
@@ -28,7 +28,15 @@ func (p *OllamaProvider) Name() string {
 }
 
 func (p *OllamaProvider) SearchWithOpts(ctx context.Context, query string, opts SearchOpts) (*SearchResponse, error) {
-	return p.Search(ctx, query)
+	resp, err := p.Search(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	// 安全实践：尊重调用方传入的 MaxResults 限制
+	if opts.MaxResults > 0 && len(resp.Results) > opts.MaxResults {
+		resp.Results = resp.Results[:opts.MaxResults]
+	}
+	return resp, nil
 }
 
 func (p *OllamaProvider) Search(ctx context.Context, query string) (*SearchResponse, error) {

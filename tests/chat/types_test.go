@@ -100,7 +100,7 @@ func TestConversation_JSONSerialization_TimeFieldsAreString(t *testing.T) {
 		t.Fatalf("failed to marshal Conversation: %v", err)
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("failed to unmarshal Conversation: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestMessage_JSONSerialization_TimeFieldIsString(t *testing.T) {
 		t.Fatalf("failed to marshal Message: %v", err)
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("failed to unmarshal Message: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestStreamEvent_JSONSerialization(t *testing.T) {
 		t.Fatalf("failed to marshal StreamEvent: %v", err)
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("failed to unmarshal StreamEvent: %v", err)
 	}
@@ -229,12 +229,12 @@ func TestStreamEvent_ConversationCreatedEvent(t *testing.T) {
 		t.Fatalf("failed to marshal: %v", err)
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("failed to unmarshal: %v", err)
 	}
 
-	content, ok := parsed["content"].(map[string]interface{})
+	content, ok := parsed["content"].(map[string]any)
 	if !ok {
 		t.Fatal("content should be an object")
 	}
@@ -249,10 +249,10 @@ func TestStreamEvent_ConversationCreatedEvent(t *testing.T) {
 
 func TestStoreMsgToChat_AttachmentSummary(t *testing.T) {
 	storeMsg := &store.Message{
-		ID:        "msg-1",
-		Role:      "user",
-		Content:   "请分析这个文件",
-		CreatedAt: time.Now(),
+		ID:          "msg-1",
+		Role:        "user",
+		Content:     "请分析这个文件",
+		CreatedAt:   time.Now(),
 		Attachments: `[{"type":"text","name":"main.go","mime_type":"text/plain","data":"package main"},{"type":"pdf","name":"report.pdf","mime_type":"application/pdf","data":"base64data"},{"type":"audio","name":"recording.mp3","mime_type":"audio/mpeg","data":"base64audio","format":"mp3"}]`,
 	}
 
@@ -341,7 +341,7 @@ func TestAttachmentSummary_JSONFields(t *testing.T) {
 		t.Fatalf("failed to marshal AttachmentSummary: %v", err)
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("failed to unmarshal: %v", err)
 	}

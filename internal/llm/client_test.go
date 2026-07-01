@@ -24,7 +24,7 @@ func TestDeleteModel(t *testing.T) {
 		{
 			name:      "成功删除模型",
 			modelName: "test-model",
-			handler: func(r *http.Request) (interface{}, int) {
+			handler: func(r *http.Request) (any, int) {
 				return map[string]string{"status": "ok"}, http.StatusOK
 			},
 			wantErr: false,
@@ -32,7 +32,7 @@ func TestDeleteModel(t *testing.T) {
 		{
 			name:      "删除不存在的模型返回404",
 			modelName: "nonexistent-model",
-			handler: func(r *http.Request) (interface{}, int) {
+			handler: func(r *http.Request) (any, int) {
 				return map[string]string{"error": "model not found"}, http.StatusNotFound
 			},
 			wantErr:     true,
@@ -41,7 +41,7 @@ func TestDeleteModel(t *testing.T) {
 		{
 			name:      "服务器内部错误返回500",
 			modelName: "test-model",
-			handler: func(r *http.Request) (interface{}, int) {
+			handler: func(r *http.Request) (any, int) {
 				return map[string]string{"error": "internal error"}, http.StatusInternalServerError
 			},
 			wantErr:     true,
@@ -96,17 +96,17 @@ func TestDeleteModel(t *testing.T) {
 // 验证 POST /v1/chat/completions/input_tokens 请求，正确解析返回的 token 数
 func TestCountTokens(t *testing.T) {
 	tests := []struct {
-		name         string
-		messages     []ChatMessage
-		handler      mockHandler
-		wantTokens   int
-		wantErr      bool
-		errContains  string
+		name        string
+		messages    []ChatMessage
+		handler     mockHandler
+		wantTokens  int
+		wantErr     bool
+		errContains string
 	}{
 		{
 			name:     "成功获取token数",
 			messages: []ChatMessage{NewTextMessage("user", "hello")},
-			handler: func(r *http.Request) (interface{}, int) {
+			handler: func(r *http.Request) (any, int) {
 				return map[string]int{"input_tokens": 42}, http.StatusOK
 			},
 			wantTokens: 42,
@@ -115,20 +115,20 @@ func TestCountTokens(t *testing.T) {
 		{
 			name:     "空消息列表返回0",
 			messages: []ChatMessage{},
-			handler: func(r *http.Request) (interface{}, int) {
+			handler: func(r *http.Request) (any, int) {
 				return map[string]int{"input_tokens": 0}, http.StatusOK
 			},
 			wantTokens: 0,
 			wantErr:    false,
 		},
 		{
-			name:     "多消息对话",
+			name: "多消息对话",
 			messages: []ChatMessage{
 				NewTextMessage("system", "you are helpful"),
 				NewTextMessage("user", "what is 1+1?"),
 				NewTextMessage("assistant", "2"),
 			},
-			handler: func(r *http.Request) (interface{}, int) {
+			handler: func(r *http.Request) (any, int) {
 				return map[string]int{"input_tokens": 100}, http.StatusOK
 			},
 			wantTokens: 100,
@@ -137,7 +137,7 @@ func TestCountTokens(t *testing.T) {
 		{
 			name:     "服务器返回500错误",
 			messages: []ChatMessage{NewTextMessage("user", "test")},
-			handler: func(r *http.Request) (interface{}, int) {
+			handler: func(r *http.Request) (any, int) {
 				return map[string]string{"error": "server error"}, http.StatusInternalServerError
 			},
 			wantErr:     true,
@@ -178,7 +178,7 @@ func TestCountTokens(t *testing.T) {
 
 			// 验证请求体包含 messages 字段
 			body := ms.LastBodyFor(http.MethodPost, "/v1/chat/completions/input_tokens")
-			var req map[string]interface{}
+			var req map[string]any
 			if err := json.Unmarshal(body, &req); err != nil {
 				t.Fatalf("解析请求体失败: %v", err)
 			}
@@ -186,7 +186,7 @@ func TestCountTokens(t *testing.T) {
 			if !ok {
 				t.Fatal("请求体中缺少 messages 字段")
 			}
-			msgsArr, ok := msgs.([]interface{})
+			msgsArr, ok := msgs.([]any)
 			if !ok {
 				t.Fatalf("messages 字段不是数组，实际类型 %T", msgs)
 			}
@@ -201,24 +201,24 @@ func TestCountTokens(t *testing.T) {
 // 验证 GET /lora-adapters，正确解析 []LoraAdapter 响应
 func TestGetLoraAdapters(t *testing.T) {
 	tests := []struct {
-		name        string
-		handler     mockHandler
+		name         string
+		handler      mockHandler
 		wantAdapters []LoraAdapter
-		wantErr     bool
-		errContains string
+		wantErr      bool
+		errContains  string
 	}{
 		{
 			name: "成功获取空适配器列表",
-			handler: func(r *http.Request) (interface{}, int) {
-				return []interface{}{}, http.StatusOK
+			handler: func(r *http.Request) (any, int) {
+				return []any{}, http.StatusOK
 			},
 			wantAdapters: []LoraAdapter{},
 			wantErr:      false,
 		},
 		{
 			name: "成功获取多个适配器",
-			handler: func(r *http.Request) (interface{}, int) {
-				return []map[string]interface{}{
+			handler: func(r *http.Request) (any, int) {
+				return []map[string]any{
 					{"id": 0, "path": "/path/to/lora1.bin", "scale": 0.5},
 					{"id": 1, "path": "/path/to/lora2.bin", "scale": 1.0},
 				}, http.StatusOK
@@ -231,8 +231,8 @@ func TestGetLoraAdapters(t *testing.T) {
 		},
 		{
 			name: "单个适配器",
-			handler: func(r *http.Request) (interface{}, int) {
-				return []map[string]interface{}{
+			handler: func(r *http.Request) (any, int) {
+				return []map[string]any{
 					{"id": 5, "path": "/models/adapter.gguf", "scale": 0.8},
 				}, http.StatusOK
 			},
@@ -243,7 +243,7 @@ func TestGetLoraAdapters(t *testing.T) {
 		},
 		{
 			name: "服务器返回403错误",
-			handler: func(r *http.Request) (interface{}, int) {
+			handler: func(r *http.Request) (any, int) {
 				return map[string]string{"error": "forbidden"}, http.StatusForbidden
 			},
 			wantErr:     true,
@@ -307,9 +307,9 @@ func TestSetLoraAdapters(t *testing.T) {
 		errContains string
 	}{
 		{
-			name: "成功设置空适配器列表",
+			name:     "成功设置空适配器列表",
 			adapters: []LoraAdapter{},
-			handler: func(r *http.Request) (interface{}, int) {
+			handler: func(r *http.Request) (any, int) {
 				return map[string]string{"status": "ok"}, http.StatusOK
 			},
 			wantErr: false,
@@ -319,7 +319,7 @@ func TestSetLoraAdapters(t *testing.T) {
 			adapters: []LoraAdapter{
 				{ID: 0, Path: "/path/to/lora.bin", Scale: 0.5},
 			},
-			handler: func(r *http.Request) (interface{}, int) {
+			handler: func(r *http.Request) (any, int) {
 				return map[string]string{"status": "ok"}, http.StatusOK
 			},
 			wantErr: false,
@@ -330,7 +330,7 @@ func TestSetLoraAdapters(t *testing.T) {
 				{ID: 0, Path: "/path/to/lora1.bin", Scale: 0.5},
 				{ID: 1, Path: "/path/to/lora2.bin", Scale: 1.0},
 			},
-			handler: func(r *http.Request) (interface{}, int) {
+			handler: func(r *http.Request) (any, int) {
 				return map[string]string{"status": "ok"}, http.StatusOK
 			},
 			wantErr: false,
@@ -340,7 +340,7 @@ func TestSetLoraAdapters(t *testing.T) {
 			adapters: []LoraAdapter{
 				{ID: 0, Path: "/invalid/path", Scale: 0.5},
 			},
-			handler: func(r *http.Request) (interface{}, int) {
+			handler: func(r *http.Request) (any, int) {
 				return map[string]string{"error": "invalid adapter"}, http.StatusBadRequest
 			},
 			wantErr:     true,
@@ -415,16 +415,16 @@ func TestGetSlots(t *testing.T) {
 	}{
 		{
 			name: "成功获取空slot列表",
-			handler: func(r *http.Request) (interface{}, int) {
-				return []interface{}{}, http.StatusOK
+			handler: func(r *http.Request) (any, int) {
+				return []any{}, http.StatusOK
 			},
 			wantSlots: []SlotInfo{},
 			wantErr:   false,
 		},
 		{
 			name: "成功获取单个slot",
-			handler: func(r *http.Request) (interface{}, int) {
-				return []map[string]interface{}{
+			handler: func(r *http.Request) (any, int) {
+				return []map[string]any{
 					{
 						"id":             0,
 						"task":           "process",
@@ -444,8 +444,8 @@ func TestGetSlots(t *testing.T) {
 		},
 		{
 			name: "成功获取多个slot",
-			handler: func(r *http.Request) (interface{}, int) {
-				return []map[string]interface{}{
+			handler: func(r *http.Request) (any, int) {
+				return []map[string]any{
 					{
 						"id":             0,
 						"task":           "idle",
@@ -476,7 +476,7 @@ func TestGetSlots(t *testing.T) {
 		},
 		{
 			name: "服务器返回503错误",
-			handler: func(r *http.Request) (interface{}, int) {
+			handler: func(r *http.Request) (any, int) {
 				return map[string]string{"error": "unavailable"}, http.StatusServiceUnavailable
 			},
 			wantErr:     true,
@@ -558,8 +558,8 @@ func TestTokenize(t *testing.T) {
 		{
 			name: "成功分词普通文本",
 			text: "hello world",
-			handler: func(r *http.Request) (interface{}, int) {
-				return map[string]interface{}{"tokens": []int{1, 2, 3}}, http.StatusOK
+			handler: func(r *http.Request) (any, int) {
+				return map[string]any{"tokens": []int{1, 2, 3}}, http.StatusOK
 			},
 			wantTokens: []int{1, 2, 3},
 			wantErr:    false,
@@ -567,8 +567,8 @@ func TestTokenize(t *testing.T) {
 		{
 			name: "成功分词中文文本",
 			text: "你好世界",
-			handler: func(r *http.Request) (interface{}, int) {
-				return map[string]interface{}{"tokens": []int{100, 200, 300, 400}}, http.StatusOK
+			handler: func(r *http.Request) (any, int) {
+				return map[string]any{"tokens": []int{100, 200, 300, 400}}, http.StatusOK
 			},
 			wantTokens: []int{100, 200, 300, 400},
 			wantErr:    false,
@@ -576,8 +576,8 @@ func TestTokenize(t *testing.T) {
 		{
 			name: "空文本返回空token列表",
 			text: "",
-			handler: func(r *http.Request) (interface{}, int) {
-				return map[string]interface{}{"tokens": []int{}}, http.StatusOK
+			handler: func(r *http.Request) (any, int) {
+				return map[string]any{"tokens": []int{}}, http.StatusOK
 			},
 			wantTokens: []int{},
 			wantErr:    false,
@@ -585,8 +585,8 @@ func TestTokenize(t *testing.T) {
 		{
 			name: "单个token",
 			text: "a",
-			handler: func(r *http.Request) (interface{}, int) {
-				return map[string]interface{}{"tokens": []int{42}}, http.StatusOK
+			handler: func(r *http.Request) (any, int) {
+				return map[string]any{"tokens": []int{42}}, http.StatusOK
 			},
 			wantTokens: []int{42},
 			wantErr:    false,
@@ -594,7 +594,7 @@ func TestTokenize(t *testing.T) {
 		{
 			name: "服务器返回500错误",
 			text: "test",
-			handler: func(r *http.Request) (interface{}, int) {
+			handler: func(r *http.Request) (any, int) {
 				return map[string]string{"error": "tokenizer error"}, http.StatusInternalServerError
 			},
 			wantErr:     true,
@@ -670,7 +670,7 @@ func TestApplyTemplate(t *testing.T) {
 			messages: []ChatMessage{
 				NewTextMessage("user", "hello"),
 			},
-			handler: func(r *http.Request) (interface{}, int) {
+			handler: func(r *http.Request) (any, int) {
 				return map[string]string{"prompt": "<|user|>hello<|end|>"}, http.StatusOK
 			},
 			wantPrompt: "<|user|>hello<|end|>",
@@ -683,7 +683,7 @@ func TestApplyTemplate(t *testing.T) {
 				NewTextMessage("user", "what is 1+1?"),
 				NewTextMessage("assistant", "2"),
 			},
-			handler: func(r *http.Request) (interface{}, int) {
+			handler: func(r *http.Request) (any, int) {
 				return map[string]string{"prompt": "<|system|>you are helpful<|end|><|user|>what is 1+1?<|end|><|assistant|>2<|end|>"}, http.StatusOK
 			},
 			wantPrompt: "<|system|>you are helpful<|end|><|user|>what is 1+1?<|end|><|assistant|>2<|end|>",
@@ -694,7 +694,7 @@ func TestApplyTemplate(t *testing.T) {
 			messages: []ChatMessage{
 				NewTextMessage("user", ""),
 			},
-			handler: func(r *http.Request) (interface{}, int) {
+			handler: func(r *http.Request) (any, int) {
 				return map[string]string{"prompt": ""}, http.StatusOK
 			},
 			wantPrompt: "",
@@ -705,7 +705,7 @@ func TestApplyTemplate(t *testing.T) {
 			messages: []ChatMessage{
 				NewTextMessage("user", "你好"),
 			},
-			handler: func(r *http.Request) (interface{}, int) {
+			handler: func(r *http.Request) (any, int) {
 				return map[string]string{"prompt": "用户：你好"}, http.StatusOK
 			},
 			wantPrompt: "用户：你好",
@@ -716,7 +716,7 @@ func TestApplyTemplate(t *testing.T) {
 			messages: []ChatMessage{
 				NewTextMessage("user", "test"),
 			},
-			handler: func(r *http.Request) (interface{}, int) {
+			handler: func(r *http.Request) (any, int) {
 				return map[string]string{"error": "template not found"}, http.StatusUnprocessableEntity
 			},
 			wantErr:     true,
@@ -756,25 +756,25 @@ func TestApplyTemplate(t *testing.T) {
 			}
 
 			// 验证请求体包含 messages 字段
-		body := ms.LastBodyFor(http.MethodPost, "/apply-template")
-		if body == nil {
-			t.Fatal("期望收到请求体，但得到 nil")
-		}
-		var req map[string]interface{}
-		if err := json.Unmarshal(body, &req); err != nil {
-			t.Fatalf("解析请求体失败: %v", err)
-		}
-		msgs, ok := req["messages"]
-		if !ok {
-			t.Fatal("请求体中缺少 messages 字段")
-		}
-		msgsArr, ok := msgs.([]interface{})
-		if !ok {
-			t.Fatalf("messages 字段不是数组，实际类型 %T", msgs)
-		}
-		if len(msgsArr) != len(tt.messages) {
-			t.Fatalf("期望 messages 长度 %d，实际 %d", len(tt.messages), len(msgsArr))
-		}
+			body := ms.LastBodyFor(http.MethodPost, "/apply-template")
+			if body == nil {
+				t.Fatal("期望收到请求体，但得到 nil")
+			}
+			var req map[string]any
+			if err := json.Unmarshal(body, &req); err != nil {
+				t.Fatalf("解析请求体失败: %v", err)
+			}
+			msgs, ok := req["messages"]
+			if !ok {
+				t.Fatal("请求体中缺少 messages 字段")
+			}
+			msgsArr, ok := msgs.([]any)
+			if !ok {
+				t.Fatalf("messages 字段不是数组，实际类型 %T", msgs)
+			}
+			if len(msgsArr) != len(tt.messages) {
+				t.Fatalf("期望 messages 长度 %d，实际 %d", len(tt.messages), len(msgsArr))
+			}
 		})
 	}
 }
@@ -784,16 +784,16 @@ func TestApplyTemplate(t *testing.T) {
 func TestGetModelInfoByNameNotFound(t *testing.T) {
 	// 构造一个包含两个模型的 /v1/models 响应，请求一个不存在的模型名
 	ms, client := newMockServerBuilder().
-		WithHandler(http.MethodGet, "/v1/models", func(r *http.Request) (interface{}, int) {
-			return map[string]interface{}{
-				"data": []map[string]interface{}{
+		WithHandler(http.MethodGet, "/v1/models", func(r *http.Request) (any, int) {
+			return map[string]any{
+				"data": []map[string]any{
 					{"id": "model-a", "capabilities": []string{}},
 					{"id": "model-b", "capabilities": []string{}},
 				},
 			}, http.StatusOK
 		}).
 		// 直接端点 /v1/models/<name> 返回 404，强制走全量列表路径
-		WithHandler(http.MethodGet, "/v1/models/nonexistent", func(r *http.Request) (interface{}, int) {
+		WithHandler(http.MethodGet, "/v1/models/nonexistent", func(r *http.Request) (any, int) {
 			return map[string]string{"error": "not found"}, http.StatusNotFound
 		}).
 		Build(t)
@@ -814,15 +814,15 @@ func TestGetModelInfoByNameNotFound(t *testing.T) {
 // TestGetModelInfoByNameFound 测试 GetModelInfoByName 在 /v1/models 列表中找到指定模型时正常返回
 func TestGetModelInfoByNameFound(t *testing.T) {
 	ms, client := newMockServerBuilder().
-		WithHandler(http.MethodGet, "/v1/models", func(r *http.Request) (interface{}, int) {
-			return map[string]interface{}{
-				"data": []map[string]interface{}{
+		WithHandler(http.MethodGet, "/v1/models", func(r *http.Request) (any, int) {
+			return map[string]any{
+				"data": []map[string]any{
 					{"id": "model-a", "capabilities": []string{}},
 					{"id": "model-b", "capabilities": []string{"tools"}},
 				},
 			}, http.StatusOK
 		}).
-		WithHandler(http.MethodGet, "/v1/models/model-b", func(r *http.Request) (interface{}, int) {
+		WithHandler(http.MethodGet, "/v1/models/model-b", func(r *http.Request) (any, int) {
 			return map[string]string{"error": "not found"}, http.StatusNotFound
 		}).
 		Build(t)
@@ -842,11 +842,11 @@ func TestGetModelInfoByNameFound(t *testing.T) {
 func TestGetModelInfoByNameUnauthorized(t *testing.T) {
 	modelsCalled := false
 	ms, client := newMockServerBuilder().
-		WithHandler(http.MethodGet, "/v1/models", func(r *http.Request) (interface{}, int) {
+		WithHandler(http.MethodGet, "/v1/models", func(r *http.Request) (any, int) {
 			modelsCalled = true
-			return map[string]interface{}{"data": []map[string]interface{}{}}, http.StatusOK
+			return map[string]any{"data": []map[string]any{}}, http.StatusOK
 		}).
-		WithHandler(http.MethodGet, "/v1/models/secret-model", func(r *http.Request) (interface{}, int) {
+		WithHandler(http.MethodGet, "/v1/models/secret-model", func(r *http.Request) (any, int) {
 			return map[string]string{"error": "unauthorized"}, http.StatusUnauthorized
 		}).
 		Build(t)
@@ -869,11 +869,11 @@ func TestGetModelInfoByNameUnauthorized(t *testing.T) {
 func TestGetModelInfoByNameForbidden(t *testing.T) {
 	modelsCalled := false
 	ms, client := newMockServerBuilder().
-		WithHandler(http.MethodGet, "/v1/models", func(r *http.Request) (interface{}, int) {
+		WithHandler(http.MethodGet, "/v1/models", func(r *http.Request) (any, int) {
 			modelsCalled = true
-			return map[string]interface{}{"data": []map[string]interface{}{}}, http.StatusOK
+			return map[string]any{"data": []map[string]any{}}, http.StatusOK
 		}).
-		WithHandler(http.MethodGet, "/v1/models/forbidden-model", func(r *http.Request) (interface{}, int) {
+		WithHandler(http.MethodGet, "/v1/models/forbidden-model", func(r *http.Request) (any, int) {
 			return map[string]string{"error": "forbidden"}, http.StatusForbidden
 		}).
 		Build(t)

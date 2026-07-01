@@ -1,13 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
 
-// Mock mermaid
-vi.mock('mermaid', () => ({
-    default: {
-        initialize: vi.fn(),
-        render: vi.fn().mockResolvedValue({ svg: '<svg></svg>' }),
-    },
-}))
-
 // Mock DOMPurify：测试环境中没有 window，需要 mock
 vi.mock('dompurify', () => {
     const sanitize = (html: string) => html.replace(/<script[\s\S]*?<\/script>/gi, '')
@@ -48,9 +40,18 @@ describe('renderMarkdown', () => {
         expect(result).toContain('<code')
     })
 
-    it('should render mermaid code blocks as div with mermaid class', async () => {
-        const result = await renderMarkdown('```mermaid\ngraph TD\n```')
-        expect(result).toContain('mermaid')
+    it('should add code header with language label and copy button', async () => {
+        const result = await renderMarkdown('```javascript\nconsole.log("hi")\n```')
+        expect(result).toContain('code-header')
+        expect(result).toContain('code-lang')
+        expect(result).toContain('code-copy-btn')
+        expect(result).toContain('javascript')
+    })
+
+    it('should add target=_blank to links', async () => {
+        const result = await renderMarkdown('[text](https://example.com)')
+        expect(result).toContain('target="_blank"')
+        expect(result).toContain('rel="noopener noreferrer"')
     })
 
     it('should escape XSS script tags', async () => {
@@ -58,23 +59,38 @@ describe('renderMarkdown', () => {
         expect(result).not.toContain('<script>')
     })
 
-    it('should render inline math with KaTeX', async () => {
-        const result = await renderMarkdown('$x^2 + y^2 = z^2$')
-        expect(result).toContain('katex')
+    it('should render unordered lists', async () => {
+        const result = await renderMarkdown('- item 1\n- item 2')
+        expect(result).toContain('<ul>')
+        expect(result).toContain('<li>item 1</li>')
+        expect(result).toContain('<li>item 2</li>')
     })
 
-    it('should render display math with KaTeX', async () => {
-        const result = await renderMarkdown('$$\nE = mc^2\n$$')
-        expect(result).toContain('katex')
+    it('should render ordered lists', async () => {
+        const result = await renderMarkdown('1. first\n2. second')
+        expect(result).toContain('<ol>')
+        expect(result).toContain('<li>first</li>')
+        expect(result).toContain('<li>second</li>')
     })
 
-    it('should not treat currency as math', async () => {
-        const result = await renderMarkdown('Price: $5.99')
-        expect(result).not.toContain('katex')
+    it('should render blockquotes', async () => {
+        const result = await renderMarkdown('> quote text')
+        expect(result).toContain('<blockquote>')
+        expect(result).toContain('quote text')
     })
 
-    it('should preserve backslash in LaTeX commands', async () => {
-        const result = await renderMarkdown('$\\times$')
-        expect(result).toContain('katex')
+    it('should render tables (GFM)', async () => {
+        const result = await renderMarkdown('| A | B |\n|---|---|\n| 1 | 2 |')
+        expect(result).toContain('<table>')
+    })
+
+    it('should render horizontal rule', async () => {
+        const result = await renderMarkdown('---')
+        expect(result).toContain('<hr')
+    })
+
+    it('should handle empty content', async () => {
+        const result = await renderMarkdown('')
+        expect(result).toBe('')
     })
 })

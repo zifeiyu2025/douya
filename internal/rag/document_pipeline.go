@@ -173,10 +173,7 @@ func hardSplit(text string, chunkSize, chunkOverlap int) []Chunk {
 
 	var chunks []Chunk
 	for i := 0; i < len(runes); i += charSize - charOverlap {
-		end := i + charSize
-		if end > len(runes) {
-			end = len(runes)
-		}
+		end := min(i+charSize, len(runes))
 		chunks = append(chunks, Chunk{Content: string(runes[i:end])})
 		if end >= len(runes) {
 			break
@@ -234,10 +231,7 @@ func IngestDocumentWithMeta(ctx context.Context, vs *VectorStore, ds *DocumentSt
 
 	var allVectors [][]float64
 	for i := 0; i < len(texts); i += embedBatchSize {
-		end := i + embedBatchSize
-		if end > len(texts) {
-			end = len(texts)
-		}
+		end := min(i+embedBatchSize, len(texts))
 		batch := texts[i:end]
 		batchVecs, err := embedder.Embed(ctx, batch)
 		if err != nil {

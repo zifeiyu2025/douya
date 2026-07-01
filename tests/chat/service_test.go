@@ -126,7 +126,7 @@ func TestBuildLLMMessages_TokenEstimationLimitsMessages(t *testing.T) {
 	svc.GetConfig().ContextSize = 100
 
 	var dbMsgs []*store.Message
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		dbMsgs = append(dbMsgs, &store.Message{
 			ID:      fmt.Sprintf("msg_%d", i),
 			Role:    "user",
@@ -156,7 +156,7 @@ func TestBuildLLMMessages_NoMaxMessagesHardcode_WhenContextAllows(t *testing.T) 
 	svc.GetConfig().ContextSize = 100000
 
 	var dbMsgs []*store.Message
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		dbMsgs = append(dbMsgs, &store.Message{
 			ID:      fmt.Sprintf("msg_%d", i),
 			Role:    "user",
@@ -559,7 +559,7 @@ func TestBuildLLMMessages_ContextSizeTruncatesOlderMessages(t *testing.T) {
 	svc.GetConfig().ContextSize = 3000
 
 	var dbMsgs []*store.Message
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		dbMsgs = append(dbMsgs, &store.Message{
 			ID:      fmt.Sprintf("msg_%d", i),
 			Role:    "user",
@@ -779,7 +779,7 @@ func TestExportConversation_JSONContainsAllFields(t *testing.T) {
 		t.Fatalf("ExportConversation failed: %v", err)
 	}
 
-	var msgs []map[string]interface{}
+	var msgs []map[string]any
 	if err := json.Unmarshal([]byte(result), &msgs); err != nil {
 		t.Fatalf("failed to unmarshal JSON: %v", err)
 	}

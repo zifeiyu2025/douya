@@ -25,9 +25,9 @@ func (rb *RingBuffer) Write(p []byte) (n int, err error) {
 	defer rb.mu.Unlock()
 
 	text := string(p)
-	newLines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	newLines := strings.SplitSeq(strings.TrimRight(text, "\n"), "\n")
 
-	for _, line := range newLines {
+	for line := range newLines {
 		if line == "" {
 			continue
 		}

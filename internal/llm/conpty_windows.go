@@ -1,11 +1,11 @@
 //go:build windows
-// +build windows
 
 package llm
 
 import (
 	"fmt"
 	"strings"
+	"syscall"
 
 	"github.com/UserExistsError/conpty"
 )
@@ -40,10 +40,9 @@ func buildCommandLine(path string, args []string) string {
 	return strings.Join(parts, " ")
 }
 
-// quoteIfNeeded 如果字符串包含空格或制表符，用双引号括起
+// quoteIfNeeded 对 Windows 命令行参数进行正确转义
+// 安全实践：使用 syscall.EscapeArg 自动处理 Windows 命令行转义（见安全审查 #24），
+// 对不含特殊字符的字符串返回原值，行为与旧版"仅在需要时加引号"兼容。
 func quoteIfNeeded(s string) string {
-	if strings.ContainsAny(s, " \t") && !strings.HasPrefix(s, "\"") {
-		return "\"" + s + "\""
-	}
-	return s
+	return syscall.EscapeArg(s)
 }

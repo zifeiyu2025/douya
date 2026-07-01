@@ -1,56 +1,62 @@
-// markdown.ts: Markdown 渲染引擎
-// 使用 remark + rehype 管道，与 llama.cpp 原生 webui 保持一致
+// markdown.ts: Markdown 渲染引擎（轻量版）
+// 使用 marked + highlight.js + DOMPurify，对齐 llama.cpp 原生 webui 渲染方式
 //
 // 渲染流程：
-//   原始 Markdown → preprocessLaTeX（保护 LaTeX/代码块/转义货币$）
-//   → remark 解析（GFM + 数学公式 + 换行）
-//   → remark-rehype 转换
-//   → rehype-katex 渲染数学公式
-//   → rehype-mermaid-pre（转换 mermaid 代码块）
-//   → rehype-highlight（代码语法高亮）
-//   → rehype-code-blocks（添加代码头和复制按钮）
-//   → rehype-external-links（外部链接新窗口打开）
-//   → rehype-stringify 输出 HTML
+//   原始 Markdown → marked 解析（GFM + 换行）
+//   → 自定义 renderer（代码高亮 + 代码头 + 外部链接新窗口）
 //   → DOMPurify 安全过滤
+//
+// 相比旧版（remark + rehype + morphdom + KaTeX + Mermaid）：
+// - 移除 remark/rehype 异步管道（10+ 插件链）
+// - 移除 KaTeX 数学公式、Mermaid 图表
+// - marked 默认同步，性能更好
 
-import { remark } from 'remark'
-import remarkGfm from 'remark-gfm'
-import remarkMath from 'remark-math'
-import remarkBreaks from 'remark-breaks'
-import remarkRehype from 'remark-rehype'
-import rehypeKatex from 'rehype-katex'
-import rehypeHighlight from 'rehype-highlight'
-import { all as lowlightAll } from 'lowlight'
-import rehypeStringify from 'rehype-stringify'
-import { visit } from 'unist-util-visit'
+import { marked, type Tokens } from 'marked'
 import DOMPurify from 'dompurify'
-import { preprocessLaTeX } from './latex-protection'
-import { rehypeMermaidPre, rehypeExternalLinks, hastToString } from './rehypePlugins'
-import { lightSanitize } from './lightSanitize'
-
-// 关键改动：mermaid 改为 dynamic import，启动时不加载（2.84MB 独立 chunk，按需加载）
-// 类型：typeof import('mermaid') 用于类型推断，运行时不会触发实际加载
-type MermaidModule = typeof import('mermaid')
-
-// KaTeX CSS
-import 'katex/dist/katex.min.css'
+import hljs from 'highlight.js'
+import { isSafeUrl } from './lightSanitize'
 
 // highlight.js 官方主题：亮色模式默认加载，深色模式按需动态加载
 import 'highlight.js/styles/github.css'
 
-/**
- * 深色代码主题动态加载与切换
- *
- * 生活类比：就像房间里有两盏灯（亮色灯、深色灯），白天只开亮色灯，
- * 晚上再开深色灯。不需要一开始就把两盏灯都开着浪费电。
- *
- * 实现原理：
- * - 亮色主题 github.css 在启动时静态导入（默认生效，无法卸载）
- * - 深色主题 github-dark.css 在首次切换到深色模式时动态导入
- * - 动态导入后捕获其 <style> 元素引用，通过 disabled 属性控制启用/禁用
- * - 深色主题选择器（.hljs-keyword 等）特异性高于亮色，启用后会覆盖亮色
- * - 切回亮色时，设置 disabled=true 即可让亮色主题重新生效
- */
+// ===== 工具函数（先定义，供后续 purify 兜底使用） =====
+
+/** HTML 转义（导出供组件 catch 回退分支使用，避免直接赋值原始未消毒内容到 v-html） */
+export function escapeHtml(str: string): string {
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+}
+
+// ===== DOMPurify 兼容处理 =====
+// dompurify v3 的 ESM/CJS 导出方式不同：
+// - 浏览器中：default 是工厂函数，需要调用 createDOMPurify(window) 或直接 .sanitize
+// - Node.js 测试中：可能被 mock
+const purify = (() => {
+    const d = DOMPurify as any
+    if (d && typeof d.sanitize === 'function') return d
+    if (typeof d === 'function' && typeof window !== 'undefined') {
+        return d(window)
+    }
+    // 安全降级：无 window 环境（如测试）中用 escapeHtml 转义并保留换行
+    console.error('[security] DOMPurify unavailable, fallback to escapeHtml')
+    return {
+        sanitize: (html: string) => escapeHtml(html).replace(/\n/g, '<br>'),
+    }
+})()
+
+// ===== 深色代码主题动态加载与切换 =====
+//
+// 生活类比：就像房间里有两盏灯（亮色灯、深色灯），白天只开亮色灯，
+// 晚上再开深色灯。不需要一开始就把两盏灯都开着浪费电。
+//
+// 实现原理：
+// - 亮色主题 github.css 在启动时静态导入（默认生效，无法卸载）
+// - 深色主题 github-dark.css 在首次切换到深色模式时动态导入
+// - 动态导入后捕获其 <style> 元素引用，通过 disabled 属性控制启用/禁用
 let darkCodeThemeEl: HTMLStyleElement | null = null
 let darkCodeThemePromise: Promise<void> | null = null
 
@@ -101,190 +107,89 @@ export function applyCodeTheme(isDark: boolean): void {
     }
 }
 
-// DOMPurify 兼容处理
-// dompurify v3 的 ESM/CJS 导出方式不同：
-// - 浏览器中：default 是工厂函数，需要调用 createDOMPurify(window) 或直接 .sanitize
-// - Node.js 测试中：可能被 mock
-const purify = (() => {
-    const d = DOMPurify as any
-    // 如果已经有 sanitize 方法，直接用
-    if (d && typeof d.sanitize === 'function') return d
-    // 如果是工厂函数（浏览器环境），需要 window
-    if (typeof d === 'function' && typeof window !== 'undefined') {
-        return d(window)
-    }
-    // 安全降级：无 window 环境（如测试）中用 escapeHtml 转义并保留换行（任务 26）
-    // 基于 VUE-XSS-001 安全实践：弱正则无法覆盖所有 XSS 向量，escapeHtml 至少保证内容可见且安全
-    console.error('[security] DOMPurify unavailable, fallback to escapeHtml')
-    return {
-        sanitize: (html: string) => escapeHtml(html).replace(/\n/g, '<br>'),
-    }
-})()
+// ===== 配置 marked =====
+//
+// marked 配置说明：
+// - gfm: true       启用 GitHub Flavored Markdown（表格、删除线、任务列表等）
+// - breaks: true    单个换行符转 <br>（对齐原 remark-breaks 行为）
+// - renderer.code   重写代码块渲染：语法高亮 + 代码头（语言标签 + 复制按钮）
+// - renderer.link   重写链接渲染：外部链接新窗口打开
 
-// ===== Mermaid 懒加载 =====
-
-// mermaid 模块缓存：首次 dynamic import 后保留引用
-let mermaidModule: MermaidModule | null = null
-let mermaidInitialized = false
-let mermaidCounter = 0
+const renderer = new marked.Renderer()
 
 /**
- * 懒加载 mermaid 模块并初始化（仅首次调用时触发实际下载）
- * 后续调用直接返回缓存的模块引用
- */
-async function loadMermaid(): Promise<MermaidModule> {
-    if (mermaidModule) return mermaidModule
-    // dynamic import: 启动时不会加载，2.84MB chunk 按需下载
-    const mod = await import('mermaid')
-    mermaidModule = mod
-    if (!mermaidInitialized) {
-        mod.default.initialize({
-            startOnLoad: false,
-            theme: 'default',
-            securityLevel: 'strict',
-        })
-        mermaidInitialized = true
-    }
-    return mod
-}
-
-/**
- * 渲染指定元素内的所有 mermaid 图表
- * 首次调用时才会触发 mermaid chunk 下载
+ * 重写代码块渲染
  *
- * Mermaid 输出已是 securityLevel: 'strict' 模式下的安全 SVG，
- * 但仍通过 sanitizeMermaidSvg 进行二次消毒，防止未来版本或配置变更导致风险。
+ * 生活类比：就像给代码块装一个"标签牌"和"复制按钮"，
+ * 标签牌写着语言名字（如 javascript），复制按钮点击后复制代码。
+ *
+ * 生成的 HTML 结构（与原 rehypeCodeBlocks 保持一致，复用现有 CSS 和 codeCopy.ts）：
+ * <pre class="hljs">
+ *   <div class="code-header">
+ *     <span class="code-lang">javascript</span>
+ *     <button class="code-copy-btn">复制</button>
+ *   </div>
+ *   <code class="hljs language-javascript">...高亮后的代码...</code>
+ * </pre>
+ *
+ * marked v18 renderer.code 签名：code({ text, lang, escaped }: Tokens.Code)
+ * - text: 代码内容（字符串）
+ * - lang: 语言标识（如 "javascript"，可能为 undefined）
+ * - escaped: 是否已转义
  */
-export async function renderMermaidInElement(el: HTMLElement) {
-    const mermaidEls = el.querySelectorAll('.mermaid:not([data-mermaid-rendered])')
-    if (mermaidEls.length === 0) return
-
-    // 首次触发 mermaid 模块加载（dynamic import 异步）
-    const mermaid = await loadMermaid()
-    const elements = Array.from(mermaidEls) as HTMLElement[]
-    for (const mermaidEl of elements) {
-        const id = `mermaid-${++mermaidCounter}`
-        mermaidEl.setAttribute('data-mermaid-rendered', '1')
-        try {
-            const { svg } = await mermaid.default.render(id, mermaidEl.textContent || '')
-            // 即使 mermaid 已设置 securityLevel: strict，仍用 DOMPurify 二次消毒
-            mermaidEl.innerHTML = sanitizeMermaidSvg(svg)
-        } catch (_) { /* empty */ }
-    }
+renderer.code = function ({ text, lang }: Tokens.Code): string {
+    const language = lang && hljs.getLanguage(lang) ? lang : ''
+    // 调用 highlight.js 进行语法高亮
+    const highlighted = language
+        ? hljs.highlight(text, { language }).value
+        : escapeHtml(text)
+    const langLabel = lang || ''
+    const escapedLang = escapeHtml(langLabel)
+    return `<pre class="hljs"><div class="code-header"><span class="code-lang">${escapedLang}</span><button class="code-copy-btn">复制</button></div><code class="hljs language-${escapedLang}">${highlighted}</code></pre>`
 }
-
-// ===== 自定义 rehype 插件 =====
 
 /**
- * rehypeCodeBlocks: 在 rehype-highlight 之后运行
- * 为代码块添加头部（语言标签 + 复制按钮）
+ * 重写链接渲染：外部链接新窗口打开
+ *
+ * 生活类比：就像点击链接时，浏览器自动开一个新标签页，
+ * 而不是在当前页面跳走（避免离开当前聊天界面）。
+ *
+ * marked v18 renderer.link 签名：link({ href, title, tokens }: Tokens.Link)
+ * - href: 链接地址
+ * - title: 标题（可能为 null/undefined）
+ * - tokens: 链接文本的子 token 数组，需用 this.parser.parseInline 渲染为 HTML
  */
-export function rehypeCodeBlocks() {
-    return (tree: any) => {
-        visit(tree, 'element', (node: any) => {
-            if (node.tagName !== 'pre') return
-            // 跳过 mermaid 块（已被 rehypeMermaidPre 转换为 div）
-            if (node.properties?.className?.includes('mermaid')) return
-
-            const codeChild = node.children?.find(
-                (child: any) => child.type === 'element' && child.tagName === 'code'
-            )
-            if (!codeChild) return
-
-            // 提取语言
-            const classes: string[] = codeChild.properties?.className || []
-            const langClass = classes.find(
-                (c: any) => typeof c === 'string' && c.startsWith('language-')
-            )
-            const lang = langClass ? langClass.replace('language-', '') : ''
-
-            // 提取原始代码（用于复制按钮）
-            const rawCode = hastToString(codeChild)
-
-            // 创建代码头部
-            // 注意：不使用 data-code 属性存储代码（属性值中的 HTML 特殊字符可能导致问题）
-            // 复制按钮通过 codeCopy.ts 从相邻的 <code> 元素提取文本
-            const header = {
-                type: 'element',
-                tagName: 'div',
-                properties: { className: ['code-header'] },
-                children: [
-                    {
-                        type: 'element',
-                        tagName: 'span',
-                        properties: { className: ['code-lang'] },
-                        children: [{ type: 'text', value: lang || '' }],
-                    },
-                    {
-                        type: 'element',
-                        tagName: 'button',
-                        properties: {
-                            className: ['code-copy-btn'],
-                        },
-                        children: [{ type: 'text', value: '复制' }],
-                    },
-                ],
-            }
-
-            // 在 code 元素前插入头部
-            node.children = [header, codeChild]
-
-            // 给 pre 添加 hljs 类
-            if (!node.properties) node.properties = {}
-            if (!node.properties.className) node.properties.className = []
-            if (!node.properties.className.includes('hljs')) {
-                node.properties.className.push('hljs')
-            }
-        })
-    }
+renderer.link = function ({ href, title, tokens }: Tokens.Link): string {
+    const text = this.parser.parseInline(tokens)
+    const titleAttr = title ? ` title="${escapeHtml(title)}"` : ''
+    // 安全实践（#15）：校验协议白名单（http(s) / mailto / tel / #），
+    // 不安全链接（如 javascript: / vbscript: / data:text/html）降级为 #
+    const safeHref = isSafeUrl(href) ? href : '#'
+    return `<a href="${escapeHtml(safeHref)}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`
 }
 
-// ===== Processor 工厂 =====
-
-/** 共享 processor 实例：避免每次渲染都重建 remark 管道（plugin 链、AST 缓存、microtask 注册等） */
-let sharedProcessor: ReturnType<typeof createProcessor> | null = null
-
-/** 创建 remark + rehype 处理管道（与 llama.cpp webui 一致） */
-function createProcessor() {
-    return remark()
-        .use(remarkGfm)           // GitHub Flavored Markdown
-        .use(remarkMath)          // 解析 $inline$ 和 $$block$$ 数学公式
-        .use(remarkBreaks)        // 换行转 <br>
-        .use(remarkRehype)        // Markdown AST → Hast
-        .use(rehypeKatex)         // 数学公式 → KaTeX HTML
-        .use(rehypeMermaidPre)    // mermaid 代码块 → <div class="mermaid">
-        .use(rehypeHighlight, {   // 代码语法高亮
-            languages: lowlightAll,
-        })
-        .use(rehypeCodeBlocks)    // 代码块添加头部和复制按钮
-        .use(rehypeExternalLinks) // 外部链接新窗口
-        .use(rehypeStringify, { allowDangerousHtml: true })  // 输出 HTML
-}
-
-/** 获取共享 processor（首次调用时创建） */
-function getProcessor() {
-    if (!sharedProcessor) {
-        sharedProcessor = createProcessor()
-    }
-    return sharedProcessor
-}
+// 初始化 marked 配置（全局一次）
+marked.use({
+    gfm: true,
+    breaks: true,
+    renderer,
+})
 
 // ===== 核心渲染函数 =====
-
-/** 处理 Markdown 为 HTML（内部函数） */
-async function processMarkdown(content: string): Promise<string> {
-    const normalized = preprocessLaTeX(content)
-    const result = await getProcessor().process(normalized)
-    return String(result)
-}
 
 /**
  * 渲染完整 Markdown（异步）
  * 用于：历史消息、思考内容等已完成的文本
+ *
+ * 生活类比：就像把一段"格式化文本"翻译成"网页能显示的 HTML"，
+ * 然后用 DOMPurify "消毒"一遍，确保没有恶意代码。
  */
 export async function renderMarkdown(content: string): Promise<string> {
+    if (!content) return ''
     try {
-        return sanitizeHtml(await processMarkdown(content))
+        // marked.parse 默认同步，返回 string
+        const html = marked.parse(content, { async: false }) as string
+        return sanitizeHtml(html)
     } catch (_) {
         // 降级：转义 HTML 并返回
         return sanitizeHtml(escapeHtml(content))
@@ -294,87 +199,34 @@ export async function renderMarkdown(content: string): Promise<string> {
 /**
  * 渲染流式 Markdown（异步）
  * 用于：模型正在生成的文本
+ *
  * 与 renderMarkdown 使用相同的管道，只是语义上区分
+ * marked 同步渲染，性能足够支持流式场景
  */
 export async function renderMarkdownStreaming(content: string): Promise<string> {
+    if (!content) return ''
     try {
-        return sanitizeHtml(await processMarkdown(content))
+        const html = marked.parse(content, { async: false }) as string
+        return sanitizeHtml(html)
     } catch (_) {
         return sanitizeHtml(escapeHtml(content))
     }
 }
 
+// ===== 安全过滤 =====
+
 /**
- * 流式轻量渲染（跳过 DOMPurify，用 lightSanitize 替代）
- * 仅用于流式期间的临时渲染，生成结束后必须用 renderMarkdown 全量重渲染
- * 性能：比 renderMarkdownStreaming 快 3-5 倍（省去 DOMPurify 同步阻塞）
- * 安全：lightSanitize 已覆盖 script/iframe/on* 事件等主要攻击向量，流式结束后 DOMPurify 会二次消毒
+ * DOMPurify 安全过滤
+ *
+ * 修复（安全审查 #14）：显式硬化白名单与协议限制，作为纵深防御。
+ * - 不设置 ALLOWED_TAGS/ALLOWED_ATTR：用 DOMPurify 默认白名单，避免破坏 markdown 渲染
+ * - ALLOWED_URI_REGEXP：URI 协议白名单（http(s) / mailto / ftp / tel / data:image / #）
+ * - FORBID_ATTR：禁用 style 与常见危险事件属性
  */
-export async function renderStreamingLight(content: string): Promise<string> {
-    try {
-        const html = await processMarkdown(content)
-        return lightSanitize(html)
-    } catch (_) {
-        return lightSanitize(escapeHtml(content))
-    }
-}
-
-// ===== 工具函数 =====
-
-/** HTML 转义（导出供组件 catch 回退分支使用，避免直接赋值原始未消毒内容到 v-html） */
-export function escapeHtml(str: string): string {
-    return str
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;')
-}
-
-/** DOMPurify 安全过滤 */
 export function sanitizeHtml(html: string): string {
     return purify.sanitize(html, {
-        ADD_TAGS: ['math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mroot', 'munder', 'mover', 'munderover', 'mtable', 'mtr', 'mtd', 'mtext', 'mspace', 'mpadded', 'mphantom', 'mfenced', 'menclose', 'mstyle', 'merror', 'annotation', 'mglyph', 'mlabeledtr', 'mlongdiv', 'mscarries', 'mscarry', 'msgroup', 'msline', 'msrow', 'mstack', 'maction'],
-        ADD_ATTR: ['mathvariant', 'mathsize', 'mathcolor', 'mathbackground', 'displaystyle', 'scriptlevel', 'linethickness', 'lspace', 'rspace', 'stretchy', 'symmetric', 'largeop', 'movablelimits', 'accent', 'accentunder', 'bevelled', 'close', 'open', 'separators', 'notation', 'subscriptshift', 'superscriptshift', 'align', 'columnalign', 'rowalign', 'equalcolumns', 'equalrows', 'columnspacing', 'rowspacing', 'columnlines', 'rowlines', 'frame', 'framespacing', 'groupalign', 'scope', 'encoding', 'class', 'target', 'rel'],
-    })
-}
-
-/**
- * 专门用于消毒 Mermaid 生成的 SVG
- * 允许 SVG 绘图所需标签和属性，但禁止 script/foreignObject/use 等可能引入脚本的内容
- *
- * 修复（M-前4）：原实现将 href/xlink:href 加入 FORBID_ATTR，会移除 Mermaid 中所有链接属性，
- * 破坏 flowchart 的 click nodeId href "https://..." 交互链接等合法功能。
- * 改为用 ALLOWED_URI_REGEXP 仅允许 http(s):// 协议的 href，既防 javascript: 等危险协议，
- * 又保留合法的外部链接。
- */
-export function sanitizeMermaidSvg(html: string): string {
-    return purify.sanitize(html, {
-        ADD_TAGS: [
-            'svg', 'g', 'defs', 'marker', 'pattern', 'clipPath', 'mask',
-            'linearGradient', 'radialGradient', 'stop',
-            'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path',
-            'text', 'tspan', 'textPath',
-            'image', 'title', 'desc',
-            'a', // Mermaid click href 会生成 <a> 标签包裹节点
-        ],
-        ADD_ATTR: [
-            'viewBox', 'width', 'height', 'xmlns', 'xmlns:xlink', 'version',
-            'x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry',
-            'd', 'points', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin',
-            'stroke-dasharray', 'stroke-dashoffset', 'opacity', 'transform',
-            'font-family', 'font-size', 'font-weight', 'text-anchor', 'dominant-baseline',
-            'marker-start', 'marker-end', 'marker-mid', 'markerWidth', 'markerHeight',
-            'refX', 'refY', 'orient', 'gradientUnits', 'gradientTransform',
-            'offset', 'stop-color', 'stop-opacity',
-            'clip-path', 'mask', 'filter',
-            'class', 'id', 'style',
-            'href', 'xlink:href', 'target', // 允许链接属性，但通过 ALLOWED_URI_REGEXP 限制协议
-        ],
-        // 明确禁止 foreignObject、script、use 等危险 SVG 子元素
-        FORBID_TAGS: ['script', 'foreignObject', 'use', 'audio', 'video', 'iframe', 'embed', 'object'],
-        FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover'],
-        // 仅允许 http(s):// 协议的 URI，阻止 javascript: / data: 等危险协议
-        ALLOWED_URI_REGEXP: /^https?:\/\/.*/i,
+        // 安全实践（#14）：显式 URI 协议白名单 + 禁用危险事件属性
+        ALLOWED_URI_REGEXP: /^(?:https?|mailto|ftp|tel|data:image\/(?:png|jpeg|gif|webp|bmp)|#)/i,
+        FORBID_ATTR: ['style', 'onerror', 'onload', 'onclick', 'onmouseover'],
     })
 }

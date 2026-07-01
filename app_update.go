@@ -19,8 +19,8 @@ import (
 
 	"douya/internal/version"
 
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 	zlog "github.com/rs/zerolog/log"
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // UpdateInfo 更新信息结构体
@@ -121,7 +121,7 @@ func (a *App) PerformUpdate(downloadURL string, latestVersion string) error {
 	}
 
 	// 通知前端：开始下载
-	wailsRuntime.EventsEmit(a.ctx, "update:progress", map[string]interface{}{
+	wailsRuntime.EventsEmit(a.ctx, "update:progress", map[string]any{
 		"stage":   "downloading",
 		"percent": 0,
 	})
@@ -140,7 +140,7 @@ func (a *App) PerformUpdate(downloadURL string, latestVersion string) error {
 	}
 
 	// 通知前端：开始安装
-	wailsRuntime.EventsEmit(a.ctx, "update:progress", map[string]interface{}{
+	wailsRuntime.EventsEmit(a.ctx, "update:progress", map[string]any{
 		"stage": "installing",
 	})
 
@@ -188,11 +188,11 @@ func (a *App) downloadWithProgress(downloadURL, destPath string) error {
 
 	// 使用自定义 writer 追踪下载进度
 	progressWriter := &downloadProgressWriter{
-		ctx:           a.ctx,
-		total:         contentLength,
-		lastPercent:   -1,
-		underlying:    out,
-		bytesWritten:  0,
+		ctx:          a.ctx,
+		total:        contentLength,
+		lastPercent:  -1,
+		underlying:   out,
+		bytesWritten: 0,
 	}
 
 	_, err = io.Copy(progressWriter, resp.Body)
@@ -232,7 +232,7 @@ func (w *downloadProgressWriter) Write(p []byte) (int, error) {
 			if percent > 100 {
 				percent = 100
 			}
-			wailsRuntime.EventsEmit(w.ctx, "update:progress", map[string]interface{}{
+			wailsRuntime.EventsEmit(w.ctx, "update:progress", map[string]any{
 				"stage":   "downloading",
 				"percent": percent,
 			})
@@ -368,12 +368,9 @@ func compareVersions(a, b string) int {
 	partsA := strings.Split(a, ".")
 	partsB := strings.Split(b, ".")
 
-	maxLen := len(partsA)
-	if len(partsB) > maxLen {
-		maxLen = len(partsB)
-	}
+	maxLen := max(len(partsB), len(partsA))
 
-	for i := 0; i < maxLen; i++ {
+	for i := range maxLen {
 		var numA, numB int
 		if i < len(partsA) {
 			numA, _ = strconv.Atoi(partsA[i])
@@ -405,6 +402,7 @@ func compareVersions(a, b string) int {
 //  2. 已具备 HTTPS 协议校验 + GitHub 官方域名白名单 + DNS 内网地址检查的多层防护；
 //  3. 完全修复需自定义 http.Transport.DialContext 在 TCP 连接前再次校验目标 IP，复杂度较高；
 //  4. 攻击者若能实施 DNS rebinding，通常已具备更高等级的系统控制权，SSRF 防护价值有限。
+//
 // 如未来需进一步加固，可在 downloadWithProgress 中使用自定义 Dialer 复用本函数解析得到的 IP 直连。
 func validateUpdateURL(rawURL string) error {
 	parsed, err := url.Parse(rawURL)
@@ -419,8 +417,8 @@ func validateUpdateURL(rawURL string) error {
 
 	// 仅允许 GitHub 官方域名
 	allowedHosts := map[string]bool{
-		"github.com":              true,
-		"objects.githubusercontent.com": true,
+		"github.com":                           true,
+		"objects.githubusercontent.com":        true,
 		"release-assets.githubusercontent.com": true,
 	}
 	hostname := parsed.Hostname()

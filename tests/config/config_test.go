@@ -38,7 +38,7 @@ func TestLoad_FromFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.json")
 
-	content := map[string]interface{}{
+	content := map[string]any{
 		"context_size": 8192,
 		"temperature":  0.5,
 		"top_p":        0.8,
@@ -179,7 +179,7 @@ func TestLoad_PartialOverride(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.json")
 
-	content := map[string]interface{}{
+	content := map[string]any{
 		"temperature": 0.3,
 	}
 	data, _ := json.Marshal(content)
@@ -301,7 +301,7 @@ func TestConfig_JSONSerialization(t *testing.T) {
 		t.Fatalf("failed to marshal config: %v", err)
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("failed to unmarshal config: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestLoad_WithSystemPrompt(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.json")
 
-	content := map[string]interface{}{
+	content := map[string]any{
 		"system_prompt": "你是专业的Go语言开发者",
 	}
 	data, _ := json.Marshal(content)
@@ -339,7 +339,7 @@ func TestLoad_ExtremeValues(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.json")
 
-	content := map[string]interface{}{
+	content := map[string]any{
 		"temperature":    2.0,
 		"top_p":          0.0,
 		"top_k":          0,

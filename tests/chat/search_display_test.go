@@ -84,7 +84,7 @@ func TestMessageJSON_Serialization_SearchResultsNotOmitted(t *testing.T) {
 		t.Fatalf("json.Marshal failed: %v", err)
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("json.Unmarshal failed: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestMessageJSON_Serialization_SearchResultsAlwaysPresent(t *testing.T) {
 		t.Fatalf("json.Marshal failed: %v", err)
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("json.Unmarshal failed: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestSearchResponseJSON_Serialization_NilResults(t *testing.T) {
 		t.Fatalf("json.Marshal failed: %v", err)
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("json.Unmarshal failed: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestSearchResponseJSON_Serialization_EmptyResults(t *testing.T) {
 		t.Fatalf("json.Marshal failed: %v", err)
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("json.Unmarshal failed: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestSearchResponseJSON_Serialization_EmptyResults(t *testing.T) {
 	if !ok {
 		t.Error("results field should be present in SearchResponse JSON")
 	}
-	arr, ok := results.([]interface{})
+	arr, ok := results.([]any)
 	if !ok {
 		t.Errorf("expected results to be an array, got %T", results)
 	}
@@ -183,7 +183,7 @@ func TestSearchResponseJSON_Serialization_WithResults(t *testing.T) {
 		t.Fatalf("json.Marshal failed: %v", err)
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("json.Unmarshal failed: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestSearchResponseJSON_Serialization_WithResults(t *testing.T) {
 	if !ok {
 		t.Error("results field should be present in SearchResponse JSON")
 	}
-	arr, ok := results.([]interface{})
+	arr, ok := results.([]any)
 	if !ok {
 		t.Errorf("expected results to be an array, got %T", results)
 	}
@@ -215,12 +215,12 @@ func TestStreamEventJSON_Serialization_WithSearchResults(t *testing.T) {
 		t.Fatalf("json.Marshal failed: %v", err)
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("json.Unmarshal failed: %v", err)
 	}
 
-	content, ok := parsed["content"].([]interface{})
+	content, ok := parsed["content"].([]any)
 	if !ok {
 		t.Fatalf("expected content to be an array, got %T", parsed["content"])
 	}
@@ -246,12 +246,12 @@ func TestStreamEventJSON_Serialization_WithEmptySearchResults(t *testing.T) {
 		t.Fatalf("json.Marshal failed: %v", err)
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("json.Unmarshal failed: %v", err)
 	}
 
-	content, ok := parsed["content"].([]interface{})
+	content, ok := parsed["content"].([]any)
 	if !ok {
 		t.Fatalf("expected content to be an array, got %T", parsed["content"])
 	}
@@ -312,7 +312,7 @@ func TestGetMessages_FiltersToolMessages(t *testing.T) {
 		t.Error("assistant message should have SearchResults")
 	}
 
-	var searchResults []map[string]interface{}
+	var searchResults []map[string]any
 	if err := json.Unmarshal([]byte(msgs[1].SearchResults), &searchResults); err != nil {
 		t.Fatalf("failed to parse SearchResults JSON: %v", err)
 	}

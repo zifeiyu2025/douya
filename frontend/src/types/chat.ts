@@ -460,7 +460,7 @@ export const DEFAULT_CONFIG: Config = {
     system_prompt: '',
     system_prompt_mode: 'append', // 默认使用追加模式（与 Go DefaultConfig 对齐）
     chat_background: '',
-    chat_background_opacity: 0.8,
+    chat_background_opacity: 0.9,
     user_avatar: '',
     ai_avatar: '',
     search_mode: 'off',

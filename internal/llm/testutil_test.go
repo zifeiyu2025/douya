@@ -15,7 +15,7 @@ import (
 // mockHandler 自定义端点处理函数
 // 接收 HTTP 请求，返回响应体（会被 JSON 编码）和 HTTP 状态码
 // 如果返回 nil 响应体，则不写入响应体（仅写入状态码）
-type mockHandler func(r *http.Request) (interface{}, int)
+type mockHandler func(r *http.Request) (any, int)
 
 // mockServerBuilder 用于构建 mock llama-server
 // 封装了所有必要端点的默认响应，支持通过 WithHandler 自定义覆盖
@@ -50,14 +50,14 @@ func newMockServerBuilder() *mockServerBuilder {
 	}
 
 	// POST /models/load - 默认返回成功
-	b.handlers["POST /models/load"] = func(r *http.Request) (interface{}, int) {
+	b.handlers["POST /models/load"] = func(r *http.Request) (any, int) {
 		return map[string]string{"status": "ok"}, http.StatusOK
 	}
 
 	// GET /v1/models - 默认返回一个已加载的模型
-	b.handlers["GET /v1/models"] = func(r *http.Request) (interface{}, int) {
-		return map[string]interface{}{
-			"data": []map[string]interface{}{
+	b.handlers["GET /v1/models"] = func(r *http.Request) (any, int) {
+		return map[string]any{
+			"data": []map[string]any{
 				{
 					"id":           "test-model",
 					"capabilities": []string{},
@@ -68,37 +68,37 @@ func newMockServerBuilder() *mockServerBuilder {
 	}
 
 	// POST /tokenize - 默认返回 token ID 列表
-	b.handlers["POST /tokenize"] = func(r *http.Request) (interface{}, int) {
-		return map[string]interface{}{"tokens": []int{1, 2, 3}}, http.StatusOK
+	b.handlers["POST /tokenize"] = func(r *http.Request) (any, int) {
+		return map[string]any{"tokens": []int{1, 2, 3}}, http.StatusOK
 	}
 
 	// POST /apply-template - 默认返回格式化后的 prompt
-	b.handlers["POST /apply-template"] = func(r *http.Request) (interface{}, int) {
+	b.handlers["POST /apply-template"] = func(r *http.Request) (any, int) {
 		return map[string]string{"prompt": "formatted prompt"}, http.StatusOK
 	}
 
 	// GET /lora-adapters - 默认返回空列表
-	b.handlers["GET /lora-adapters"] = func(r *http.Request) (interface{}, int) {
-		return []map[string]interface{}{}, http.StatusOK
+	b.handlers["GET /lora-adapters"] = func(r *http.Request) (any, int) {
+		return []map[string]any{}, http.StatusOK
 	}
 
 	// POST /lora-adapters - 默认返回成功
-	b.handlers["POST /lora-adapters"] = func(r *http.Request) (interface{}, int) {
+	b.handlers["POST /lora-adapters"] = func(r *http.Request) (any, int) {
 		return map[string]string{"status": "ok"}, http.StatusOK
 	}
 
 	// GET /slots - 默认返回空列表
-	b.handlers["GET /slots"] = func(r *http.Request) (interface{}, int) {
-		return []map[string]interface{}{}, http.StatusOK
+	b.handlers["GET /slots"] = func(r *http.Request) (any, int) {
+		return []map[string]any{}, http.StatusOK
 	}
 
 	// POST /v1/chat/completions/input_tokens - 默认返回 token 数
-	b.handlers["POST /v1/chat/completions/input_tokens"] = func(r *http.Request) (interface{}, int) {
+	b.handlers["POST /v1/chat/completions/input_tokens"] = func(r *http.Request) (any, int) {
 		return map[string]int{"input_tokens": 10}, http.StatusOK
 	}
 
 	// DELETE /models - 默认返回成功
-	b.handlers["DELETE /models"] = func(r *http.Request) (interface{}, int) {
+	b.handlers["DELETE /models"] = func(r *http.Request) (any, int) {
 		return map[string]string{"status": "ok"}, http.StatusOK
 	}
 
