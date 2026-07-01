@@ -70,6 +70,9 @@ func CreateJobObject() (*JobObject, error) {
 	info := JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
 	info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
 
+	// L-4：unsafe.Pointer 用于 Windows API (SetInformationJobObject) 调用，
+	// 传递 JOBOBJECT_EXTENDED_LIMIT_INFORMATION 结构体指针。无内存安全替代方案，
+	// 参数类型和大小已校验（unsafe.Sizeof 确保结构体大小正确传递）。
 	_, _, err = procSetInformationJobObject.Call(
 		handle,
 		JobObjectExtendedLimitInformation,

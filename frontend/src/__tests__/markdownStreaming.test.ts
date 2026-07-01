@@ -42,4 +42,26 @@ describe('splitStableUnstable', () => {
     expect(stable).toBe('段落1\n\n段落2\n\n')
     expect(unstable).toBe('')
   })
+
+  // 行边界拆分：无空行时回退到按最后一个 \n 拆分，最后一行为 unstable
+  it('无空行时按最后一个换行拆分，最后一行为不稳定块', () => {
+    const content = '第一行\n第二行\n第三行'
+    const { stable, unstable } = splitStableUnstable(content)
+    expect(stable).toBe('第一行\n第二行\n')
+    expect(unstable).toBe('第三行')
+  })
+
+  it('单行无换行时全部为不稳定块', () => {
+    const content = '只有一行没有换行'
+    const { stable, unstable } = splitStableUnstable(content)
+    expect(stable).toBe('')
+    expect(unstable).toBe('只有一行没有换行')
+  })
+
+  it('以换行结尾时最后一行为空，全部为稳定块', () => {
+    const content = '第一行\n第二行\n'
+    const { stable, unstable } = splitStableUnstable(content)
+    expect(stable).toBe('第一行\n第二行\n')
+    expect(unstable).toBe('')
+  })
 })

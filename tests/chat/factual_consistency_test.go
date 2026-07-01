@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,9 +18,8 @@ import (
 func TestFactualConsistency_RejectsMathematicalFalsehood(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 
 		sseData := makeSSEData([]string{
 			makeContentChunk("抱歉，我无法接受 '1+1=3' 这个前提，因为数学上 1+1 永远等于 2。"),

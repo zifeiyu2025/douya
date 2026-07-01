@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"douya/internal/secrets"
 	"douya/internal/store"
 
 	"github.com/rs/zerolog/log"
@@ -59,7 +60,7 @@ func (s *Service) setCurrentCompletionID(id string) {
 
 // GetConversations returns all conversations.
 func (s *Service) GetConversations() ([]*Conversation, error) {
-	convs, err := store.ListConversations(s.db, s.encKey)
+	convs, err := store.ListConversations(s.db, secrets.CipherKey(s.cipher))
 	if err != nil {
 		log.Error().Err(err).Msg("[chat] GetConversations failed")
 		return nil, err
@@ -79,7 +80,7 @@ func (s *Service) GetConversations() ([]*Conversation, error) {
 // CreateConversation creates a new conversation.
 func (s *Service) CreateConversation() (*Conversation, error) {
 	conv := &store.Conversation{Title: "新对话"}
-	err := store.CreateConversation(s.db, conv, s.encKey)
+	err := store.CreateConversation(s.db, conv, secrets.CipherKey(s.cipher))
 	if err != nil {
 		log.Error().Err(err).Msg("[chat] CreateConversation failed")
 		return nil, err
@@ -97,12 +98,12 @@ func (s *Service) RenameConversation(id string, title string) error {
 	if strings.TrimSpace(title) == "" {
 		return fmt.Errorf("title cannot be empty")
 	}
-	conv, err := store.GetConversation(s.db, id, s.encKey)
+	conv, err := store.GetConversation(s.db, id, secrets.CipherKey(s.cipher))
 	if err != nil {
 		return err
 	}
 	conv.Title = title
-	return store.UpdateConversation(s.db, conv, s.encKey)
+	return store.UpdateConversation(s.db, conv, secrets.CipherKey(s.cipher))
 }
 
 // DeleteConversation deletes a conversation and all its messages.
@@ -112,7 +113,7 @@ func (s *Service) DeleteConversation(id string) error {
 
 // GetMessages returns all messages for a conversation (excluding tool and intermediate messages).
 func (s *Service) GetMessages(conversationID string) ([]*Message, error) {
-	msgs, err := store.GetMessagesByConversation(s.db, conversationID, s.encKey)
+	msgs, err := store.GetMessagesByConversation(s.db, conversationID, secrets.CipherKey(s.cipher))
 	if err != nil {
 		log.Error().Err(err).Str("convID", conversationID).Msg("[chat] GetMessages failed")
 		return nil, err
@@ -138,7 +139,7 @@ func (s *Service) GetMessages(conversationID string) ([]*Message, error) {
 // DeleteMessage deletes a message and, if it's a user message, also deletes
 // the subsequent assistant reply in the same conversation.
 func (s *Service) DeleteMessage(id string) error {
-	msg, err := store.GetMessage(s.db, id, s.encKey)
+	msg, err := store.GetMessage(s.db, id, secrets.CipherKey(s.cipher))
 	if err != nil {
 		return fmt.Errorf("get message: %w", err)
 	}
@@ -148,7 +149,7 @@ func (s *Service) DeleteMessage(id string) error {
 	deletedIDs := []string{id}
 
 	if msg.Role == "user" {
-		msgs, err := store.GetMessagesByConversation(s.db, convID, s.encKey)
+		msgs, err := store.GetMessagesByConversation(s.db, convID, secrets.CipherKey(s.cipher))
 		if err != nil {
 			return fmt.Errorf("load conversation messages: %w", err)
 		}
@@ -202,14 +203,14 @@ func (s *Service) RegenerateMessage(msgID string, searchMode string) error {
 		s.mutex.Unlock()
 	}()
 
-	targetMsg, err := store.GetMessage(s.db, msgID, s.encKey)
+	targetMsg, err := store.GetMessage(s.db, msgID, secrets.CipherKey(s.cipher))
 	if err != nil {
 		return fmt.Errorf("message %s not found: %w", msgID, err)
 	}
 
 	convID := targetMsg.ConversationID
 
-	msgs, err := store.GetMessagesByConversation(s.db, convID, s.encKey)
+	msgs, err := store.GetMessagesByConversation(s.db, convID, secrets.CipherKey(s.cipher))
 	if err != nil {
 		return fmt.Errorf("load messages: %w", err)
 	}
@@ -257,7 +258,7 @@ func (s *Service) RegenerateMessage(msgID string, searchMode string) error {
 		}
 	}
 
-	dbMsgs, err := store.GetMessagesByConversation(s.db, convID, s.encKey)
+	dbMsgs, err := store.GetMessagesByConversation(s.db, convID, secrets.CipherKey(s.cipher))
 	if err != nil {
 		return fmt.Errorf("reload messages: %w", err)
 	}
@@ -275,7 +276,7 @@ func (s *Service) SearchMessages(query string) ([]*Message, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("query cannot be empty")
 	}
-	msgs, err := store.SearchMessages(s.db, query, s.encKey)
+	msgs, err := store.SearchMessages(s.db, query, secrets.CipherKey(s.cipher))
 	if err != nil {
 		log.Error().Err(err).Str("query", query).Msg("[chat] SearchMessages failed")
 		return nil, err
@@ -289,11 +290,11 @@ func (s *Service) SearchMessages(query string) ([]*Message, error) {
 
 // ExportConversation exports a conversation.
 func (s *Service) ExportConversation(id string, format string) (string, error) {
-	conv, err := store.GetConversation(s.db, id, s.encKey)
+	conv, err := store.GetConversation(s.db, id, secrets.CipherKey(s.cipher))
 	if err != nil {
 		return "", err
 	}
-	msgs, err := store.GetMessagesByConversation(s.db, id, s.encKey)
+	msgs, err := store.GetMessagesByConversation(s.db, id, secrets.CipherKey(s.cipher))
 	if err != nil {
 		return "", err
 	}
@@ -415,7 +416,7 @@ func csvEscape(s string) string {
 
 // CleanupAbnormalConversations removes abnormal conversations.
 func (s *Service) CleanupAbnormalConversations() []*AbnormalConversation {
-	removed, err := store.CleanupAbnormalConversations(s.db, s.encKey)
+	removed, err := store.CleanupAbnormalConversations(s.db, secrets.CipherKey(s.cipher))
 	if err != nil {
 		log.Error().Err(err).Msg("[chat] CleanupAbnormalConversations failed")
 		return nil

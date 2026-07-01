@@ -14,6 +14,11 @@ export default defineConfig({
         }),
     ],
     base: './',
+    // L-6：显式关闭 Vue 生产环境 DevTools，防止组件树和 Pinia 状态泄漏
+    // Vue 3 默认在生产构建中关闭，但显式设置避免未来插件默认行为变更导致意外启用
+    define: {
+        __VUE_PROD_DEVTOOLS__: false,
+    },
     resolve: {
         alias: {
             '@': fileURLToPath(new URL('./src', import.meta.url)),

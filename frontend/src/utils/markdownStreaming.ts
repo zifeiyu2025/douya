@@ -11,21 +11,29 @@
  */
 
 /**
- * 按块级边界（空行）拆分内容为稳定块和不稳定块
- * 从末尾向前找最后一个 \n\n，之前为 stable，之后为 unstable
- * - 无空行边界：全部为 unstable
- * - 以空行结尾：全部为 stable，unstable 为空
+ * 按块级边界拆分内容为稳定块和不稳定块
+ * 优先按 \n\n（段落边界）拆分，回退到 \n（行边界）拆分
+ * - 段落边界：之前为 stable，之后为 unstable
+ * - 行边界（无空行）：之前为 stable，之后为 unstable（最后一行）
+ * - 无任何换行：全部为 unstable
+ * - 以空行/换行结尾：全部为 stable，unstable 为空
  */
 export function splitStableUnstable(content: string): { stable: string; unstable: string } {
     if (!content) return { stable: '', unstable: '' }
-    // 从末尾向前找最后一个块级边界（\n\n）
-    const lastBoundary = content.lastIndexOf('\n\n')
-    if (lastBoundary === -1) {
-        // 无边界，全部为不稳定块
-        return { stable: '', unstable: content }
+    // 优先按 \n\n（段落边界）拆分
+    const lastParaBoundary = content.lastIndexOf('\n\n')
+    if (lastParaBoundary !== -1) {
+        const stable = content.slice(0, lastParaBoundary + 2)
+        const unstable = content.slice(lastParaBoundary + 2)
+        return { stable, unstable }
     }
-    // 边界位置 + 2（跳过 \n\n）为 unstable 起始
-    const stable = content.slice(0, lastBoundary + 2)
-    const unstable = content.slice(lastBoundary + 2)
-    return { stable, unstable }
+    // 回退：按 \n（行边界）拆分，最后一行为 unstable
+    const lastLineBoundary = content.lastIndexOf('\n')
+    if (lastLineBoundary !== -1) {
+        const stable = content.slice(0, lastLineBoundary + 1)
+        const unstable = content.slice(lastLineBoundary + 1)
+        return { stable, unstable }
+    }
+    // 无任何换行：全部为不稳定块
+    return { stable: '', unstable: content }
 }

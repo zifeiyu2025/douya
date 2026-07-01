@@ -1,15 +1,24 @@
 import { defineStore } from 'pinia'
-import { ref, reactive, computed, nextTick } from 'vue'
+import { ref, shallowReactive, computed, nextTick } from 'vue'
 import { wails, type Conversation, type Message, type StreamEvent, type Attachment } from '../services/wails'
 import { fixUtf8 } from '../utils/utf8'
+import { logError } from '../utils/logger'
 import { useSettingsStore } from './settings'
-import type { ConvStreamingState } from '../types/chat'
+import type { ConvStreamingState, StreamEventType } from '../types/chat'
 
-/** 流式状态创建 */
+/** 流式状态创建
+ *  使用 shallowReactive 包裹（任务 22）：
+ *  - Map 本身改为 shallowReactive，不再深度代理值对象
+ *  - 此处返回 shallowReactive 保证值对象的顶层属性修改仍触发响应式
+ *    （如 state.streamingContent = ... / state.isSearching = ...）
+ *  - 深层属性（如 streamingChunks.push）不触发响应式，
+ *    但 streamingChunks 仅作内部累积缓冲，UI 依赖的 streamingContent 由节流定时器顶层 set 更新
+ */
 function createEmptyStreamingState(): ConvStreamingState {
-    return {
+    return shallowReactive({
         isGenerating: false,
         streamingContent: '',
+        streamingChunks: [],
         thinkingContent: '',
         searchResults: '',
         isSearching: false,
@@ -21,13 +30,14 @@ function createEmptyStreamingState(): ConvStreamingState {
         tokensPerSecond: 0,
         predictedN: 0,
         promptProgress: null,
-    }
+    })
 }
 
 /** 清空流式状态（保留 contextTrimmed,contextTrimmed 是通知性事件） */
 function clearConvState(state: ConvStreamingState) {
     state.isGenerating = false
     state.streamingContent = ''
+    state.streamingChunks = []
     state.thinkingContent = ''
     state.searchResults = ''
     state.isSearching = false
@@ -43,11 +53,18 @@ export const useChatStore = defineStore('chat', () => {
     const messages = ref<Message[]>([])
     const lastError = ref('')
     const generatingConvId = ref('')
-    const convStreamingStates = reactive(new Map<string, ConvStreamingState>())
+    // 任务 22：使用 shallowReactive 替代 reactive
+    // - Map 的 set/delete/clear 仍触发响应式（streamHandlers 各处依赖 Map.get 的 computed 能正常更新）
+    // - 值对象不深度代理，避免流式场景下对 ConvStreamingState 内部字段的深层响应式开销
+    // - 值对象顶层属性响应式由 createEmptyStreamingState 中的 shallowReactive 保证
+    const convStreamingStates = shallowReactive(new Map<string, ConvStreamingState>())
     const isLoadingConversations = ref(false)
     const waitingFirstToken = ref(false)
     // 生成速度（tokens/s），由后端 token_speed 事件实时推送（每 500ms 降频），0 表示未获取
     const generationSpeed = ref(0)
+    // 消息请求版本号（M-前2）：防止 handleTerminalAsync 的 await 期间用户切换会话，
+    // 旧请求返回后覆盖新会话的消息列表（TOCTOU 竞态）。每次发起新请求递增，响应返回后校验。
+    let messagesRequestVersion = 0
 
     // ----- 集中 timer 管理（防止泄漏/竞态） -----
     const timers: ReturnType<typeof setTimeout>[] = []
@@ -64,6 +81,11 @@ export const useChatStore = defineStore('chat', () => {
         for (const t of timers) clearTimeout(t)
         timers.length = 0
     }
+    /** 清空指定会话的 flush 定时器（会话清理/重置时调用，防止定时器触发已销毁状态） */
+    function clearFlushTimer(convId: string) {
+        const t = flushTimers.get(convId)
+        if (t) { clearTimeout(t); flushTimers.delete(convId) }
+    }
 
     function getConvState(convId: string): ConvStreamingState {
         let state = convStreamingStates.get(convId)
@@ -72,6 +94,37 @@ export const useChatStore = defineStore('chat', () => {
             convStreamingStates.set(convId, state)
         }
         return state
+    }
+
+    // ----- 流式内容刷新（M-前5：避免 += 的 O(N²) 字符串拼接）-----
+    // handleToken 将分块 push 到 streamingChunks 数组（O(1)），由定时器
+    // 合并到 streamingContent。FLUSH_INTERVAL = 0 表示下一个宏任务即 flush
+    //（setTimeout 0 实际约 4ms，比原 20ms 快 5 倍），让 token 尽快到达 UI。
+    // 渲染频率由 useMorphRender 的 RAF 合帧保证 60fps，不会因 flush 频繁而过度渲染。
+    // 旧值 20ms 是为已删除的打字动画设计，快速生成时一次 flush 积压多 token 导致"蹦字"。
+    const FLUSH_INTERVAL = 0
+    const flushTimers = new Map<string, ReturnType<typeof setTimeout>>()
+    function scheduleStreamingFlush(convId: string) {
+        if (flushTimers.has(convId)) return
+        const id = setTimeout(() => {
+            flushTimers.delete(convId)
+            const state = convStreamingStates.get(convId)
+            if (state && state.streamingChunks.length > 0) {
+                state.streamingContent = state.streamingChunks.join('')
+            }
+        }, FLUSH_INTERVAL)
+        flushTimers.set(convId, id)
+    }
+    function flushStreamingImmediately(convId: string) {
+        const t = flushTimers.get(convId)
+        if (t) {
+            clearTimeout(t)
+            flushTimers.delete(convId)
+        }
+        const state = convStreamingStates.get(convId)
+        if (state && state.streamingChunks.length > 0) {
+            state.streamingContent = state.streamingChunks.join('')
+        }
     }
 
     const currentConvState = computed<ConvStreamingState>(() => {
@@ -112,8 +165,10 @@ export const useChatStore = defineStore('chat', () => {
         const timeout = settingsStore.thinkingEnabled ? 300 * 1000 : 120 * 1000
         addTimer(() => {
             if (generatingConvId.value) {
-                const state = getConvState(generatingConvId.value)
+                const convId = generatingConvId.value
+                const state = getConvState(convId)
                 if (state.isGenerating) {
+                    clearFlushTimer(convId)
                     clearConvState(state)
                     generatingConvId.value = ''
                     waitingFirstToken.value = false
@@ -153,7 +208,9 @@ export const useChatStore = defineStore('chat', () => {
     function forceResetGenerating() {
         clearTimers()
         if (generatingConvId.value) {
-            const state = getConvState(generatingConvId.value)
+            const convId = generatingConvId.value
+            clearFlushTimer(convId)
+            const state = getConvState(convId)
             clearConvState(state)
         }
         generatingConvId.value = ''
@@ -182,7 +239,7 @@ export const useChatStore = defineStore('chat', () => {
             // 加载成功后清除错误
             lastError.value = ''
         } catch (e) {
-            console.error('加载会话列表失败:', e)
+            logError('加载会话列表失败', e)
             lastError.value = e instanceof Error ? e.message : String(e || '加载会话列表失败')
         } finally {
             isLoadingConversations.value = false
@@ -192,11 +249,13 @@ export const useChatStore = defineStore('chat', () => {
     async function selectConversation(id: string) {
         if (id === currentConversationId.value) return
 
+        // 递增版本号，使 handleTerminalAsync 中进行中的旧请求失效（M-前2 TOCTOU 防护）
+        messagesRequestVersion++
         currentConversationId.value = id
         try {
             messages.value = await wails.getMessages(id) || []
         } catch (e) {
-            console.error('加载消息失败:', e)
+            logError('加载消息失败', e)
             messages.value = []
         }
 
@@ -210,6 +269,8 @@ export const useChatStore = defineStore('chat', () => {
 
     function handleTerminalEvent(convId: string) {
         clearTimers()
+        // 终止前立即刷新剩余的流式分块，确保最终内容完整
+        flushStreamingImmediately(convId)
         const state = convStreamingStates.get(convId)
         if (state) {
             clearConvState(state)
@@ -223,20 +284,33 @@ export const useChatStore = defineStore('chat', () => {
 
     // ----- 流式事件 reducer（独立小函数,易单测） -----
 
-    function handleToken(convId: string, content: any) {
+    // 已迁移：content 类型对齐 TokenEvent['content']（任务 31.3）
+    function handleToken(convId: string, content: string) {
         startGeneratingTimeout()
         clearFirstTokenOnResponse()
         const state = getConvState(convId)
+        const wasThinking = state.isThinking && !!state.thinkingContent
         if (state.isThinking && state.thinkingContent) {
             state.isThinking = false
             state.thinkingDuration = (Date.now() - state.thinkingStartTime) / 1000
         } else if (!state.isThinking && state.thinkingContent && state.thinkingDuration === 0) {
             state.thinkingDuration = (Date.now() - state.thinkingStartTime) / 1000
         }
-        state.streamingContent += content
+        // 修复（M-前5）：用数组累积替代字符串 +=，避免长文本输出时的 O(N²) 拼接开销。
+        // 分块 push 是 O(1)，由 scheduleStreamingFlush 节流（50ms）合并到 streamingContent。
+        state.streamingChunks.push(content)
+        // 首个 token 或思考结束：立即 flush，消除首字延迟和 streamingContent="" 空窗口
+        // - 首字延迟是用户感知最强的卡顿源，50ms 节流对后续 token 合理，但首字应立即显示
+        // - 思考切换时立即 flush 避免 thinkingAsContent 短暂为 true 吞掉首 token
+        if (wasThinking || state.streamingChunks.length === 1) {
+            flushStreamingImmediately(convId)
+        } else {
+            scheduleStreamingFlush(convId)
+        }
     }
 
-    function handleThinking(convId: string, content: any) {
+    // 已迁移：content 类型对齐 ThinkingEvent['content']（任务 31.3）
+    function handleThinking(convId: string, content: string) {
         startGeneratingTimeout()
         clearFirstTokenOnResponse()
         const state = getConvState(convId)
@@ -248,113 +322,147 @@ export const useChatStore = defineStore('chat', () => {
         state.thinkingContent += content
     }
 
-    function handleToolCallStart(convId: string, content: any) {
+    // 已迁移：content 类型对齐 ToolCallStartEvent['content']（任务 24）
+    function handleToolCallStart(convId: string, content: Extract<StreamEvent, { type: 'tool_call_start' }>['content']) {
         startGeneratingTimeout()
         clearFirstTokenOnResponse()
         const state = getConvState(convId)
         state.isSearching = true
-        state.searchQuery = content?.query || ''
+        state.searchQuery = content.query || ''
     }
 
-    function handleSearchStart(convId: string, content: any) {
+    // 已迁移：content 类型对齐 SearchStartEvent['content']（任务 24）
+    // 后端在 tool call 场景发送 JSON 字符串（紧跟 tool_call_start 事件会覆盖 searchQuery），
+    // 预搜索场景发送普通字符串，统一按 string 直接使用即可。
+    function handleSearchStart(convId: string, content: Extract<StreamEvent, { type: 'search_start' }>['content']) {
         startGeneratingTimeout()
         clearFirstTokenOnResponse()
         const state = getConvState(convId)
         state.isSearching = true
-        if (typeof content === 'string') {
-            try {
-                const parsed = JSON.parse(content)
-                state.searchQuery = parsed.query || content
-            } catch {
-                state.searchQuery = content
-            }
-        }
+        state.searchQuery = content
     }
 
-    function handleSearchResult(convId: string, content: any) {
+    // 已迁移：content 类型对齐 SearchResultEvent['content']（任务 24）
+    // 注意：后端实际可能发送 JSON 字符串或数组两种形式，需兼容处理
+    function handleSearchResult(convId: string, content: Extract<StreamEvent, { type: 'search_result' }>['content']) {
         startGeneratingTimeout()
         clearFirstTokenOnResponse()
         const state = getConvState(convId)
         state.isSearching = false
         state.searchQuery = ''
-        try {
-            let c: unknown = content
-            if (typeof c === 'string') {
-                try { c = JSON.parse(c) } catch { c = null }
-            }
-            if (Array.isArray(c) && c.length > 0) {
-                state.searchResults = JSON.stringify(c)
-            } else {
-                state.searchResults = ''
-            }
-        } catch {
+        if (typeof content === 'string') {
+            // 字符串形式：直接使用（后端已 JSON.stringify）
+            state.searchResults = content
+        } else if (Array.isArray(content) && content.length > 0) {
+            // 数组形式：序列化为 JSON 字符串
+            state.searchResults = JSON.stringify(content)
+        } else {
             state.searchResults = ''
         }
     }
 
     /** 处理 token_speed 事件：实时更新生成速度（会话级 + 全局）
-     *  合并了原 generation_speed 事件的功能，后端每 500ms 降频发射一次 */
-    function handleTokenSpeed(convId: string, content: any) {
+     *  合并了原 generation_speed 事件的功能，后端每 500ms 降频发射一次
+     *  已迁移：content 类型对齐 TokenSpeedEvent['content']（任务 24） */
+    function handleTokenSpeed(convId: string, content: Extract<StreamEvent, { type: 'token_speed' }>['content']) {
         const state = getConvState(convId)
-        try {
-            let c: unknown = content
-            if (typeof c === 'string') {
-                try { c = JSON.parse(c) } catch { return }
+        if (content.tokensPerSecond && content.tokensPerSecond > 0) {
+            state.tokensPerSecond = content.tokensPerSecond
+            state.predictedN = content.predictedN || 0
+            // 同时更新全局生成速度（原 generation_speed 事件功能，仅当前生成会话）
+            if (convId === generatingConvId.value || convId === '') {
+                generationSpeed.value = content.tokens_per_second || content.tokensPerSecond
             }
-            const data = c as { tokensPerSecond?: number; predictedN?: number; tokens_per_second?: number }
-            if (data.tokensPerSecond && data.tokensPerSecond > 0) {
-                state.tokensPerSecond = data.tokensPerSecond
-                state.predictedN = data.predictedN || 0
-                // 同时更新全局生成速度（原 generation_speed 事件功能，仅当前生成会话）
-                if (convId === generatingConvId.value || convId === '') {
-                    generationSpeed.value = data.tokens_per_second || data.tokensPerSecond
-                }
-            }
-        } catch { /* 忽略解析错误 */ }
+        }
     }
 
-    /** 处理 prompt_progress 事件：实时更新提示词处理进度 */
-    function handlePromptProgress(convId: string, content: any) {
+    /** 处理 prompt_progress 事件：实时更新提示词处理进度
+     *  已迁移：content 类型对齐 PromptProgressEvent['content']（任务 24） */
+    function handlePromptProgress(convId: string, content: Extract<StreamEvent, { type: 'prompt_progress' }>['content']) {
         const state = getConvState(convId)
-        try {
-            let c: unknown = content
-            if (typeof c === 'string') {
-                try { c = JSON.parse(c) } catch { return }
+        if (content.processed && content.processed > 0) {
+            state.promptProgress = {
+                total: content.total || 0,
+                cache: content.cache || 0,
+                processed: content.processed || 0,
+                timeMs: content.timeMs || 0,
             }
-            const data = c as { total?: number; cache?: number; processed?: number; timeMs?: number }
-            if (data.processed && data.processed > 0) {
-                state.promptProgress = {
-                    total: data.total || 0,
-                    cache: data.cache || 0,
-                    processed: data.processed || 0,
-                    timeMs: data.timeMs || 0,
+        }
+    }
+
+    /** 局部更新消息列表（M-前6）：避免全量替换导致所有 MessageItem 组件重渲染。
+     *  流式生成结束时通常只有最后一条消息内容变化，用 splice 原地替换仅触发该组件更新。 */
+    function updateMessagesIncremental(newMsgs: Message[]) {
+        const oldMsgs = messages.value
+        if (oldMsgs.length === 0) {
+            messages.value = newMsgs
+            return
+        }
+
+        // 保留 tokens_per_second（数据库不存储此字段，来自 assistant_message 事件）
+        const speedMap = new Map<string, number>()
+        for (const m of oldMsgs) {
+            if (m.tokens_per_second && m.tokens_per_second > 0) {
+                speedMap.set(m.id, m.tokens_per_second)
+            }
+        }
+        for (const m of newMsgs) {
+            if (speedMap.has(m.id)) {
+                m.tokens_per_second = speedMap.get(m.id)
+            }
+        }
+
+        // 情况1：消息数量相同，且前 N-1 条 id 一致 → 仅原地替换最后一条
+        if (newMsgs.length === oldMsgs.length && newMsgs.length > 0) {
+            let prefixMatch = true
+            for (let i = 0; i < oldMsgs.length - 1; i++) {
+                if (oldMsgs[i].id !== newMsgs[i].id) {
+                    prefixMatch = false
+                    break
                 }
             }
-        } catch { /* 忽略解析错误 */ }
+            if (prefixMatch) {
+                messages.value.splice(oldMsgs.length - 1, 1, newMsgs[newMsgs.length - 1])
+                return
+            }
+        }
+
+        // 情况2：新消息多一条，且前缀完全匹配 → 仅追加新消息
+        if (newMsgs.length === oldMsgs.length + 1) {
+            let prefixMatch = true
+            for (let i = 0; i < oldMsgs.length; i++) {
+                if (oldMsgs[i].id !== newMsgs[i].id) {
+                    prefixMatch = false
+                    break
+                }
+            }
+            if (prefixMatch) {
+                messages.value.push(newMsgs[newMsgs.length - 1])
+                return
+            }
+        }
+
+        // 情况3：结构变化较大，回退到全量更新
+        messages.value = newMsgs
     }
 
     async function handleTerminalAsync(convId: string) {
         const targetConvId = convId || generatingConvId.value
         if (targetConvId) {
+            // 记录请求版本号，await 返回后校验，防止旧请求覆盖新会话消息（M-前2 TOCTOU 防护）
+            const requestVersion = ++messagesRequestVersion
             try {
                 const msgs = (await wails.getMessages(targetConvId)) as Message[]
+                // 版本号不匹配说明期间用户已切换会话，丢弃本次响应
+                if (requestVersion !== messagesRequestVersion) return
                 if (targetConvId === currentConversationId.value || targetConvId === generatingConvId.value) {
-                    // 保留 tokens_per_second 数据（数据库中不存储此字段，从 assistant_message 事件获取）
-                    const speedMap = new Map<string, number>()
-                    for (const m of messages.value) {
-                        if (m.tokens_per_second && m.tokens_per_second > 0) {
-                            speedMap.set(m.id, m.tokens_per_second)
-                        }
-                    }
-                    for (const m of (msgs || [])) {
-                        if (speedMap.has(m.id)) {
-                            m.tokens_per_second = speedMap.get(m.id)
-                        }
-                    }
-                    messages.value = msgs || []
+                    // 修复（M-前6）：原实现 messages.value = msgs || [] 全量替换，
+                    // 导致所有 MessageItem 组件重新渲染。改为局部更新：仅替换变化的最后一条。
+                    updateMessagesIncremental(msgs || [])
                 }
                 nextTick(() => handleTerminalEvent(convId))
             } catch {
+                if (requestVersion !== messagesRequestVersion) return
                 handleTerminalEvent(convId)
             }
         } else {
@@ -364,7 +472,8 @@ export const useChatStore = defineStore('chat', () => {
         // 无需在此全量刷新 loadConversations()，避免不必要的数据库查询。
     }
 
-    function handleError(convId: string, content: any, isCurrentConv: boolean) {
+    // 已迁移：content 类型对齐 ErrorEvent['content']（任务 31.3）
+    function handleError(convId: string, content: string, isCurrentConv: boolean) {
         handleTerminalEvent(convId)
         if (isCurrentConv || !convId) {
             lastError.value = ''
@@ -374,18 +483,19 @@ export const useChatStore = defineStore('chat', () => {
         }
     }
 
-    function handleContextTrimmed(convId: string, content: any) {
+    // 已迁移：content 类型对齐 ContextTrimmedEvent['content']（任务 24）
+    function handleContextTrimmed(convId: string, content: Extract<StreamEvent, { type: 'context_trimmed' }>['content']) {
         const state = getConvState(convId)
         state.contextTrimmed = {
-            reason: content?.reason || 'unknown',
-            promptTokens: content?.prompt_tokens,
-            contextSize: content?.context_size,
-            messagesAfter: content?.messages_after,
+            reason: content.reason || 'unknown',
+            promptTokens: content.prompt_tokens,
+            contextSize: content.context_size,
+            messagesAfter: content.messages_after,
         }
     }
 
-    function handleConvCreated(content: any) {
-        if (!content?.id) return
+    // 已迁移：content 类型对齐 ConversationCreatedEvent['content']（任务 24）
+    function handleConvCreated(content: Extract<StreamEvent, { type: 'conversation_created' }>['content']) {
         const newConvId = content.id
         const oldState = convStreamingStates.get('')
         if (oldState) {
@@ -401,8 +511,9 @@ export const useChatStore = defineStore('chat', () => {
         conversations.value.unshift({ ...content, title: fixUtf8(content.title) })
     }
 
-    function handleAssistantMsg(content: any, isCurrentConv: boolean) {
-        if (!content || !isCurrentConv) return
+    // 已迁移：content 类型对齐 AssistantMessageEvent['content']（任务 24）
+    function handleAssistantMsg(content: Extract<StreamEvent, { type: 'assistant_message' }>['content'], isCurrentConv: boolean) {
+        if (!isCurrentConv) return
         const idx = messages.value.findIndex((m: Message) => m.id === content.id)
         if (idx >= 0) {
             messages.value[idx] = content
@@ -411,8 +522,9 @@ export const useChatStore = defineStore('chat', () => {
         }
     }
 
-    function handleUserMsg(content: any, isCurrentConv: boolean) {
-        if (!content || !isCurrentConv) return
+    // 已迁移：content 类型对齐 UserMessageEvent['content']（任务 24）
+    function handleUserMsg(content: Extract<StreamEvent, { type: 'user_message' }>['content'], isCurrentConv: boolean) {
+        if (!isCurrentConv) return
         // 合并原 some + findIndex 双遍历为单次遍历
         let tempIdx = -1
         let hasExisting = false
@@ -433,8 +545,8 @@ export const useChatStore = defineStore('chat', () => {
         }
     }
 
-    function handleConvUpdated(content: any) {
-        if (!content?.id) return
+    // 已迁移：content 类型对齐 ConversationUpdatedEvent['content']（任务 24）
+    function handleConvUpdated(content: Extract<StreamEvent, { type: 'conversation_updated' }>['content']) {
         const idx = conversations.value.findIndex((c: Conversation) => c.id === content.id)
         if (idx === -1) return
         // 更新字段
@@ -448,9 +560,10 @@ export const useChatStore = defineStore('chat', () => {
         }
     }
 
-    function handleConvDeleted(content: any) {
-        const deletedId = typeof content === 'string' ? content : content?.id
-        if (!deletedId) return
+    // 已迁移：content 类型对齐 ConversationDeletedEvent['content']（任务 24）
+    // content 为 string | { id: string } 联合类型，typeof 是必要的类型守卫而非兜底
+    function handleConvDeleted(content: Extract<StreamEvent, { type: 'conversation_deleted' }>['content']) {
+        const deletedId = typeof content === 'string' ? content : content.id
         conversations.value = conversations.value.filter((c: Conversation) => c.id !== deletedId)
         convStreamingStates.delete(deletedId)
         if (generatingConvId.value === deletedId) generatingConvId.value = ''
@@ -460,17 +573,28 @@ export const useChatStore = defineStore('chat', () => {
         }
     }
 
-    function handleMsgDeleted(content: any, isCurrentConv: boolean) {
-        const deletedId = typeof content === 'string' ? content : content?.id
+    // 已迁移：content 类型对齐 MessageDeletedEvent['content']（任务 24）
+    // content 为 string | { id: string } 联合类型，typeof 是必要的类型守卫而非兜底
+    function handleMsgDeleted(content: Extract<StreamEvent, { type: 'message_deleted' }>['content'], isCurrentConv: boolean) {
+        const deletedId = typeof content === 'string' ? content : content.id
         if (deletedId && isCurrentConv) {
             messages.value = messages.value.filter((m: Message) => m.id !== deletedId)
         }
     }
 
     // ----- 事件分发表（reducer map） -----
-    type StreamHandler = (convId: string, content: any, isCurrentConv: boolean) => void | Promise<void>
+    // 任务 24：所有 handler 已迁移到具体事件 content 类型，使用映射类型替代原先的 any 签名。
+    // 每个键对应的 handler content 类型由 Extract<StreamEvent, { type: K }>['content'] 推导，
+    // 新增/重命名事件类型时编译器会即时校验。
+    type StreamHandlerMap = {
+        [K in StreamEventType]?: (
+            convId: string,
+            content: Extract<StreamEvent, { type: K }>['content'],
+            isCurrentConv: boolean
+        ) => void | Promise<void>
+    }
 
-    const streamHandlers: Record<string, StreamHandler> = {
+    const streamHandlers: StreamHandlerMap = {
         token: (id, c) => handleToken(id, c),
         thinking: (id, c) => handleThinking(id, c),
         tool_call_start: (id, c) => handleToolCallStart(id, c),
@@ -497,7 +621,12 @@ export const useChatStore = defineStore('chat', () => {
             || (generatingConvId.value === '' && !currentConversationId.value)
         const handler = streamHandlers[event.type]
         if (handler) {
-            handler(convId, event.content, isCurrentConv)
+            // event.type 与 event.content 是判别联合的关联字段，
+            // 但 TS 无法从 event.type（联合类型）收窄 streamHandlers[event.type] 的 handler 类型，
+            // 此处用断言将 handler 视为接受 event.content 类型的函数（运行时安全由判别联合保证）
+            (handler as (convId: string, content: typeof event.content, isCurrentConv: boolean) => void)(
+                convId, event.content, isCurrentConv
+            )
         }
     }
 
@@ -523,7 +652,7 @@ export const useChatStore = defineStore('chat', () => {
             messages.value = messages.value.filter((m: Message) => !idsToRemove.has(m.id))
             await wails.deleteMessage(id)
         } catch (e) {
-            console.error('删除消息失败:', e)
+            logError('删除消息失败', e)
         }
     }
 
@@ -533,15 +662,14 @@ export const useChatStore = defineStore('chat', () => {
         const convId = currentConversationId.value
         if (!convId) return
 
+        // 删除用户消息之后的所有回复，保留到用户消息为止
         const userMsgIdx = messages.value.findIndex((m: Message) => m.id === userMessageID)
         if (userMsgIdx >= 0) {
-            messages.value = messages.value.filter((_m, idx) => {
-                if (idx <= userMsgIdx) return true
-                return messages.value[idx].role !== 'assistant'
-            })
+            messages.value = messages.value.slice(0, userMsgIdx + 1)
         }
 
         generatingConvId.value = convId
+        clearFlushTimer(convId)
         const state = getConvState(convId)
         clearConvState(state)
         state.isGenerating = true
@@ -554,9 +682,10 @@ export const useChatStore = defineStore('chat', () => {
             await wails.regenerateMessage(userMessageID, searchMode)
         } catch (e) {
             clearTimers()
+            clearFlushTimer(convId)
             clearConvState(state)
             generatingConvId.value = ''
-            console.error('重新生成失败:', e)
+            logError('重新生成失败', e)
         }
     }
 
@@ -565,6 +694,7 @@ export const useChatStore = defineStore('chat', () => {
 
         const convId = currentConversationId.value
         generatingConvId.value = convId || ''
+        clearFlushTimer(convId || '')
         const state = getConvState(convId || '')
         clearConvState(state)
         state.contextTrimmed = null
@@ -607,6 +737,7 @@ export const useChatStore = defineStore('chat', () => {
             clearTimers()
             const currentGenId = generatingConvId.value
             if (currentGenId) {
+                clearFlushTimer(currentGenId)
                 const currentState = getConvState(currentGenId)
                 clearConvState(currentState)
             }
@@ -616,7 +747,7 @@ export const useChatStore = defineStore('chat', () => {
             nextTick(() => {
                 lastError.value = String(e || '发送消息失败') + '\n💡 如果服务未启动，请等待模型加载完成后再试'
             })
-            console.error('发送消息失败:', e)
+            logError('发送消息失败', e)
         }
     }
 
@@ -624,7 +755,7 @@ export const useChatStore = defineStore('chat', () => {
         try {
             await wails.stopGeneration()
         } catch (e) {
-            console.error('停止生成失败:', e)
+            logError('停止生成失败', e)
         }
         clearTimers()
 
@@ -656,7 +787,7 @@ export const useChatStore = defineStore('chat', () => {
             const conv = conversations.value.find((c: Conversation) => c.id === id)
             if (conv) conv.title = fixedTitle
         } catch (e) {
-            console.error('重命名会话失败:', e)
+            logError('重命名会话失败', e)
         }
     }
 
@@ -671,7 +802,7 @@ export const useChatStore = defineStore('chat', () => {
                 messages.value = []
             }
         } catch (e) {
-            console.error('删除会话失败:', e)
+            logError('删除会话失败', e)
         }
     }
 
@@ -679,7 +810,7 @@ export const useChatStore = defineStore('chat', () => {
         try {
             return await wails.searchMessages(query)
         } catch (e) {
-            console.error('搜索消息失败:', e)
+            logError('搜索消息失败', e)
             return []
         }
     }
@@ -688,7 +819,7 @@ export const useChatStore = defineStore('chat', () => {
         try {
             return await wails.exportConversation(id, format)
         } catch (e) {
-            console.error('导出会话失败:', e)
+            logError('导出会话失败', e)
             return ''
         }
     }
@@ -697,7 +828,7 @@ export const useChatStore = defineStore('chat', () => {
         try {
             return await wails.exportConversationWithDialog(id, format)
         } catch (e) {
-            console.error('导出会话失败:', e)
+            logError('导出会话失败', e)
             return false
         }
     }

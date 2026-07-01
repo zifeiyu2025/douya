@@ -324,9 +324,8 @@ func TestSendMessage_SearchEnabled_UpfrontSearch(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 		receivedMessages = req.Messages
 
 		sseData := makeSSEData([]string{
@@ -407,9 +406,8 @@ func TestSendMessage_SearchEnabledFalse_ProvidesSearchTool(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 		receivedReq = &req
 
 		sseData := makeSSEData([]string{
@@ -441,9 +439,8 @@ func TestSendMessage_SearchEnabledTrue_WithTool(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 		receivedReq = &req
 
 		sseData := makeSSEData([]string{
@@ -495,9 +492,8 @@ func TestSendMessage_ToolCallSearch_EmptyResults(t *testing.T) {
 		}
 
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 		secondCallMessages = req.Messages
 
 		sseData := makeSSEData([]string{
@@ -609,9 +605,8 @@ func TestSendMessage_Timeliness_SystemPromptContainsDate(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 		receivedMessages = req.Messages
 
 		sseData := makeSSEData([]string{
@@ -838,9 +833,8 @@ func TestSendMessage_MultiRoundConversation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 
 		if callCount == 1 {
 			if len(req.Messages) < 2 {
@@ -930,9 +924,8 @@ func TestSendMessage_SearchResultFormat(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 		receivedMessages = req.Messages
 
 		sseData := makeSSEData([]string{
@@ -1007,9 +1000,8 @@ func TestSendMessage_ToolCallSearchResultFormat(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 
 		if callCount == 1 {
 			sseData := makeSSEData([]string{
@@ -1780,9 +1772,8 @@ func TestSendMessage_ToolMessagesRestoredInMultiRound(t *testing.T) {
 
 	server2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 		secondRoundMessages = req.Messages
 
 		sseData := makeSSEData([]string{
@@ -1875,9 +1866,8 @@ func TestSendMessage_SearchEnabled_UsesSeparateContextBlock(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 		receivedMessages = req.Messages
 
 		sseData := makeSSEData([]string{
@@ -1946,9 +1936,8 @@ func TestSendMessage_ToolCallInvalidArgs_FeedbackToModel(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 
 		if callCount == 1 {
 			sseData := makeSSEData([]string{
@@ -2005,9 +1994,8 @@ func TestSendMessage_SecondLLMCallProvidesTools(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 
 		if callCount == 1 {
 			sseData := makeSSEData([]string{
@@ -2078,9 +2066,10 @@ func TestSendMessage_ToolDefinitionHasRichDescription(t *testing.T) {
 			return
 		}
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		bodyBytes, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(bodyBytes, &req); err != nil {
+			t.Logf("failed to unmarshal request body: %v, body: %s", err, string(bodyBytes))
+		}
 		receivedReq = &req
 
 		sseData := makeSSEData([]string{

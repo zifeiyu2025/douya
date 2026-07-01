@@ -176,7 +176,7 @@ export interface UpdateProgressEvent {
 /** 聊天消息（用于 token 计数和模板应用） */
 export interface ChatMessage {
     role: string
-    content: string | any
+    content: string  // 移除 | any，避免类型擦除（任务 28.2）
     reasoning_content?: string
     tool_call_id?: string
 }
@@ -192,6 +192,61 @@ function adaptConfig(raw: unknown): Config {
     return { ...DEFAULT_CONFIG, ...(raw as Partial<Config>) }
 }
 
+/**
+ * 将前端 SendMessageParams 转换为 wails SendMessage 期望的参数类型。
+ * ChatModel.SendMessageParams.createFrom 已构造 wails 端 class 实例，
+ * 此处仅做精确的字段映射与类型断言，避免调用点使用 as unknown as（任务 23）。
+ */
+function toWailsSendMessageParams(
+    params: ChatModel.SendMessageParams,
+): Parameters<typeof SendMessage>[0] {
+    return {
+        conversation_id: params.conversation_id,
+        content: params.content,
+        search_mode: params.search_mode,
+        images: params.images,
+        attachments: params.attachments,
+    } as Parameters<typeof SendMessage>[0]
+}
+
+/**
+ * 将前端 Config 转换为 wails UpdateConfig 期望的参数类型。
+ * 前端 Config 是 wails config.Config 的超集（含 UI 专用字段），
+ * 后端 JSON 反序列化时会忽略多余字段，因此直接展开即可。
+ */
+function toWailsConfig(cfg: Config): Parameters<typeof UpdateConfig>[0] {
+    return { ...cfg } as Parameters<typeof UpdateConfig>[0]
+}
+
+/**
+ * 将前端 ChatMessage[] 转换为 CountTokens/ApplyTemplate 期望的参数类型。
+ * 显式映射每个字段，避免 as any 导致的类型擦除（任务 23）。
+ */
+function toWailsChatMessages(
+    messages: ChatMessage[],
+): Parameters<typeof CountTokens>[0] {
+    return messages.map(m => ({
+        role: m.role,
+        content: m.content,
+        reasoning_content: m.reasoning_content,
+        tool_call_id: m.tool_call_id,
+    })) as Parameters<typeof CountTokens>[0]
+}
+
+/**
+ * 将前端 LoraAdapter[] 转换为 SetLoraAdapters 期望的参数类型。
+ * 字段完全一致，映射后断言为 wails 参数类型（任务 23）。
+ */
+function toWailsLoraAdapters(
+    adapters: LoraAdapter[],
+): Parameters<typeof SetLoraAdapters>[0] {
+    return adapters.map(a => ({
+        id: a.id,
+        path: a.path,
+        scale: a.scale,
+    })) as Parameters<typeof SetLoraAdapters>[0]
+}
+
 export const wails = {
     sendMessage: async (params: SendMessageParams): Promise<void> => {
         // 使用 wailsjs 生成的 createFrom 适配类型
@@ -202,7 +257,7 @@ export const wails = {
             images: params.images,
             attachments: params.attachments,
         })
-        await SendMessage(wailsParams as unknown as Parameters<typeof SendMessage>[0])
+        await SendMessage(toWailsSendMessageParams(wailsParams))
     },
     stopGeneration: StopGeneration,
     getConversations: async (): Promise<Conversation[]> => {
@@ -231,7 +286,7 @@ export const wails = {
         return (await GetCleanupResult()) as CleanupResult[]
     },
     updateConfig: async (cfg: Config): Promise<void> => {
-        await UpdateConfig(cfg as unknown as Parameters<typeof UpdateConfig>[0])
+        await UpdateConfig(toWailsConfig(cfg))
     },
     handleCloseRequest: async (): Promise<string> => {
         return await HandleCloseRequest()
@@ -264,13 +319,13 @@ export const wails = {
         await DownloadModel(modelName)
     },
     countTokens: async (messages: ChatMessage[]): Promise<number> => {
-        return await CountTokens(messages as any)
+        return await CountTokens(toWailsChatMessages(messages))
     },
     getLoraAdapters: async (): Promise<LoraAdapter[]> => {
         return (await GetLoraAdapters()) as LoraAdapter[]
     },
     setLoraAdapters: async (adapters: LoraAdapter[]): Promise<void> => {
-        await SetLoraAdapters(adapters as any)
+        await SetLoraAdapters(toWailsLoraAdapters(adapters))
     },
     selectLoraFile: async (): Promise<string> => {
         return await SelectLoraFile()
@@ -282,7 +337,7 @@ export const wails = {
         return await Tokenize(text)
     },
     applyTemplate: async (messages: ChatMessage[]): Promise<string> => {
-        return await ApplyTemplate(messages as any)
+        return await ApplyTemplate(toWailsChatMessages(messages))
     },
     getServerLogs: async (): Promise<string> => {
         return await GetServerLogs()
@@ -397,7 +452,8 @@ export const wails = {
     selectImageFile: async (): Promise<string> => {
         return (await SelectImageFile()) as string
     },
-    // 更新相关方法（后端绑定生成后可替换为直接 import）
+    // 更新相关方法：wailsjs 绑定（App.d.ts）未生成 GetAppVersion/CheckUpdate/PerformUpdate，
+    // 这些函数在运行时通过 window.go.main.App.XXX 动态注入，因此保留 (window as any) 用法（任务 28.1）
     getAppVersion: async (): Promise<string> => {
         return (window as any)['go']['main']['App']['GetAppVersion']()
     },

@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -58,8 +57,12 @@ type BaseProvider struct {
 // doSearch 执行搜索请求并返回响应体字节，消除 4 个 Provider 的重复请求骨架。
 // 通用流程：构造请求 → 设置 headers → Do → defer Close → readBody → 状态码检查
 // 各 Provider 负责自己的响应解析逻辑（JSON / HTML），因此本方法只返回原始响应体 []byte。
-func (b *BaseProvider) doSearch(ctx context.Context, method, url string, body io.Reader, headers map[string]string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, method, url, body)
+//
+// 安全说明：构造错误信息时严格脱敏，仅包含 method、url（清空 RawQuery）、
+// statusCode、bodySnippet（响应体前 512 字节），显式不包含 headers，
+// 避免 Authorization 等敏感凭证泄露到错误链路/日志中。
+func (b *BaseProvider) doSearch(ctx context.Context, method, rawURL string, body io.Reader, headers map[string]string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
 	if err != nil {
 		return nil, fmt.Errorf("create request failed: %w", err)
 	}
@@ -79,10 +82,48 @@ func (b *BaseProvider) doSearch(ctx context.Context, method, url string, body io
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("search failed with status %d: %s", resp.StatusCode, string(respBody))
+		// 构造脱敏错误信息：仅含 method、url（脱敏 query）、statusCode、bodySnippet（前 512 字节）
+		// 显式不包含 headers，避免 Authorization / API Key 等敏感信息进入 error 链路
+		sanitizedURL := sanitizeSearchURL(rawURL)
+		bodySnippet := respBody
+		if len(bodySnippet) > 512 {
+			bodySnippet = bodySnippet[:512]
+		}
+		// 调试时仅记录 headers 的 key（不记录 value），便于排查又不会泄露凭证
+		log.Debug().
+			Strs("headers_keys", headerKeys(headers)).
+			Str("method", method).
+			Str("url", sanitizedURL).
+			Int("status", resp.StatusCode).
+			Msg("[search] request failed with non-200 status")
+		return nil, fmt.Errorf("search failed: method=%s url=%s statusCode=%d bodySnippet=%s",
+			method, sanitizedURL, resp.StatusCode, string(bodySnippet))
 	}
 
 	return respBody, nil
+}
+
+// sanitizeSearchURL 脱敏 URL：清空 RawQuery，避免 query 参数中的敏感信息
+// （如 api_key=xxx）泄露到错误信息中。解析失败时返回原值，保证可用性。
+func sanitizeSearchURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	u.RawQuery = ""
+	return u.String()
+}
+
+// headerKeys 返回 headers 的所有 key（不含 value），仅用于调试日志。
+func headerKeys(headers map[string]string) []string {
+	if len(headers) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(headers))
+	for k := range headers {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // ---------------------------------------------------------------------------
@@ -375,159 +416,12 @@ func matchCategory(pw *ProviderWithCircuit, category string) bool {
 	return false
 }
 
-// ---------------------------------------------------------------------------
-// HTML 处理工具
-// ---------------------------------------------------------------------------
-
-var (
-	reHTMLTag    = regexp.MustCompile(`<[^>]+>`)
-	reNumEntity  = regexp.MustCompile(`&#(\d+);`)
-	reHexEntity  = regexp.MustCompile(`&#x([0-9a-fA-F]+);`)
-	reMultiSpace = regexp.MustCompile(`\s+`)
-	reLink       = regexp.MustCompile(`<a[^>]+href="(https?://[^"]+)"[^>]*>`)
-	reH3         = regexp.MustCompile(`<h[1-6][^>]*>(.*?)</h[1-6]>`)
-	rePTag       = regexp.MustCompile(`<p[^>]*>(.*?)</p>`)
-)
-
-func stripHTML(s string) string {
-	s = reHTMLTag.ReplaceAllString(s, "")
-	s = strings.ReplaceAll(s, "&ensp;", " ")
-	s = strings.ReplaceAll(s, "&emsp;", "  ")
-	s = strings.ReplaceAll(s, "&thinsp;", " ")
-	s = strings.ReplaceAll(s, "&middot;", "·")
-	s = strings.ReplaceAll(s, "&mdash;", "—")
-	s = strings.ReplaceAll(s, "&ndash;", "–")
-	s = strings.ReplaceAll(s, "&amp;", "&")
-	s = strings.ReplaceAll(s, "&lt;", "<")
-	s = strings.ReplaceAll(s, "&gt;", ">")
-	s = strings.ReplaceAll(s, "&quot;", `"`)
-	s = strings.ReplaceAll(s, "&#39;", "'")
-	s = strings.ReplaceAll(s, "&nbsp;", " ")
-	s = reNumEntity.ReplaceAllStringFunc(s, func(match string) string {
-		sub := reNumEntity.FindStringSubmatch(match)
-		if len(sub) >= 2 {
-			var code int
-			fmt.Sscanf(sub[1], "%d", &code)
-			if code > 0 && code < 0x10FFFF {
-				return string(rune(code))
-			}
-		}
-		return match
-	})
-	s = reHexEntity.ReplaceAllStringFunc(s, func(match string) string {
-		sub := reHexEntity.FindStringSubmatch(match)
-		if len(sub) >= 2 {
-			var code int
-			fmt.Sscanf(sub[1], "%x", &code)
-			if code > 0 && code < 0x10FFFF {
-				return string(rune(code))
-			}
-		}
-		return match
-	})
-	s = reMultiSpace.ReplaceAllString(s, " ")
-	return strings.TrimSpace(s)
-}
-
-// parseGenericSearchResults 从 HTML 中提取通用搜索结果。
-func parseGenericSearchResults(html string) []SearchResult {
-	linkMatches := reLink.FindAllStringSubmatch(html, -1)
-
-	var results []SearchResult
-	seen := make(map[string]bool)
-
-	for _, match := range linkMatches {
-		if len(match) < 2 {
-			continue
-		}
-		link := match[1]
-
-		// 跳过搜索引擎自身链接和无效链接
-		if isSearchEngineSelfLink(link) || seen[link] {
-			continue
-		}
-
-		title := ""
-		h3Matches := reH3.FindAllStringSubmatch(html, -1)
-		for _, h3Match := range h3Matches {
-			if len(h3Match) < 2 {
-				continue
-			}
-			h3Title := stripHTML(h3Match[1])
-			if strings.Contains(link, h3Title) || strings.Contains(h3Title, link) {
-				title = h3Title
-				break
-			}
-		}
-
-		if title == "" {
-			u, err := url.Parse(link)
-			if err == nil {
-				title = u.Path
-				if title == "" {
-					title = u.Host
-				}
-			}
-		}
-
-		// 提取链接附近的文本作为 snippet
-		snippet := extractSnippetNearLink(html, link)
-
-		seen[link] = true
-		results = append(results, SearchResult{
-			Title:   title,
-			URL:     link,
-			Snippet: snippet,
-			Score:   0.5,
-		})
-	}
-
-	return results
-}
-
 // isSearchEngineSelfLink 判断是否为搜索引擎自身的链接
 func isSearchEngineSelfLink(link string) bool {
 	lower := strings.ToLower(link)
 	selfDomains := []string{"www.so.com", "www.bing.com", "www.google.com", "duckduckgo.com", "search.yahoo.com"}
 	for _, d := range selfDomains {
 		if strings.Contains(lower, d) {
-			return true
-		}
-	}
-	return false
-}
-
-// extractSnippetNearLink 尝试从链接附近提取文本摘要
-func extractSnippetNearLink(html, link string) string {
-	// 查找链接在 HTML 中的位置
-	linkIdx := strings.Index(html, link)
-	if linkIdx < 0 {
-		return ""
-	}
-	// 从链接位置向后搜索 2000 字符范围内的 <p> 标签内容
-	searchEnd := linkIdx + 2000
-	if searchEnd > len(html) {
-		searchEnd = len(html)
-	}
-	region := html[linkIdx:searchEnd]
-
-	// 尝试匹配 <p> 标签内容
-	pMatches := rePTag.FindAllStringSubmatch(region, -1)
-	for _, m := range pMatches {
-		if len(m) >= 2 {
-			text := stripHTML(m[1])
-			if len(text) > 20 { // 忽略太短的文本
-				return text
-			}
-		}
-	}
-	return ""
-}
-
-// containsCJK 检查字符串是否包含中日韩文字
-func containsCJK(s string) bool {
-	for _, r := range s {
-		if (r >= 0x4e00 && r <= 0x9fff) || (r >= 0x3400 && r <= 0x4dbf) || (r >= 0x3040 && r <= 0x30ff) {
 			return true
 		}
 	}

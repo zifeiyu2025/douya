@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/dgraph-io/badger/v4"
@@ -19,6 +20,7 @@ type BM25Index struct {
 	k1        float64      // 词频饱和参数（默认 1.5）
 	b         float64      // 文档长度归一化参数（默认 0.75）
 	idf       map[string]float64 // 逆文档频率
+	mu        sync.RWMutex       // 保护 documents/avgDL/idf 的并发读写
 }
 
 type bm25Doc struct {
@@ -78,7 +80,11 @@ func tokenize(text string) []string {
 }
 
 // AddDocument 向 BM25 索引添加文档
+// 注意：每次调用都会重算 avgDL 和 IDF，批量插入时请用 AddDocuments 以避免 O(N²)
 func (idx *BM25Index) AddDocument(id string, text string) {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
 	tokens := tokenize(text)
 	tf := make(map[string]int)
 	for _, t := range tokens {
@@ -101,6 +107,151 @@ func (idx *BM25Index) AddDocument(id string, text string) {
 
 	// 重新计算 IDF
 	idx.recomputeIDF()
+}
+
+// BM25DocInput 批量添加文档的输入参数
+type BM25DocInput struct {
+	ID   string
+	Text string
+}
+
+// AddDocuments 批量添加文档，仅在末尾单次重算 avgDL 和 IDF，避免 O(N²)
+// 线程安全：内部加写锁，与 AddDocument 一致
+func (idx *BM25Index) AddDocuments(docs []BM25DocInput) {
+	if len(docs) == 0 {
+		return
+	}
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	// 逐个分词并追加，期间不重算 IDF
+	for _, d := range docs {
+		tokens := tokenize(d.Text)
+		tf := make(map[string]int, len(tokens))
+		for _, t := range tokens {
+			tf[t]++
+		}
+		idx.documents = append(idx.documents, bm25Doc{
+			id:     d.ID,
+			tokens: tokens,
+			tf:     tf,
+			dl:     len(tokens),
+		})
+	}
+
+	// 单次重算 avgDL
+	var totalDL int
+	for _, d := range idx.documents {
+		totalDL += d.dl
+	}
+	idx.avgDL = float64(totalDL) / float64(len(idx.documents))
+
+	// 单次重算 IDF
+	idx.recomputeIDF()
+}
+
+// RemoveByPrefix 按文档 id 前缀批量删除文档（用于 DeleteDocument/DeleteCollection 同步清理 BM25）
+// 安全说明：BM25 的文档 id 不带 collection 前缀，调用方需确保 prefix 在 BM25 中只匹配目标 collection 的文档
+func (idx *BM25Index) RemoveByPrefix(prefix string) int {
+	if prefix == "" {
+		return 0
+	}
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+	if len(idx.documents) == 0 {
+		return 0
+	}
+	kept := idx.documents[:0] // 原地复用底层数组
+	removed := 0
+	for _, d := range idx.documents {
+		if strings.HasPrefix(d.id, prefix) {
+			removed++
+			continue
+		}
+		kept = append(kept, d)
+	}
+	idx.documents = kept
+	if removed > 0 {
+		// 重新计算 avgDL 和 IDF
+		if len(idx.documents) > 0 {
+			var totalDL int
+			for _, d := range idx.documents {
+				totalDL += d.dl
+			}
+			idx.avgDL = float64(totalDL) / float64(len(idx.documents))
+		} else {
+			idx.avgDL = 0
+		}
+		idx.recomputeIDF()
+	}
+	return removed
+}
+
+// RemoveDocument 按 id 精确删除单个文档（用于 DeleteDocument 同步清理 BM25）
+func (idx *BM25Index) RemoveDocument(id string) bool {
+	if id == "" {
+		return false
+	}
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+	if len(idx.documents) == 0 {
+		return false
+	}
+	for i, d := range idx.documents {
+		if d.id == id {
+			// 删除第 i 个元素
+			idx.documents = append(idx.documents[:i], idx.documents[i+1:]...)
+			// 重新计算 avgDL 和 IDF
+			if len(idx.documents) > 0 {
+				var totalDL int
+				for _, dd := range idx.documents {
+					totalDL += dd.dl
+				}
+				idx.avgDL = float64(totalDL) / float64(len(idx.documents))
+			} else {
+				idx.avgDL = 0
+			}
+			idx.recomputeIDF()
+			return true
+		}
+	}
+	return false
+}
+
+// RemoveDocuments 按 id 集合批量删除文档（用于 DeleteCollection 一次性清理 BM25）
+// 一次性重算 avgDL 和 IDF，避免逐个删除时重复计算
+func (idx *BM25Index) RemoveDocuments(idSet map[string]bool) int {
+	if len(idSet) == 0 {
+		return 0
+	}
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+	if len(idx.documents) == 0 {
+		return 0
+	}
+	kept := idx.documents[:0] // 原地复用底层数组
+	removed := 0
+	for _, d := range idx.documents {
+		if idSet[d.id] {
+			removed++
+			continue
+		}
+		kept = append(kept, d)
+	}
+	idx.documents = kept
+	if removed > 0 {
+		if len(idx.documents) > 0 {
+			var totalDL int
+			for _, d := range idx.documents {
+				totalDL += d.dl
+			}
+			idx.avgDL = float64(totalDL) / float64(len(idx.documents))
+		} else {
+			idx.avgDL = 0
+		}
+		idx.recomputeIDF()
+	}
+	return removed
 }
 
 // recomputeIDF 重新计算所有词的 IDF
@@ -129,6 +280,8 @@ func (idx *BM25Index) Search(query string, topK int) []BM25Result {
 	if topK <= 0 {
 		topK = 10
 	}
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
 	if len(idx.documents) == 0 {
 		return nil
 	}
@@ -197,8 +350,8 @@ func (vs *VectorStore) HybridSearch(collection string, query []float64, queryTex
 	// 1. 向量检索
 	vectorResults, vecErr := vs.SearchWithThreshold(collection, query, topK*2, minScore)
 
-	// 2. BM25 检索
-	bm25Results := vs.bm25Index.Search(queryText, topK*2)
+	// 2. BM25 检索（按 collection 隔离，每个 collection 拥有独立索引）
+	bm25Results := vs.getOrCreateBM25(collection).Search(queryText, topK*2)
 
 	// 2.1 BM25 相对阈值过滤：只保留得分 >= 最高得分 10% 的结果
 	if len(bm25Results) > 0 {
@@ -230,17 +383,24 @@ func (vs *VectorStore) HybridSearch(collection string, query []float64, queryTex
 	}
 
 	// BM25 检索排名
+	// 收集所有需要从 Badger 加载的 ID（BM25 找到但向量结果中不存在的），稍后批量加载
+	var idsToLoad []string
 	for i, r := range bm25Results {
 		scores[r.ID] += 1.0 / (rrfK + float64(i+1))
 		bm25Scores[r.ID] = r.Score
-		// 如果 BM25 找到的文档不在向量结果中，需要从 Badger 加载 chunk 内容
 		if _, ok := chunkContents[r.ID]; !ok {
-			if content, err := vs.loadChunkContent(collection, r.ID); err == nil {
-				chunkContents[r.ID] = content
-			}
-			if meta, err := vs.loadChunkMeta(collection, r.ID); err == nil {
-				metadatas[r.ID] = meta
-			}
+			idsToLoad = append(idsToLoad, r.ID)
+		}
+	}
+	// 批量加载 chunk 内容和元数据，替代 N 次 loadChunkContent/loadChunkMeta 调用
+	// 生活类比：与其每借一本书就跑一趟柜台（N 次事务），不如列好清单一次性借回（单事务）
+	if len(idsToLoad) > 0 {
+		loadedContents, loadedMetas, _ := vs.loadChunksBatch(collection, idsToLoad)
+		for id, content := range loadedContents {
+			chunkContents[id] = content
+		}
+		for id, meta := range loadedMetas {
+			metadatas[id] = meta
 		}
 	}
 

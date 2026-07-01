@@ -3,6 +3,14 @@
 <head>
     <meta charset="UTF-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <!--
+        CSP 策略说明（L-10 评估）：
+        connect-src 允许 http://127.0.0.1:* 任意端口，是本地桌面应用架构所需——
+        llama.cpp 服务端口由用户配置（默认 8080），无法预先固定。
+        风险评估：限制为 127.0.0.1 仅本机，恶意进程需已在本机运行才能利用，
+        且 Wails 架构下动态注入 CSP（启动时写入实际端口）复杂度高，
+        当前风险可接受。如未来需加固，可在 Wails 启动时通过 runtime 注入实际端口。
+    -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://127.0.0.1:* https://api.tavily.com https://api.github.com;"/>
     <title>Douya - AI Assistant</title>
     <link rel="icon" type="image/png" href="/src/assets/images/appicon.png"/>

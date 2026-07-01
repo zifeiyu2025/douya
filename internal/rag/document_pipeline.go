@@ -53,6 +53,18 @@ type IngestResult struct {
 
 const embedBatchSize = 32
 
+// maxChunksPerDocument 限制单文档切分后的最大 chunk 数，避免因超大文档
+// 一次性产生过多 chunk 导致内存暴涨或写入耗时过长（任务 33）。
+const maxChunksPerDocument = 10000
+
+// chunkWriteFailureThreshold 是 chunk 写入失败比例的容忍上限。
+// 超过该阈值时 IngestDocumentWithMeta 会回滚已写入的数据并返回错误（任务 5）。
+const chunkWriteFailureThreshold = 0.1
+
+// chunkWriteErrorHook 仅供测试使用：若非 nil，则在每个 chunk 写入前调用，
+// 返回 error 时该 chunk 视为写入失败。生产环境为 nil，零开销。
+var chunkWriteErrorHook func(collection, id string) error
+
 // ChunkDocument 使用递归字符分块策略将文本拆分为块。
 // 策略：按分隔符优先级递归切分 —— 先用高级分隔符(段落)切分，
 // 超过 chunkSize 的块再用低级分隔符(句子)继续切分，依此类推。
@@ -189,6 +201,17 @@ func IngestDocumentWithMeta(ctx context.Context, vs *VectorStore, ds *DocumentSt
 		return nil, fmt.Errorf("no chunks produced from document")
 	}
 
+	// 任务 33：单文档 chunk 数量上限保护，避免超大文档导致内存暴涨或写入耗时过长
+	if len(chunks) > maxChunksPerDocument {
+		log.Warn().
+			Str("collection", collectionName).
+			Str("docID", docID).
+			Int("chunks", len(chunks)).
+			Int("limit", maxChunksPerDocument).
+			Msg("[rag] document exceeds max chunks limit, rejecting ingestion")
+		return nil, fmt.Errorf("document produced %d chunks, exceeds max limit %d", len(chunks), maxChunksPerDocument)
+	}
+
 	for i := range chunks {
 		if chunks[i].Metadata == nil {
 			chunks[i].Metadata = make(map[string]string)
@@ -241,31 +264,94 @@ func IngestDocumentWithMeta(ctx context.Context, vs *VectorStore, ds *DocumentSt
 		ids[i] = fmt.Sprintf("%s_%06d", docID, i)
 	}
 
-	err = vs.AddVectors(collectionName, ids, allVectors)
-	if err != nil {
-		return nil, fmt.Errorf("add vectors failed: %w", err)
-	}
+	// 任务 13：整个文档摄入纳入单次 collectionLock 保护，避免与并发 DeleteDocument
+	// 产生孤立数据（向量已写但 chunk 文本未写，或反之）。
+	// 锁内调用 addVectorsCore（不加锁版本）避免重复加锁导致死锁。
+	mu := vs.collectionLock(collectionName)
+	mu.Lock()
+	defer mu.Unlock()
 
-	for i, id := range ids {
-		key := chunkKey(collectionName, id)
-		err = vs.db.Update(func(txn *badger.Txn) error {
-			return txn.Set(key, []byte(texts[i]))
-		})
-		if err != nil {
-			log.Warn().Err(err).Str("id", id).Msg("[rag] failed to store chunk text")
-		}
-		if len(chunks[i].Metadata) > 0 {
-			metaData, jsonErr := json.Marshal(chunks[i].Metadata)
-			if jsonErr == nil {
-				metaKey := chunkMetaKey(collectionName, id)
-				metaErr := vs.db.Update(func(txn *badger.Txn) error {
-					return txn.Set(metaKey, metaData)
-				})
-				if metaErr != nil {
-					log.Warn().Err(metaErr).Str("id", id).Msg("[rag] failed to store chunk meta")
+	// 任务 1：先写 chunk 文本+元数据（单事务批量写入，解决 N+1 事务问题），
+	// 再调用 addVectorsCore。这样 addVectorsCore 内部的 BM25 更新能通过 chunkKey
+	// 正确读取已写入的 chunk 文本，修复了原来顺序依赖导致的 BM25 索引为空的问题。
+	writtenIDs := make([]string, 0, len(ids))
+	writeErr := vs.db.Update(func(txn *badger.Txn) error {
+		for i, id := range ids {
+			// 任务 5：测试钩子，用于注入 chunk 写入失败场景
+			if chunkWriteErrorHook != nil {
+				if hookErr := chunkWriteErrorHook(collectionName, id); hookErr != nil {
+					log.Warn().Err(hookErr).Str("id", id).Msg("[rag] chunk write skipped by hook")
+					continue
 				}
 			}
+			key := chunkKey(collectionName, id)
+			if setErr := txn.Set(key, []byte(texts[i])); setErr != nil {
+				log.Warn().Err(setErr).Str("id", id).Msg("[rag] failed to store chunk text")
+				continue
+			}
+			if len(chunks[i].Metadata) > 0 {
+				metaData, jsonErr := json.Marshal(chunks[i].Metadata)
+				if jsonErr == nil {
+					metaKey := chunkMetaKey(collectionName, id)
+					if metaSetErr := txn.Set(metaKey, metaData); metaSetErr != nil {
+						log.Warn().Err(metaSetErr).Str("id", id).Msg("[rag] failed to store chunk meta")
+					}
+				}
+			}
+			writtenIDs = append(writtenIDs, id)
 		}
+		return nil
+	})
+	if writeErr != nil {
+		// 单事务整体失败（非逐条 continue），直接返回错误，无需回滚（事务原子失败）
+		return nil, fmt.Errorf("batch write chunks failed: %w", writeErr)
+	}
+
+	// 任务 5：检查 chunk 写入失败比例，超阈值则回滚已写入数据并返回错误
+	failedCount := len(ids) - len(writtenIDs)
+	if len(ids) > 0 && float64(failedCount)/float64(len(ids)) > chunkWriteFailureThreshold {
+		log.Warn().
+			Str("collection", collectionName).
+			Str("docID", docID).
+			Int("total", len(ids)).
+			Int("failed", failedCount).
+			Float64("ratio", float64(failedCount)/float64(len(ids))).
+			Msg("[rag] chunk write failure ratio exceeds threshold, rolling back")
+		_ = vs.db.Update(func(txn *badger.Txn) error {
+			for _, id := range writtenIDs {
+				_ = txn.Delete(chunkKey(collectionName, id))
+				_ = txn.Delete(chunkMetaKey(collectionName, id))
+			}
+			return nil
+		})
+		return nil, fmt.Errorf("chunk write failure ratio %.2f exceeds threshold %.2f (%d/%d failed)",
+			float64(failedCount)/float64(len(ids)), chunkWriteFailureThreshold, failedCount, len(ids))
+	}
+
+	// 只对成功写入 chunk 文本的 id 写入向量，保持向量与文本的一致性
+	vecByID := make(map[string][]float64, len(ids))
+	for i, id := range ids {
+		vecByID[id] = allVectors[i]
+	}
+	writtenVectors := make([][]float64, len(writtenIDs))
+	for i, id := range writtenIDs {
+		writtenVectors[i] = vecByID[id]
+	}
+
+	// 任务 1：chunk 文本已写入，现在调用 addVectorsCore（不加锁版本，外层已持锁）
+	// addVectorsCore 内部的 BM25 更新会通过 chunkKey 读取已写入的 chunk 文本，顺序正确。
+	err = vs.addVectorsCore(collectionName, writtenIDs, writtenVectors)
+	if err != nil {
+		// 向量写入失败，回滚已写的 chunk 文本+元数据，避免孤立数据
+		log.Warn().Err(err).Msg("[rag] addVectorsCore failed, rolling back chunk writes")
+		_ = vs.db.Update(func(txn *badger.Txn) error {
+			for _, id := range writtenIDs {
+				_ = txn.Delete(chunkKey(collectionName, id))
+				_ = txn.Delete(chunkMetaKey(collectionName, id))
+			}
+			return nil
+		})
+		return nil, fmt.Errorf("add vectors failed: %w", err)
 	}
 
 	if ds != nil {
@@ -287,7 +373,7 @@ func IngestDocumentWithMeta(ctx context.Context, vs *VectorStore, ds *DocumentSt
 		CollectionName: collectionName,
 		DocumentID:     docID,
 		TotalChunks:    len(chunks),
-		StoredChunks:   len(allVectors),
+		StoredChunks:   len(writtenIDs),
 	}
 
 	log.Info().

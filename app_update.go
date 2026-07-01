@@ -66,7 +66,11 @@ func (a *App) CheckUpdate() (*UpdateInfo, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		// L-14：检查 ReadAll 错误，失败时用占位符避免显示空字符串造成误解
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		if err != nil {
+			body = []byte("<unreadable>")
+		}
 		return nil, fmt.Errorf("GitHub API 返回状态码 %d: %s", resp.StatusCode, string(body))
 	}
 

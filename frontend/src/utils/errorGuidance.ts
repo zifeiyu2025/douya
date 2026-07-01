@@ -15,6 +15,102 @@ interface ErrorPattern {
   guidance: ErrorGuidance
 }
 
+/**
+ * 统一错误码 → 前端指引的映射表
+ * 与后端 internal/chat/errorcodes.go 中的常量保持一致。
+ * 后端 enhanceErrorWithHint 会在提示信息前加 "[ERR_CODE]" 前缀，
+ * 前端优先通过该前缀精确匹配，避免字符串匹配的不一致问题。
+ *
+ * 生活类比：像快递单号查询，凭单号（错误码）能直接定位到对应的处理流程，
+ * 不需要再根据包裹外观（错误文本）猜测分类。
+ */
+const errCodeGuidanceMap: Record<string, ErrorGuidance> = {
+  // 上下文长度超限
+  ERR_CTX_OVERFLOW: {
+    category: '上下文溢出',
+    title: '上下文长度超限',
+    description: '对话内容或附件超过了模型的上下文窗口大小。',
+    suggestions: [
+      '在设置中增大上下文窗口大小（context_size）',
+      '减少对话历史或开启上下文移位',
+      '缩短上传的文件内容',
+      '减少附件数量',
+    ],
+  },
+  // 运行时 DLL 文件缺失
+  ERR_DLL_MISSING: {
+    category: 'DLL缺失',
+    title: '运行时 DLL 文件缺失',
+    description: 'llama-server 引擎依赖的 DLL 文件缺失，无法正常启动。',
+    suggestions: [
+      '检查 runtime/ 目录是否包含所有必要的 DLL 文件',
+      '核心 DLL 包括：llama.dll、ggml.dll、ggml-base.dll、ggml-cpu.dll 等',
+      '如果使用 NVIDIA GPU，还需 CUDA 运行时 DLL：cudart64_13.dll、cublas64_13.dll、cublasLt64_13.dll',
+      '重新下载或解压完整的 runtime 压缩包',
+    ],
+  },
+  // 引擎程序文件缺失
+  ERR_ENGINE_MISSING: {
+    category: '引擎缺失',
+    title: '引擎程序文件缺失',
+    description: 'llama-server.exe 引擎程序文件不存在，无法启动推理服务。',
+    suggestions: [
+      '检查 runtime/ 目录下是否存在 llama-server.exe',
+      '在设置中检查 llama_server_path 配置路径是否正确',
+      '重新下载或解压完整的 runtime 压缩包',
+    ],
+  },
+  // 模型文件未找到
+  ERR_MODEL_MISSING: {
+    category: '模型缺失',
+    title: '未找到模型文件',
+    description: 'models/ 目录下没有找到任何 GGUF 模型文件。',
+    suggestions: [
+      '将 GGUF 模型文件放入 models/ 目录',
+      '确认模型文件扩展名为 .gguf',
+      '从 Hugging Face 或 ModelScope 下载模型文件',
+    ],
+  },
+  // 显存/内存不足
+  ERR_OOM: {
+    category: '显存/内存不足',
+    title: '显存或内存不足',
+    description: '模型加载需要的显存或内存超过了系统可用资源。',
+    suggestions: [
+      '在设置中降低 GPU 层数（n-gpu-layers）',
+      '使用更小量化的模型版本（如 Q4_0 代替 Q8_0）',
+      '关闭其他占用 GPU/内存的程序',
+      '减小上下文窗口大小（context_size）',
+    ],
+  },
+  // 服务反复崩溃，已停止自动重启
+  ERR_PERMANENT_FAILURE: {
+    category: '永久失败',
+    title: '服务器反复崩溃，已停止自动重启',
+    description: 'llama-server 连续多次启动失败，系统已停止自动重试以避免资源浪费。',
+    suggestions: [
+      '检查模型文件是否完整、量化类型是否受支持',
+      '降低 GPU 层数、上下文大小等参数后重试',
+      '查看日志获取每次崩溃的具体原因',
+      '重启豆芽应用以重置失败计数',
+    ],
+  },
+  // 请求超时
+  ERR_TIMEOUT: {
+    category: '请求超时',
+    title: '请求超时',
+    description: '请求在规定时间内未收到响应，可能是网络问题或服务繁忙。',
+    suggestions: [
+      '检查网络连接是否正常',
+      '稍后重试',
+      '查看任务管理器中 llama-server 进程是否正常运行',
+    ],
+  },
+}
+
+// 匹配 "[ERR_CODE] 提示信息" 前缀的错误码
+const errCodePrefixPattern = /^\[([A-Z_]+)\]\s*/
+
 const errorPatterns: ErrorPattern[] = [
   {
     pattern: /DLL.*缺失|核心DLL|CUDA运行时DLL|dll not found|\.dll.*not found|specified module could not be found/i,
@@ -152,6 +248,20 @@ const errorPatterns: ErrorPattern[] = [
     },
   },
   {
+    pattern: /永久失败|permanent.*failure/i,
+    guidance: {
+      category: '永久失败',
+      title: '服务器反复崩溃，已停止自动重启',
+      description: 'llama-server 连续多次启动失败，系统已停止自动重试以避免资源浪费。',
+      suggestions: [
+        '检查模型文件是否完整、量化类型是否受支持',
+        '降低 GPU 层数、上下文大小等参数后重试',
+        '查看日志获取每次崩溃的具体原因',
+        '重启豆芽应用以重置失败计数',
+      ],
+    },
+  },
+  {
     pattern: /invalid.*model|corrupt|bad.*magic|unknown.*format/i,
     guidance: {
       category: '模型损坏',
@@ -168,9 +278,26 @@ const errorPatterns: ErrorPattern[] = [
 
 /**
  * 根据错误信息匹配错误分类和修复指引
+ *
+ * 匹配优先级：
+ * 1. 优先匹配 "[ERR_CODE]" 前缀（与后端 errorcodes.go 统一错误码精确对应）
+ * 2. 若无前缀，回退到原有的字符串匹配逻辑（保持向后兼容）
  */
 export function classifyError(errorMsg: string): ErrorGuidance | null {
   if (!errorMsg) return null
+
+  // 1. 优先匹配统一错误码前缀 [ERR_CODE]
+  const match = errCodePrefixPattern.exec(errorMsg)
+  if (match) {
+    const code = match[1]
+    const guidance = errCodeGuidanceMap[code]
+    if (guidance) {
+      return guidance
+   	}
+    // 未知错误码：继续走回退逻辑，避免漏分类
+  }
+
+  // 2. 回退到原有字符串匹配逻辑（向后兼容）
   for (const { pattern, guidance } of errorPatterns) {
     if (pattern.test(errorMsg)) {
       return guidance

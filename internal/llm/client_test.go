@@ -756,25 +756,137 @@ func TestApplyTemplate(t *testing.T) {
 			}
 
 			// 验证请求体包含 messages 字段
-			body := ms.LastBodyFor(http.MethodPost, "/apply-template")
-			if body == nil {
-				t.Fatal("期望收到请求体，但得到 nil")
-			}
-			var req map[string]interface{}
-			if err := json.Unmarshal(body, &req); err != nil {
-				t.Fatalf("解析请求体失败: %v", err)
-			}
-			msgs, ok := req["messages"]
-			if !ok {
-				t.Fatal("请求体中缺少 messages 字段")
-			}
-			msgsArr, ok := msgs.([]interface{})
-			if !ok {
-				t.Fatalf("messages 字段不是数组，实际类型 %T", msgs)
-			}
-			if len(msgsArr) != len(tt.messages) {
-				t.Fatalf("期望 messages 长度 %d，实际 %d", len(tt.messages), len(msgsArr))
-			}
+		body := ms.LastBodyFor(http.MethodPost, "/apply-template")
+		if body == nil {
+			t.Fatal("期望收到请求体，但得到 nil")
+		}
+		var req map[string]interface{}
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Fatalf("解析请求体失败: %v", err)
+		}
+		msgs, ok := req["messages"]
+		if !ok {
+			t.Fatal("请求体中缺少 messages 字段")
+		}
+		msgsArr, ok := msgs.([]interface{})
+		if !ok {
+			t.Fatalf("messages 字段不是数组，实际类型 %T", msgs)
+		}
+		if len(msgsArr) != len(tt.messages) {
+			t.Fatalf("期望 messages 长度 %d，实际 %d", len(tt.messages), len(msgsArr))
+		}
 		})
+	}
+}
+
+// TestGetModelInfoByNameNotFound 测试 GetModelInfoByName 在 /v1/models 列表中找不到指定模型时返回明确错误
+// 验证：当请求的 modelName 不在列表中时，应返回 "model ... not found" 错误，而非误用第一个模型
+func TestGetModelInfoByNameNotFound(t *testing.T) {
+	// 构造一个包含两个模型的 /v1/models 响应，请求一个不存在的模型名
+	ms, client := newMockServerBuilder().
+		WithHandler(http.MethodGet, "/v1/models", func(r *http.Request) (interface{}, int) {
+			return map[string]interface{}{
+				"data": []map[string]interface{}{
+					{"id": "model-a", "capabilities": []string{}},
+					{"id": "model-b", "capabilities": []string{}},
+				},
+			}, http.StatusOK
+		}).
+		// 直接端点 /v1/models/<name> 返回 404，强制走全量列表路径
+		WithHandler(http.MethodGet, "/v1/models/nonexistent", func(r *http.Request) (interface{}, int) {
+			return map[string]string{"error": "not found"}, http.StatusNotFound
+		}).
+		Build(t)
+	defer ms.Close()
+
+	info, err := client.GetModelInfoByName(context.Background(), "nonexistent")
+	if err == nil {
+		t.Fatalf("期望返回错误（模型未找到），但得到 nil，info=%+v", info)
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("期望错误信息包含 \"not found\"，实际为 %v", err)
+	}
+	if info != nil {
+		t.Fatalf("期望 info 为 nil，实际为 %+v", info)
+	}
+}
+
+// TestGetModelInfoByNameFound 测试 GetModelInfoByName 在 /v1/models 列表中找到指定模型时正常返回
+func TestGetModelInfoByNameFound(t *testing.T) {
+	ms, client := newMockServerBuilder().
+		WithHandler(http.MethodGet, "/v1/models", func(r *http.Request) (interface{}, int) {
+			return map[string]interface{}{
+				"data": []map[string]interface{}{
+					{"id": "model-a", "capabilities": []string{}},
+					{"id": "model-b", "capabilities": []string{"tools"}},
+				},
+			}, http.StatusOK
+		}).
+		WithHandler(http.MethodGet, "/v1/models/model-b", func(r *http.Request) (interface{}, int) {
+			return map[string]string{"error": "not found"}, http.StatusNotFound
+		}).
+		Build(t)
+	defer ms.Close()
+
+	info, err := client.GetModelInfoByName(context.Background(), "model-b")
+	if err != nil {
+		t.Fatalf("不期望错误，但得到: %v", err)
+	}
+	if info == nil || info.Name != "model-b" {
+		t.Fatalf("期望 info.Name=model-b，实际为 %+v", info)
+	}
+}
+
+// TestGetModelInfoByNameUnauthorized 测试直接端点返回 401 时直接报错而非降级
+// 验证：权限错误应立即返回，不再请求 /v1/models 列表
+func TestGetModelInfoByNameUnauthorized(t *testing.T) {
+	modelsCalled := false
+	ms, client := newMockServerBuilder().
+		WithHandler(http.MethodGet, "/v1/models", func(r *http.Request) (interface{}, int) {
+			modelsCalled = true
+			return map[string]interface{}{"data": []map[string]interface{}{}}, http.StatusOK
+		}).
+		WithHandler(http.MethodGet, "/v1/models/secret-model", func(r *http.Request) (interface{}, int) {
+			return map[string]string{"error": "unauthorized"}, http.StatusUnauthorized
+		}).
+		Build(t)
+	defer ms.Close()
+
+	info, err := client.GetModelInfoByName(context.Background(), "secret-model")
+	if err == nil {
+		t.Fatalf("期望返回 401 错误，但得到 nil，info=%+v", info)
+	}
+	if !strings.Contains(err.Error(), "401") {
+		t.Fatalf("期望错误信息包含 401，实际为 %v", err)
+	}
+	if modelsCalled {
+		t.Errorf("401 应直接返回，不应降级请求 /v1/models 列表")
+	}
+}
+
+// TestGetModelInfoByNameForbidden 测试直接端点返回 403 时直接报错而非降级
+// 验证：权限错误应立即返回，不再请求 /v1/models 列表
+func TestGetModelInfoByNameForbidden(t *testing.T) {
+	modelsCalled := false
+	ms, client := newMockServerBuilder().
+		WithHandler(http.MethodGet, "/v1/models", func(r *http.Request) (interface{}, int) {
+			modelsCalled = true
+			return map[string]interface{}{"data": []map[string]interface{}{}}, http.StatusOK
+		}).
+		WithHandler(http.MethodGet, "/v1/models/forbidden-model", func(r *http.Request) (interface{}, int) {
+			return map[string]string{"error": "forbidden"}, http.StatusForbidden
+		}).
+		Build(t)
+	defer ms.Close()
+
+	info, err := client.GetModelInfoByName(context.Background(), "forbidden-model")
+	if err == nil {
+		t.Fatalf("期望返回 403 错误，但得到 nil，info=%+v", info)
+	}
+	if !strings.Contains(err.Error(), "403") {
+		t.Fatalf("期望错误信息包含 403，实际为 %v", err)
+	}
+	if modelsCalled {
+		t.Errorf("403 应直接返回，不应降级请求 /v1/models 列表")
 	}
 }

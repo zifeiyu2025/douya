@@ -14,8 +14,8 @@
     </div>
     <div v-if="expanded" class="search-results-content">
       <a
-        v-for="(item, idx) in resultItems"
-        :key="idx"
+        v-for="item in resultItems"
+        :key="item.url"
         :href="safeUrl(item.url)"
         :target="isSafeUrl(item.url) ? '_blank' : undefined"
         :rel="isSafeUrl(item.url) ? 'noopener noreferrer' : undefined"

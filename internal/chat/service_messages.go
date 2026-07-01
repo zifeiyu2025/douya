@@ -260,6 +260,11 @@ func applyDynamicSystemPrompt(base, searchMode string, caps llm.ModelCapabilitie
 	}
 	systemContent := base + fmt.Sprintf("\n\n当前时间: %s %s", now.Format("2006-01-02 15:04:05"), weekday)
 
+	// 联网搜索关闭时，强化时效性诚实原则
+	if searchMode == "off" {
+		systemContent += "\n\n## 时效性原则\n当前联网搜索已关闭，你无法获取任何实时信息。对于时效性问题（如最新新闻、实时数据、近期事件、当前状态等）：\n- 如实说明你的知识有截止日期，无法确认最新状态\n- 不要编造、猜测或预测可能已发生变化的信息\n- 建议用户开启联网搜索以获取最新信息"
+	}
+
 	// 搜索工具说明（仅强模型路径：支持工具调用时才告知模型可使用 search 工具）
 	if (searchMode == "auto" || searchMode == "on") && caps.ToolCallSupport {
 		if searchMode == "auto" {
@@ -685,7 +690,9 @@ func (s *Service) buildHistoryFromDB(dbMsgs []*store.Message, currentUserContent
 				Content:    m.Content,
 				ToolCallID: m.ToolCallID,
 			}
-			history = append([]llm.ChatMessage{msg}, history...)
+			// 修复（M-后7）：原 append([]{msg}, history...) 前插每次都拷贝整段 history，O(N²)。
+			// 改为顺序追加（O(1)），循环结束后统一 reverse。
+			history = append(history, msg)
 			continue
 		}
 
@@ -697,7 +704,7 @@ func (s *Service) buildHistoryFromDB(dbMsgs []*store.Message, currentUserContent
 					Content:   m.Content,
 					ToolCalls: toolCalls,
 				}
-				history = append([]llm.ChatMessage{msg}, history...)
+				history = append(history, msg)
 				continue
 			}
 		}
@@ -763,7 +770,12 @@ func (s *Service) buildHistoryFromDB(dbMsgs []*store.Message, currentUserContent
 		} else {
 			msg = llm.NewTextMessage(m.Role, content)
 		}
-		history = append([]llm.ChatMessage{msg}, history...)
+		history = append(history, msg)
+	}
+
+	// 反转 history 使其按时间正序排列（循环是从新到旧追加，需要翻转）
+	for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
+		history[i], history[j] = history[j], history[i]
 	}
 
 	return history, trimmedMsgs

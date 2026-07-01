@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -184,6 +185,7 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		ReasoningBudget:          cfg.ReasoningBudget,
 		ReasoningFormat:          reasoningFormat,
 		ReasoningBudgetMessage:   cfg.ReasoningBudgetMessage,
+		ReasoningPreserve:        cfg.ReasoningPreserve,
 		APIBase:                  cfg.APIBase,
 		AppDir:                   appDir(),
 		ModelsPreset:             presetPath,
@@ -232,6 +234,7 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		Embedding:                true,   // 启用 embedding API（RAG 知识库需要）
 		Pooling:                  "mean", // 聊天模型 pooling=none 不兼容 OAI embedding API
 		ExposeServer:             cfg.ExposeServer,
+		ServerAPIKeyEnabled:      cfg.ServerAPIKeyEnabled,
 		SwaFull:                  cfg.SwaFull,
 		CtxCheckpoints:           cfg.CtxCheckpoints,
 		CheckpointMinStep:        cfg.CheckpointMinStep,
@@ -243,6 +246,7 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		SimpleIO:                 cfg.SimpleIO,
 		BatchSize:                batchSize,
 		UBatchSize:               ubatchSize,
+		ThreadsHTTP:              cfg.ThreadsHTTP,
 		ContextSize:              contextSize,
 		SlotSavePath:             cfg.SlotSavePath,
 		SlotSaveEnabled:          cfg.SlotSaveEnabled,
@@ -265,6 +269,10 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		SsePingInterval:          cfg.SsePingInterval,
 		LoraPaths:                cfg.LoraPaths,
 		RerankerModelPath:        cfg.RerankerModelPath,
+		DirectIO:                 cfg.DirectIO,
+		CPUMoe:                   cfg.CPUMoe,
+		NCpuMoe:                  cfg.NCpuMoe,
+		OpOffload:                cfg.OpOffload,
 	}
 
 	if cfg.CacheTypeK != "" {
@@ -339,6 +347,12 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 	if err := srv.Start(); err != nil {
 		zlog.Error().Err(err).Msg("start llama-server failed")
 		a.emitErrorStatus(ctx, fmt.Sprintf("启动 llama-server 失败: %v", err))
+		// 配置类错误（如局域网暴露未配置 API Key）弹出对话框，确保用户立即感知
+		runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+			Type:    runtime.ErrorDialog,
+			Title:   "启动失败",
+			Message: fmt.Sprintf("启动 llama-server 失败: %v", err),
+		})
 		return
 	}
 
@@ -444,18 +458,29 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 				} else {
 					// 重试也失败或不适用，启动后台 goroutine 继续等待
 					zlog.Warn().Err(err).Str("model", modelForDetect).Msg("[server] auto-load default model timed out, continuing to wait in background")
-					go func() {
+					// bgCtx 派生自 rootCtx，确保 shutdownInternal 调用 rootCancel 时
+					// 能立即终止后台等待 goroutine，避免 g.Wait() 等待过长。
+					// 纳入 trackedGo 跟踪：shutdown 时 g.Wait() 会等待本 goroutine 退出。
+					bgParent := a.rootCtx
+					if bgParent == nil {
+						bgParent = ctx
+					}
+					bgCtx, bgCancel := context.WithCancel(bgParent)
+					a.trackedGo(func() {
+						defer bgCancel()
 						defer func() {
 							if r := recover(); r != nil {
 								zlog.Error().Interface("panic", r).Str("model", modelForDetect).Msg("model load goroutine panic")
 							}
 						}()
 						// 后台继续等待，不设超时（依赖 WatchWithCallback 检测崩溃）
-						if bgErr := a.client.WaitForModelLoaded(ctx, modelForDetect, loadTimeoutMax, progressCallback); bgErr != nil {
+						// 使用 bgCtx（rootCtx 派生）而非 ctx，确保 shutdown 能取消等待；
+						// EventsEmit 仍用原始 ctx（Wails ctx），与 SSE goroutine 保持一致。
+						if bgErr := a.client.WaitForModelLoaded(bgCtx, modelForDetect, loadTimeoutMax, progressCallback); bgErr != nil {
 							zlog.Error().Err(bgErr).Str("model", modelForDetect).Msg("[server] auto-load default model background wait also failed")
 							// 修复：将 Running 改为 false，与 Error 字段保持语义一致
-						// 此前 Running: true 会导致前端 `!status.running && status.error` 条件失效，错误被静默丢弃
-						a.emitErrorStatus(ctx, fmt.Sprintf("默认模型加载失败: %v（可手动切换模型）", bgErr))
+							// 此前 Running: true 会导致前端 `!status.running && status.error` 条件失效，错误被静默丢弃
+							a.emitErrorStatus(ctx, fmt.Sprintf("默认模型加载失败: %v（可手动切换模型）", bgErr))
 						} else {
 							zlog.Info().Str("model", modelForDetect).Msg("[server] default model loaded and ready (background)")
 							a.serverReady.Store(true)
@@ -465,7 +490,7 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 							}
 							a.emitSwitchSuccess(modelForDetect)
 						}
-					}()
+					})
 				}
 			} else {
 				zlog.Info().Str("model", modelForDetect).Msg("[server] default model loaded and ready")
@@ -483,71 +508,74 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 	a.serverMu.Lock()
 	a.watchCancel = watchCancel
 	a.serverMu.Unlock()
-	go srv.WatchWithCallback(watchCtx, func(status llm.ServerStatus) {
-		// 启动/加载已彻底失败，不再让监控循环覆盖错误状态
-		if a.serverLoadFailed.Load() {
-			return
-		}
-		if a.isSwitching.Load() {
-			return
-		}
-		a.currentModelMu.RLock()
-		curModel := a.currentModelName
-		a.currentModelMu.RUnlock()
-		if status.Running {
-			var caps llm.ModelCapabilities
-			if a.service != nil {
-				caps = a.service.GetModelCapabilities()
-			} else {
-				caps = llm.ModelCapabilities{TextInput: true}
+	// watcher 是长生命周期 goroutine，纳入 trackedGo 跟踪；
+	// 依赖 watchCtx.Done() 退出，shutdownInternal 会通过 watchCancel 触发。
+	a.trackedGo(func() {
+		srv.WatchWithCallback(watchCtx, func(status llm.ServerStatus) {
+			// 启动/加载已彻底失败，不再让监控循环覆盖错误状态
+			if a.serverLoadFailed.Load() {
+				return
 			}
-			status.Capabilities = &caps
-			status.CurrentModel = curModel
-		} else {
-			a.serverReady.Store(false)
-		}
-		status.ModelReady = a.serverReady.Load()
-		runtime.EventsEmit(ctx, "server:status", status)
-	}, func() {
-		a.currentModelMu.RLock()
-		modelForDetect2 := a.currentModelName
-		a.currentModelMu.RUnlock()
-		if err := a.service.DetectModelArchitectureForModel(modelForDetect2); err != nil {
-			zlog.Error().Err(err).Msg("detect model architecture after restart failed")
-		}
-		// 重启后重新加载当前模型，加载完成后才设置 serverReady
-		if modelForDetect2 != "" && a.client != nil {
-			zlog.Info().Str("model", modelForDetect2).Msg("[server] reloading model after restart")
-			loadErr := a.client.LoadModel(ctx, modelForDetect2)
-			if loadErr != nil && !isAlreadyRunningError(loadErr) {
-				zlog.Error().Err(loadErr).Str("model", modelForDetect2).Msg("[server] reload model after restart failed")
-				a.emitErrorStatus(ctx, fmt.Sprintf("重启后模型加载失败: %v", loadErr))
-			} else {
-				if loadErr != nil {
-					zlog.Info().Str("model", modelForDetect2).Msg("[server] model is already running/loading after restart, waiting for loaded state")
-				}
-				if err := a.client.WaitForModelLoaded(ctx, modelForDetect2, 120*time.Second); err != nil {
-					zlog.Error().Err(err).Str("model", modelForDetect2).Msg("[server] reload model wait after restart failed")
-					a.emitErrorStatus(ctx, fmt.Sprintf("重启后模型加载超时: %v", err))
+			if a.isSwitching.Load() {
+				return
+			}
+			a.currentModelMu.RLock()
+			curModel := a.currentModelName
+			a.currentModelMu.RUnlock()
+			if status.Running {
+				var caps llm.ModelCapabilities
+				if a.service != nil {
+					caps = a.service.GetModelCapabilities()
 				} else {
-					zlog.Info().Str("model", modelForDetect2).Msg("[server] model reloaded and ready after restart")
-					a.serverReady.Store(true)
-					// 模型加载完成后重新检测架构，因为首次检测时 mmproj 可能尚未加载
-					if err := a.service.DetectModelArchitectureForModel(modelForDetect2); err != nil {
-						zlog.Warn().Err(err).Msg("[server] re-detect model architecture after restart load failed")
-					}
-					runtime.EventsEmit(ctx, "server:status", a.runningStatus())
+					caps = llm.ModelCapabilities{TextInput: true}
 				}
+				status.Capabilities = &caps
+				status.CurrentModel = curModel
+			} else {
+				a.serverReady.Store(false)
 			}
-		} else {
-			a.serverReady.Store(true)
-		}
+			status.ModelReady = a.serverReady.Load()
+			runtime.EventsEmit(ctx, "server:status", status)
+		}, func() {
+			a.currentModelMu.RLock()
+			modelForDetect2 := a.currentModelName
+			a.currentModelMu.RUnlock()
+			if err := a.service.DetectModelArchitectureForModel(modelForDetect2); err != nil {
+				zlog.Error().Err(err).Msg("detect model architecture after restart failed")
+			}
+			// 重启后重新加载当前模型，加载完成后才设置 serverReady
+			if modelForDetect2 != "" && a.client != nil {
+				zlog.Info().Str("model", modelForDetect2).Msg("[server] reloading model after restart")
+				loadErr := a.client.LoadModel(ctx, modelForDetect2)
+				if loadErr != nil && !isAlreadyRunningError(loadErr) {
+					zlog.Error().Err(loadErr).Str("model", modelForDetect2).Msg("[server] reload model after restart failed")
+					a.emitErrorStatus(ctx, fmt.Sprintf("重启后模型加载失败: %v", loadErr))
+				} else {
+					if loadErr != nil {
+						zlog.Info().Str("model", modelForDetect2).Msg("[server] model is already running/loading after restart, waiting for loaded state")
+					}
+					if err := a.client.WaitForModelLoaded(ctx, modelForDetect2, 120*time.Second); err != nil {
+						zlog.Error().Err(err).Str("model", modelForDetect2).Msg("[server] reload model wait after restart failed")
+						a.emitErrorStatus(ctx, fmt.Sprintf("重启后模型加载超时: %v", err))
+					} else {
+						zlog.Info().Str("model", modelForDetect2).Msg("[server] model reloaded and ready after restart")
+						a.serverReady.Store(true)
+						// 模型加载完成后重新检测架构，因为首次检测时 mmproj 可能尚未加载
+						if err := a.service.DetectModelArchitectureForModel(modelForDetect2); err != nil {
+							zlog.Warn().Err(err).Msg("[server] re-detect model architecture after restart load failed")
+						}
+						runtime.EventsEmit(ctx, "server:status", a.runningStatus())
+					}
+				}
+			} else {
+				a.serverReady.Store(true)
+			}
+		})
 	})
 
-	// 路由模式下子进程崩溃监控：主进程不会崩溃，但子进程可能崩溃
-	// 定期检查模型状态，如果发现模型从 loaded/sleeping 变为 unloaded/failed，自动重新加载
-	// 监控逻辑已抽出至 watchServerHealth() 方法以降低单函数复杂度
-	go a.watchServerHealth(ctx, watchCtx)
+	// health 监控是长生命周期 goroutine，纳入 trackedGo 跟踪；
+	// 依赖 watchCtx.Done() 退出，shutdownInternal 会通过 watchCancel 触发。
+	a.trackedGo(func() { a.watchServerHealth(ctx, watchCtx) })
 }
 
 // watchServerHealth 监控服务器健康状态，崩溃时自动重启。
@@ -566,92 +594,108 @@ func (a *App) watchServerHealth(ctx context.Context, watchCtx context.Context) {
 		case <-ticker.C:
 		}
 
-		// 启动/加载已彻底失败，停止健康监控，避免覆盖错误状态
-		if a.serverLoadFailed.Load() {
-			return
-		}
+		// 每次循环体用 recover 保护，避免单次 panic 永久终止健康监控或崩溃整个进程（M-4）
+		// 原 continue 改为 return（从闭包返回，等价于跳过本次循环）；
+		// 原 return（serverLoadFailed）通过 stop 标志传出闭包
+		stop := false
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					zlog.Warn().Interface("panic", r).Msg("[router-monitor] health check panic, will retry next tick")
+				}
+			}()
 
-		// 正在生成时跳过轮询，避免与生成请求争用 HTTP 连接池
-		if a.service != nil && a.service.IsGenerating() {
-			continue
-		}
-
-		// 不在切换中且 serverReady 为 true 时才检查
-		if a.isSwitching.Load() || !a.serverReady.Load() {
-			continue
-		}
-
-		a.currentModelMu.RLock()
-		modelName := a.currentModelName
-		a.currentModelMu.RUnlock()
-		if modelName == "" || a.client == nil {
-			continue
-		}
-
-		status, err := a.client.GetModelStatus(watchCtx, modelName)
-		if err != nil {
-			// 查询失败可能是暂时的网络问题，跳过
-			continue
-		}
-
-		switch status.Status {
-		case "loaded", "sleeping":
-			// 模型正常运行，重置崩溃计数
-			if consecutiveCrashes > 0 {
-				zlog.Info().Str("model", modelName).Msg("[router-monitor] model recovered, resetting crash count")
-				consecutiveCrashes = 0
-			}
-		case "unloaded", "failed":
-			consecutiveCrashes++
-			exitInfo := ""
-			if status.ExitCode != 0 {
-				exitInfo = fmt.Sprintf(" (exit_code=%d)", status.ExitCode)
-			}
-			zlog.Warn().
-				Str("model", modelName).
-				Str("status", status.Status).
-				Bool("failed", status.Failed).
-				Int("crash_count", consecutiveCrashes).
-				Msg("[router-monitor] model became unloaded/failed" + exitInfo)
-
-			// 获取 stderr 诊断信息
-			stderrHint := a.getServerStderrHint()
-			if stderrHint != "" {
-				zlog.Warn().Str("stderr_hint", stderrHint).Msg("[router-monitor] server stderr hint")
+			// 启动/加载已彻底失败，停止健康监控，避免覆盖错误状态
+			if a.serverLoadFailed.Load() {
+				stop = true
+				return
 			}
 
-			if consecutiveCrashes > maxConsecutiveCrashes {
-				zlog.Error().Str("model", modelName).Msg("[router-monitor] model keeps crashing, giving up auto-reload")
+			// 正在生成时跳过轮询，避免与生成请求争用 HTTP 连接池
+			if a.service != nil && a.service.IsGenerating() {
+				return
+			}
+
+			// 不在切换中且 serverReady 为 true 时才检查
+			if a.isSwitching.Load() || !a.serverReady.Load() {
+				return
+			}
+
+			a.currentModelMu.RLock()
+			modelName := a.currentModelName
+			a.currentModelMu.RUnlock()
+			if modelName == "" || a.client == nil {
+				return
+			}
+
+			status, err := a.client.GetModelStatus(watchCtx, modelName)
+			if err != nil {
+				// 查询失败可能是暂时的网络问题，跳过
+				return
+			}
+
+			switch status.Status {
+			case "loaded", "sleeping":
+				// 模型正常运行，重置崩溃计数
+				if consecutiveCrashes > 0 {
+					zlog.Info().Str("model", modelName).Msg("[router-monitor] model recovered, resetting crash count")
+					consecutiveCrashes = 0
+				}
+			case "unloaded", "failed":
+				consecutiveCrashes++
+				exitInfo := ""
+				if status.ExitCode != 0 {
+					exitInfo = fmt.Sprintf(" (exit_code=%d)", status.ExitCode)
+				}
+				zlog.Warn().
+					Str("model", modelName).
+					Str("status", status.Status).
+					Bool("failed", status.Failed).
+					Int("crash_count", consecutiveCrashes).
+					Msg("[router-monitor] model became unloaded/failed" + exitInfo)
+
+				// 获取 stderr 诊断信息
+				stderrHint := a.getServerStderrHint()
+				if stderrHint != "" {
+					zlog.Warn().Str("stderr_hint", stderrHint).Msg("[router-monitor] server stderr hint")
+				}
+
+				if consecutiveCrashes > maxConsecutiveCrashes {
+					zlog.Error().Str("model", modelName).Msg("[router-monitor] model keeps crashing, giving up auto-reload")
+					a.serverReady.Store(false)
+					a.emitErrorStatus(ctx, fmt.Sprintf("模型 %s 反复崩溃，请检查模型文件是否损坏或显存是否充足", modelName))
+					return
+				}
+
+				// 自动重新加载模型
+				zlog.Info().Str("model", modelName).Msg("[router-monitor] attempting to reload crashed model")
 				a.serverReady.Store(false)
-				a.emitErrorStatus(ctx, fmt.Sprintf("模型 %s 反复崩溃，请检查模型文件是否损坏或显存是否充足", modelName))
-				continue
-			}
+				runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+					Running:     false,
+					ModelReady:  false,
+					Switching:   true,
+					SwitchingTo: modelName,
+				})
 
-			// 自动重新加载模型
-			zlog.Info().Str("model", modelName).Msg("[router-monitor] attempting to reload crashed model")
-			a.serverReady.Store(false)
-			runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
-				Running:     false,
-				ModelReady:  false,
-				Switching:   true,
-				SwitchingTo: modelName,
-			})
+				loadErr := a.client.LoadModel(watchCtx, modelName)
+				if loadErr != nil && !isAlreadyRunningError(loadErr) {
+					zlog.Error().Err(loadErr).Str("model", modelName).Msg("[router-monitor] reload failed")
+					a.emitErrorStatus(ctx, fmt.Sprintf("模型重新加载失败: %v", loadErr))
+					return
+				}
 
-			loadErr := a.client.LoadModel(watchCtx, modelName)
-			if loadErr != nil && !isAlreadyRunningError(loadErr) {
-				zlog.Error().Err(loadErr).Str("model", modelName).Msg("[router-monitor] reload failed")
-				a.emitErrorStatus(ctx, fmt.Sprintf("模型重新加载失败: %v", loadErr))
-				continue
+				if err := a.client.WaitForModelLoaded(watchCtx, modelName, 120*time.Second); err != nil {
+					zlog.Error().Err(err).Str("model", modelName).Msg("[router-monitor] reload wait failed")
+					a.emitErrorStatus(ctx, fmt.Sprintf("模型重新加载超时: %v", err))
+				} else {
+					zlog.Info().Str("model", modelName).Msg("[router-monitor] model reloaded successfully")
+					a.serverReady.Store(true)
+					a.emitSwitchSuccess(modelName)
+				}
 			}
-
-			if err := a.client.WaitForModelLoaded(watchCtx, modelName, 120*time.Second); err != nil {
-				zlog.Error().Err(err).Str("model", modelName).Msg("[router-monitor] reload wait failed")
-				a.emitErrorStatus(ctx, fmt.Sprintf("模型重新加载超时: %v", err))
-			} else {
-				zlog.Info().Str("model", modelName).Msg("[router-monitor] model reloaded successfully")
-				a.serverReady.Store(true)
-				a.emitSwitchSuccess(modelName)
-			}
+		}()
+		if stop {
+			return
 		}
 	}
 }
@@ -739,17 +783,32 @@ var slotActionDesc = map[string]string{
 	"erase":   "删除",
 }
 
+// validSlotActions 是 operateSlot 允许的合法 action 白名单。
+// 生活类比：就像电梯按钮只认"上/下/停"三个指令，按别的键一律不响应，避免误触引发危险。
+var validSlotActions = map[string]bool{
+	"save":    true,
+	"restore": true,
+	"erase":   true,
+}
+
 // operateSlot 执行 slot 的 save/restore/erase 操作（v9744+ 新格式）。
 // 生活类比：就像文件夹的"另存为/打开/删除"三个按钮，背后都是调用同一个文件管理器，只是动作参数不同。
 func (a *App) operateSlot(slotID int, action string) error {
+	// 入口白名单校验：非法 action 一律拒绝，防止后续 URL 拼接被注入
+	if !validSlotActions[action] {
+		return fmt.Errorf("非法操作: %s，仅支持 save/restore/erase", action)
+	}
 	if a.client == nil {
 		return fmt.Errorf("客户端未初始化")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutMedium)
 	defer cancel()
 
-	url := fmt.Sprintf("%s/slots/%d?action=%s", a.client.BaseURL(), slotID, action)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+	// 使用 url.Values.Encode 对查询参数做转义，避免 action 含特殊字符造成 URL 参数注入
+	// （即便白名单已拦截非法值，转义仍是纵深防御，防止未来扩展 action 时遗漏）
+	query := url.Values{"action": {action}}.Encode()
+	reqURL := fmt.Sprintf("%s/slots/%d?%s", a.client.BaseURL(), slotID, query)
+	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, nil)
 	if err != nil {
 		return fmt.Errorf("创建%s slot 请求失败: %w", slotActionDesc[action], err)
 	}
@@ -987,9 +1046,23 @@ func (a *App) GetAvailableModels() ([]llm.ModelOption, error) {
 // 如果 SSE 连接失败，静默回退到轮询方式，不影响主流程
 // 返回一个 cancel 函数，调用方可提前终止 SSE 监听
 func (a *App) tryWatchModelLoadProgress(ctx context.Context, modelName string) context.CancelFunc {
-	sseCtx, sseCancel := context.WithCancel(ctx)
+	// sseCtx 派生自 rootCtx（回退到入参 ctx），确保 shutdownInternal 调用 rootCancel 时
+	// 能立即终止 SSE 监听 goroutine，避免 g.Wait() 等待过长。
+	sseParent := a.rootCtx
+	if sseParent == nil {
+		sseParent = ctx
+	}
+	sseCtx, sseCancel := context.WithCancel(sseParent)
 
-	go func() {
+	// SSE 监听是长生命周期 goroutine，纳入 trackedGo 跟踪。
+	// 保留原 inline recover 以输出 SSE 专属日志（trackedGo 的 recover 作为兜底）。
+	a.trackedGo(func() {
+		// L-2：SSE 监听 goroutine，panic 时静默回退到轮询（已有 err 处理路径）
+		defer func() {
+			if r := recover(); r != nil {
+				zlog.Debug().Interface("panic", r).Str("model", modelName).Msg("[sse] WatchModelLoadProgress panic, fallback to polling")
+			}
+		}()
 		defer sseCancel()
 
 		err := a.client.WatchModelLoadProgress(sseCtx, modelName, func(event llm.ModelLoadEvent) {
@@ -1005,7 +1078,7 @@ func (a *App) tryWatchModelLoadProgress(ctx context.Context, modelName string) c
 			// SSE 连接失败，静默回退到轮询方式
 			zlog.Debug().Err(err).Str("model", modelName).Msg("[sse] /models/sse unavailable, falling back to polling")
 		}
-	}()
+	})
 
 	return sseCancel
 }
@@ -1815,7 +1888,9 @@ func (a *App) handleSwitchFailure(modelName, previousModel, errMsg string) Switc
 	if previousModel != "" && previousModel != modelName {
 		zlog.Info().Str("model", previousModel).Msg("[router] attempting to restore model")
 		restoreCtx, restoreCancel := context.WithTimeout(a.ctx, apiTimeoutMedium)
-		if restoreErr := a.client.LoadModel(restoreCtx, previousModel); restoreErr == nil {
+		if restoreErr := a.client.LoadModel(restoreCtx, previousModel); restoreErr == nil || isAlreadyRunningError(restoreErr) {
+			// LoadModel 返回 "already running"/"already loaded" 时，旧模型实际仍在运行，
+			// 视为回滚成功，避免误报失败导致 UI 状态错误
 			_ = a.client.WaitForModelLoaded(restoreCtx, previousModel, apiTimeoutMedium)
 			a.currentModelMu.Lock()
 			a.currentModelName = previousModel

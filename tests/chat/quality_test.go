@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -202,9 +203,8 @@ func TestQuality_BasicScenarios(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			callCount := 0
 			var req llm.ChatCompletionRequest
-			body := make([]byte, 1024*1024)
-			n, _ := r.Body.Read(body)
-			json.Unmarshal(body[:n], &req)
+			body, _ := io.ReadAll(r.Body)
+			json.Unmarshal(body, &req)
 			callCount++
 
 			if callCount == 1 && len(req.Tools) > 0 {

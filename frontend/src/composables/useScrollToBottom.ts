@@ -1,10 +1,10 @@
 /**
  * 滚动到底部 composable
- * 主流方案：即时滚动 + 用户滚动检测 + 回到底部按钮
- *   - 流式期间用 behavior: 'auto'（即时滚动），非流式用 smooth
+ * 主流方案：增量滚动 + 用户滚动检测 + 回到底部按钮
+ *   - 流式期间增量滚动（scrollBy delta），每帧只滚增量部分，视觉匀速下移（对标千问）
  *   - 用户向上滚动超过阈值时停止自动滚动，显示"回到底部"按钮
  *   - 用户滚回底部时自动恢复自动滚动
- *   - RAF 批处理 + 100ms 节流防止过于频繁的滚动
+ *   - RAF 批处理防止过于频繁的滚动
  */
 import { ref, watch, onScopeDispose } from 'vue'
 
@@ -16,9 +16,6 @@ export function useScrollToBottom(threshold = 150) {
     let isProgrammaticScroll = false
     // RAF 批处理：一帧内多次内容变化只滚动一次
     let rafId: number | null = null
-    // 100ms 节流：防止过于频繁的滚动
-    let lastScrollTime = 0
-    let scrollTimer: ReturnType<typeof setTimeout> | null = null
     let observer: MutationObserver | null = null
     // 命名 scroll handler 引用，便于后续 removeEventListener 移除
     let scrollHandler: (() => void) | null = null
@@ -26,8 +23,6 @@ export function useScrollToBottom(threshold = 150) {
     let boundElement: HTMLElement | null = null
     // 增量滚动：记录上次滚动高度，只滚动差值部分
     let lastScrollHeight = 0
-    // 是否处于流式模式（内容持续增长）
-    let isStreamingMode = false
 
     function isNearBottom(): boolean {
         const el = containerRef.value
@@ -43,9 +38,14 @@ export function useScrollToBottom(threshold = 150) {
         // 即时滚动：scroll 事件在同步代码中触发，可在微任务中重置
         // smooth 滚动：动画持续期间需要保持标志，用 setTimeout 延迟重置
         if (behavior === 'smooth') {
+            // L-19：原硬编码 500ms，长内容 smooth 动画可能 >500ms，
+            // 标志提前重置期间用户滚动会被误判为"主动上滑"关闭自动滚动。
+            // 改为根据 scrollHeight 动态估算时长（每 1000px 约 100ms，上限 2000ms），
+            // 保留 500ms 下限兜底短内容场景。
+            const animEstimate = Math.min(Math.max(el.scrollHeight / 10, 500), 2000)
             setTimeout(() => {
                 isProgrammaticScroll = false
-            }, 500)
+            }, animEstimate)
         } else {
             // auto 滚动是同步的，下一帧重置即可
             requestAnimationFrame(() => {
@@ -56,7 +56,7 @@ export function useScrollToBottom(threshold = 150) {
 
     /**
      * 流式期间增量滚动：只滚动新增内容的高度差
-     * 比 scrollTo(scrollHeight) 更平滑，避免整页跳跃
+     * 比 scrollTo(scrollHeight) 更平滑，避免整页跳跃（对标千问丝滑下滑）
      */
     function scrollByDelta() {
         const el = containerRef.value
@@ -101,8 +101,8 @@ export function useScrollToBottom(threshold = 150) {
     }
 
     /**
-     * 调度滚动：RAF 批处理 + 100ms 节流
-     * 流式模式下使用增量滚动（scrollByDelta），非流式使用绝对滚动
+     * 调度滚动：RAF 批处理 + 增量滚动
+     * - 增量滚动（scrollBy delta）：每帧只滚新增高度，视觉匀速下移（对标千问）
      */
     function scheduleScroll() {
         if (!isAutoScrollEnabled.value) return
@@ -110,28 +110,7 @@ export function useScrollToBottom(threshold = 150) {
         if (rafId !== null) return
         rafId = requestAnimationFrame(() => {
             rafId = null
-            const now = Date.now()
-            const elapsed = now - lastScrollTime
-            if (elapsed >= 100) {
-                lastScrollTime = now
-                if (isStreamingMode) {
-                    scrollByDelta()
-                } else {
-                    scrollToBottom('auto')
-                }
-            } else if (scrollTimer === null) {
-                scrollTimer = setTimeout(() => {
-                    scrollTimer = null
-                    lastScrollTime = Date.now()
-                    if (isAutoScrollEnabled.value) {
-                        if (isStreamingMode) {
-                            scrollByDelta()
-                        } else {
-                            scrollToBottom('auto')
-                        }
-                    }
-                }, 100 - elapsed)
-            }
+            scrollByDelta()
         })
     }
 
@@ -141,26 +120,18 @@ export function useScrollToBottom(threshold = 150) {
         })
     }
 
-    /**
-     * 设置流式模式：流式期间使用增量滚动，更平滑
-     * 开始流式时传入 true，结束时传入 false
-     */
-    function setStreamingMode(streaming: boolean) {
-        isStreamingMode = streaming
-        if (streaming) {
-            // 进入流式模式时记录当前高度作为基准
-            const el = containerRef.value
-            if (el) lastScrollHeight = el.scrollHeight
-        }
-    }
-
     function watchMessagesLength(getLength: () => number) {
         let prevLen = 0
         watch(getLength, (newLen) => {
             if (newLen > prevLen) {
                 // 新增消息：强制滚动到底部（绕过节流）
                 isAutoScrollEnabled.value = true
-                requestAnimationFrame(() => scrollToBottom('smooth'))
+                requestAnimationFrame(() => {
+                    scrollToBottom('smooth')
+                    // 重置增量滚动基准：新增消息后 lastScrollHeight 应为最新高度
+                    const el = containerRef.value
+                    if (el) lastScrollHeight = el.scrollHeight
+                })
             } else if (isAutoScrollEnabled.value) {
                 scheduleScroll()
             }
@@ -175,7 +146,11 @@ export function useScrollToBottom(threshold = 150) {
         observer = new MutationObserver(() => {
             scheduleScroll()
         })
-        observer.observe(el, { childList: true, subtree: true, characterData: true })
+        // L-9：移除 characterData 观察——流式期间 v-html 重写 DOM 会让
+        // characterData 在每个 token 都回调，虽有 RAF 批处理但仍有微任务开销。
+        // childList 已覆盖新消息节点插入；流式内容变化由 watchContentChange
+        // 通过响应式 watch 触发 scheduleScroll，无需 characterData。
+        observer.observe(el, { childList: true, subtree: true })
     }
 
     function stopObserver() {
@@ -195,7 +170,6 @@ export function useScrollToBottom(threshold = 150) {
     onScopeDispose(() => {
         stopObserver()
         if (rafId !== null) cancelAnimationFrame(rafId)
-        if (scrollTimer) clearTimeout(scrollTimer)
         // 移除 scroll 监听器，防止 DOM 元素上残留监听器导致内存泄漏
         if (scrollHandler && boundElement) {
             boundElement.removeEventListener('scroll', scrollHandler)
@@ -211,7 +185,6 @@ export function useScrollToBottom(threshold = 150) {
         scrollToBottom,
         watchContentChange,
         watchMessagesLength,
-        setStreamingMode,
         startObserver,
         stopObserver,
     }

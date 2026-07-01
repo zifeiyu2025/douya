@@ -73,7 +73,7 @@ import { useSettingsStore } from '../stores/settings'
 import { matchModelRef } from '../stores/settings'
 import { MODEL_REFS } from '../utils/modelRefs'
 import { showSuccess } from '../utils/showError'
-import { type Config, type SearchAPIKeys } from '../services/wails'
+import { type Config, type SearchAPIKeys, DEFAULT_CONFIG } from '../services/wails'
 import { wails } from '../services/wails'
 import defaultUserAvatar from '../assets/images/user-avatar.svg'
 import defaultAiAvatar from '../assets/images/appicon.png'
@@ -195,6 +195,7 @@ const specTypeOptions = computed(() => {
   }
   options.push(
     { label: 'Eagle3 推测解码', value: 'draft-eagle3' },
+    { label: 'DFlash 推测解码', value: 'draft-dflash' },
     { label: 'Draft-Simple 推测解码', value: 'draft-simple' },
     { label: 'Ngram-Mod 推测解码', value: 'ngram-mod' },
     { label: 'Ngram-Simple 推测解码', value: 'ngram-simple' },
@@ -208,126 +209,9 @@ const specTypeOptions = computed(() => {
 
 const supportsReasoning = computed(() => settingsStore.modelCapabilities.reasoning)
 
-const formConfig = ref<Config>({
-  model_path: '',
-  llama_server_path: '',
-  api_base: '',
-  port: 8080,
-  context_size: 8192,
-  temperature: 0.6,
-  top_p: 0.95,
-  top_k: 20,
-  repeat_penalty: 1,
-  mmproj_auto: true,
-  mmproj_offload: true,
-  kv_unified: false,
-  cache_idle_slots: true,
-  cache_reuse: 0,
-  cache_ram: 8192,
-  image_min_tokens: 0,
-  image_max_tokens: 0,
-  fit_target: 0,
-  fit_ctx: 0,
-  system_prompt: '',
-  chat_background: '',
-  chat_background_opacity: 0.8,
-  user_avatar: '',
-  ai_avatar: '',
-  search_mode: 'off',
-  thinking_enabled: true,
-  thinking_soft_switch: 'auto',
-  sleep_idle_seconds: 120,
-  models_max: 1,
-  rag_enabled: false,
-  rag_active_kb: 'default',
-  rag_top_k: 3,
-  rag_min_score: 0.3,
-  rag_chunk_size: 512,
-  rag_chunk_overlap: 64,
-  embedding_model: '',
-  mmap: true,
-  kv_offload: true,
-  context_shift: false,
-  min_p: 0.05,
-  dry_multiplier: 0,
-  dry_base: 1.75,
-  dry_allowed_length: 2,
-  dry_sequence_breaker: '',
-  dry_penalty_last_n: 0,
-  grp_attn_n: 0,
-  grp_attn_w: 0,
-  jinja: false,
-  cache_prompt: false,
-  metrics: false,
-  verbose: false,
-  spec_draft_threads: 0,
-  spec_draft_threads_batch: 0,
-  spec_default: false,
-  device: '',
-  parallel: 0,
-  cache_type_k: '',
-  cache_type_v: '',
-  spec_type: '',
-  spec_draft_n_max: 0,
-  spec_draft_n_min: 0,
-  spec_ngram_mod_n_min: 0,
-  spec_ngram_mod_n_max: 0,
-  spec_ngram_mod_n_match: 0,
-  spec_ngram_simple_size_n: 0,
-  spec_ngram_simple_size_m: 0,
-  spec_ngram_simple_min_hits: 0,
-  spec_ngram_map_k_size_n: 0,
-  spec_ngram_map_k_size_m: 0,
-  spec_ngram_map_k_min_hits: 0,
-  spec_ngram_map_k4v_size_n: 0,
-  spec_ngram_map_k4v_size_m: 0,
-  spec_ngram_map_k4v_min_hits: 0,
-  lookup_cache_static: '',
-  lookup_cache_dynamic: '',
-  spec_draft_model: '',
-  cache_type_k_draft: '',
-  cache_type_v_draft: '',
-  server_api_key_enabled: true,
-  expose_server: false,
-  swa_full: false,
-  ctx_checkpoints: 32,
-  checkpoint_min_step: 256,
-  tools: '',
-  prefill_assistant: true,
-  slot_prompt_similarity: 0.1,
-  skip_chat_parsing: false,
-  api_prefix: '',
-  simple_io: false,
-  agent: false,
-  ui_mcp_proxy: false,
-  backend_sampling: false,
-  lora_paths: '',
-  gpu_layers: 0,
-  flash_attn: null,
-  mlock: null,
-  threads: 0,
-  batch_size: 0,
-  close_action: 'ask',
-  // 推理配置
-  reasoning: 'off',
-  reasoning_budget: 0,
-  reasoning_budget_message: '',
-  reasoning_format: '',
-  // RAG 重排序配置
-  reranker_model_path: '',
-  rerank_top_n: 5,
-  // KV 缓存持久化配置
-  slot_save_path: '',
-  slot_save_enabled: false,
-  // Draft 模型 GPU 配置
-  spec_draft_ngl: 0,
-  spec_draft_device: '',
-  // 请求级采样配置
-  samplers: '',
-  ignore_eos: false,
-  adaptive_target: 0,
-  adaptive_decay: 0,
-})
+// 初始值复用 DEFAULT_CONFIG，避免 80+ 字段硬编码（任务 21）
+// onMounted 时会从 settingsStore 加载实际配置覆盖此默认值
+const formConfig = ref<Config>({ ...DEFAULT_CONFIG })
 
 const backgroundImageUrl = computed(() => {
     const bg = formConfig.value.chat_background
@@ -525,7 +409,9 @@ function handleBackendSamplingChange() {
   autoSave()
 }
 
-async function autoSave() {
+let savingPromise: Promise<void> | null = null  // 进行中的保存 Promise，防止重入（任务 13）
+
+async function doAutoSave() {
   if (genParamsSaveTimer) {
     clearTimeout(genParamsSaveTimer)
     genParamsSaveTimer = null
@@ -533,9 +419,11 @@ async function autoSave() {
   saving.value = true
   try {
     await settingsStore.updateConfig(formConfig.value)
-    formConfig.value = JSON.parse(JSON.stringify(settingsStore.config))
+    // 浅拷贝替代 JSON.parse(JSON.stringify)，Config 字段均为原始类型（任务 13）
+    formConfig.value = { ...settingsStore.config }
     genParamsDirty.value = false
-  } catch {
+  } catch (e) {
+    console.error('自动保存配置失败', e)
     message.destroyAll()
     message.error('保存失败')
   } finally {
@@ -543,9 +431,21 @@ async function autoSave() {
   }
 }
 
+async function autoSave() {
+  // 重入保护：进行中的保存复用同一 Promise，避免并发覆盖（任务 13）
+  if (savingPromise) return savingPromise
+  savingPromise = doAutoSave()
+  try {
+    await savingPromise
+  } finally {
+    savingPromise = null
+  }
+}
+
 onMounted(async () => {
   await settingsStore.loadConfig()
-  formConfig.value = JSON.parse(JSON.stringify(settingsStore.config))
+  // 浅拷贝替代 JSON.parse(JSON.stringify)，Config 字段均为原始类型（任务 22）
+  formConfig.value = { ...settingsStore.config }
   contextSizeIndex.value = findClosestStepIndex(formConfig.value.context_size)
   genParamsDirty.value = false
   await settingsStore.loadSearchAPIKeys()
@@ -563,7 +463,8 @@ onMounted(async () => {
 watch(() => settingsStore.currentModel, async () => {
   if (!genParamsDirty.value) {
     await settingsStore.loadConfig()
-    formConfig.value = JSON.parse(JSON.stringify(settingsStore.config))
+    // 浅拷贝替代 JSON.parse(JSON.stringify)，Config 字段均为原始类型（任务 22）
+  formConfig.value = { ...settingsStore.config }
     contextSizeIndex.value = findClosestStepIndex(formConfig.value.context_size)
     if (currentModelRef.value) {
       applyModelRef()
@@ -620,9 +521,9 @@ const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'ctx_checkpoints', 'checkpoint_min_step', 'tools', 'prefill_assistant',
   'slot_prompt_similarity', 'skip_chat_parsing', 'api_prefix', 'simple_io',
   'agent', 'ui_mcp_proxy', 'backend_sampling',
-  'gpu_layers', 'flash_attn', 'mlock', 'threads', 'batch_size',
+  'gpu_layers', 'flash_attn', 'mlock', 'threads', 'threads_http', 'batch_size',
   // 推理配置
-  'reasoning', 'reasoning_budget', 'reasoning_budget_message', 'reasoning_format',
+  'reasoning', 'reasoning_budget', 'reasoning_budget_message', 'reasoning_format', 'reasoning_preserve',
   // RAG 重排序配置
   'reranker_model_path', 'rerank_top_n',
   // KV 缓存持久化配置

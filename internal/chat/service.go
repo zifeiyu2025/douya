@@ -16,6 +16,7 @@ import (
 	"douya/internal/llm"
 	"douya/internal/rag"
 	"douya/internal/search"
+	"douya/internal/secrets"
 	"douya/internal/store"
 )
 
@@ -39,7 +40,7 @@ type Service struct {
 	sysPromptDate     string
 	sysPromptConfig   string
 	promptMu          sync.RWMutex
-	encKey            []byte
+	cipher            secrets.Cipher
 	// RAG
 	ragMu          sync.RWMutex
 	ragVectorStore *rag.VectorStore
@@ -56,13 +57,13 @@ type Service struct {
 	completionIDMu      sync.RWMutex
 }
 
-func NewService(llmClient *llm.Client, searchChain *search.SearchChain, db *sql.DB, cfg *config.Config, encKey []byte, appDir string) *Service {
+func NewService(llmClient *llm.Client, searchChain *search.SearchChain, db *sql.DB, cfg *config.Config, cipher secrets.Cipher, appDir string) *Service {
 	return &Service{
 		llmClient:   llmClient,
 		searchChain: searchChain,
 		db:          db,
 		config:      cfg,
-		encKey:      encKey,
+		cipher:      cipher,
 		appDir:      appDir,
 		modelCaps:   llm.ModelCapabilities{TextInput: true},
 	}

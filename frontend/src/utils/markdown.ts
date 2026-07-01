@@ -35,9 +35,71 @@ type MermaidModule = typeof import('mermaid')
 // KaTeX CSS
 import 'katex/dist/katex.min.css'
 
-// highlight.js 官方主题（亮色模式）
-// 暗色模式覆盖在 style.css 中通过 .dark 选择器处理
+// highlight.js 官方主题：亮色模式默认加载，深色模式按需动态加载
 import 'highlight.js/styles/github.css'
+
+/**
+ * 深色代码主题动态加载与切换
+ *
+ * 生活类比：就像房间里有两盏灯（亮色灯、深色灯），白天只开亮色灯，
+ * 晚上再开深色灯。不需要一开始就把两盏灯都开着浪费电。
+ *
+ * 实现原理：
+ * - 亮色主题 github.css 在启动时静态导入（默认生效，无法卸载）
+ * - 深色主题 github-dark.css 在首次切换到深色模式时动态导入
+ * - 动态导入后捕获其 <style> 元素引用，通过 disabled 属性控制启用/禁用
+ * - 深色主题选择器（.hljs-keyword 等）特异性高于亮色，启用后会覆盖亮色
+ * - 切回亮色时，设置 disabled=true 即可让亮色主题重新生效
+ */
+let darkCodeThemeEl: HTMLStyleElement | null = null
+let darkCodeThemePromise: Promise<void> | null = null
+
+/**
+ * 动态加载 github-dark.css 并捕获其 <style> 元素引用
+ *
+ * 定位策略：github-dark.css 的特征色是 #ff7b72（关键字色），
+ * 通过查询 textContent 包含该色的 <style> 标签精准定位
+ */
+export async function loadDarkCodeTheme(): Promise<void> {
+    if (darkCodeThemeEl) return
+    if (darkCodeThemePromise) return darkCodeThemePromise
+    darkCodeThemePromise = import('highlight.js/styles/github-dark.css').then(() => {
+        // 测试环境（happy-dom）下 document.head 可能未初始化，跳过 DOM 操作
+        if (typeof document === 'undefined' || !document.head) return
+        // 通过特征色 #ff7b72 精准定位 github-dark.css 注入的 <style>
+        const allStyles = Array.from(document.head.querySelectorAll('style'))
+        darkCodeThemeEl = allStyles.find(
+            s => s.textContent?.includes('#ff7b72')
+        ) as HTMLStyleElement | null
+        // 默认禁用，等 applyCodeTheme 根据当前主题决定是否启用
+        if (darkCodeThemeEl) {
+            darkCodeThemeEl.disabled = true
+        }
+    })
+    return darkCodeThemePromise
+}
+
+/**
+ * 根据主题状态启用/禁用深色代码高亮
+ * @param isDark 是否为深色模式
+ */
+export function applyCodeTheme(isDark: boolean): void {
+    if (isDark) {
+        if (darkCodeThemeEl) {
+            darkCodeThemeEl.disabled = false
+        } else {
+            // 首次切换到深色：加载并自动启用
+            loadDarkCodeTheme().then(() => {
+                if (darkCodeThemeEl) darkCodeThemeEl.disabled = false
+            })
+        }
+    } else {
+        // 亮色：禁用深色主题，让静态导入的 github.css 生效
+        if (darkCodeThemeEl) {
+            darkCodeThemeEl.disabled = true
+        }
+    }
+}
 
 // DOMPurify 兼容处理
 // dompurify v3 的 ESM/CJS 导出方式不同：
@@ -51,11 +113,11 @@ const purify = (() => {
     if (typeof d === 'function' && typeof window !== 'undefined') {
         return d(window)
     }
-    // 安全降级：无 window 环境（如测试）中返回空串而非使用弱正则净化
-    // 基于 VUE-XSS-001 安全实践：弱正则无法覆盖所有 XSS 向量，不如直接拒绝渲染
-    console.error('[security] DOMPurify unavailable, returning empty string for safety')
+    // 安全降级：无 window 环境（如测试）中用 escapeHtml 转义并保留换行（任务 26）
+    // 基于 VUE-XSS-001 安全实践：弱正则无法覆盖所有 XSS 向量，escapeHtml 至少保证内容可见且安全
+    console.error('[security] DOMPurify unavailable, fallback to escapeHtml')
     return {
-        sanitize: (_html: string) => '',
+        sanitize: (html: string) => escapeHtml(html).replace(/\n/g, '<br>'),
     }
 })()
 
@@ -117,7 +179,7 @@ export async function renderMermaidInElement(el: HTMLElement) {
  * rehypeCodeBlocks: 在 rehype-highlight 之后运行
  * 为代码块添加头部（语言标签 + 复制按钮）
  */
-function rehypeCodeBlocks() {
+export function rehypeCodeBlocks() {
     return (tree: any) => {
         visit(tree, 'element', (node: any) => {
             if (node.tagName !== 'pre') return
@@ -280,6 +342,11 @@ export function sanitizeHtml(html: string): string {
 /**
  * 专门用于消毒 Mermaid 生成的 SVG
  * 允许 SVG 绘图所需标签和属性，但禁止 script/foreignObject/use 等可能引入脚本的内容
+ *
+ * 修复（M-前4）：原实现将 href/xlink:href 加入 FORBID_ATTR，会移除 Mermaid 中所有链接属性，
+ * 破坏 flowchart 的 click nodeId href "https://..." 交互链接等合法功能。
+ * 改为用 ALLOWED_URI_REGEXP 仅允许 http(s):// 协议的 href，既防 javascript: 等危险协议，
+ * 又保留合法的外部链接。
  */
 export function sanitizeMermaidSvg(html: string): string {
     return purify.sanitize(html, {
@@ -289,6 +356,7 @@ export function sanitizeMermaidSvg(html: string): string {
             'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path',
             'text', 'tspan', 'textPath',
             'image', 'title', 'desc',
+            'a', // Mermaid click href 会生成 <a> 标签包裹节点
         ],
         ADD_ATTR: [
             'viewBox', 'width', 'height', 'xmlns', 'xmlns:xlink', 'version',
@@ -301,9 +369,12 @@ export function sanitizeMermaidSvg(html: string): string {
             'offset', 'stop-color', 'stop-opacity',
             'clip-path', 'mask', 'filter',
             'class', 'id', 'style',
+            'href', 'xlink:href', 'target', // 允许链接属性，但通过 ALLOWED_URI_REGEXP 限制协议
         ],
         // 明确禁止 foreignObject、script、use 等危险 SVG 子元素
         FORBID_TAGS: ['script', 'foreignObject', 'use', 'audio', 'video', 'iframe', 'embed', 'object'],
-        FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'href', 'xlink:href'],
+        FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover'],
+        // 仅允许 http(s):// 协议的 URI，阻止 javascript: / data: 等危险协议
+        ALLOWED_URI_REGEXP: /^https?:\/\/.*/i,
     })
 }

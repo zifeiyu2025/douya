@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"fmt"
+	"io"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -11,6 +12,23 @@ import (
 
 	"douya/internal/pdfutil"
 )
+
+// maxDOCXUncompressedSize 限制 DOCX 单个条目解压后的最大字节数（100MB）。
+// 用于防御 zip bomb（高压缩比恶意文件）导致的 OOM 崩溃。
+const maxDOCXUncompressedSize int64 = 100 * 1024 * 1024
+
+// limitedReadAll 从 rc 读取内容，最多读取 limit 字节后停止。
+// 返回读取到的字节切片（若内容超过 limit，则被截断到 limit 字节）。
+// 调用者应检查返回的字节长度是否达到 limit，以判断内容是否超过限制。
+// 这样可以防止恶意高压缩比 ZIP（zip bomb）在解压时占用过多内存。
+func limitedReadAll(rc io.Reader, limit int64) ([]byte, error) {
+	buf := new(bytes.Buffer)
+	// io.LimitReader 会在读取到 limit 字节后返回 EOF，避免无限读取
+	if _, err := io.Copy(buf, io.LimitReader(rc, limit)); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
 
 var textExtensions = map[string]bool{
 	".txt":  true,
@@ -86,13 +104,16 @@ func parseDOCX(data []byte) (string, error) {
 			if err != nil {
 				return "", fmt.Errorf("failed to open word/document.xml: %w", err)
 			}
-			buf := new(bytes.Buffer)
-			if _, err := buf.ReadFrom(rc); err != nil {
-				rc.Close()
+			// 使用 limitedReadAll 限制解压后大小，防御 zip bomb 攻击
+			xmlContent, err = limitedReadAll(rc, maxDOCXUncompressedSize)
+			rc.Close()
+			if err != nil {
 				return "", fmt.Errorf("failed to read word/document.xml: %w", err)
 			}
-			rc.Close()
-			xmlContent = buf.Bytes()
+			// 检查读取到的字节数是否达到上限，若达到则说明内容超过 100MB 限制
+			if int64(len(xmlContent)) >= maxDOCXUncompressedSize {
+				return "", fmt.Errorf("DOCX 解压内容超过 100MB 限制，可能为恶意文件")
+			}
 			break
 		}
 	}

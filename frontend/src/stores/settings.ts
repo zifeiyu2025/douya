@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
-import { createDiscreteApi } from 'naive-ui'
 import {
     wails,
     type Config,
@@ -12,6 +11,9 @@ import {
     type ModelLoadProgressEvent,
 } from '../services/wails'
 import { formatModelName } from '../utils/model'
+import { logError } from '../utils/logger'
+// 复用全局单例 discrete API，确保 message 跟随应用主题（任务 9）
+import { discreteMessage } from '../utils/discrete'
 import type { ModelSwitchState, SwitchProgressStage, SwitchProgress } from '../types/settings'
 import { SWITCH_TIMING } from '../types/settings'
 
@@ -41,8 +43,7 @@ export function matchModelRef<T>(
 }
 
 export const useSettingsStore = defineStore('settings', () => {
-    // 用于在 store 中显示 naive-ui 消息（store 不在 NMessageProvider 内部，需用 discrete API）
-    const { message: discreteMessage } = createDiscreteApi(['message'])
+    // discreteMessage 来自全局单例（utils/discrete.ts），确保主题一致（任务 9）
 
     // ----- 基础配置 -----
     const config = ref<Config>({ ...DEFAULT_CONFIG })
@@ -73,6 +74,7 @@ export const useSettingsStore = defineStore('settings', () => {
         soft_switch_support: false,
         n_params: 0,
         tool_call_support: false,
+        supports_preserve_reasoning: false,
     })
     const currentModel = ref('')
     const modelLoadError = ref('')
@@ -322,7 +324,7 @@ export const useSettingsStore = defineStore('settings', () => {
                 try {
                     await checkServerStatus()
                 } catch (e) {
-                    console.error('[startup] watchdog: manual polling failed', e)
+                    logError('[startup] watchdog: manual polling failed', e)
                     finishFailure(String(e) || '启动看门狗触发失败', currentModel.value, false, false)
                 }
             }
@@ -401,7 +403,7 @@ export const useSettingsStore = defineStore('settings', () => {
             config.value = await wails.getConfig()
             searchMode.value = (config.value.search_mode as 'off' | 'auto' | 'on') ?? 'off'
         } catch (e) {
-            console.error('加载配置失败:', e)
+            logError('加载配置失败', e)
         }
     }
 
@@ -410,7 +412,7 @@ export const useSettingsStore = defineStore('settings', () => {
             await wails.updateConfig(cfg)
             await loadConfig()
         } catch (e) {
-            console.error('更新配置失败:', e)
+            logError('更新配置失败', e)
         }
     }
 
@@ -429,7 +431,7 @@ export const useSettingsStore = defineStore('settings', () => {
                 currentModel.value = status.current_model
             }
         } catch (e) {
-            console.error('获取服务器状态失败:', e)
+            logError('获取服务器状态失败', e)
         }
     }
 
@@ -443,7 +445,7 @@ export const useSettingsStore = defineStore('settings', () => {
                 tavily_api_key_set: keys.tavily_api_key_set ?? false,
             }
         } catch (e) {
-            console.error('Failed to load search API keys:', e)
+            logError('Failed to load search API keys', e)
         }
     }
 
@@ -466,7 +468,7 @@ export const useSettingsStore = defineStore('settings', () => {
         try {
             return await wails.hasServerAPIKey()
         } catch (e) {
-            console.error('Failed to check server API key:', e)
+            logError('Failed to check server API key', e)
             return false
         }
     }
@@ -474,6 +476,16 @@ export const useSettingsStore = defineStore('settings', () => {
     async function saveServerAPIKey(key: string) {
         // 不吞掉错误，让调用方 catch 后给用户视觉反馈
         await wails.setServerAPIKey(key)
+    }
+
+    // 配置写入串行化队列：所有配置写入操作排队执行，避免并发覆盖（任务 11 TOCTOU 防护）
+    let configWriteQueue: Promise<void> = Promise.resolve()
+
+    function enqueueConfigWrite(task: () => Promise<void>): Promise<void> {
+        const run = configWriteQueue.then(task)
+        // 即使 task 失败，队列也继续；用 catch 防止队列卡住
+        configWriteQueue = run.catch(() => {})
+        return run
     }
 
     async function cycleSearchMode() {
@@ -484,16 +496,19 @@ export const useSettingsStore = defineStore('settings', () => {
         }
         const oldValue = searchMode.value
         const nextMode = next[oldValue] || 'off'
-        searchMode.value = nextMode
-        try {
-            const fullConfig = await wails.getConfig()
-            fullConfig.search_mode = nextMode
-            await wails.updateConfig(fullConfig)
-            config.value = fullConfig
-        } catch (e) {
-            searchMode.value = oldValue
-            console.error('保存搜索设置失败:', e)
-        }
+        searchMode.value = nextMode  // 乐观更新 UI
+
+        await enqueueConfigWrite(async () => {
+            try {
+                const fullConfig = await wails.getConfig()
+                fullConfig.search_mode = nextMode
+                await wails.updateConfig(fullConfig)
+                config.value = fullConfig
+            } catch (e) {
+                logError('切换搜索模式失败', e)
+                searchMode.value = oldValue  // 回滚
+            }
+        })
     }
 
     async function setSearchMode(mode: 'off' | 'auto' | 'on') {
@@ -506,7 +521,7 @@ export const useSettingsStore = defineStore('settings', () => {
             config.value = fullConfig
         } catch (e) {
             searchMode.value = oldValue
-            console.error('保存搜索设置失败:', e)
+            logError('保存搜索设置失败', e)
         }
     }
 
@@ -518,14 +533,21 @@ export const useSettingsStore = defineStore('settings', () => {
         }
         const oldValue = config.value?.reasoning ?? 'off'
         const nextMode = next[oldValue] || 'auto'
-        try {
-            const fullConfig = await wails.getConfig()
-            fullConfig.reasoning = nextMode
-            await wails.updateConfig(fullConfig)
-            config.value = fullConfig
-        } catch (e) {
-            console.error('保存思考设置失败:', e)
-        }
+        // 乐观更新 UI
+        if (config.value) config.value.reasoning = nextMode
+
+        await enqueueConfigWrite(async () => {
+            try {
+                const fullConfig = await wails.getConfig()
+                fullConfig.reasoning = nextMode
+                await wails.updateConfig(fullConfig)
+                config.value = fullConfig
+            } catch (e) {
+                logError('切换思考模式失败', e)
+                // 回滚
+                if (config.value) config.value.reasoning = oldValue
+            }
+        })
     }
 
     /**

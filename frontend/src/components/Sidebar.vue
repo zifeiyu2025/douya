@@ -208,7 +208,13 @@ async function handleContextAction(key: string, conv: Conversation) {
     case 'delete':
       dialog.warning({
         title: '删除对话',
-        content: '确定要删除这个对话吗？此操作不可撤销。',
+        content: () => h('div', { class: 'delete-confirm-content' }, [
+          h('div', { class: 'delete-confirm-row' }, [
+            h(NIcon, { size: 18, class: 'delete-confirm-icon' }, { default: () => h(TrashOutline) }),
+            h('span', { class: 'delete-confirm-text' }, '确定要删除这个对话吗？'),
+          ]),
+          h('div', { class: 'delete-confirm-hint' }, '此操作不可撤销，对话将永久消失'),
+        ]),
         positiveText: '删除',
         negativeText: '取消',
         onPositiveClick: async () => {
@@ -271,9 +277,9 @@ async function handleExport(id: string, format: string) {
   /* 不再设统一 color，由 logo-dou/logo-ya 各自指定 */
 }
 
-/* logo-dou：固定白色（亮暗模式均白色，符合用户需求）*/
+/* logo-dou：跟随主题主文本色，亮色深色/暗色近白，保证对比度 */
 .logo-dou {
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 /* logo-ya：保持 accent 主色 */

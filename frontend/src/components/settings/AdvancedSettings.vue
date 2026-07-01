@@ -56,7 +56,7 @@
   </n-form-item>
   <n-form-item label="暴露服务器地址" label-width="140" label-placement="left">
     <n-switch v-model:value="formConfig.expose_server" @update:value="onExposeServerToggle" />
-    <span class="setting-hint">开启后局域网设备可通过本机 IP 访问（需重启服务生效）</span>
+    <span class="setting-hint">开启后局域网设备可通过本机 IP 访问（需重启服务生效）。开启后必须配置 API Key，否则服务将拒绝启动</span>
   </n-form-item>
   <n-form-item label-width="140" label-placement="left">
     <template #label>启用 API Key 验证 <HelpTip content="开启后所有 API 请求需携带 API Key，防止未授权访问。暴露到局域网时强烈建议开启" /></template>
@@ -145,13 +145,13 @@
   <n-text v-if="!settingsStore.modelCapabilities.has_mtp" depth="3" style="font-size: 12px; margin-top: -12px; display: block; margin-bottom: 8px;">
     当前模型不支持 MTP，draft-mtp 选项已隐藏
   </n-text>
-  <template v-if="formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-simple'">
+  <template v-if="formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-dflash' || formConfig.spec_type === 'draft-simple'">
     <n-text v-if="!formConfig.spec_draft_model" type="warning" style="font-size: 12px; display: block; margin-bottom: 8px;">
       未配置 Draft 模型路径，推测解码将无法工作
     </n-text>
     <n-form-item>
-      <template #label>Draft 模型路径 <HelpTip content="Eagle3 或 Draft 草稿模型的 .gguf 文件路径。仅 draft-eagle3/draft-simple 模式需要" /></template>
-      <n-input v-model:value="formConfig.spec_draft_model" placeholder="Eagle3/Draft 草稿模型文件路径" @blur="autoSave" />
+      <template #label>Draft 模型路径 <HelpTip content="Eagle3/DFlash 或 Draft 草稿模型的 .gguf 文件路径。draft-eagle3/draft-dflash/draft-simple 模式需要" /></template>
+      <n-input v-model:value="formConfig.spec_draft_model" placeholder="Eagle3/DFlash/Draft 草稿模型文件路径" @blur="autoSave" />
     </n-form-item>
     <n-form-item>
       <template #label>Draft GPU 层数 <HelpTip content="草稿模型加载到 GPU 的层数。0=全部用 CPU，100=全部用 GPU。建议与主模型一致以保证加速效果" /></template>
@@ -162,13 +162,13 @@
       <n-input v-model:value="formConfig.spec_draft_device" placeholder="留空自动选择，如 cuda:0" @blur="autoSave" />
     </n-form-item>
   </template>
-  <n-form-item v-if="formConfig.spec_type === 'draft-mtp' || formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-simple'">
-    <template #label>最大 Draft Token 数 <HelpTip content="每次推测最多生成的 token 数。值越大潜在加速越快但准确率下降，建议 3-4" /></template>
-    <n-input-number v-model:value="formConfig.spec_draft_n_max" :min="1" :max="4" :step="1" placeholder="3" @blur="autoSave" />
+  <n-form-item v-if="formConfig.spec_type === 'draft-mtp' || formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-dflash' || formConfig.spec_type === 'draft-simple'">
+    <template #label>最大 Draft Token 数 <HelpTip content="每次推测最多生成的 token 数。值越大潜在加速越快但准确率下降，建议 3-4。DFlash 可达 block_size-1（通常 15）" /></template>
+    <n-input-number v-model:value="formConfig.spec_draft_n_max" :min="1" :max="15" :step="1" placeholder="3" @blur="autoSave" />
   </n-form-item>
-  <n-form-item v-if="formConfig.spec_type === 'draft-mtp' || formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-simple'">
+  <n-form-item v-if="formConfig.spec_type === 'draft-mtp' || formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-dflash' || formConfig.spec_type === 'draft-simple'">
     <template #label>最小 Draft Token 数 <HelpTip content="每次推测最少生成的 token 数。0=不限制，设置后即使准确率低也会生成此数量的 token" /></template>
-    <n-input-number v-model:value="formConfig.spec_draft_n_min" :min="0" :max="4" :step="1" placeholder="0" @blur="autoSave" />
+    <n-input-number v-model:value="formConfig.spec_draft_n_min" :min="0" :max="15" :step="1" placeholder="0" @blur="autoSave" />
   </n-form-item>
   <template v-if="formConfig.spec_type === 'ngram-mod'">
     <n-form-item>
@@ -236,11 +236,11 @@
       <n-input v-model:value="formConfig.lookup_cache_dynamic" placeholder="lookup-cache-dynamic 文件路径" @blur="autoSave" />
     </n-form-item>
   </template>
-  <n-form-item v-if="formConfig.spec_type === 'draft-mtp' || formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-simple'">
+  <n-form-item v-if="formConfig.spec_type === 'draft-mtp' || formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-dflash' || formConfig.spec_type === 'draft-simple'">
     <template #label>Draft 线程数 <HelpTip content="Draft 模型使用的线程数。0=使用主模型线程数" /></template>
     <n-input-number v-model:value="formConfig.spec_draft_threads" :min="0" :max="256" :step="1" placeholder="0" style="width: 100%" @blur="autoSave" />
   </n-form-item>
-  <n-form-item v-if="formConfig.spec_type === 'draft-mtp' || formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-simple'">
+  <n-form-item v-if="formConfig.spec_type === 'draft-mtp' || formConfig.spec_type === 'draft-eagle3' || formConfig.spec_type === 'draft-dflash' || formConfig.spec_type === 'draft-simple'">
     <template #label>Draft 批处理线程数 <HelpTip content="Draft 模型批处理时使用的线程数。0=使用主模型线程数" /></template>
     <n-input-number v-model:value="formConfig.spec_draft_threads_batch" :min="0" :max="256" :step="1" placeholder="0" style="width: 100%" @blur="autoSave" />
   </n-form-item>

@@ -121,7 +121,18 @@ func GeneratePreset(presets []ModelPreset, globalDefaults map[string]string) str
 	return sb.String()
 }
 
+// WritePresetFile 写入预设文件，仅在文件不存在或内容不一致时才覆盖。
+// 原因：避免每次启动都无意义地覆盖 router-preset.ini，减少磁盘写入并保持文件时间戳稳定。
 func WritePresetFile(path string, content string) error {
+	// 文件已存在且内容一致时跳过写入
+	if existing, err := os.ReadFile(path); err == nil {
+		if string(existing) == content {
+			return nil
+		}
+	} else if !os.IsNotExist(err) {
+		// 其他读取错误（如权限问题）也继续尝试写入
+	}
+
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("create preset dir: %w", err)

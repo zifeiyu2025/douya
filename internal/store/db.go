@@ -55,6 +55,9 @@ func Migrate(db *sql.DB, encKey []byte) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
 		CREATE INDEX IF NOT EXISTS idx_messages_conversation_created ON messages(conversation_id, created_at);
+		-- M-后2：SearchMessages 按 created_at DESC 排序扫描全表，无此索引时退化为全表扫描+排序。
+		-- 加入后 ORDER BY created_at DESC 可直接走索引，避免大消息表的搜索卡顿。
+		CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at DESC);
 		CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at);
 		CREATE TABLE IF NOT EXISTS settings (
 			key TEXT PRIMARY KEY,
@@ -257,20 +260,46 @@ func migrateConversations(db *sql.DB, encKey []byte) error {
 }
 
 // migrateMessages 分批加密消息的敏感字段
+//
+// 修复（M-后3）：原实现用 OFFSET 分页，每批 OFFSET N 会让 SQLite 重新扫描并跳过前 N 行，
+// N 批迁移总成本 O(N²)。改为 keyset 分页：用上一批最后一条 id 作为游标（WHERE id > ?），
+// 配合主键索引，每批都是 O(batchSize) 而非 O(offset+batchSize)。
+//
+// 修复（任务18）：原实现每条消息单独 db.Exec，N 条 = N 次独立事务，开销显著放大。
+// 改为先收集本批所有待更新行，再用单个事务（db.Begin）批量 Exec，最后单次 Commit。
+// 事务失败时 Rollback 并跳过该批，不阻塞后续批处理。
 func migrateMessages(db *sql.DB, encKey []byte) error {
 	const batchSize = 100
-	offset := 0
+	lastID := "" // keyset 游标：上一批最后一条 id
 	totalMigrated := 0
 
+	// pendingUpdate 表示一条待更新的消息（已加密完成）
+	type pendingUpdate struct {
+		id                                         string
+		encContent, encThinking, encSearch         string
+		encImages, encAttachments, encToolCalls    string
+	}
+
 	for {
-		rows, err := db.Query(
-			"SELECT id, content, thinking_content, search_results, images, attachments, tool_calls FROM messages ORDER BY id LIMIT ? OFFSET ?",
-			batchSize, offset,
-		)
+		var rows *sql.Rows
+		var err error
+		if lastID == "" {
+			rows, err = db.Query(
+				"SELECT id, content, thinking_content, search_results, images, attachments, tool_calls FROM messages ORDER BY id LIMIT ?",
+				batchSize,
+			)
+		} else {
+			rows, err = db.Query(
+				"SELECT id, content, thinking_content, search_results, images, attachments, tool_calls FROM messages WHERE id > ? ORDER BY id LIMIT ?",
+				lastID, batchSize,
+			)
+		}
 		if err != nil {
 			return fmt.Errorf("query messages batch: %w", err)
 		}
 
+		// 收集本批所有需要更新的行（先加密，再统一写入事务）
+		var updates []pendingUpdate
 		batchCount := 0
 		for rows.Next() {
 			batchCount++
@@ -280,6 +309,7 @@ func migrateMessages(db *sql.DB, encKey []byte) error {
 				rows.Close()
 				return fmt.Errorf("scan message: %w", err)
 			}
+			lastID = id // 更新游标为当前批最后一条 id
 
 			// 检查 content 是否需要加密（只加密未加密的数据）
 			if !content.Valid || content.String == "" || (len(content.String) >= 4 && content.String[:4] == "enc:") {
@@ -294,28 +324,55 @@ func migrateMessages(db *sql.DB, encKey []byte) error {
 			}
 
 			// 加密其他字段（错误时保留原值，而非静默丢弃）
-			encThinking := encryptFieldWithFallback(thinkingContent, encKey)
-			encSearch := encryptFieldWithFallback(searchResults, encKey)
-			encImages := encryptFieldWithFallback(images, encKey)
-			encAttachments := encryptFieldWithFallback(attachments, encKey)
-			encToolCalls := encryptFieldWithFallback(toolCalls, encKey)
-
-			_, err = db.Exec(
-				"UPDATE messages SET content = ?, thinking_content = ?, search_results = ?, images = ?, attachments = ?, tool_calls = ? WHERE id = ?",
-				encContent, encThinking, encSearch, encImages, encAttachments, encToolCalls, id,
-			)
-			if err != nil {
-				log.Error().Err(err).Str("id", id).Msg("[db] failed to update encrypted message")
-			}
-			totalMigrated++
+			updates = append(updates, pendingUpdate{
+				id:             id,
+				encContent:     encContent,
+				encThinking:    encryptFieldWithFallback(thinkingContent, encKey),
+				encSearch:      encryptFieldWithFallback(searchResults, encKey),
+				encImages:      encryptFieldWithFallback(images, encKey),
+				encAttachments: encryptFieldWithFallback(attachments, encKey),
+				encToolCalls:   encryptFieldWithFallback(toolCalls, encKey),
+			})
 		}
 		rows.Close()
+
+		// 用单个事务批量执行 UPDATE，替代 N 次独立 db.Exec
+		// 生活类比：与其每改一份文件就跑一趟档案室（N 次事务），不如攒齐一摞一次性提交（单事务）
+		if len(updates) > 0 {
+			tx, txErr := db.Begin()
+			if txErr != nil {
+				log.Error().Err(txErr).Msg("[db] begin tx for migration batch failed, skipping batch")
+			} else {
+				batchFailed := false
+				for _, u := range updates {
+					if _, execErr := tx.Exec(
+						"UPDATE messages SET content = ?, thinking_content = ?, search_results = ?, images = ?, attachments = ?, tool_calls = ? WHERE id = ?",
+						u.encContent, u.encThinking, u.encSearch, u.encImages, u.encAttachments, u.encToolCalls, u.id,
+					); execErr != nil {
+						log.Error().Err(execErr).Str("id", u.id).Msg("[db] failed to update in migration tx, rolling back batch")
+						batchFailed = true
+						break
+					}
+				}
+				if batchFailed {
+					// 整批回滚，跳过该批，继续处理下一批
+					if rbErr := tx.Rollback(); rbErr != nil {
+						log.Error().Err(rbErr).Msg("[db] rollback migration batch failed")
+					}
+				} else if commitErr := tx.Commit(); commitErr != nil {
+					// Commit 失败也尝试 Rollback（虽然事务可能已无效）
+					log.Error().Err(commitErr).Msg("[db] commit migration batch failed")
+					_ = tx.Rollback()
+				} else {
+					totalMigrated += len(updates)
+				}
+			}
+		}
 
 		// 本批不足 batchSize 条，说明已处理完
 		if batchCount < batchSize {
 			break
 		}
-		offset += batchSize
 	}
 
 	log.Info().Int("migrated", totalMigrated).Msg("[db] message encryption done")

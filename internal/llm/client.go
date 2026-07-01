@@ -26,7 +26,11 @@ const maxResponseBody = 50 * 1024 * 1024
 
 const (
 	httpClientTimeout = 300 * time.Second // 普通 HTTP 请求超时
-	streamTimeout     = 900 * time.Second // 流式请求超时
+	// L-15：streamTimeout 是 http.Client 层面的兜底超时（连接+读取总上限）。
+	// 业务层在 service_stream.go 用 streamRequestTimeout=300s 通过 context.WithTimeout
+	// 包裹请求，context 必然先于此 900s 触发。900s 仅作为防御性兜底，防止
+	// 业务层忘记设置 context 超时时请求永久挂起。两处常量语义不同，不要混淆。
+	streamTimeout     = 900 * time.Second // 流式请求兜底超时（业务层 300s 优先生效）
 	pollTimeout       = 3 * time.Second   // 轮询超时
 	pollRetryInterval = 300 * time.Millisecond // 轮询重试间隔
 )
@@ -101,11 +105,12 @@ func (c *Client) SetAuthHeader(req *http.Request) {
 //   - url: 完整 URL
 //   - body: 请求体（nil 表示无请求体，GET 请求通常传 nil）
 //   - actionDesc: 操作描述（如 "load model"），用于错误信息
+//   - wantBody: 是否读取成功响应体（L-16 修复：false 时跳过读取，减少无谓 IO）
 //
 // 返回：
-//   - 成功：响应体字节和 nil
+//   - 成功：wantBody=true 时返回响应体字节，wantBody=false 时返回 nil
 //   - 失败：nil 和错误（错误信息包含状态码和错误响应体，限制 1MB）
-func (c *Client) doSimpleJSONRequest(ctx context.Context, method, url string, body []byte, actionDesc string) ([]byte, error) {
+func (c *Client) doSimpleJSONRequest(ctx context.Context, method, url string, body []byte, actionDesc string, wantBody bool) ([]byte, error) {
 	var bodyReader io.Reader
 	if body != nil {
 		bodyReader = bytes.NewReader(body)
@@ -129,7 +134,10 @@ func (c *Client) doSimpleJSONRequest(ctx context.Context, method, url string, bo
 		return nil, httputil.ReadErrorBody(resp, actionDesc+" returned")
 	}
 
-	// 成功时读取响应体供调用方使用（调用方可用 _ 忽略）
+	// L-16：仅在调用方需要响应体时读取，避免忽略 body 的调用方产生无谓 IO
+	if !wantBody {
+		return nil, nil
+	}
 	respBody, err := readBody(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read %s response: %w", actionDesc, err)
@@ -180,6 +188,16 @@ func (c *Client) StreamChatWithConvID(ctx context.Context, req *ChatCompletionRe
 	const maxSSELineSize = 10 * 1024 * 1024
 	scanner.Buffer(make([]byte, 0, 1024*1024), maxSSELineSize)
 	for scanner.Scan() {
+		// 在处理每行前检查 ctx 是否已取消，与 WatchModelLoadProgress 保持一致
+		// 生活类比：就像服务员每上一道菜前先看一眼顾客是否已经离席，避免把菜端给空座位
+		// 虽然 http.NewRequestWithContext 会在 ctx 取消时关闭底层连接，
+		// 但 scanner 已缓冲的数据仍会被处理，这里主动检查可避免取消后继续 emit token
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		line := scanner.Text()
 
 		if !strings.HasPrefix(line, "data: ") {
@@ -348,7 +366,7 @@ func (c *Client) HealthCheck(ctx context.Context) error {
 
 // healthCheckOnce 向指定端点发起健康检查请求
 func (c *Client) healthCheckOnce(ctx context.Context, endpoint string) error {
-	_, err := c.doSimpleJSONRequest(ctx, http.MethodGet, c.baseURL+endpoint, nil, "health check")
+	_, err := c.doSimpleJSONRequest(ctx, http.MethodGet, c.baseURL+endpoint, nil, "health check", false)
 	return err
 }
 
@@ -366,7 +384,7 @@ func (c *Client) StopThinking(ctx context.Context, completionID string) error {
 		return fmt.Errorf("failed to marshal stop thinking request: %w", err)
 	}
 
-	if _, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions/control", body, "stop thinking"); err != nil {
+	if _, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions/control", body, "stop thinking", false); err != nil {
 		return err
 	}
 
@@ -393,7 +411,7 @@ func (c *Client) Rerank(ctx context.Context, query string, documents []string, t
 		return nil, fmt.Errorf("failed to marshal rerank request: %w", err)
 	}
 
-	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/v1/rerank", body, "rerank")
+	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/v1/rerank", body, "rerank", true)
 	if err != nil {
 		return nil, err
 	}
@@ -503,8 +521,24 @@ func (c *Client) GetModelInfoByName(ctx context.Context, modelName string) (*Mod
 							Meta:            target.Meta,
 						}, nil
 					}
+					// 200 但解析失败：记录诊断日志，便于排查接口返回异常
+					log.Debug().Str("model", modelName).Int("status", resp.StatusCode).Msg("[client] GetModelInfoByName: 200 but body parse failed, falling back to /v1/models")
+				} else {
+					// 读取响应体失败：记录诊断日志
+					log.Debug().Str("model", modelName).Int("status", resp.StatusCode).Err(err).Msg("[client] GetModelInfoByName: read body failed, falling back to /v1/models")
+				}
+			} else {
+				// 非 200 状态码：记录诊断日志（含状态码），便于排查
+				log.Debug().Str("model", modelName).Int("status", resp.StatusCode).Msg("[client] GetModelInfoByName: direct endpoint non-200, falling back to /v1/models")
+				// 401/403 属于权限错误，直接返回而非降级到 /v1/models
+				// 原因：权限不足时 /v1/models 同样会失败，降级只会浪费时间并掩盖真正的鉴权问题
+				if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+					return nil, fmt.Errorf("GetModelInfoByName: direct endpoint returned %d (auth/permission error) for model %q", resp.StatusCode, modelName)
 				}
 			}
+		} else {
+			// 请求本身失败（网络错误等）：记录诊断日志
+			log.Debug().Str("model", modelName).Err(err).Msg("[client] GetModelInfoByName: direct endpoint request failed, falling back to /v1/models")
 		}
 		// Direct endpoint not available or failed, fall through to full list
 	}
@@ -554,11 +588,17 @@ func (c *Client) GetModelInfoByName(ctx context.Context, modelName string) (*Mod
 
 	target := &raw.Data[0]
 	if modelName != "" {
+		// 在 /v1/models 列表中查找指定模型，未找到时返回明确错误而非误用第一个模型
+		found := false
 		for i := range raw.Data {
 			if raw.Data[i].ID == modelName {
 				target = &raw.Data[i]
+				found = true
 				break
 			}
+		}
+		if !found {
+			return nil, fmt.Errorf("model %q not found in /v1/models list", modelName)
 		}
 	}
 
@@ -701,7 +741,7 @@ func (c *Client) LoadModel(ctx context.Context, modelName string) error {
 		return fmt.Errorf("failed to marshal load model request: %w", err)
 	}
 
-	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/models/load", body, "load model")
+	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/models/load", body, "load model", true)
 	if err != nil {
 		return err
 	}
@@ -797,7 +837,7 @@ func (c *Client) WatchModelLoadProgress(ctx context.Context, modelName string, o
 // 在修改了 router-preset.ini 后调用，使路由器感知到配置变化
 // 原版 llama.cpp 使用 GET /v1/models?reload 来触发 preset 重载
 func (c *Client) ReloadPresets(ctx context.Context) error {
-	if _, err := c.doSimpleJSONRequest(ctx, http.MethodGet, c.baseURL+"/v1/models?reload=1", nil, "reload presets"); err != nil {
+	if _, err := c.doSimpleJSONRequest(ctx, http.MethodGet, c.baseURL+"/v1/models?reload=1", nil, "reload presets", false); err != nil {
 		return err
 	}
 	log.Info().Msg("[client] ReloadPresets: presets reloaded successfully")
@@ -809,7 +849,7 @@ func (c *Client) UnloadModel(ctx context.Context, modelName string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal unload model request: %w", err)
 	}
-	_, err = c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/models/unload", body, "unload model")
+	_, err = c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/models/unload", body, "unload model", false)
 	return err
 }
 
@@ -862,7 +902,7 @@ func (c *Client) GetModelsList(ctx context.Context) ([]ListedModel, error) {
 }
 
 func (c *Client) ReloadModels(ctx context.Context) error {
-	_, err := c.doSimpleJSONRequest(ctx, http.MethodGet, c.baseURL+"/models?reload", nil, "reload models")
+	_, err := c.doSimpleJSONRequest(ctx, http.MethodGet, c.baseURL+"/models?reload", nil, "reload models", false)
 	return err
 }
 
@@ -872,7 +912,7 @@ func (c *Client) DeleteModel(ctx context.Context, modelName string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal delete model request: %w", err)
 	}
-	if _, err := c.doSimpleJSONRequest(ctx, http.MethodDelete, c.baseURL+"/models", body, "delete model"); err != nil {
+	if _, err := c.doSimpleJSONRequest(ctx, http.MethodDelete, c.baseURL+"/models", body, "delete model", false); err != nil {
 		return err
 	}
 	log.Info().Str("model", modelName).Msg("[client] DeleteModel: model deleted")
@@ -886,7 +926,7 @@ func (c *Client) DownloadModel(ctx context.Context, modelName string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal download model request: %w", err)
 	}
-	if _, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/models", body, "download model"); err != nil {
+	if _, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/models", body, "download model", false); err != nil {
 		return err
 	}
 	log.Info().Str("model", modelName).Msg("[client] DownloadModel: download started")
@@ -905,7 +945,7 @@ func (c *Client) CountTokens(ctx context.Context, messages []ChatMessage) (int, 
 		return 0, fmt.Errorf("failed to marshal count tokens request: %w", err)
 	}
 
-	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions/input_tokens", body, "count tokens")
+	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions/input_tokens", body, "count tokens", true)
 	if err != nil {
 		return 0, err
 	}
@@ -930,7 +970,7 @@ func (c *Client) CountTokensViaInputTokens(ctx context.Context, messages []ChatM
 		return 0, fmt.Errorf("failed to marshal input tokens request: %w", err)
 	}
 
-	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions/input_tokens", body, "input tokens")
+	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions/input_tokens", body, "input tokens", true)
 	if err != nil {
 		return 0, err
 	}
@@ -953,7 +993,7 @@ func (c *Client) GetLoraAdapters(ctx context.Context) ([]LoraAdapter, error) {
 	if model := c.GetCurrentModel(); model != "" {
 		reqURL += "?model=" + url.QueryEscape(model)
 	}
-	body, err := c.doSimpleJSONRequest(ctx, http.MethodGet, reqURL, nil, "get lora adapters")
+	body, err := c.doSimpleJSONRequest(ctx, http.MethodGet, reqURL, nil, "get lora adapters", true)
 	if err != nil {
 		return nil, err
 	}
@@ -973,7 +1013,7 @@ func (c *Client) SetLoraAdapters(ctx context.Context, adapters []LoraAdapter) er
 		return fmt.Errorf("failed to marshal set lora adapters request: %w", err)
 	}
 
-	if _, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/lora-adapters", body, "set lora adapters"); err != nil {
+	if _, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/lora-adapters", body, "set lora adapters", false); err != nil {
 		return err
 	}
 
@@ -988,7 +1028,7 @@ func (c *Client) GetSlots(ctx context.Context) ([]SlotInfo, error) {
 	if model := c.GetCurrentModel(); model != "" {
 		reqURL += "?model=" + url.QueryEscape(model)
 	}
-	body, err := c.doSimpleJSONRequest(ctx, http.MethodGet, reqURL, nil, "get slots")
+	body, err := c.doSimpleJSONRequest(ctx, http.MethodGet, reqURL, nil, "get slots", true)
 	if err != nil {
 		return nil, err
 	}
@@ -1013,7 +1053,7 @@ func (c *Client) Tokenize(ctx context.Context, text string) ([]int, error) {
 		return nil, fmt.Errorf("failed to marshal tokenize request: %w", err)
 	}
 
-	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/tokenize", body, "tokenize")
+	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/tokenize", body, "tokenize", true)
 	if err != nil {
 		return nil, err
 	}
@@ -1040,7 +1080,7 @@ func (c *Client) ApplyTemplate(ctx context.Context, messages []ChatMessage) (str
 		return "", fmt.Errorf("failed to marshal apply template request: %w", err)
 	}
 
-	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/apply-template", body, "apply template")
+	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/apply-template", body, "apply template", true)
 	if err != nil {
 		return "", err
 	}

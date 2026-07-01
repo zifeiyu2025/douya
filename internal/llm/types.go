@@ -301,6 +301,7 @@ type ModelCapabilities struct {
 	SoftSwitchSupport bool    `json:"soft_switch_support"` // 是否支持 /think /no_think 软开关（目前仅 Qwen3）
 	NParams           float64 `json:"n_params"`
 	ToolCallSupport   bool    `json:"tool_call_support"` // 模型是否支持 tool call
+	SupportsPreserveReasoning bool `json:"supports_preserve_reasoning"` // 模型是否支持 --reasoning-preserve
 }
 
 // EmbeddingRequest represents a request to /v1/embeddings

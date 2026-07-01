@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
+import { applyCodeTheme } from '../utils/markdown'
 
 export const useThemeStore = defineStore('theme', () => {
     const stored = localStorage.getItem('douya-theme')
@@ -12,6 +13,9 @@ export const useThemeStore = defineStore('theme', () => {
             } else {
                 document.documentElement.classList.remove('dark')
             }
+            // 同步加载/切换代码高亮主题
+            // 首次进入深色模式会动态加载 github-dark.css
+            applyCodeTheme(dark)
         }
     }
 

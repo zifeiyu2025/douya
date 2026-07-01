@@ -118,7 +118,7 @@
           <div class="switch-stage-indicator">
             <div
               v-for="(stage, idx) in switchStages"
-              :key="idx"
+              :key="stage"
               :class="['stage-item', {
                 'active': getSwitchStageIndex() >= idx,
                 'completed': getSwitchStageIndex() > idx
@@ -164,7 +164,7 @@
 
 <script setup lang="ts">
 import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
-import { darkTheme, zhCN, dateZhCN, createDiscreteApi } from 'naive-ui'
+import { darkTheme, zhCN, dateZhCN } from 'naive-ui'
 import { NConfigProvider, NMessageProvider, NDialogProvider, NButton, NIcon, NSelect, NTooltip } from 'naive-ui'
 import { MenuOutline, SunnyOutline, MoonOutline, TerminalOutline, TrashOutline } from '@vicons/ionicons5'
 import Sidebar from './components/Sidebar.vue'
@@ -173,6 +173,8 @@ import SplashScreen from './components/ui/SplashScreen.vue'
 import ServerConsole from './components/ServerConsole.vue'
 import { useChatStore } from './stores/chat'
 import { fixUtf8 } from './utils/utf8'
+// 复用全局单例 discrete API，确保 message/dialog 跟随应用主题（任务 9）
+import { discreteMessage, discreteDialog } from './utils/discrete'
 import { useSettingsStore } from './stores/settings'
 import { useThemeStore } from './stores/theme'
 import { formatModelName, formatModelNameFromPath, extractQuantSuffix } from './utils/model'
@@ -182,7 +184,7 @@ import { wails } from './services/wails'
 import { WindowMinimise, WindowToggleMaximise, WindowIsMaximised, WindowHide } from '../wailsjs/runtime/runtime'
 import appLogo from './assets/images/appicon.png'
 
-const { message: discreteMessage, dialog: discreteDialog } = createDiscreteApi(['message', 'dialog'])
+// discreteMessage / discreteDialog 来自全局单例（./utils/discrete），无需本地创建（任务 9）
 
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
@@ -662,6 +664,14 @@ async function updateMaximizedState() {
   }
 }
 
+// resize 防抖定时器（任务 24）
+let resizeTimer: ReturnType<typeof setTimeout> | null = null
+// 防抖处理 resize 事件：200ms 内多次触发只执行最后一次，避免频繁查询窗口状态
+function handleResize() {
+  if (resizeTimer) clearTimeout(resizeTimer)
+  resizeTimer = setTimeout(updateMaximizedState, 200)
+}
+
 onMounted(async () => {
   // 1. 最早注册所有事件监听器，确保不遗漏后端推送的早期事件
   chatStore.initStreamListener()
@@ -688,15 +698,24 @@ onMounted(async () => {
   // 首次启动失败时弹出修复建议对话框（而非仅在状态栏显示文字）
   // 生活类比：就像开店时设备出故障，不只挂个"暂停营业"牌子，还要告诉顾客具体出了什么问题、怎么修
   let hasShownStartupError = false
+  let hasShownPermanentFailure = false
   watch(() => settingsStore.serverStatus.error, (errorVal) => {
-    if (!errorVal || hasShownStartupError) return
-    // 仅在首次加载阶段（从未就绪过）弹出 dialog，避免与手动切换模型的提示重复
-    if (settingsStore.hasEverBeenReady) return
-    // 仅在 first_load/switching 阶段弹窗，避免 idle 阶段（后端引擎尚未启动）
-    // 的 "server not initialized" 等早期错误触发误弹窗
-    const phase = settingsStore.switchState.phase
-    if (phase !== 'first_load' && phase !== 'switching') return
-    hasShownStartupError = true
+    if (!errorVal) return
+    // 永久失败是严重状态，跳过阶段限制独立弹窗，确保用户立即感知
+    const isPermanentFailure = /永久失败/.test(errorVal)
+    if (isPermanentFailure) {
+      if (hasShownPermanentFailure) return
+      hasShownPermanentFailure = true
+    } else {
+      if (hasShownStartupError) return
+      // 仅在首次加载阶段（从未就绪过）弹出 dialog，避免与手动切换模型的提示重复
+      if (settingsStore.hasEverBeenReady) return
+      // 仅在 first_load/switching 阶段弹窗，避免 idle 阶段（后端引擎尚未启动）
+      // 的 "server not initialized" 等早期错误触发误弹窗
+      const phase = settingsStore.switchState.phase
+      if (phase !== 'first_load' && phase !== 'switching') return
+      hasShownStartupError = true
+    }
     const guidance = classifyError(errorVal)
     if (guidance) {
       const suggestions = guidance.suggestions.map((s, i) => `${i + 1}. ${s}`).join('\n')
@@ -742,7 +761,7 @@ onMounted(async () => {
     exitMessage.value = progress.message
   })
 
-  window.addEventListener('resize', updateMaximizedState)
+  window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
@@ -755,7 +774,12 @@ onUnmounted(() => {
   wails.offAbnormalCleanup()
   wails.offSwitchProgress()
   wails.offShutdownProgress()
-  window.removeEventListener('resize', updateMaximizedState)
+  window.removeEventListener('resize', handleResize)
+  // 清理 resize 防抖定时器（任务 24）
+  if (resizeTimer) {
+    clearTimeout(resizeTimer)
+    resizeTimer = null
+  }
 })
 </script>
 
@@ -891,25 +915,6 @@ onUnmounted(() => {
   color: #ffffff;
 }
 
-:global(.dark) .theme-btn {
-  background: transparent;
-}
-
-:global(.dark) .theme-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-:global(.dark) .win-btn-close:hover {
-  background: #e81123;
-  color: #ffffff;
-}
-
-:global(.dark) .win-btn-close:active {
-  background: #bf0f1d;
-  color: #ffffff;
-}
-
 .switch-overlay {
   position: fixed;
   top: 0;
@@ -924,7 +929,7 @@ onUnmounted(() => {
   z-index: 1000;
   pointer-events: auto;
   /* 径向渐变营造氛围 */
-  background-image: radial-gradient(circle at 50% 50%, rgba(7, 193, 96, 0.04) 0%, transparent 70%);
+  background-image: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--accent-primary) 4%, transparent) 0%, transparent 70%);
 }
 
 .switch-overlay-content {
@@ -971,8 +976,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* 用纯色 rgba 替代 color-mix，避免 WebView2 兼容性问题 */
-  filter: drop-shadow(0 0 8px rgba(7, 193, 96, 0.4));
+  /* 使用 color-mix 跟随主色调，filter 支持 color-mix */
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent-primary) 40%, transparent));
 }
 
 .switch-ring-svg {
@@ -1063,7 +1068,7 @@ onUnmounted(() => {
 
 .stage-item.active .stage-dot {
   background: var(--accent-primary);
-  box-shadow: 0 0 8px rgba(7, 193, 96, 0.6);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-primary) 60%, transparent);
   animation: stage-dot-pulse 1.5s ease-in-out infinite;
 }
 

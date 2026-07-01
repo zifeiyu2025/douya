@@ -72,7 +72,7 @@ func (a *App) applyEnvOverrides(keys *SearchAPIKeys) {
 }
 
 // buildSearchChain 根据当前 API Key 配置构建搜索链
-// 搜索源优先级：Tavily（高质量） > Ollama > 360搜索 > Bing
+// 搜索源优先级：Tavily（高质量） > Ollama
 func (a *App) buildSearchChain() *search.SearchChain {
 	var searchProviders []search.CategorizedProvider
 	keys := a.loadSearchAPIKeys()
@@ -83,7 +83,5 @@ func (a *App) buildSearchChain() *search.SearchChain {
 	if keys.OllamaAPIKey != "" {
 		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewOllamaProvider(keys.OllamaAPIKey), Categories: []string{"general", "code"}})
 	}
-	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewSo360Provider(), Categories: []string{"general", "code"}})
-	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewBingProvider(), Categories: []string{"general", "code"}})
 	return search.NewCategorizedSearchChain(searchProviders)
 }

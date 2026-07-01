@@ -8,7 +8,7 @@
       </div>
 
       <div class="lora-path-list">
-        <div v-for="(path, index) in loraPathList" :key="index" class="lora-path-item">
+        <div v-for="(path, index) in loraPathList" :key="path || 'empty-' + index" class="lora-path-item">
           <div class="lora-path-text" :title="path" @click="handleReplacePath(index)">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;opacity:0.5">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -454,8 +454,8 @@ onMounted(() => {
 }
 
 .lora-item.active {
-  border-color: rgba(7, 193, 96, 0.3);
-  background: rgba(7, 193, 96, 0.03);
+  border-color: color-mix(in srgb, var(--accent-primary) 30%, transparent);
+  background: color-mix(in srgb, var(--accent-primary) 3%, transparent);
 }
 
 .lora-info {
@@ -483,7 +483,7 @@ onMounted(() => {
 }
 
 .lora-badge.on {
-  background: rgba(7, 193, 96, 0.12);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
   color: var(--accent-primary);
 }
 

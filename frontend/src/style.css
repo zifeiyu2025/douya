@@ -13,96 +13,98 @@
   --input-area-min-height: 100px;
   --msg-max-width: 1200px;
 
-  /* 主色调 - 微信风格绿色 */
-  --accent-primary: #07c160;
-  --accent-secondary: #06ad56;
-  --accent-tertiary: #d3f3d9;
-  --accent-success: #07c160;
-  --accent-warning: #ffc300;
-  --accent-danger: #fa5151;
-  
-  /* 背景色系 */
+  /* 主色调 - GitHub 蓝 */
+  --accent-primary: #0969da;
+  --accent-secondary: #218bff;
+  --accent-tertiary: #ddf4ff;
+  --accent-success: #1f883d;
+  --accent-warning: #d4a72c;
+  --accent-danger: #cf222e;
+  --accent-think: #16a34a;
+  --accent-think-glow: #22c55e;
+
+  /* 背景色系 - canvas/subtle/muted 三层 */
   --bg-primary: #ffffff;
-  --bg-secondary: #ededed;
-  --bg-tertiary: #f7f7f7;
-  --bg-sidebar: #f7f7f7;
-  --bg-hover: #f0f0f0;
-  --bg-active: #e6e6e6;
-  --bg-user-msg: #95ec69;
+  --bg-secondary: #f6f8fa;
+  --bg-tertiary: #eaeef2;
+  --bg-sidebar: #f6f8fa;
+  --bg-hover: #f3f4f6;
+  --bg-active: #e4e6ea;
+  --bg-user-msg: #ddf4ff;
   --bg-ai-msg: #ffffff;
   --bg-input: #ffffff;
-  --bg-code: #f7f7f7;
-  --bg-code-dark: #1e1e1e;
+  --bg-code: #f6f8fa;
 
-  /* 文字色系 */
-  --text-primary: #181818;
-  --text-secondary: #606060;
-  --text-muted: #b0b0b0;
-  --text-tertiary: #c0c0c0;
-  --text-user-msg: #181818;
-  --text-ai-msg: #181818;
+  /* 文字色系 - default/muted/subtle 三层 */
+  --text-primary: #1f2328;
+  --text-secondary: #656d76;
+  --text-muted: #848d97;
+  --text-tertiary: #afb8c1;
+  --text-user-msg: #0969da;
+  --text-ai-msg: #1f2328;
 
   /* 边框和阴影 */
-  --border-color: #e8e6dc;
-  --border-light: #faf9f5;
+  --border-color: #d0d7de;
+  --border-light: #eaeef2;
   --border-radius-xs: 4px;
   --border-radius-sm: 8px;
   --border-radius-md: 12px;
   --border-radius-lg: 16px;
   --border-radius-xl: 20px;
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.06);
+  --shadow-sm: 0 1px 0 rgba(31, 35, 40, 0.04);
+  --shadow-md: 0 3px 6px rgba(140, 149, 159, 0.15);
+  --shadow-lg: 0 8px 24px rgba(140, 149, 159, 0.2);
 
   --transition-fast: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   --transition-normal: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
-  --link-light: #6a9bcc;
-  --link-hover-light: #8ab3db;
+  --link-light: #0969da;
+  --link-hover-light: #218bff;
 }
 
 html.dark {
-  /* 主色调 - 深色模式主色保持较亮 */
-  --accent-primary: #86e6ab;
-  --accent-secondary: #78d89c;
-  --accent-tertiary: #1a3a25;
-  --accent-success: #86e6ab;
-  --accent-warning: #ffd93d;
-  --accent-danger: #ff6b6b;
+  /* 主色调 - GitHub dark_high_contrast 蓝（更亮以保证纯黑背景下的可读性） */
+  --accent-primary: #4493f8;
+  --accent-secondary: #5b9eff;
+  --accent-tertiary: #0c2d6b;
+  --accent-success: #3fb950;
+  --accent-warning: #d29922;
+  --accent-danger: #f85149;
+  --accent-think: #3fb950;
+  --accent-think-glow: #56d364;
 
-  /* 背景色系 */
-  --bg-primary: #1a1a1a;
-  --bg-secondary: #121212;
-  --bg-tertiary: #2d2d2d;
-  --bg-sidebar: #1a1a1a;
-  --bg-hover: #252525;
-  --bg-active: #303030;
-  /* 用户气泡在深色模式下调成微信风格暗绿 */
-  --bg-user-msg: #4a9f44;
-  --bg-ai-msg: #2d2d2d;
-  --bg-input: #2d2d2d;
-  --bg-code: #121212;
+  /* 背景色系 - GitHub dark_high_contrast canvas/subtle/muted（接近纯黑） */
+  /* 交互区域（聊天区、侧边栏、输入框）用纯黑 #000000，次级元素保持层次 */
+  --bg-primary: #000000;
+  --bg-secondary: #0d1117;
+  --bg-tertiary: #161b22;
+  --bg-sidebar: #000000;
+  --bg-hover: #161b22;
+  --bg-active: #21262d;
+  --bg-user-msg: #0c2d6b;
+  --bg-ai-msg: #0d1117;
+  --bg-input: #000000;
+  --bg-code: #0d1117;
 
-  /* 文字色系 */
-  --text-primary: #faf9f5;
-  --text-secondary: #b0b0b0;
-  --text-muted: #707070;
-  --text-tertiary: #404040;
-  /* 用户气泡文字保持深色，保证可读性 */
-  --text-user-msg: #181818;
-  --text-ai-msg: #faf9f5;
+  /* 文字色系 - GitHub dark_high_contrast（高对比度白，便于纯黑下阅读） */
+  --text-primary: #f0f6fc;
+  --text-secondary: #c9d1d9;
+  --text-muted: #8b949e;
+  --text-tertiary: #6e7681;
+  --text-user-msg: #4493f8;
+  --text-ai-msg: #f0f6fc;
 
-  /* 边框和阴影 */
-  --border-color: #3a3a38;
-  --border-light: #1a1a19;
+  /* 边框和阴影 - 纯黑下加深阴影增强层次 */
+  --border-color: #30363d;
+  --border-light: #161b22;
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.6), 0 2px 4px -2px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.6), 0 4px 6px -4px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 0 transparent;
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.9);
+  --shadow-lg: 0 16px 32px rgba(0, 0, 0, 0.95);
 
-  --link-dark: #7aaad3;
-  --link-hover-dark: #9ac0e3;
+  --link-dark: #4493f8;
+  --link-hover-dark: #5b9eff;
 }
 
 /* ========================================
@@ -174,6 +176,12 @@ html.dark {
   50%, 100% { opacity: 0; }
 }
 
+/* 流式光标呼吸（替代硬闪烁，营造"正在思考"的拟人感） */
+@keyframes cursor-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
+
 /* 会话项 stagger 入场（上滑 + 淡入） */
 @keyframes item-slide-in {
   from {
@@ -207,10 +215,10 @@ html.dark {
 /* 呼吸发光（用于状态指示） */
 @keyframes glow-breath {
   0%, 100% {
-    box-shadow: 0 0 8px rgba(7, 193, 96, 0.4);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--accent-primary) 40%, transparent);
   }
   50% {
-    box-shadow: 0 0 14px rgba(7, 193, 96, 0.7);
+    box-shadow: 0 0 14px color-mix(in srgb, var(--accent-primary) 70%, transparent);
   }
 }
 
@@ -640,7 +648,7 @@ html, body, #app {
 /* 运行态：雷达脉冲扩散环 + 呼吸发光 */
 .status-dot.running {
   background: var(--accent-primary);
-  box-shadow: 0 0 8px rgba(7, 193, 96, 0.5);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-primary) 50%, transparent);
   animation: glow-breath 2s ease-in-out infinite;
 }
 
@@ -681,8 +689,8 @@ html, body, #app {
   box-sizing: border-box;
   position: relative;
   z-index: 1;
-  /* 滚动锚定：内容增长时浏览器自动调整滚动位置，减少布局偏移导致的抖动 */
-  overflow-anchor: auto;
+  /* 禁用浏览器滚动锚定：与程序化滚动冲突会导致抖动，改由 useScrollToBottom 统一控制 */
+  overflow-anchor: none;
 }
 
 .message-list > * {
@@ -715,7 +723,7 @@ html, body, #app {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(7, 193, 96, 0.5);
+  background: color-mix(in srgb, var(--accent-primary) 50%, transparent);
 }
 
 .dark ::-webkit-scrollbar-thumb {
@@ -723,7 +731,7 @@ html, body, #app {
 }
 
 .dark ::-webkit-scrollbar-thumb:hover {
-  background: rgba(134, 230, 171, 0.5);
+  background: color-mix(in srgb, var(--accent-primary) 50%, transparent);
 }
 
 .katex-display {
@@ -745,84 +753,12 @@ html, body, #app {
   border-radius: var(--border-radius-sm);
 }
 
-/* 暗色模式：覆盖为 GitHub Dark 主题配色 */
-.dark .hljs {
-  color: #c9d1d9;
-  background: var(--bg-code) !important;
-}
-.dark .hljs-doctag,
-.dark .hljs-keyword,
-.dark .hljs-meta .hljs-keyword,
-.dark .hljs-template-tag,
-.dark .hljs-template-variable,
-.dark .hljs-type,
-.dark .hljs-variable.language_ {
-  color: #ff7b72;
-}
-.dark .hljs-title,
-.dark .hljs-title.class_,
-.dark .hljs-title.class_.inherited__,
-.dark .hljs-title.function_ {
-  color: #d2a8ff;
-}
-.dark .hljs-attr,
-.dark .hljs-attribute,
-.dark .hljs-literal,
-.dark .hljs-meta,
-.dark .hljs-number,
-.dark .hljs-operator,
-.dark .hljs-variable,
-.dark .hljs-selector-attr,
-.dark .hljs-selector-class,
-.dark .hljs-selector-id {
-  color: #79c0ff;
-}
-.dark .hljs-regexp,
-.dark .hljs-string,
-.dark .hljs-meta .hljs-string {
-  color: #a5d6ff;
-}
-.dark .hljs-built_in,
-.dark .hljs-symbol {
-  color: #ffa657;
-}
-.dark .hljs-comment,
-.dark .hljs-code,
-.dark .hljs-formula {
-  color: #8b949e;
-}
-.dark .hljs-name,
-.dark .hljs-quote,
-.dark .hljs-selector-tag,
-.dark .hljs-selector-pseudo {
-  color: #7ee787;
-}
-.dark .hljs-subst {
-  color: #c9d1d9;
-}
-.dark .hljs-section {
-  color: #1f6feb;
-  font-weight: bold;
-}
-.dark .hljs-bullet {
-  color: #f2cc60;
-}
-.dark .hljs-emphasis {
-  color: #c9d1d9;
-  font-style: italic;
-}
-.dark .hljs-strong {
-  color: #c9d1d9;
-  font-weight: bold;
-}
-.dark .hljs-addition {
-  color: #aff5b4;
-  background-color: #033a16;
-}
-.dark .hljs-deletion {
-  color: #ffdcd7;
-  background-color: #67060c;
-}
+/* 代码高亮主题说明：
+ * 亮色模式：使用 highlight.js/styles/github.css（markdown.ts 中静态导入）
+ * 深色模式：使用 highlight.js/styles/github-dark.css（markdown.ts 中按需动态导入）
+ * 主题切换通过 markdown.ts 的 applyCodeTheme() 控制 <style>.disabled 实现
+ * 此处无需任何 .dark .hljs* 覆盖，完全由官方 CSS 主题文件接管
+ */
 
 .message-avatar {
     width: 36px;
@@ -992,7 +928,7 @@ html, body, #app {
     gap: 4px;
     padding: 2px 8px;
     border-radius: 12px;
-    background: rgba(7, 193, 96, 0.1);
+    background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
     color: var(--accent-primary);
     font-size: 13px;
     margin: 2px 2px;
@@ -1002,7 +938,7 @@ html, body, #app {
 }
 
 .citation-link:hover {
-    background: rgba(7, 193, 96, 0.2);
+    background: color-mix(in srgb, var(--accent-primary) 20%, transparent);
     border-bottom: none;
 }
 
@@ -1237,6 +1173,74 @@ html, body, #app {
   -webkit-backdrop-filter: blur(8px);
 }
 
+/* ========================================
+ * 删除对话确认框 - 与右键菜单同款简洁风格
+ * 图标 + 文字水平排列，danger 红色
+ * ======================================== */
+
+.delete-confirm-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.delete-confirm-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.delete-confirm-icon {
+  color: var(--accent-danger);
+  flex-shrink: 0;
+}
+
+.delete-confirm-text {
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+  color: var(--text-primary);
+}
+
+.delete-confirm-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding-left: 30px;
+  line-height: 1.5;
+}
+
+/* 删除对话确认框 - 与右键菜单同款透明度和圆角 */
+.n-modal {
+  background: color-mix(in srgb, var(--bg-tertiary) 85%, transparent) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent) !important;
+  border-radius: var(--border-radius-lg) !important;
+  box-shadow: var(--shadow-lg) !important;
+  color: var(--text-primary) !important;
+}
+
+/* 深色模式与右键菜单一致 */
+.dark .n-modal {
+  background: color-mix(in srgb, var(--bg-tertiary) 78%, transparent) !important;
+  color: var(--text-primary) !important;
+  border-color: color-mix(in srgb, var(--border-color) 55%, transparent) !important;
+}
+
+/* 背景图模式下增强毛玻璃效果（与右键菜单一致） */
+.has-background .n-modal {
+  background: color-mix(in srgb, var(--bg-tertiary) 75%, transparent) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+}
+
+.dark.has-background .n-modal {
+  background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent) !important;
+  backdrop-filter: blur(22px) !important;
+  -webkit-backdrop-filter: blur(22px) !important;
+}
+
 .has-background .model-ref-header {
   background: color-mix(in srgb, var(--bg-tertiary, var(--bg-primary)) 85%, transparent);
   backdrop-filter: blur(8px);
@@ -1364,11 +1368,11 @@ html, body, #app {
 }
 
 .n-message.n-message--info-type {
-  --msg-accent: var(--link-light, #6a9bcc);
-  border-color: color-mix(in srgb, var(--link-light, #6a9bcc) 30%, transparent) !important;
+  --msg-accent: var(--link-light, #0969da);
+  border-color: color-mix(in srgb, var(--link-light, #0969da) 30%, transparent) !important;
   box-shadow:
     0 6px 20px -6px rgba(0, 0, 0, 0.35),
-    0 0 12px -2px color-mix(in srgb, var(--link-light, #6a9bcc) 35%, transparent) !important;
+    0 0 12px -2px color-mix(in srgb, var(--link-light, #0969da) 35%, transparent) !important;
 }
 
 /* 5. 文字颜色微调，增强可读性 */
@@ -1400,11 +1404,11 @@ html.dark .n-message {
 
 /* 深色模式下 info 类型用 --link-dark 保持对比度 */
 html.dark .n-message.n-message--info-type {
-  --msg-accent: var(--link-dark, #7aaad3);
-  border-color: color-mix(in srgb, var(--link-dark, #7aaad3) 30%, transparent) !important;
+  --msg-accent: var(--link-dark, #2f81f7);
+  border-color: color-mix(in srgb, var(--link-dark, #2f81f7) 30%, transparent) !important;
   box-shadow:
     0 6px 20px -6px rgba(0, 0, 0, 0.35),
-    0 0 12px -2px color-mix(in srgb, var(--link-dark, #7aaad3) 35%, transparent) !important;
+    0 0 12px -2px color-mix(in srgb, var(--link-dark, #2f81f7) 35%, transparent) !important;
 }
 
 /* 9. 入场动画：从顶部下滑 + 淡入 + 轻微缩放（仅 transform + opacity，无 filter） */
@@ -1417,4 +1421,23 @@ html.dark .n-message.n-message--info-type {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+}
+
+/* 10. 流式渲染：新增节点淡入 + 浮现（对标千问飘逸感）
+   morphdom DOM Diff 保留未变化节点，新增节点通过 onBeforeNodeAdded 添加 .stream-node-enter 类
+   动画只作用于新增节点，未变化节点不受影响（v-html 方案无法实现此效果）
+   曲线选择 cubic-bezier(0.16, 1, 0.3, 1)（expo-out）：开始快、结束极慢，视觉上"飘"而非"蹦"
+   时长 0.18s：平衡飘逸感与快速生成时的堆叠问题（豆芽本地模型生成速度快于云端千问） */
+@keyframes streamNodeEnter {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.stream-node-enter {
+  animation: streamNodeEnter 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }

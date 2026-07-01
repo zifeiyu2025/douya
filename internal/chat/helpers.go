@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"douya/internal/llm"
 	"douya/internal/search"
@@ -278,26 +279,51 @@ func ParseExceedContextError(err error) *ExceedContextInfo {
 
 // enhanceErrorWithHint 为运行时错误添加设置调整建议
 // 如果错误可以通过设置界面调整解决，追加提示；否则直接说明原因
+//
+// 对于能映射到统一错误码（见 errorcodes.go）的错误，会在提示信息前加上
+// "[ERR_CODE]" 前缀，便于前端 classifyError 精确匹配分类；其他错误保持
+// 原有字符串匹配逻辑，向后兼容。
 func enhanceErrorWithHint(errMsg string) string {
 	lower := strings.ToLower(errMsg)
 
 	// 上下文溢出相关
 	if strings.Contains(lower, "exceed") && (strings.Contains(lower, "context") || strings.Contains(lower, "ctx")) {
-		return errMsg + "\n💡 可尝试：设置 → 增大上下文长度，或缩短对话/新建对话"
+		return formatErrCode(ErrCodeContextOverflow, errMsg+"\n💡 可尝试：设置 → 增大上下文长度，或缩短对话/新建对话")
 	}
 	if strings.Contains(lower, "context length") || strings.Contains(lower, "context_size") {
-		return errMsg + "\n💡 可尝试：设置 → 增大上下文长度，或缩短对话/新建对话"
+		return formatErrCode(ErrCodeContextOverflow, errMsg+"\n💡 可尝试：设置 → 增大上下文长度，或缩短对话/新建对话")
 	}
 
 	// 模型加载/内存不足相关
 	if strings.Contains(lower, "out of memory") || strings.Contains(lower, "oom") || strings.Contains(lower, "cuda") && strings.Contains(lower, "alloc") {
-		return errMsg + "\n💡 可尝试：设置 → 减少 GPU 层数，或开启 Flash Attention，或使用更小的模型"
+		return formatErrCode(ErrCodeOOM, errMsg+"\n💡 可尝试：设置 → 减少 GPU 层数，或开启 Flash Attention，或使用更小的模型")
 	}
 	if strings.Contains(lower, "not enough memory") || strings.Contains(lower, "memory allocation") {
-		return errMsg + "\n💡 可尝试：设置 → 减少 GPU 层数，或使用更小的模型"
+		return formatErrCode(ErrCodeOOM, errMsg+"\n💡 可尝试：设置 → 减少 GPU 层数，或使用更小的模型")
 	}
 	if strings.Contains(lower, "mmproj") && (strings.Contains(lower, "failed") || strings.Contains(lower, "error") || strings.Contains(lower, "load")) {
 		return errMsg + "\n💡 可尝试：设置 → 关闭「视觉投影卸载到 GPU」，或检查视觉模型文件是否完整"
+	}
+
+	// 引擎/模型/DLL 缺失相关（对应前端 errorGuidance.ts 的几类缺失错误）
+	if strings.Contains(lower, "dll") && (strings.Contains(lower, "not found") || strings.Contains(lower, "could not be found") || strings.Contains(lower, "缺失")) {
+		return formatErrCode(ErrCodeDLLMissing, errMsg+"\n💡 可尝试：检查 runtime/ 目录是否包含所有必要的 DLL 文件")
+	}
+	if (strings.Contains(lower, "llama-server") || strings.Contains(lower, "引擎程序")) && (strings.Contains(lower, "not found") || strings.Contains(lower, "不存在") || strings.Contains(lower, "could not find")) {
+		return formatErrCode(ErrCodeEngineMissing, errMsg+"\n💡 可尝试：检查 runtime/ 目录下是否存在 llama-server.exe")
+	}
+	if (strings.Contains(lower, "no models found") || strings.Contains(lower, "未找到任何") || strings.Contains(lower, "model") && strings.Contains(lower, "not found")) && strings.Contains(lower, "gguf") || (strings.Contains(lower, "模型文件") && strings.Contains(lower, "未找到")) {
+		return formatErrCode(ErrCodeModelMissing, errMsg+"\n💡 可尝试：将 GGUF 模型文件放入 models/ 目录")
+	}
+
+	// 永久失败（服务反复崩溃，已停止自动重启）
+	if strings.Contains(lower, "permanent") && strings.Contains(lower, "failure") {
+		return formatErrCode(ErrCodePermanentFailure, errMsg)
+	}
+
+	// 超时
+	if strings.Contains(lower, "timeout") || strings.Contains(lower, "timed out") {
+		return formatErrCode(ErrCodeTimeout, errMsg+"\n💡 可尝试：检查网络连接或稍后重试")
 	}
 
 	// 连接/服务相关
@@ -619,7 +645,18 @@ func CompressContext(
 	// 9. 异步生成摘要
 	if len(trimmedStoreMsgs) >= 4 && llmClient != nil && convID != "" && db != nil {
 		go func() {
-			newSummary := summarizeMessages(llmClient, existingSummary, trimmedStoreMsgs)
+			// 防止 panic 导致整个进程崩溃（异步 goroutine 的 panic 无法被外层 recover 捕获）
+			defer func() {
+				if r := recover(); r != nil {
+					log.Warn().Interface("panic", r).Str("conv_id", convID).Msg("[compress] 异步摘要生成 panic")
+				}
+			}()
+			// CompressContext 自身没有 ctx 参数，这里在 goroutine 内创建一个可取消的 ctx。
+			// 超时设为 summaryTimeoutSec+5s，比 summarizeMessages 内部的超时稍长，
+			// 留出余量让内部 ctx 正常超时返回，而不是被外层先取消。
+			summarizeCtx, cancel := context.WithTimeout(context.Background(), (summaryTimeoutSec+5)*time.Second)
+			defer cancel()
+			newSummary := summarizeMessages(summarizeCtx, llmClient, existingSummary, trimmedStoreMsgs)
 			if newSummary != "" {
 				if err := store.UpdateConversationSummary(db, convID, newSummary); err != nil {
 					log.Warn().Err(err).Msg("[compress] 保存摘要失败")

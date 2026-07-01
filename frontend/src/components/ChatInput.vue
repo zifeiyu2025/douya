@@ -6,7 +6,7 @@
       <div v-if="attachments.length > 0" class="attachment-preview-bar">
         <div
           v-for="(att, idx) in attachments"
-          :key="idx"
+          :key="att.name"
           class="attachment-preview-item"
           :class="att.type"
         >
@@ -44,6 +44,15 @@
                 <button class="think-btn" :class="thinkBtnClass" :disabled="!supportsThinking" @click="handleThinkClick" :title="thinkingTitle">
                   <n-icon size="22" class="think-icon"><BulbOutline /></n-icon>
                   <span v-if="thinkingMode === 'no_think'" class="think-slash"></span>
+                </button>
+                <button
+                  v-if="supportsDeepReasoning"
+                  class="deep-reason-btn"
+                  :class="{ active: deepReasoningOn }"
+                  @click="handleDeepReasonClick"
+                  :title="deepReasoningTitle"
+                >
+                  <n-icon size="20" class="deep-reason-icon"><LayersOutline /></n-icon>
                 </button>
                 <button class="search-btn" :class="searchBtnClass" @click="handleSearchClick" :title="searchTitle">
                   <n-icon size="22"><GlobeOutline /></n-icon>
@@ -189,9 +198,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, shallowRef, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { NIcon, useMessage } from 'naive-ui'
-import { GlobeOutline, AttachOutline, BulbOutline, CloudUploadOutline, CloudDownloadOutline } from '@vicons/ionicons5'
+import { GlobeOutline, AttachOutline, BulbOutline, CloudUploadOutline, CloudDownloadOutline, LayersOutline } from '@vicons/ionicons5'
 import { CutOutline, CopyOutline, ClipboardOutline, TextOutline } from '@vicons/ionicons5'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
@@ -238,7 +247,8 @@ const message = useMessage()
 const inputText = ref('')
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
-const attachments = ref<Attachment[]>([])
+// 使用 shallowRef：附件数组整体替换触发响应式，避免深度代理开销（任务 23）
+const attachments = shallowRef<Attachment[]>([])
 const showAttachMenu = ref(false)
 const pendingUploadType = ref<string>('image')
 
@@ -270,6 +280,24 @@ const thinkBtnClass = computed(() => ({
     'no-think-mode': thinkingMode.value === 'no_think',
     unsupported: !supportsThinking.value,
 }))
+const supportsDeepReasoning = computed(() => capabilities.value.supports_preserve_reasoning)
+const deepReasoningOn = computed(() => !!settingsStore.config.reasoning_preserve)
+const deepReasoningTitle = computed(() =>
+    deepReasoningOn.value
+        ? '深度推理：保留完整思考历史（每条消息都保留推理过程）'
+        : '深度推理：仅保留最近一次思考（点击开启完整历史保留）'
+)
+async function handleDeepReasonClick() {
+    const newVal = !deepReasoningOn.value
+    const cfg = { ...settingsStore.config, reasoning_preserve: newVal }
+    await settingsStore.updateConfig(cfg)
+    message.destroyAll()
+    if (newVal) {
+        message.success('已开启深度推理，将保留完整思考历史', { duration: 2000 })
+    } else {
+        message.info('已关闭深度推理，仅保留最近一次思考', { duration: 2000 })
+    }
+}
 const searchTitle = computed(() => {
     switch (searchMode.value) {
         case 'on': return '强制搜索（所有消息都搜索）'
@@ -285,6 +313,16 @@ const canSend = computed(() => !isSwitching.value && (inputText.value.trim() || 
 
 async function handleSearchClick() {
     const prevMode = searchMode.value
+    // 即将开启搜索（当前不是 on），检查是否配置了搜索 API Key
+    if (prevMode !== 'on') {
+        await settingsStore.loadSearchAPIKeys()
+        const keys = settingsStore.searchAPIKeys
+        if (!keys.tavily_api_key_set && !keys.ollama_api_key_set) {
+            message.destroyAll()
+            message.warning('请先在设置中配置搜索 API Key（Tavily 或 Ollama）', { duration: 3000 })
+            return
+        }
+    }
     await settingsStore.cycleSearchMode()
     const curMode = searchMode.value
     if (curMode === prevMode) return
@@ -663,12 +701,13 @@ function processImageFile(file: File) {
     file,
     (reader) => reader.readAsDataURL(file),
     (result) => {
-      attachments.value.push({
+      // shallowRef 需替换整个数组才能触发响应式（任务 23）
+      attachments.value = [...attachments.value, {
         type: 'image',
         name: file.name,
         mime_type: file.type,
         data: result,
-      })
+      }]
     },
     '图片'
   )
@@ -682,13 +721,14 @@ function processAudioFile(file: File) {
     (reader) => reader.readAsDataURL(file),
     (result) => {
       const base64 = result.split(',')[1]
-      attachments.value.push({
+      // shallowRef 需替换整个数组才能触发响应式（任务 23）
+      attachments.value = [...attachments.value, {
         type: 'audio',
         name: file.name,
         mime_type: file.type || `audio/${ext}`,
         data: base64,
         format: ext,
-      })
+      }]
     },
     '音频'
   )
@@ -701,12 +741,13 @@ function processPdfFile(file: File) {
     (reader) => reader.readAsDataURL(file),
     (result) => {
       const base64 = result.split(',')[1]
-      attachments.value.push({
+      // shallowRef 需替换整个数组才能触发响应式（任务 23）
+      attachments.value = [...attachments.value, {
         type: 'pdf',
         name: file.name,
         mime_type: 'application/pdf',
         data: base64,
-      })
+      }]
     },
     'PDF'
   )
@@ -719,12 +760,13 @@ function processVideoFile(file: File) {
     (reader) => reader.readAsDataURL(file),
     (result) => {
       const base64 = result.split(',')[1]
-      attachments.value.push({
+      // shallowRef 需替换整个数组才能触发响应式（任务 23）
+      attachments.value = [...attachments.value, {
         type: 'video',
         name: file.name,
         mime_type: file.type || 'video/mp4',
         data: base64,
-      })
+      }]
     },
     '视频'
   )
@@ -736,19 +778,21 @@ function processTextFile(file: File) {
     file,
     (reader) => reader.readAsText(file),
     (result) => {
-      attachments.value.push({
+      // shallowRef 需替换整个数组才能触发响应式（任务 23）
+      attachments.value = [...attachments.value, {
         type: 'text',
         name: file.name,
         mime_type: file.type || 'text/plain',
         data: result,
-      })
+      }]
     },
     '文本'
   )
 }
 
 function removeAttachment(idx: number) {
-  attachments.value.splice(idx, 1)
+  // shallowRef 需替换整个数组才能触发响应式（任务 23）
+  attachments.value = attachments.value.filter((_, i) => i !== idx)
 }
 
 function initSpeechRecognition() {
@@ -1151,6 +1195,55 @@ onUnmounted(() => {
   color: var(--text-secondary);
 }
 
+.deep-reason-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: var(--border-radius-md);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: var(--text-secondary);
+  position: relative;
+}
+
+.deep-reason-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.deep-reason-btn .deep-reason-icon {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+  will-change: transform;
+}
+
+.deep-reason-btn:hover .deep-reason-icon {
+  transform: scale(1.08) rotate(-8deg);
+}
+
+.deep-reason-btn.active {
+  color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  animation: deep-reason-pulse 3.5s ease-in-out infinite;
+}
+
+.deep-reason-btn.active .deep-reason-icon {
+  animation: deep-reason-shimmer 2s ease-in-out infinite;
+}
+
+@keyframes deep-reason-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-primary) 0%, transparent); }
+  50% { box-shadow: 0 0 8px 1px color-mix(in srgb, var(--accent-primary) 22%, transparent); }
+}
+
+@keyframes deep-reason-shimmer {
+  0%, 100% { filter: drop-shadow(0 0 0 transparent); transform: scale(1); }
+  50% { filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent-primary) 40%, transparent)); transform: scale(1.05); }
+}
+
 .attach-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -1401,7 +1494,7 @@ onUnmounted(() => {
   position: relative;
   overflow: hidden;
   /* 持续微发光，强化"可点击"感知 */
-  box-shadow: 0 2px 8px rgba(7, 193, 96, 0.25);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent-primary) 25%, transparent);
 }
 
 .send-btn:disabled {
@@ -1412,7 +1505,7 @@ onUnmounted(() => {
 
 .send-btn:not(:disabled):hover {
   transform: scale(1.05);
-  box-shadow: 0 4px 14px rgba(7, 193, 96, 0.4);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent-primary) 40%, transparent);
 }
 
 /* 点击涟漪效果（伪元素，不影响布局） */

@@ -1,5 +1,5 @@
 <template>
-  <div ref="messageListRef" class="message-list">
+  <div ref="messageListRef" class="message-list" :class="{ 'message-list--virtual': enableVirtualScroll }">
     <!-- 模型切换 overlay 已移至 App.vue 统一管理，避免重复 -->
     <div v-if="(!messages || messages.length === 0) && !isGenerating" class="message-list-empty">
       <div class="welcome-container">
@@ -29,11 +29,37 @@
       </div>
     </div>
     <template v-else>
-      <MessageItem
-        v-for="msg in messages"
-        :key="msg.id"
-        :message="msg"
-      />
+      <!-- 任务 38：虚拟滚动分支（实验性，feature flag 控制，默认关闭） -->
+      <div v-if="enableVirtualScroll" class="virtual-scroller-wrap">
+        <DynamicScroller
+          ref="scrollerRef"
+          :items="messages"
+          :min-item-size="120"
+          key-field="id"
+          :buffer="400"
+        >
+          <template #default="{ item, index, active }">
+            <DynamicScrollerItem
+              :item="item"
+              :active="active"
+              :data-index="index"
+            >
+              <MessageItem :message="item" />
+            </DynamicScrollerItem>
+          </template>
+        </DynamicScroller>
+      </div>
+      <!-- 原 v-for 渲染分支（默认，回滚兜底） -->
+      <template v-else>
+        <MessageItem
+          v-for="msg in messages"
+          :key="msg.id"
+          :message="msg"
+        />
+      </template>
+      <!-- isGenerating 占位：虚拟/非虚拟两种模式共用，作为列表末尾的兄弟元素。
+           非虚拟模式下随内容滚动；虚拟模式下位于 DynamicScroller 下方常驻显示，
+           生成结束自动消失，新消息进入上方列表。 -->
       <div v-if="isGenerating" class="message-item">
         <div class="message-avatar ai-avatar">
           <img v-if="settingsStore.config.ai_avatar" :src="settingsStore.config.ai_avatar" alt="AI" />
@@ -61,7 +87,7 @@
                   直接回答
                 </button>
               </div>
-              <div v-if="streamingContent" class="markdown-body streaming" v-html="renderedStreaming" />
+              <div v-if="streamingContent" ref="streamingContainerRef" class="markdown-body streaming" />
               <!-- 等待首个 token 的指示器：三点脉冲，比 spinner 更安静、更现代 -->
               <div v-else-if="!thinkingContent && !isSearching" class="thinking-dots" aria-label="正在思考" role="status">
                 <span class="thinking-dot"></span>
@@ -108,18 +134,30 @@ import ContextTrimmed from './ContextTrimmed.vue'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import { wails } from '../services/wails'
-import { renderMarkdownStreaming } from '../utils/markdown'
-import { useMarkdownWorker } from '../composables/useMarkdownWorker'
+import { renderMarkdownStreaming, escapeHtml } from '../utils/markdown'
+import { useMorphRender } from '../composables/useMorphRender'
 import { useScrollToBottom } from '../composables/useScrollToBottom'
+// 任务 38：虚拟滚动 feature flag（默认关闭，纯前端 localStorage 开关）
+import { useVirtualScroll } from '../composables/useVirtualScroll'
 import { formatModelName } from '../utils/model'
 import { setupCodeCopyDelegation } from '../utils/codeCopy'
 import defaultAiAvatar from '../assets/images/appicon.png'
+// 任务 38：虚拟滚动组件（局部导入便于 vue-tsc 类型解析；插件已在 main.ts 全局注册）
+import { DynamicScroller, DynamicScrollerItem } from 'vue-virtual-scroller'
 
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
 const message = useMessage()
 
-const quickActions = [
+// L-20：定义 QuickAction 接口替代 any，提供编译期类型保护
+interface QuickAction {
+  id: number
+  icon: string
+  title: string
+  prompt: string
+}
+
+const quickActions: QuickAction[] = [
   { id: 1, icon: '✍️', title: '帮我写代码', prompt: '帮我写一段示例代码' },
   { id: 2, icon: '💡', title: '头脑风暴', prompt: '帮我做一些头脑风暴，探索新想法' },
   { id: 3, icon: '📚', title: '知识问答', prompt: '我想了解一些有趣的知识' },
@@ -132,7 +170,7 @@ const currentModelDisplay = computed(() => {
   return formatModelName(model).display
 })
 
-function handleQuickAction(action: any) {
+function handleQuickAction(action: QuickAction) {
   chatStore.sendMessage(action.prompt, settingsStore.searchMode)
 }
 
@@ -153,10 +191,22 @@ const thinkingAsContent = computed(() => {
   return !isThinking.value && thinkingContent.value && !streamingContent.value
 })
 
-const renderedThinkingAsContent = computed(() => {
-  if (!thinkingAsContent.value || !thinkingContent.value) return ''
-  return renderMarkdownStreaming(thinkingContent.value)
-})
+// 渲染思考内容为 HTML。renderMarkdownStreaming 是 async 函数返回 Promise<string>，
+// 不能用 computed（Vue 不会 unwrap Promise，v-html 会渲染成 [object Promise]）。
+// 改用 ref + watch 异步模式，与 MessageItem.vue 的 renderedContent 写法一致。
+const renderedThinkingAsContent = ref('')
+watch([thinkingAsContent, thinkingContent], async () => {
+  if (!thinkingAsContent.value || !thinkingContent.value) {
+    renderedThinkingAsContent.value = ''
+    return
+  }
+  try {
+    renderedThinkingAsContent.value = await renderMarkdownStreaming(thinkingContent.value)
+  } catch (_) {
+    // 渲染失败时转义后作为纯文本显示，避免直接赋值原始未消毒内容到 v-html（XSS 防护）
+    renderedThinkingAsContent.value = escapeHtml(thinkingContent.value)
+  }
+}, { immediate: true })
 
 // ===== 停止思考功能 =====
 // isThinking 由 chat store 自动管理：
@@ -190,29 +240,59 @@ async function handleStopThinking() {
 // 模型切换 overlay 相关逻辑已移至 App.vue 统一管理
 // 这里保留 isSwitching 等变量供其他用途（如禁用输入）
 
-// PERF-003 + Step 3: 流式 Markdown 渲染跑在 Web Worker 中，主线程零阻塞
-// - useMarkdownWorker 内部维护任务 ID 防过期、动态节流、Worker 复用
-// - Worker 失败时自动降级到主线程渲染
-// - 双模式：流式期间用轻量同步渲染（跳过 Worker + DOMPurify），结束后全量重渲染
-const { rendered: renderedStreaming, bind: bindMarkdown, setStreamingMode: setMarkdownStreamingMode } = useMarkdownWorker()
+// 流式 Markdown 渲染（对标千问：morphdom DOM Diff + CSS 淡入）：
+// - SSE token 到达即渲染，用 RAF 合并同帧多次更新（60fps）
+// - stable/unstable 拆分：稳定块缓存，只渲染不稳定块增量
+// - 同步渲染（renderStreamingSync）：无 async/await，每帧立即出 DOM
+// - morphdom DOM Diff：只更新增量节点，未变化节点保留同一引用（O(Δ) vs v-html 的 O(N)）
+// - 新增节点添加 stream-node-enter 类，触发 CSS 淡入动画
+// - 流式结束 finalizeRender() 用完整 remark+DOMPurify 做最终渲染（不加淡入类）
+const { containerRef: streamingContainerRef, bind: bindMarkdown, finalizeRender } = useMorphRender()
 bindMarkdown(() => streamingContent.value)
 
-// 滚动控制：流式期间即时滚动 + 用户滚动检测 + 回到底部按钮
+// 滚动控制：统一每帧绝对滚动 + 用户滚动检测 + 回到底部按钮
 const {
-    containerRef: messageListRef,
+    containerRef,
     isAutoScrollEnabled,
     isNearBottom,
     scrollToBottom,
     watchContentChange,
     watchMessagesLength,
-    setStreamingMode,
     startObserver,
 } = useScrollToBottom()
+
+// 任务 38：虚拟滚动 feature flag（默认关闭）
+const { enableVirtualScroll } = useVirtualScroll()
+
+// 外层 .message-list 容器 ref（非虚拟模式下的滚动容器；虚拟模式下作为稳定外壳）
+// 注意：此处不再等同于 useScrollToBottom 的 containerRef，containerRef 由下方 watcher 按开关切换
+const messageListRef = ref<HTMLElement | null>(null)
+// DynamicScroller 组件实例 ref（虚拟模式下用于取其内部滚动元素 $el）
+const scrollerRef = ref<InstanceType<typeof DynamicScroller> | null>(null)
+
+// 根据虚拟滚动开关切换 useScrollToBottom 监听的滚动容器：
+// - 关闭（默认）：外层 .message-list 作为滚动容器（保持原行为）
+// - 开启：DynamicScroller 根元素（.vue-recycle-scroller，$el）作为滚动容器
+// useScrollToBottom 内部 watch(containerRef, { flush: 'sync' }) 会自动重绑 scroll 监听器
+watch(
+    [() => enableVirtualScroll.value, messageListRef, scrollerRef],
+    () => {
+        if (enableVirtualScroll.value && scrollerRef.value) {
+            // DynamicScroller 的 $el 即其内部 RecycleScroller 的滚动根节点
+            const el = (scrollerRef.value as any)?.$el as HTMLElement | undefined
+            containerRef.value = el ?? messageListRef.value
+        } else {
+            containerRef.value = messageListRef.value
+        }
+    },
+    { flush: 'sync', immediate: true }
+)
 
 onMounted(() => {
     const el = messageListRef.value
     if (el) {
         // 事件委托：只在容器绑定一次，动态新增按钮自动响应
+        // 虚拟模式下 DynamicScroller 的子项也在 .message-list 内，事件仍可冒泡到此
         setupCodeCopyDelegation(el)
     }
     startObserver()
@@ -222,22 +302,26 @@ onMounted(() => {
 watchMessagesLength(() => chatStore.messages?.length || 0)
 
 // 流式内容变化时平滑滚动跟随
-watchContentChange(() => chatStore.streamingContent)
+// morphdom 更新 DOM 后由 MutationObserver 触发滚动；此处额外监听 streamingContent
+// 确保 scheduleScroll 与 morphdom 的 RAF 在同一帧注册（morphdom 先更新 DOM，scrollBy 后读取 scrollHeight）
+watchContentChange(() => streamingContent.value)
 // 思考内容变化时平滑滚动跟随
 watchContentChange(() => chatStore.thinkingContent)
 
-// 流式生成状态切换：启用/禁用增量滚动模式 + Markdown 双模式渲染
+// 流式生成结束：触发 Markdown 全量重渲染（Worker + DOMPurify）
+// 豆芽始终流式，仅在生成结束时调用 finalizeRender
 watch(() => chatStore.isGenerating, (generating) => {
-    setStreamingMode(generating)
-    setMarkdownStreamingMode(generating)
+    if (!generating) {
+        finalizeRender()
+    }
 })
 
 // done 事件更新消息后重新滚动
-watch(() => chatStore.messages, () => {
+watch(() => chatStore.messages.length, () => {
   if (isNearBottom()) {
     nextTick(scrollToBottom)
   }
-}, { deep: false })
+})
 
 watch(() => chatStore.lastError, (err) => {
     if (err) {
@@ -273,9 +357,13 @@ watch(() => chatStore.lastError, (err) => {
 .message-item {
   display: flex;
   gap: 12px;
-  max-width: var(--msg-max-width);
   width: 100%;
   margin: 0 auto;
+}
+
+/* AI、用户消息都撑满宽度；气泡宽度由内部 bubble-wrapper 控制 */
+.message-item.user {
+  max-width: none;
 }
 
 .message-bubble-wrapper {
@@ -319,16 +407,16 @@ watch(() => chatStore.lastError, (err) => {
   justify-content: flex-start;
 }
 
-/* "直接回答"按钮：与 ThinkBlock 风格统一，pill 形状，accent-warning 色调 */
+/* "直接回答"按钮：与 ThinkBlock 风格统一，pill 形状，绿色思考色调 */
 .stop-thinking-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 5px 14px;
-  border: 1px solid var(--accent-warning);
+  border: 1px solid var(--accent-think);
   border-radius: 20px;
   background: transparent;
-  color: var(--accent-warning);
+  color: var(--accent-think);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -338,9 +426,9 @@ watch(() => chatStore.lastError, (err) => {
 }
 
 .stop-thinking-btn:hover:not(:disabled) {
-  background: var(--accent-warning);
+  background: var(--accent-think);
   color: var(--bg-primary);
-  box-shadow: 0 2px 8px rgba(255, 195, 0, 0.25);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent-think-glow) 35%, transparent);
 }
 
 .stop-thinking-btn:active:not(:disabled) {
@@ -618,7 +706,8 @@ watch(() => chatStore.lastError, (err) => {
 }
 
 /* ===== AI 流式光标 =====
- * 闪烁竖线，AI 生成时跟随文字末尾
+ * 呼吸竖线，AI 生成时跟随文字末尾
+ * 用 ease-in-out 呼吸替代 step-end 硬闪烁，营造"正在思考"的拟人感
  * 用 inline-block + animation，GPU 友好
  */
 .streaming-cursor {
@@ -629,7 +718,7 @@ watch(() => chatStore.lastError, (err) => {
   vertical-align: text-bottom;
   background: var(--accent-primary);
   border-radius: 1px;
-  animation: cursor-blink 1s step-end infinite;
+  animation: cursor-breathe 1.2s ease-in-out infinite;
   will-change: opacity;
 }
 
@@ -679,9 +768,42 @@ watch(() => chatStore.lastError, (err) => {
   }
 }
 
-/* 流式 markdown 容器性能优化 */
-.markdown-body.streaming {
-  contain: style;
+/* ===== 任务 38：虚拟滚动布局 =====
+ * 虚拟模式下，.message-list 不再作为滚动容器（DynamicScroller 内部自带
+ * overflow:auto 的 .vue-recycle-scroller 作为滚动根）。此处覆盖全局
+ * .message-list 的 overflow，让外层仅作弹性外壳，由内部 scroller 滚动。
+ * 生活类比：原来整个房间都是跑道，现在把跑道收进一台跑步机，房间只负责把
+ * 跑步机固定住并留出空间。
+ */
+.message-list--virtual {
+  /* 关闭外层滚动，避免与 DynamicScroller 内部滚动产生双重滚动条 */
+  overflow: hidden;
+  /* 作为 scroll-to-bottom 按钮绝对定位的参照系 */
+  position: relative;
+}
+
+/* DynamicScroller 外壳：填充剩余高度，让内部 scroller 拿到确定高度 */
+.virtual-scroller-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* DynamicScroller 根元素（.vue-recycle-scroller）填满外壳并作为滚动容器 */
+.message-list--virtual .virtual-scroller-wrap :deep(.vue-recycle-scroller) {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  /* 复用全局滚动条样式（webkit 细滚动条由全局 ::-webkit-scrollbar 提供） */
+}
+
+/* 虚拟模式下回到底部按钮改用绝对定位：
+ * 原始 position:sticky 依赖滚动容器，而虚拟模式下滚动发生在 DynamicScroller
+ * 内部，sticky 相对 .message-list（overflow:hidden）无法生效。 */
+.message-list--virtual .scroll-to-bottom-btn {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
 }
 </style>
 

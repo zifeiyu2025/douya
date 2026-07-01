@@ -1,4 +1,4 @@
-﻿[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::InputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 # 兼容 PowerShell 5.1：不依赖 >$null 2>&1 重定向语法
@@ -10,6 +10,15 @@ $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $OutputDir = Join-Path $ProjectRoot "release"
 
 Write-Host "=== 豆芽 AI 发布构建 ===" -ForegroundColor Cyan
+
+# 发版前校验 version.go 与 package.json 版本号一致（任务 31）
+$versionCheckScript = Join-Path $ProjectRoot "scripts\check_version_consistency.ps1"
+if (Test-Path $versionCheckScript) {
+    & $versionCheckScript
+    if ($LASTEXITCODE -ne 0) { throw "版本一致性校验失败，请同步 version.go 与 package.json 的版本号" }
+} else {
+    Write-Host "警告: 未找到版本校验脚本 $versionCheckScript，跳过校验" -ForegroundColor Yellow
+}
 
 Write-Host "[0/5] 设置 Go 代理..." -ForegroundColor Yellow
 $env:GOPROXY = "https://goproxy.cn,direct"

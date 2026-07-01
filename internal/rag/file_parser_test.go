@@ -1,6 +1,9 @@
 package rag
 
 import (
+	"archive/zip"
+	"bytes"
+	"strings"
 	"testing"
 
 	"douya/internal/pdfutil"
@@ -147,5 +150,51 @@ func TestCleanWhitespace_MultipleSpaces(t *testing.T) {
 	result := cleanWhitespace(input)
 	if result != "Hello World" {
 		t.Errorf("expected 'Hello World', got %q", result)
+	}
+}
+
+func TestParseDOCX_ZipBomb(t *testing.T) {
+	// 构造高压缩比 ZIP：word/document.xml 解压后超过 100MB 限制
+	var zipBuf bytes.Buffer
+	zw := zip.NewWriter(&zipBuf)
+
+	fw, err := zw.Create("word/document.xml")
+	if err != nil {
+		t.Fatalf("创建 zip 条目失败: %v", err)
+	}
+
+	// 写入超过 100MB 的重复内容，压缩后体积很小
+	// 使用 1MB chunk 避免一次性分配过大内存
+	chunk := make([]byte, 1024*1024) // 1MB
+	for i := range chunk {
+		chunk[i] = 'a'
+	}
+
+	totalSize := int64(101 * 1024 * 1024) // 101MB，超过 100MB 限制
+	written := int64(0)
+	for written < totalSize {
+		n := int64(len(chunk))
+		if written+n > totalSize {
+			n = totalSize - written
+		}
+		if _, err := fw.Write(chunk[:n]); err != nil {
+			t.Fatalf("写入 zip 条目失败: %v", err)
+		}
+		written += n
+	}
+
+	if err := zw.Close(); err != nil {
+		t.Fatalf("关闭 zip writer 失败: %v", err)
+	}
+
+	// 验证 parseDOCX 拦截了 zip bomb
+	_, err = parseDOCX(zipBuf.Bytes())
+	if err == nil {
+		t.Fatal("预期返回错误（zip bomb 拦截），但得到 nil")
+	}
+
+	expectedErr := "DOCX 解压内容超过 100MB 限制"
+	if !strings.Contains(err.Error(), expectedErr) {
+		t.Errorf("预期错误包含 %q，实际得到 %q", expectedErr, err.Error())
 	}
 }

@@ -64,6 +64,7 @@ type ServerConfig struct {
 	ReasoningBudget  int
 	ReasoningFormat  string
 	ReasoningBudgetMessage string
+	ReasoningPreserve      *bool  // 推理内容保留开关（nil=不传递，true=--reasoning-preserve，false=--no-reasoning-preserve）
 	APIBase          string
 	AppDir           string
 	ModelsPreset     string
@@ -90,6 +91,8 @@ type ServerConfig struct {
 	Device           string
 	Parallel         int
 	APIKey           string
+	ServerAPIKeyEnabled bool // 是否启用服务 API Key 验证（暴露到局域网时强制要求）
+
 	SpecType         string
 	SpecDraftNMax    int
 	SpecDraftNMin    int
@@ -124,6 +127,7 @@ type ServerConfig struct {
 	SimpleIO             bool
 	BatchSize            int
 	UBatchSize           int
+	ThreadsHTTP          int    // HTTP 请求处理线程数（0=使用 llama-server 默认值）
 	ContextSize          int
 	// KV 缓存持久化
 	SlotSavePath    string // 启用后传递 --slot-save-path
@@ -160,6 +164,14 @@ type ServerConfig struct {
 	LoraPaths string
 	// Reranker 模型路径（配置后自动启用 --rerank 端点）
 	RerankerModelPath string
+	// 直接 I/O（绕过操作系统页面缓存，加速大模型加载）
+	DirectIO bool
+	// MoE 权重 CPU 卸载（将所有专家权重保留在 CPU）
+	CPUMoe bool
+	// 前 N 层 MoE 权重 CPU 卸载（0=不启用）
+	NCpuMoe int
+	// 算子卸载开关（nil=使用默认值，true=--op-offload，false=--no-op-offload）
+	OpOffload *bool
 }
 
 type Server struct {
@@ -178,6 +190,10 @@ type Server struct {
 	onLog                func(line string)          // 日志行回调（用于实时推送到前端）
 	onTerminalData       func(data []byte)          // 终端原始字节流回调（用于 xterm.js 渲染）
 	healthClient         *http.Client               // 复用的健康检查 HTTP 客户端（WaitForReady/GracefulStop 共用）
+	permanentFailure    bool                        // 永久失败标志：服务器反复崩溃后不再自动重启
+	maxRestartAttempts  int                         // 最大重启尝试次数（默认 10，可配置便于测试）
+	initialBackoff      time.Duration               // 初始退避时间（默认 2s，可配置便于测试）
+	pollInterval        time.Duration               // 轮询间隔（默认 1s，可配置便于测试）
 }
 
 func NewServer(cfg *ServerConfig) *Server {
@@ -185,6 +201,9 @@ func NewServer(cfg *ServerConfig) *Server {
 		config:       cfg,
 		status:       ServerStatus{Running: false},
 		healthClient: &http.Client{Timeout: healthCheckTimeout},
+		maxRestartAttempts: 10,
+		initialBackoff:     2 * time.Second,
+		pollInterval:       1 * time.Second,
 	}
 }
 
@@ -339,6 +358,7 @@ func (s *Server) buildStartArgs() []string {
 	args = appendIntArg(args, "-t", s.config.Threads)
 	args = appendIntArg(args, "-b", s.config.BatchSize)
 	args = appendIntArg(args, "-ub", s.config.UBatchSize)
+	args = appendIntArg(args, "--threads-http", s.config.ThreadsHTTP)
 	args = appendIntArg(args, "-c", s.config.ContextSize)
 	args = appendBoolArg(args, "--mmproj-auto", s.config.MmprojAuto)
 	args = appendBoolArg(args, "--mmproj-offload", s.config.MmprojOffload)
@@ -346,6 +366,14 @@ func (s *Server) buildStartArgs() []string {
 	args = appendIntArg(args, "--reasoning-budget", s.config.ReasoningBudget)
 	args = appendStringArg(args, "--reasoning-format", s.config.ReasoningFormat)
 	args = appendStringArg(args, "--reasoning-budget-message", s.config.ReasoningBudgetMessage)
+	// 推理内容保留开关（v9840+，nil=不传递，使用服务器默认值）
+	if s.config.ReasoningPreserve != nil {
+		if *s.config.ReasoningPreserve {
+			args = append(args, "--reasoning-preserve")
+		} else {
+			args = append(args, "--no-reasoning-preserve")
+		}
+	}
 	args = appendBoolArg(args, "--kv-unified", s.config.KVUnified)
 	args = appendBoolArg(args, "--cache-idle-slots", s.config.CacheIdleSlots)
 	args = appendIntArg(args, "--cache-ram", s.config.CacheRAM)
@@ -482,8 +510,8 @@ func (s *Server) buildStartArgs() []string {
 	if s.config.LookupCacheDynamic != "" && s.config.SpecType == "ngram-cache" {
 		args = append(args, "--lookup-cache-dynamic", s.config.LookupCacheDynamic)
 	}
-	// draft 模型路径：仅在 draft-eagle3/draft-simple 模式下传递
-	if s.config.SpecDraftModel != "" && (s.config.SpecType == "draft-eagle3" || s.config.SpecType == "draft-simple") {
+	// draft 模型路径：在 draft-eagle3/draft-dflash/draft-simple 模式下传递
+	if s.config.SpecDraftModel != "" && (s.config.SpecType == "draft-eagle3" || s.config.SpecType == "draft-dflash" || s.config.SpecType == "draft-simple") {
 		args = append(args, "--spec-draft-model", s.resolvePath(s.config.SpecDraftModel))
 	}
 
@@ -531,8 +559,18 @@ func (s *Server) buildStartArgs() []string {
 	}
 
 	// KV 缓存持久化：启用后传递 --slot-save-path
-	if s.config.SlotSaveEnabled && s.config.SlotSavePath != "" {
-		args = append(args, "--slot-save-path", s.config.SlotSavePath)
+	if s.config.SlotSaveEnabled {
+		slotPath := s.config.SlotSavePath
+		if slotPath == "" {
+			// 启用但路径为空时自动填充默认路径，避免 llama-server 因缺少参数报错
+			slotPath = filepath.Join(s.config.AppDir, "slots")
+			log.Warn().Str("slot_save_path", slotPath).Msg("[server] SlotSaveEnabled is true but SlotSavePath is empty, using default path")
+		}
+		// 确保目录存在，避免 llama-server 写入失败
+		if err := os.MkdirAll(slotPath, 0755); err != nil {
+			log.Warn().Err(err).Str("slot_save_path", slotPath).Msg("[server] failed to create slot save directory")
+		}
+		args = append(args, "--slot-save-path", slotPath)
 	}
 
 	// KV 缓存复用
@@ -589,10 +627,30 @@ func (s *Server) buildStartArgs() []string {
 	// 默认推测解码配置
 	args = appendBoolArg(args, "--spec-default", s.config.SpecDefault)
 
+	// 直接 I/O（绕过操作系统页面缓存，加速大模型加载）
+	args = appendBoolArg(args, "--direct-io", s.config.DirectIO)
+	// MoE 权重 CPU 卸载
+	if s.config.CPUMoe {
+		args = append(args, "--cpu-moe")
+	}
+	args = appendIntArg(args, "--n-cpu-moe", s.config.NCpuMoe)
+	// 算子卸载开关（nil=使用默认值，true=--op-offload，false=--no-op-offload）
+	if s.config.OpOffload != nil {
+		if *s.config.OpOffload {
+			args = append(args, "--op-offload")
+		} else {
+			args = append(args, "--no-op-offload")
+		}
+	}
+
 	return args
 }
 
 func (s *Server) Start() error {
+	// 安全校验：开启局域网暴露时必须启用 API Key，防止局域网内未授权设备调用本地算力
+	if s.config.ExposeServer && (!s.config.ServerAPIKeyEnabled || s.config.APIKey == "") {
+		return fmt.Errorf("开启局域网暴露必须先启用服务 API Key 并设置密钥")
+	}
 	s.mu.Lock()
 
 	if s.status.Running && s.isAlive() {
@@ -684,6 +742,12 @@ func (s *Server) Start() error {
 		s.status = ServerStatus{Running: true}
 
 		go func() {
+			// L-3：cmd.Wait 是系统调用，panic 概率极低，但 recover 可防极端情况
+			defer func() {
+				if r := recover(); r != nil {
+					log.Warn().Interface("panic", r).Msg("[server] cmd.Wait goroutine panic")
+				}
+			}()
 			err := s.cmd.Wait()
 			s.mu.Lock()
 			s.status = ServerStatus{Running: false}
@@ -733,6 +797,12 @@ func (s *Server) Start() error {
 
 	// 启动等待 goroutine
 	go func() {
+		// L-3：pty.Wait 是系统调用，recover 保护 pty 路径的状态更新
+		defer func() {
+			if r := recover(); r != nil {
+				log.Warn().Interface("panic", r).Msg("[server] pty.Wait goroutine panic")
+			}
+		}()
 		exitCode, err := pty.Wait(s.ctx)
 		s.mu.Lock()
 		s.status = ServerStatus{Running: false}
@@ -947,10 +1017,16 @@ func (s *Server) stopInternal() error {
 		// 等待进程退出（带超时）
 		waitDone := make(chan struct{})
 		go func() {
+			// L-3：确保 waitDone 一定被关闭，否则外层 select 永远阻塞（虽有 3s 兜底但会浪费超时时间）
+			defer func() {
+				if r := recover(); r != nil {
+					log.Debug().Interface("panic", r).Msg("[server] pty wait-done goroutine panic")
+				}
+				close(waitDone)
+			}()
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
 			pty.Wait(ctx)
-			close(waitDone)
 		}()
 
 		timer := time.NewTimer(3 * time.Second)
@@ -1001,8 +1077,14 @@ func (s *Server) stopInternal() error {
 	cmd := s.cmd
 	waitDone := make(chan struct{})
 	go func() {
+		// L-3：确保 waitDone 一定被关闭，防止外层 select 永久阻塞
+		defer func() {
+			if r := recover(); r != nil {
+				log.Debug().Interface("panic", r).Msg("[server] cmd wait-done goroutine panic")
+			}
+			close(waitDone)
+		}()
 		cmd.Wait()
-		close(waitDone)
 	}()
 
 	timer := time.NewTimer(3 * time.Second)
@@ -1055,9 +1137,21 @@ func (s *Server) Status() ServerStatus {
 
 func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(ServerStatus), onRestartSuccess func()) {
 	restartCount := 0
-	currentBackoff := 2 * time.Second
+	// 使用结构体字段以便测试可覆盖（默认 2s 退避、1s 轮询、10 次重试上限）
+	initialBackoff := s.initialBackoff
+	if initialBackoff == 0 {
+		initialBackoff = 2 * time.Second
+	}
+	currentBackoff := initialBackoff
 	const maxBackoff = 60 * time.Second
-	const maxRestartAttempts = 10
+	maxAttempts := s.maxRestartAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = 10
+	}
+	pollInt := s.pollInterval
+	if pollInt == 0 {
+		pollInt = 1 * time.Second
+	}
 
 	for {
 		select {
@@ -1067,21 +1161,19 @@ func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(Serv
 		}
 
 		if !s.IsRunning() {
-			if restartCount >= maxRestartAttempts {
-				s.SetStatus(false, fmt.Sprintf("server crashed repeatedly (%d times), waiting %v before next attempt", restartCount, maxBackoff))
+			if restartCount >= maxAttempts {
+				// 永久失败：服务器反复崩溃，不再自动重启，避免无限循环消耗资源
+				s.mu.Lock()
+				s.permanentFailure = true
+				s.mu.Unlock()
+				s.SetStatus(false, "永久失败：服务器反复崩溃，请检查配置或重启应用")
 				if onStatusChange != nil {
 					onStatusChange(s.Status())
 				}
-
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(maxBackoff):
-				}
-
-				restartCount = 0
-				currentBackoff = 2 * time.Second
-				continue
+				log.Error().
+					Int("restart_attempts", restartCount).
+					Msg("[server] permanent failure: server crashed repeatedly, giving up auto-restart")
+				return
 			}
 
 			backoff := currentBackoff
@@ -1105,7 +1197,7 @@ func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(Serv
 				}
 			}
 
-			s.SetStatus(false, fmt.Sprintf("server crashed, restarting in %v (attempt %d/%d)", backoff, restartCount, maxRestartAttempts))
+			s.SetStatus(false, fmt.Sprintf("server crashed, restarting in %v (attempt %d/%d)", backoff, restartCount, maxAttempts))
 			if onStatusChange != nil {
 				onStatusChange(s.Status())
 			}
@@ -1138,7 +1230,7 @@ func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(Serv
 
 			s.SetStatus(true, "")
 			restartCount = 0
-			currentBackoff = 2 * time.Second
+			currentBackoff = initialBackoff
 			if onRestartSuccess != nil {
 				onRestartSuccess()
 			}
@@ -1150,9 +1242,16 @@ func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(Serv
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(1 * time.Second):
+		case <-time.After(pollInt):
 		}
 	}
+}
+
+// IsPermanentFailure 返回服务器是否处于永久失败状态（反复崩溃后不再自动重启）
+func (s *Server) IsPermanentFailure() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.permanentFailure
 }
 
 func (s *Server) isAlive() bool {

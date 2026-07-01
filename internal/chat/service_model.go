@@ -84,6 +84,12 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 	}
 
 	go func() {
+		// 防止 panic 导致 infoCh 永不写入、调用方永久阻塞
+		defer func() {
+			if r := recover(); r != nil {
+				infoCh <- infoResult{nil, fmt.Errorf("get model info panic: %v", r)}
+			}
+		}()
 		var info *llm.ModelInfo
 		var err error
 		if client == nil {
@@ -99,6 +105,12 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 	}()
 
 	go func() {
+		// 防止 panic 导致 propsCh 永不写入、调用方永久阻塞
+		defer func() {
+			if r := recover(); r != nil {
+				propsCh <- propsResult{nil, fmt.Errorf("get server props panic: %v", r)}
+			}
+		}()
 		if cached != nil {
 			propsCh <- propsResult{cached, nil}
 			return
@@ -128,6 +140,7 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 	var supportsReasoning bool
 	var softSwitchSupport bool
 	var mmprojLoaded bool
+	var supportsPreserveReasoning bool
 	thinkingMode := llm.ThinkingModeNone
 
 	if propsErr == nil {
@@ -176,8 +189,8 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 			lowerArch := strings.ToLower(ggufMeta.Architecture)
 			archConfigs := []modelKeywordConfig{
 				{keywords: []string{"qwen3", "qwen3moe", "qwen3next", "qwen3vl", "qwen3vlmoe", "qwen35", "qwen35moe", "qwen36"}, thinkingMode: llm.ThinkingModeTemplate, softSwitch: true},
-				{keywords: []string{"gemma2", "gemma4", "gemma3n", "llama4", "phi4", "mistral3", "mistral4", "glm4", "chatglm4", "cohere2moe", "tiny-aya", "ernie4-5", "ernie4-5-moe", "minimax-m2"}, thinkingMode: llm.ThinkingModeTemplate},
-				{keywords: []string{"deepseek3", "deepseek2", "deepseek32"}, thinkingMode: llm.ThinkingModeReasoning},
+				{keywords: []string{"gemma2", "gemma4", "gemma3n", "llama4", "phi4", "mistral3", "mistral4", "glm4", "chatglm4", "glm4moe", "cohere2moe", "tiny-aya", "ernie4-5", "ernie4-5-moe", "minimax-m2", "minicpm5", "smollm3", "hunyuan-moe", "hunyuan-dense", "step35", "kimi-linear", "arcee", "dots1", "dream", "smallthinker"}, thinkingMode: llm.ThinkingModeTemplate},
+				{keywords: []string{"deepseek3", "deepseek2", "deepseek32", "deepseek4", "deepseek-v4"}, thinkingMode: llm.ThinkingModeReasoning},
 			}
 			if mode, reasoning, soft := matchModelKeywords(lowerArch, archConfigs); mode != llm.ThinkingModeNone {
 				thinkingMode = mode
@@ -191,7 +204,7 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 			lowerName := strings.ToLower(info.Name)
 			nameConfigs := []modelKeywordConfig{
 				{keywords: []string{"qwen3", "qwq", "qwen3moe", "qwen3-next", "qwen3next", "qwen3-vl", "qwen3vl", "qwen3.5", "qwen3.6", "qwen35", "qwen35moe", "qwen36"}, thinkingMode: llm.ThinkingModeTemplate, softSwitch: true},
-				{keywords: []string{"gemma-4", "gemma4", "gemma-2", "gemma-3", "gemma3", "gemma-3n", "gemma3n", "llama-4", "llama4", "mistral-small-3", "mistral-small3", "mistral-small3.1", "mistral-3", "mistral3", "mistral-4", "mistral4", "phi-4-reasoning-plus", "glm4", "chatglm4", "cohere2moe", "tiny-aya", "ernie-4.5", "ernie4.5", "minimax-m2", "minimaxm2"}, thinkingMode: llm.ThinkingModeTemplate},
+				{keywords: []string{"gemma-4", "gemma4", "gemma-2", "gemma-3", "gemma3", "gemma-3n", "gemma3n", "llama-4", "llama4", "mistral-small-3", "mistral-small3", "mistral-small3.1", "mistral-3", "mistral3", "mistral-4", "mistral4", "phi-4-reasoning-plus", "glm4", "chatglm4", "glm-4-moe", "glm4moe", "cohere2moe", "tiny-aya", "ernie-4.5", "ernie4.5", "minimax-m2", "minimaxm2", "minicpm5", "minicpm-5", "smollm3", "smol-lm3", "hunyuan-moe", "hunyuan-dense", "step3.5", "step3.7", "kimi-linear", "arcee", "dots1", "dream", "smallthinker"}, thinkingMode: llm.ThinkingModeTemplate},
 				{keywords: []string{"deepseek-r1", "deepseek-v2", "deepseek-v3", "deepseek-v4", "deepseek-r", "deepseek-3.2", "deepseek32", "phi-4-reasoning", "phi4-reasoning"}, thinkingMode: llm.ThinkingModeReasoning},
 			}
 			if mode, reasoning, soft := matchModelKeywords(lowerName, nameConfigs); mode != llm.ThinkingModeNone {
@@ -214,7 +227,8 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 		ThinkingMode:      thinkingMode,
 		SoftSwitchSupport: softSwitchSupport,
 		NParams:           s.resolveNParams(info.Meta.NParams),
-		ToolCallSupport:   caps.ToolCallSupport,
+		ToolCallSupport:         caps.ToolCallSupport,
+		SupportsPreserveReasoning: supportsPreserveReasoning,
 	}
 	s.modelCapsMu.Unlock()
 	// FIX: Only set detectedModelName when it's empty (called from DetectModelArchitecture without model name).

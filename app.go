@@ -41,18 +41,29 @@ type SearchAPIKeys struct {
 }
 
 type App struct {
-	ctx              context.Context
-	config           *config.Config
-	configMu         sync.RWMutex
-	server           *llm.Server
-	serverMu         sync.Mutex
-	client           *llm.Client
-	db               *sql.DB
-	service          *chat.Service
-	hwInfo           *system.HardwareInfo
-	ready            atomic.Bool
-	serverReady      atomic.Bool
-	watchCancel      context.CancelFunc
+	ctx         context.Context
+	config      *config.Config
+	configMu    sync.RWMutex
+	server      *llm.Server
+	serverMu    sync.Mutex
+	client      *llm.Client
+	db          *sql.DB
+	service     *chat.Service
+	hwInfo      *system.HardwareInfo
+	ready       atomic.Bool
+	serverReady atomic.Bool
+	watchCancel context.CancelFunc
+	// rootCtx 是应用级上下文，生命周期贯穿整个 App 运行期。
+	// shutdownInternal 会调用 rootCancel 通知所有被跟踪的长生命周期 goroutine 退出。
+	rootCtx    context.Context
+	rootCancel context.CancelFunc
+	// g 用于跟踪长生命周期 goroutine（watcher/health/SSE 等），
+	// shutdownInternal 在关闭底层资源前会 g.Wait() 等待它们退出，避免资源释放后仍被访问。
+	g sync.WaitGroup
+	// logChan 用于 SetOnLog 回调的日志推送：生产者（llama-server 输出）非阻塞写入，
+	// 消费者（trackedGo 启动的单个 goroutine）读取并 EventsEmit 到前端。
+	// 替代原来"每行日志一个 goroutine"的实现，避免 goroutine 泛滥。
+	logChan          chan string
 	stopOnce         sync.Once
 	cleanupResult    []*chat.AbnormalConversation
 	cleanupResultMu  sync.Mutex
@@ -77,6 +88,28 @@ type App struct {
 
 func NewApp() *App {
 	return &App{}
+}
+
+// trackedGo 启动一个被 App 跟踪的长生命周期 goroutine。
+//
+// 生活类比：就像给每个员工（goroutine）发一个工牌，App（公司）在下班（shutdown）时
+// 先广播"下班了"（rootCancel），然后门口签到表（WaitGroup）等所有员工出来后再锁门
+// （关闭 db/ragVS 等资源），避免把人锁在里面（资源释放后仍被访问导致 panic）。
+//
+// 自动加 recover 防 panic 崩溃整个进程；通过 sync.WaitGroup 跟踪生命周期，
+// shutdownInternal 会在关闭底层资源前 g.Wait() 等待所有被跟踪 goroutine 退出。
+// 短期一次性 goroutine 不必走此路径，直接 go func() 即可（建议自行加 recover）。
+func (a *App) trackedGo(fn func()) {
+	a.g.Add(1)
+	go func() {
+		defer a.g.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				zlog.Warn().Interface("panic", r).Msg("[goroutine] tracked goroutine panic recovered")
+			}
+		}()
+		fn()
+	}()
 }
 
 var cachedAppDir string

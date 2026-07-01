@@ -2,7 +2,9 @@ package store
 
 import (
 	"crypto/rand"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"douya/internal/secrets"
@@ -332,5 +334,219 @@ func TestEncryptedSettingCompatibility(t *testing.T) {
 	}
 	if got != plainValue {
 		t.Errorf("旧版明文值不匹配: 期望 %q, 实际 %q", plainValue, got)
+	}
+}
+
+// TestMigrateMessages_Batch 测试 migrateMessages 批量事务加密
+// 验证：超过 batchSize 的多条未加密消息被分批加密，且全部以 "enc:" 前缀存储
+func TestMigrateMessages_Batch(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	// 生成 32 字节加密密钥
+	encKey := make([]byte, 32)
+	if _, err := rand.Read(encKey); err != nil {
+		t.Fatalf("生成密钥失败: %v", err)
+	}
+
+	// 用 nil encKey 初始化，避免 Init 时自动触发迁移
+	db, err := Init(dbPath, nil)
+	if err != nil {
+		t.Fatalf("Init 失败: %v", err)
+	}
+	defer db.Close()
+
+	// 插入一个 conversation（messages 表有外键约束）
+	_, err = db.Exec("INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))", "conv1", "Test")
+	if err != nil {
+		t.Fatalf("插入会话失败: %v", err)
+	}
+
+	// 插入 250 条未加密消息（超过 batchSize=100，覆盖 3 批）
+	const total = 250
+	for i := 0; i < total; i++ {
+		id := fmt.Sprintf("msg-%03d", i)
+		content := fmt.Sprintf("明文消息内容 %d", i)
+		if _, err := db.Exec("INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
+			id, "conv1", "user", content); err != nil {
+			t.Fatalf("插入消息 %d 失败: %v", i, err)
+		}
+	}
+
+	// 调用 migrateMessages
+	if err := migrateMessages(db, encKey); err != nil {
+		t.Fatalf("migrateMessages 失败: %v", err)
+	}
+
+	// 验证所有消息的 content 都被加密（以 "enc:" 开头）
+	rows, err := db.Query("SELECT id, content FROM messages")
+	if err != nil {
+		t.Fatalf("查询消息失败: %v", err)
+	}
+	encryptedCount := 0
+	for rows.Next() {
+		var id, content string
+		if err := rows.Scan(&id, &content); err != nil {
+			rows.Close()
+			t.Fatalf("扫描失败: %v", err)
+		}
+		if !strings.HasPrefix(content, "enc:") {
+			t.Errorf("消息 %s 未被加密: %q", id, content)
+		} else {
+			encryptedCount++
+		}
+	}
+	rows.Close()
+	if encryptedCount != total {
+		t.Errorf("期望 %d 条被加密，实际 %d", total, encryptedCount)
+	}
+}
+
+// TestMigrateMessages_Idempotent 测试 migrateMessages 的幂等性
+// 验证：已加密的消息（content 以 "enc:" 开头）不会被重复加密
+func TestMigrateMessages_Idempotent(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	encKey := make([]byte, 32)
+	if _, err := rand.Read(encKey); err != nil {
+		t.Fatalf("生成密钥失败: %v", err)
+	}
+
+	db, err := Init(dbPath, nil)
+	if err != nil {
+		t.Fatalf("Init 失败: %v", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec("INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))", "conv1", "Test")
+	if err != nil {
+		t.Fatalf("插入会话失败: %v", err)
+	}
+
+	// 插入一条已加密的消息（content 以 "enc:" 开头）
+	encryptedContent := "enc:already-encrypted-data"
+	if _, err := db.Exec("INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
+		"msg-enc", "conv1", "user", encryptedContent); err != nil {
+		t.Fatalf("插入已加密消息失败: %v", err)
+	}
+
+	// 调用 migrateMessages
+	if err := migrateMessages(db, encKey); err != nil {
+		t.Fatalf("migrateMessages 失败: %v", err)
+	}
+
+	// 验证 content 未被改变（仍然是原来的值）
+	var content string
+	err = db.QueryRow("SELECT content FROM messages WHERE id = ?", "msg-enc").Scan(&content)
+	if err != nil {
+		t.Fatalf("查询失败: %v", err)
+	}
+	if content != encryptedContent {
+		t.Errorf("已加密消息不应被重复加密：期望 %q，实际 %q", encryptedContent, content)
+	}
+}
+
+// TestSearchMessages_CrossField 测试 SearchMessages 跨字段匹配
+// 验证：搜索关键词能命中 thinking_content / search_results / tool_calls 字段，而非仅限 content
+func TestSearchMessages_CrossField(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	encKey := make([]byte, 32)
+	if _, err := rand.Read(encKey); err != nil {
+		t.Fatalf("生成密钥失败: %v", err)
+	}
+
+	db, err := Init(dbPath, encKey)
+	if err != nil {
+		t.Fatalf("Init 失败: %v", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec("INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))", "conv1", "Test")
+	if err != nil {
+		t.Fatalf("插入会话失败: %v", err)
+	}
+
+	// 插入 4 条消息：前 3 条 content 不含关键词，但分别在 thinking_content / search_results / tool_calls 中含 "keyword"
+	// 第 4 条所有字段都不含关键词（不应被匹配）
+	msgs := []*Message{
+		{ConversationID: "conv1", Role: "assistant", Content: "普通回答一", ThinkingContent: "我在思考 keyword 这个词"},
+		{ConversationID: "conv1", Role: "assistant", Content: "普通回答二", SearchResults: "搜索结果包含 keyword"},
+		{ConversationID: "conv1", Role: "assistant", Content: "普通回答三", ToolCalls: "[{\"name\":\"keyword_tool\"}]"},
+		{ConversationID: "conv1", Role: "user", Content: "用户消息不含关键词"},
+	}
+	for i, m := range msgs {
+		if err := CreateMessage(db, m, encKey); err != nil {
+			t.Fatalf("CreateMessage[%d] 失败: %v", i, err)
+		}
+	}
+
+	// 搜索 "keyword"，应命中前 3 条
+	results, err := SearchMessages(db, "keyword", encKey)
+	if err != nil {
+		t.Fatalf("SearchMessages 失败: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("期望 3 条跨字段匹配，实际 %d", len(results))
+	}
+
+	// 搜索 "普通回答"，应命中 content 字段的 3 条
+	results2, err := SearchMessages(db, "普通回答", encKey)
+	if err != nil {
+		t.Fatalf("SearchMessages(content) 失败: %v", err)
+	}
+	if len(results2) != 3 {
+		t.Fatalf("期望 3 条 content 匹配，实际 %d", len(results2))
+	}
+
+	// 搜索不存在的关键词，应返回 0 条
+	results3, err := SearchMessages(db, "不存在的关键词xyz", encKey)
+	if err != nil {
+		t.Fatalf("SearchMessages(none) 失败: %v", err)
+	}
+	if len(results3) != 0 {
+		t.Fatalf("期望 0 条匹配，实际 %d", len(results3))
+	}
+}
+
+// TestSearchMessages_CaseInsensitive 测试 SearchMessages 大小写不敏感
+func TestSearchMessages_CaseInsensitive(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	encKey := make([]byte, 32)
+	if _, err := rand.Read(encKey); err != nil {
+		t.Fatalf("生成密钥失败: %v", err)
+	}
+
+	db, err := Init(dbPath, encKey)
+	if err != nil {
+		t.Fatalf("Init 失败: %v", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec("INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))", "conv1", "Test")
+	if err != nil {
+		t.Fatalf("插入会话失败: %v", err)
+	}
+
+	// content 含大写 KEYWORD，用小写 keyword 搜索应命中
+	msg := &Message{
+		ConversationID: "conv1",
+		Role:           "user",
+		Content:        "这里有 KEYWORD 大写",
+	}
+	if err := CreateMessage(db, msg, encKey); err != nil {
+		t.Fatalf("CreateMessage 失败: %v", err)
+	}
+
+	results, err := SearchMessages(db, "keyword", encKey)
+	if err != nil {
+		t.Fatalf("SearchMessages 失败: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("期望大小写不敏感匹配 1 条，实际 %d", len(results))
 	}
 }

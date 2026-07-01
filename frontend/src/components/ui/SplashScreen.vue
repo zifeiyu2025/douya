@@ -114,7 +114,7 @@ const stageText = computed(() => {
   background: var(--bg-primary);
   overflow: hidden;
   /* 微妙的径向渐变背景，营造氛围（不影响文字可见性） */
-  background-image: radial-gradient(circle at 50% 50%, rgba(7, 193, 96, 0.04) 0%, transparent 70%);
+  background-image: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--accent-primary) 4%, transparent) 0%, transparent 70%);
 }
 
 /* ===== SVG 装饰层 =====
@@ -238,17 +238,32 @@ const stageText = computed(() => {
   color: var(--accent-primary);
   letter-spacing: 6px;
   padding-left: 6px;
-  /* 纯色 rgba 阴影，避免 color-mix 兼容性问题 */
-  text-shadow: 0 0 12px rgba(7, 193, 96, 0.4);
+  /* 纯色 rgba 阴影，避免 color-mix 兼容性问题；使用 GitHub 蓝 */
+  text-shadow: 0 0 12px rgba(9, 105, 218, 0.4);
   animation: title-glow 2.5s ease-in-out infinite;
 }
 
 @keyframes title-glow {
   0%, 100% {
-    text-shadow: 0 0 12px rgba(7, 193, 96, 0.4);
+    text-shadow: 0 0 12px rgba(9, 105, 218, 0.4);
   }
   50% {
-    text-shadow: 0 0 20px rgba(7, 193, 96, 0.6);
+    text-shadow: 0 0 20px rgba(9, 105, 218, 0.6);
+  }
+}
+
+/* 深色模式：使用深色 GitHub 蓝的 rgba 值 */
+:global(.dark) .splash-title {
+  text-shadow: 0 0 12px rgba(47, 129, 247, 0.4);
+  animation: title-glow-dark 2.5s ease-in-out infinite;
+}
+
+@keyframes title-glow-dark {
+  0%, 100% {
+    text-shadow: 0 0 12px rgba(47, 129, 247, 0.4);
+  }
+  50% {
+    text-shadow: 0 0 20px rgba(47, 129, 247, 0.6);
   }
 }
 

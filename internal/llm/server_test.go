@@ -5,7 +5,9 @@ package llm
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 )
 
 // TestStart_CleansUpOldCancel 验证重复调用 Start() 时，旧的 cancel 函数会被调用，避免资源泄漏
@@ -75,5 +77,105 @@ func TestStart_ReplaceContext_NilOldCancel(t *testing.T) {
 	// 清理
 	if s.cancel != nil {
 		s.cancel()
+	}
+}
+
+// TestStart_ExposeServerValidation 验证开启局域网暴露时强制要求 API Key 的安全校验
+//
+// 生活类比：就像开店时如果要把后门也打开（暴露到局域网），就必须配一把后门钥匙（API Key），
+// 否则任何人都能从后门进出，太危险了。这个测试就是检查"开后门但没配钥匙"的情况会被拒绝。
+//
+// 覆盖三种配置组合：
+//   - 暴露 + 已启用 API Key + 有密钥 → 校验通过（不返回校验错误）
+//   - 暴露 + 未启用 API Key → 校验失败
+//   - 暴露 + 已启用 API Key + 无密钥 → 校验失败
+//   - 不暴露 → 校验通过（不返回校验错误）
+func TestStart_ExposeServerValidation(t *testing.T) {
+	// 校验失败时应返回明确错误的错误信息片段
+	const validationErrSnippet = "开启局域网暴露"
+
+	// 用例 1：暴露 + 已启用 API Key + 有密钥 → 应通过校验（不返回校验错误）
+	// 注意：Start() 通过校验后会尝试启动进程，因 ServerPath 不存在会返回其他错误，
+	// 这里只验证返回的错误不是校验错误
+	s1 := NewServer(&ServerConfig{
+		ExposeServer:        true,
+		ServerAPIKeyEnabled: true,
+		APIKey:              "test-key-123",
+		ServerPath:          "nonexistent_llama_server.exe",
+	})
+	err1 := s1.Start()
+	if err1 != nil && strings.Contains(err1.Error(), validationErrSnippet) {
+		t.Errorf("用例1（暴露+有Key）：不应返回校验错误，但得到: %v", err1)
+	}
+
+	// 用例 2：暴露 + 未启用 API Key → 应返回校验错误
+	s2 := NewServer(&ServerConfig{
+		ExposeServer:        true,
+		ServerAPIKeyEnabled: false,
+		APIKey:              "test-key-123",
+	})
+	err2 := s2.Start()
+	if err2 == nil || !strings.Contains(err2.Error(), validationErrSnippet) {
+		t.Errorf("用例2（暴露+未启用Key）：应返回校验错误，但得到: %v", err2)
+	}
+
+	// 用例 3：暴露 + 已启用 API Key + 无密钥 → 应返回校验错误
+	s3 := NewServer(&ServerConfig{
+		ExposeServer:        true,
+		ServerAPIKeyEnabled: true,
+		APIKey:              "",
+	})
+	err3 := s3.Start()
+	if err3 == nil || !strings.Contains(err3.Error(), validationErrSnippet) {
+		t.Errorf("用例3（暴露+无密钥）：应返回校验错误，但得到: %v", err3)
+	}
+
+	// 用例 4：不暴露 → 应通过校验（不返回校验错误）
+	s4 := NewServer(&ServerConfig{
+		ExposeServer:        false,
+		ServerAPIKeyEnabled: false,
+		APIKey:              "",
+		ServerPath:          "nonexistent_llama_server.exe",
+	})
+	err4 := s4.Start()
+	if err4 != nil && strings.Contains(err4.Error(), validationErrSnippet) {
+		t.Errorf("用例4（不暴露）：不应返回校验错误，但得到: %v", err4)
+	}
+}
+
+// TestWatchWithCallback_PermanentFailure 验证服务器反复崩溃后进入永久失败状态
+//
+// 生活类比：就像一台自动售货机如果连续卡货好几次，管理员会把它切换到"故障停用"模式，
+// 不再自动重试，而是等人工检修。这个测试就是验证售货机在连续失败后会正确停机。
+//
+// 测试策略：配置极小的重试次数和退避时间，使用不存在的 ServerPath 让 Start() 快速失败，
+// 验证 WatchWithCallback 在达到上限后退出 goroutine 且 permanentFailure==true。
+func TestWatchWithCallback_PermanentFailure(t *testing.T) {
+	s := NewServer(&ServerConfig{
+		ServerPath: "nonexistent_llama_server.exe",
+	})
+	// 配置极小参数便于快速测试（默认 10 次 * 2s 退避太久）
+	s.maxRestartAttempts = 3
+	s.initialBackoff = 1 * time.Millisecond
+	s.pollInterval = 1 * time.Millisecond
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		s.WatchWithCallback(ctx, nil, nil)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// WatchWithCallback 已正常返回
+	case <-time.After(10 * time.Second):
+		t.Fatal("WatchWithCallback 未在 10 秒内返回，可能未正确进入永久失败状态")
+	}
+
+	if !s.IsPermanentFailure() {
+		t.Error("连续启动失败后 permanentFailure 应为 true")
 	}
 }

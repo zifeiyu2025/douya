@@ -1,6 +1,7 @@
 package rag
 
 import (
+	"math"
 	"testing"
 )
 
@@ -248,4 +249,102 @@ func anyMatch(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// ========== AddDocuments 批量接口测试（任务4） ==========
+
+// TestAddDocuments_IDFOnce 验证批量添加的 IDF/avgDL 结果与逐个添加完全一致。
+// AddDocuments 仅在末尾单次重算 avgDL 和 IDF，结果等价于逐个 AddDocument（每次重算）。
+func TestAddDocuments_IDFOnce(t *testing.T) {
+	docs := []BM25DocInput{
+		{ID: "doc1", Text: "机器学习是人工智能的一个重要分支"},
+		{ID: "doc2", Text: "深度学习是机器学习的子领域"},
+		{ID: "doc3", Text: "自然语言处理是人工智能的分支"},
+		{ID: "doc4", Text: "计算机视觉使用深度学习技术"},
+		{ID: "doc5", Text: "强化学习是机器学习的一种"},
+	}
+
+	// 批量添加（仅末尾单次重算）
+	batchIdx := NewBM25Index()
+	batchIdx.AddDocuments(docs)
+
+	// 逐个添加（每次都重算）
+	seqIdx := NewBM25Index()
+	for _, d := range docs {
+		seqIdx.AddDocument(d.ID, d.Text)
+	}
+
+	// 文档数应一致
+	if len(batchIdx.documents) != len(seqIdx.documents) {
+		t.Fatalf("文档数不一致: batch=%d, seq=%d", len(batchIdx.documents), len(seqIdx.documents))
+	}
+	// avgDL 应一致
+	if math.Abs(batchIdx.avgDL-seqIdx.avgDL) > 1e-9 {
+		t.Errorf("avgDL 不一致: batch=%f, seq=%f", batchIdx.avgDL, seqIdx.avgDL)
+	}
+	// idf 词表大小应一致
+	if len(batchIdx.idf) != len(seqIdx.idf) {
+		t.Fatalf("idf 词表大小不一致: batch=%d, seq=%d", len(batchIdx.idf), len(seqIdx.idf))
+	}
+	// 每个词的 idf 值应一致
+	for term, v := range seqIdx.idf {
+		bv, ok := batchIdx.idf[term]
+		if !ok {
+			t.Errorf("batch idf 缺少词 %q", term)
+			continue
+		}
+		if math.Abs(bv-v) > 1e-9 {
+			t.Errorf("idf[%q] 不一致: batch=%f, seq=%f", term, bv, v)
+		}
+	}
+}
+
+// TestAddDocuments_Empty 空切片不应 panic 或改变索引状态
+func TestAddDocuments_Empty(t *testing.T) {
+	idx := NewBM25Index()
+	idx.AddDocuments(nil)
+	idx.AddDocuments([]BM25DocInput{})
+	if len(idx.documents) != 0 {
+		t.Errorf("空 AddDocuments 不应添加文档，实际 %d", len(idx.documents))
+	}
+}
+
+// ========== parseChunkID 无前缀格式测试（任务4） ==========
+
+// TestParseChunkID_NoPrefix 验证无 collection 前缀的 id 解析正确
+// 统一 BM25 doc id 为 "docID_chunkIdx" 后，parseChunkID 不再遇到含冒号的错误 docID
+func TestParseChunkID_NoPrefix(t *testing.T) {
+	docID, chunkIdx := parseChunkID("doc_123_000001")
+	if docID != "doc_123" || chunkIdx != 1 {
+		t.Errorf("parseChunkID(\"doc_123_000001\") = (%q, %d), want (\"doc_123\", 1)", docID, chunkIdx)
+	}
+}
+
+// ========== RemoveByPrefix 单格式测试（任务4） ==========
+
+// TestRemoveByPrefix_SingleFormat 验证按 "docID_" 前缀清理单格式 id 的文档
+func TestRemoveByPrefix_SingleFormat(t *testing.T) {
+	idx := NewBM25Index()
+	idx.AddDocuments([]BM25DocInput{
+		{ID: "docA_000001", Text: "苹果是水果"},
+		{ID: "docA_000002", Text: "香蕉也是水果"},
+		{ID: "docB_000001", Text: "计算机科学"},
+	})
+	// 删除 docA 的所有 chunk
+	removed := idx.RemoveByPrefix("docA_")
+	if removed != 2 {
+		t.Fatalf("期望删除 2 个，实际 %d", removed)
+	}
+	// 剩余应为 docB_000001
+	if len(idx.documents) != 1 {
+		t.Fatalf("期望剩余 1 个文档，实际 %d", len(idx.documents))
+	}
+	if idx.documents[0].id != "docB_000001" {
+		t.Errorf("剩余文档 id 不正确: %q", idx.documents[0].id)
+	}
+	// 验证仍能正常检索
+	results := idx.Search("计算机", 5)
+	if len(results) == 0 {
+		t.Error("删除后应仍能检索到 docB")
+	}
 }

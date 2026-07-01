@@ -199,8 +199,11 @@ func SearchMessages(db *sql.DB, query string, encKey []byte) ([]*Message, error)
 		}
 		// 解密敏感字段
 		decryptMessage(msg, encKey)
-		// 在内存中匹配
-		if strings.Contains(strings.ToLower(msg.Content), lowerQuery) {
+		// 在内存中匹配：扩展匹配字段到 content / thinking_content / search_results / tool_calls，
+		// 让搜索能命中思考过程、RAG 检索结果、工具调用等扩展内容，而非仅限正文。
+		// 生活类比：以前只在"正文"里找关键词，现在也会翻"草稿纸（思考）"、"参考资料（RAG）"、"工具记录"一起找。
+		haystack := strings.ToLower(msg.Content + " " + msg.ThinkingContent + " " + msg.SearchResults + " " + msg.ToolCalls)
+		if strings.Contains(haystack, lowerQuery) {
 			msgs = append(msgs, msg)
 		}
 	}

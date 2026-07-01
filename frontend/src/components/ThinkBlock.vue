@@ -6,7 +6,7 @@
       </n-icon>
       <n-icon size="16" class="think-icon"><BulbOutline /></n-icon>
       <span v-if="isThinking" class="think-status thinking">正在思考<span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span></span>
-      <span v-else-if="duration > 0" class="think-status done">已思考(用时{{ formattedDuration }})</span>
+      <span v-else-if="safeDuration > 0" class="think-status done">已思考(用时{{ formattedDuration }})</span>
       <span v-else>思考过程</span>
     </div>
     <div v-if="expanded" class="think-block-content">
@@ -47,24 +47,31 @@ const cleanedContent = computed(() => {
 
 // remark 是异步的，使用 ref + watch 模式
 const renderedContent = ref('')
+// 渲染版本号防止异步竞态——若 content 在短时间内多次变化，
+// 先发起的渲染任务可能后完成并覆盖最新内容。版本号校验确保只采用最新结果。
+let renderVersion = 0
 
 watch(cleanedContent, async (newVal) => {
   if (!newVal) {
     renderedContent.value = ''
     return
   }
+  const version = ++renderVersion
   try {
-    renderedContent.value = await renderMarkdown(cleanStreamingContent(newVal))
+    const html = await renderMarkdown(cleanStreamingContent(newVal))
+    if (version !== renderVersion) return
+    renderedContent.value = html
   } catch (_) {
     // 渲染失败时转义后作为纯文本显示，避免直接赋值原始未消毒内容到 v-html（XSS 防护）
+    if (version !== renderVersion) return
     renderedContent.value = escapeHtml(newVal)
   }
 }, { immediate: true })
 
-const duration = computed(() => props.duration ?? 0)
+const safeDuration = computed(() => props.duration ?? 0)
 
 const formattedDuration = computed(() => {
-  const d = duration.value
+  const d = safeDuration.value
   if (d <= 0) return '0秒'
   if (d < 60) return `${d.toFixed(1)}秒`
   const min = Math.floor(d / 60)
@@ -103,7 +110,7 @@ const formattedDuration = computed(() => {
 }
 
 .think-icon {
-  color: var(--accent-warning);
+  color: var(--accent-think);
 }
 
 .think-status {
@@ -111,7 +118,7 @@ const formattedDuration = computed(() => {
 }
 
 .think-status.thinking {
-  color: var(--accent-warning);
+  color: var(--accent-think);
 }
 
 .think-status.done {
@@ -129,11 +136,44 @@ const formattedDuration = computed(() => {
   line-height: 1.65;
   position: relative;
   overflow: hidden;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+}
+
+/* 内容层提升至伪元素之上，确保文字始终可读 */
+.think-block-content-inner {
+  position: relative;
+  z-index: 2;
+}
+
+/* 思考中：整块能量场
+ * - 左侧背景渐隐出能量底色
+ * - 边框微微偏绿 + 多层外辉光，营造科幻 HUD 感
+ */
+.think-block.is-thinking .think-block-content {
+  border-color: color-mix(in srgb, var(--accent-think) 38%, var(--border-color));
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--accent-think) 7%, var(--bg-tertiary)) 0%,
+      var(--bg-tertiary) 55%
+    );
+  box-shadow:
+    inset 1px 0 0 color-mix(in srgb, var(--accent-think) 55%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--accent-think) 10%, transparent),
+    0 0 18px color-mix(in srgb, var(--accent-think) 14%, transparent);
+}
+
+/* 注册可动画的角度变量（Chromium 85+ / 现代 WebView2 支持）
+ * 不支持时 conic-gradient 仍以初始值渲染为静态光带，不影响可见性 */
+@property --think-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
 }
 
 /* 左边缘脉络流光条
  * - 默认（思考完成）：静态淡色条作为视觉装饰
- * - 思考中（is-thinking）：accent 色高亮 + 上下流动的渐变光带
+ * - 思考中（is-thinking）：化为环绕整块边框的能量光带，沿边框顺时针流动
  */
 .think-vein {
   position: absolute;
@@ -143,34 +183,82 @@ const formattedDuration = computed(() => {
   width: 2px;
   background: var(--border-color);
   opacity: 0.6;
-  transition: background 0.3s ease, opacity 0.3s ease;
+  transition: opacity 0.3s ease;
+  z-index: 1;
 }
 
 .think-block.is-thinking .think-vein {
-  background: linear-gradient(
-    180deg,
-    transparent 0%,
-    var(--accent-warning) 30%,
-    color-mix(in srgb, var(--accent-warning) 60%, white) 50%,
-    var(--accent-warning) 70%,
-    transparent 100%
+  /* 由左侧脉络条展开为覆盖整块的边框光带 */
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: auto;
+  padding: 1px; /* 光带宽度 */
+  background: conic-gradient(
+    from var(--think-angle),
+    transparent 0deg,
+    transparent 210deg,
+    color-mix(in srgb, var(--accent-think-glow) 18%, transparent) 270deg,
+    color-mix(in srgb, var(--accent-think-glow) 70%, transparent) 335deg,
+    color-mix(in srgb, var(--accent-think-glow) 55%, white) 352deg,
+    transparent 360deg
   );
-  background-size: 100% 200%;
+  /* mask 镂空技巧：只显示 padding 圈（即边框那一圈），内部镂空不遮挡内容 */
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  border-radius: inherit;
   opacity: 1;
-  animation: vein-flow 2s ease-in-out infinite;
-  box-shadow: 0 0 6px color-mix(in srgb, var(--accent-warning) 60%, transparent);
-  will-change: background-position;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent-think-glow) 45%, transparent))
+          drop-shadow(0 0 7px color-mix(in srgb, var(--accent-think-glow) 20%, transparent));
+  animation: think-rotate 5s linear infinite;
+  will-change: --think-angle;
 }
 
-@keyframes vein-flow {
-  0% { background-position: 0 -100%; }
-  100% { background-position: 0 100%; }
+/* 左侧辉光散射场：从光柱向右衰减的绿色辉光，呼吸式脉动 */
+.think-block.is-thinking .think-block-content::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 64px;
+  background: radial-gradient(
+    ellipse at left center,
+    color-mix(in srgb, var(--accent-think) 20%, transparent) 0%,
+    color-mix(in srgb, var(--accent-think) 7%, transparent) 40%,
+    transparent 80%
+  );
+  pointer-events: none;
+  animation: vein-breathe 2.4s ease-in-out infinite;
+  z-index: 0;
+}
+
+@keyframes think-rotate {
+  to { --think-angle: 360deg; }
+}
+
+@keyframes vein-breathe {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .think-block.is-thinking .think-vein {
+  .think-block.is-thinking .think-vein,
+  .think-block.is-thinking .think-block-content::before {
     animation: none;
-    background: var(--accent-warning);
+  }
+  .think-block.is-thinking .think-vein {
+    background: var(--accent-think);
+    -webkit-mask: none;
+            mask: none;
+    filter: none;
+  }
+  .think-block.is-thinking .think-block-content::before {
+    opacity: 0.8;
   }
 }
 

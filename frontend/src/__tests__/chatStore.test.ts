@@ -44,6 +44,7 @@ function setupGeneratingState(store: ReturnType<typeof useChatStore>, convId: st
     store.convStreamingStates.set(convId, {
         isGenerating: true,
         streamingContent: '',
+        streamingChunks: [],
         thinkingContent: '',
         searchResults: '',
         isSearching: false,
@@ -63,14 +64,21 @@ describe('chat store - handleStreamEvent', () => {
         setActivePinia(createPinia())
     })
 
-    it('should handle token event', () => {
+    it('should handle token event', async () => {
+        // handleToken 使用 20ms 节流刷新（scheduleStreamingFlush）：
+        // 分块 push 到 streamingChunks 后，由 20ms 定时器合并到 streamingContent，
+        // 不会同步更新。需用 fake timers 推进时间让 flush 触发后再校验。
+        vi.useFakeTimers()
         const store = useChatStore()
         setupGeneratingState(store)
 
         store.handleStreamEvent({ type: 'token', content: '你' } as StreamEvent)
         store.handleStreamEvent({ type: 'token', content: '好' } as StreamEvent)
 
+        await vi.advanceTimersByTimeAsync(20)
+
         expect(store.streamingContent).toBe('你好')
+        vi.useRealTimers()
     })
 
     it('should handle thinking event', () => {
@@ -146,6 +154,73 @@ describe('chat store - handleStreamEvent', () => {
         store.handleStreamEvent({ type: 'conversation_created', content: conv } as StreamEvent)
 
         expect(store.currentConversationId).toBe('conv-new')
+    })
+
+    // -------------------------------------------------------------------------
+    // Bug 复现：思考结束→正文切换的竞态
+    // 场景：思考期间 thinkingContent 累积，isThinking=true。
+    //   第一个正文 token 到达时 handleToken 把 isThinking=false，但 streamingContent
+    //   由 50ms 节流定时器刷新，不会同步更新——存在 streamingContent="" 的窗口。
+    //   此时组件层 thinkingAsContent = !isThinking && thinkingContent && !streamingContent
+    //   会短暂为 true，把思考内容当正文显示，吞掉首个正文 token 的视觉响应。
+    // 期望：第一个正文 token 到达时立即 flush streamingContent，消除空窗口。
+    // -------------------------------------------------------------------------
+    it('思考结束首个正文 token 应立即 flush streamingContent，消除空窗口', async () => {
+        vi.useFakeTimers()
+        const store = useChatStore()
+        setupGeneratingState(store)
+        const state = store.convStreamingStates.get('')!
+
+        // 模拟思考阶段
+        store.handleStreamEvent({ type: 'thinking', content: '分析中' } as StreamEvent)
+        expect(state.isThinking).toBe(true)
+        expect(state.thinkingContent).toBe('分析中')
+        expect(state.streamingContent).toBe('')
+
+        // 第一个正文 token 到达：handleToken 把 isThinking=false
+        store.handleStreamEvent({ type: 'token', content: '你' } as StreamEvent)
+
+        // 此时 isThinking 已变 false
+        expect(state.isThinking).toBe(false)
+        // Bug：streamingContent 仍为空（50ms 节流未刷新），
+        // 导致组件层 thinkingAsContent = !isThinking && thinkingContent && !streamingContent 短暂为 true
+        // 期望：首个 token 应立即 flush，streamingContent 非空
+        expect(state.streamingContent).toBe('你')
+
+        vi.useRealTimers()
+    })
+
+    it('连续多个 token 到达时 flush 定时器不被清空，token 合并显示', async () => {
+        // 回归测试：修复前 startGeneratingTimeout 每次调用 clearTimers() 会把 flush 定时器也清掉，
+        // 导致 token 间隔 < flush 间隔时 flush 永远不触发，内容堆积到最后一次性显示。
+        // FLUSH_INTERVAL=0 后行为：后续 token 在下一个宏任务 flush（setTimeout 0）
+        vi.useFakeTimers()
+        const store = useChatStore()
+        setupGeneratingState(store)
+        const state = store.convStreamingStates.get('')!
+
+        // 首 token 立即 flush（0ms）
+        store.handleStreamEvent({ type: 'token', content: '第' } as StreamEvent)
+        expect(state.streamingContent).toBe('第')
+
+        // 后续 token 连续到达，设置 flush 定时器（setTimeout 0）
+        store.handleStreamEvent({ type: 'token', content: '一' } as StreamEvent)
+        // 定时器已存在，不重置
+        store.handleStreamEvent({ type: 'token', content: '句' } as StreamEvent)
+        store.handleStreamEvent({ type: 'token', content: '话' } as StreamEvent)
+
+        // 定时器尚未触发（还在同一宏任务中），streamingContent 仍是首字
+        expect(state.streamingContent).toBe('第')
+
+        // 推进时间触发 flush 定时器，合并所有 chunk
+        await vi.advanceTimersByTimeAsync(1)
+
+        // 修复前：flush 定时器被 startGeneratingTimeout 每次清空，永远不触发，
+        //         streamingContent 仍为 '第'，所有内容堆积在 chunks 中
+        // 修复后：flush 定时器正常触发，streamingContent 合并所有 chunk
+        expect(state.streamingContent).toBe('第一句话')
+
+        vi.useRealTimers()
     })
 
     it('should handle conversation_updated event', () => {

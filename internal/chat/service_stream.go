@@ -15,10 +15,18 @@ import (
 
 	"douya/internal/llm"
 	"douya/internal/search"
+	"douya/internal/secrets"
 	"douya/internal/store"
 )
 
-const streamRequestTimeout = 300 * time.Second // 流式请求超时
+// L-15：streamRequestTimeout 是业务层流式请求超时，通过 context.WithTimeout 包裹请求，
+// 优先生效于 client.go 的 streamTimeout=900s 兜底超时。长输出（>300s）会被此值截断。
+const streamRequestTimeout = 300 * time.Second // 业务层流式请求超时
+
+// toolCallSearchTimeout 单个 tool call 搜索的独立超时时间（任务 35）
+// 用 var 而非 const，便于单元测试临时调小以快速验证超时逻辑
+// 生活类比：每个快递员有 30 秒配送时限，超时就标记失败让其他人继续工作
+var toolCallSearchTimeout = 30 * time.Second
 
 var searchToolDef = llm.ToolDefinition{
 	Type: "function",
@@ -260,7 +268,7 @@ func (s *Service) savePartialContentIfAny(convID string, acc *StreamAccumulator)
 	if acc.LastSearchJSON != "" {
 		aiMsg.SearchResults = acc.LastSearchJSON
 	}
-	if err := store.CreateMessage(s.db, aiMsg, s.encKey); err != nil {
+	if err := store.CreateMessage(s.db, aiMsg, secrets.CipherKey(s.cipher)); err != nil {
 		log.Error().Err(err).Msg("save partial ai message on stop")
 	}
 	s.emitForConv(convID, "assistant_message", storeMsgToChat(aiMsg))
@@ -347,6 +355,12 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 	client := s.getClientSnapshot()
 	defer s.setCurrentCompletionID("") // 工具调用循环结束后清除 completion ID
 	hitMaxRounds := false
+
+	// 在循环外维护增量 token 计数器，避免每轮都重新计算所有消息的 token 数（O(n²) 退化为 O(n)）
+	// 生活类比：像记账，每笔新交易只需加上新增金额，不需要把之前每笔交易重新加一遍。
+	// 注意：当 CompressContext 修改 llmMessages 时，需重新计算 totalTokens。
+	totalTokens := estimateMessagesTokens(llmMessages)
+
 	for round := 0; round < maxRounds; round++ {
 		hitMaxRounds = round == maxRounds-1
 
@@ -361,17 +375,23 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 			searchJSON  string
 		}
 
-		var toolResults []toolCallResult
-		var toolMu sync.Mutex
+		// 预分配结果切片，按 tool call 在原切片中的索引写入，
+		// 避免 goroutine 并发完成后 append 导致结果乱序。
+		// 不同 goroutine 写入不同 idx，无需加锁；最终读取前用 WaitGroup 等待全部完成。
+		// 生活类比：像给每个快递员编好编号，按编号放回对应格子，避免谁先回来谁先放导致顺序乱。
+		toolResults := make([]toolCallResult, len(accumulatedToolCalls))
 		var toolWg sync.WaitGroup
 
-		for _, tc := range accumulatedToolCalls {
+		// 记录添加新消息前的位置，用于增量 token 累加（任务 14）
+		prevMsgCount := len(llmMessages)
+
+		for idx, tc := range accumulatedToolCalls {
 			if tc.Function.Name != "search" {
 				continue
 			}
 			s.emitForConv(convID, "search_start", tc.Function.Arguments)
 			toolWg.Add(1)
-			go func(tc llm.ToolCall) {
+			go func(idx int, tc llm.ToolCall) {
 				defer toolWg.Done()
 				var result toolCallResult
 				result.tc = tc
@@ -383,8 +403,18 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 					result.toolContent = fmt.Sprintf("Error: invalid arguments format. Expected JSON with \"query\" field. Got: %s. Please correct your arguments and try again.", tc.Function.Arguments)
 				} else {
 					s.emitForConv(convID, "tool_call_start", map[string]string{"tool": tc.Function.Name, "query": args.Query})
-					searchResp := s.doSearch(cancelCtx, args.Query)
-					if searchResp != nil && len(searchResp.Results) > 0 {
+
+					// 为单个 tool call 设置独立超时（30s），避免某个慢搜索阻塞整个循环（任务 35）
+					// 生活类比：每个快递员有自己的配送时限，不会因为一个人迟到让整个团队等他。
+					toolCtx, toolCancel := context.WithTimeout(cancelCtx, toolCallSearchTimeout)
+					defer toolCancel() // 确保资源释放
+
+					searchResp := s.doSearch(toolCtx, args.Query)
+
+					// 检查是否超时：doSearch 不返回 error，需通过 toolCtx.Err() 判断
+					if toolCtx.Err() == context.DeadlineExceeded {
+						result.toolContent = "搜索超时（30s），请稍后重试"
+					} else if searchResp != nil && len(searchResp.Results) > 0 {
 						s.emitForConv(convID, "search_result", searchResp.Results)
 						sj, _ := json.Marshal(searchResp.Results)
 						result.searchJSON = string(sj)
@@ -401,14 +431,18 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 					}
 				}
 
-				toolMu.Lock()
-				toolResults = append(toolResults, result)
-				toolMu.Unlock()
-			}(tc)
+				// 按 idx 写入预分配的切片，不同 goroutine 写不同位置，无需加锁
+				toolResults[idx] = result
+			}(idx, tc)
 		}
 		toolWg.Wait()
 
-		for _, tr := range toolResults {
+		// 遍历时跳过未填充的条目（非 search 类 tool call 的位置为零值）
+		for i := range toolResults {
+			tr := toolResults[i]
+			if tr.tc.Function.Name == "" {
+				continue
+			}
 			assistantToolCallJSON, _ := json.Marshal([]llm.ToolCall{tr.tc})
 			if err := store.CreateMessage(s.db, &store.Message{
 				ConversationID:   convID,
@@ -417,7 +451,7 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 				ToolCalls:        string(assistantToolCallJSON),
 				ThinkingContent:  acc.FirstRoundThinking,
 				ThinkingDuration: clampDuration(acc.FirstRoundThinkingDuration),
-			}, s.encKey); err != nil {
+			}, secrets.CipherKey(s.cipher)); err != nil {
 				log.Error().Err(err).Msg("save assistant tool call message")
 			}
 
@@ -436,7 +470,7 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 				Role:           "tool",
 				Content:        tr.toolContent,
 				ToolCallID:     tr.tc.ID,
-			}, s.encKey); err != nil {
+			}, secrets.CipherKey(s.cipher)); err != nil {
 				log.Error().Err(err).Msg("save tool result message")
 			}
 
@@ -447,8 +481,14 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 			})
 		}
 
+		// 增量累加本轮新增消息的 token 数，避免重新计算整个 llmMessages（任务 14）
+		// 生活类比：账本上只追加新交易，老账目不动，O(n²) 退化为 O(n)
+		for i := prevMsgCount; i < len(llmMessages); i++ {
+			totalTokens += estimateChatMessageTokens(llmMessages[i])
+		}
+
 		// 预防性裁剪：tool call 多轮累积可能导致上下文溢出
-		estimatedTotal := estimateMessagesTokens(llmMessages) + 250 // +250 for tool schema
+		estimatedTotal := totalTokens + 250 // +250 for tool schema
 		contextLimit := cfg.ContextSize
 		if contextLimit <= 0 {
 			contextLimit = 4096
@@ -463,6 +503,8 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 			}
 			result := CompressContext(llmMessages, contextLimit, existingSummary, nil, client, convID, s.db)
 			llmMessages = result.Messages
+			// 压缩后 llmMessages 发生变化，重新计算 totalTokens 以保持准确（任务 14）
+			totalTokens = estimateMessagesTokens(llmMessages)
 			log.Info().Int("estimated", estimatedTotal).Int("context_size", contextLimit).Int("messages_after", len(llmMessages)).Msg("[chat] tool call preventive trim")
 
 			s.emitForConv(convID, "context_trimmed", map[string]interface{}{
@@ -476,7 +518,7 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 		req := &llm.ChatCompletionRequest{
 			Model:           s.modelNameForRequest(),
 			Messages:        llmMessages,
-			MaxTokens:       s.calcMaxTokens(estimateMessagesTokens(llmMessages) + 250), // +250 for tool schema
+			MaxTokens:       s.calcMaxTokens(totalTokens + 250), // +250 for tool schema（任务 14：复用增量计数）
 			Temperature:     cfg.Temperature,
 			TopP:            cfg.TopP,
 			TopK:            cfg.TopK,
@@ -555,7 +597,7 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 	if acc.FinishReason == "tool_calls" && hitMaxRounds {
 		aiMsg.Content += "\n\n[工具调用已达最大轮次限制，部分搜索结果可能未完全处理]"
 	}
-	if err := store.CreateMessage(s.db, aiMsg, s.encKey); err != nil {
+	if err := store.CreateMessage(s.db, aiMsg, secrets.CipherKey(s.cipher)); err != nil {
 		log.Error().Err(err).Msg("save ai message")
 	}
 	chatMsg := storeMsgToChat(aiMsg)
@@ -593,7 +635,7 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 	convID := params.ConversationID
 	if convID == "" {
 		conv := &store.Conversation{Title: "新对话"}
-		if err := store.CreateConversation(s.db, conv, s.encKey); err != nil {
+		if err := store.CreateConversation(s.db, conv, secrets.CipherKey(s.cipher)); err != nil {
 			s.emitForConv("", "error", enhanceErrorWithHint(fmt.Sprintf("创建对话失败: %v", err)))
 			return fmt.Errorf("create conversation: %w", err)
 		}
@@ -624,7 +666,7 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 		attJSON, _ := json.Marshal(params.Attachments)
 		userMsg.Attachments = string(attJSON)
 	}
-	if err := store.CreateMessage(s.db, userMsg, s.encKey); err != nil {
+	if err := store.CreateMessage(s.db, userMsg, secrets.CipherKey(s.cipher)); err != nil {
 		s.emitForConv(convID, "error", enhanceErrorWithHint(fmt.Sprintf("保存消息失败: %v", err)))
 		return fmt.Errorf("save user message: %w", err)
 	}
@@ -648,7 +690,7 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 	}
 	s.emitForConv(convID, "user_message", emitMsg)
 
-	dbMsgs, err := store.GetMessagesByConversation(s.db, convID, s.encKey)
+	dbMsgs, err := store.GetMessagesByConversation(s.db, convID, secrets.CipherKey(s.cipher))
 	if err != nil {
 		s.emitForConv(convID, "error", enhanceErrorWithHint(fmt.Sprintf("加载消息失败: %v", err)))
 		return fmt.Errorf("load messages: %w", err)
@@ -681,7 +723,7 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 	llmMessages, trimmed, err := s.buildLLMMessages(cancelCtx, convID, dbMsgs, userContent, params.Attachments, params.SearchMode, searchContext)
 	if err != nil {
 		s.emitForConv(convID, "error", enhanceErrorWithHint(err.Error()))
-	return err
+		return err // L-13：修正缩进，原 return 与 if 体不对齐易误读为函数顶层
 	}
 
 	if trimmed {
@@ -828,36 +870,42 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 			log.Debug().Int("actual", acc.PromptTokens).Int("estimated", estimated).Float64("ratio", float64(acc.PromptTokens)/float64(max(estimated, 1))).Msg("[chat] token estimation calibration")
 		}
 
-		aiMsg := &store.Message{
-			ConversationID:   convID,
-			Role:             "assistant",
-			Content:          acc.FullContent.String(),
-			ThinkingContent:  acc.FullThinking.String(),
-			ThinkingDuration: clampDuration(acc.ThinkingDuration),
+		// 空内容不保存（与 savePartialContentIfAny 保持一致），避免产生空 assistant 消息
+		// 生活类比：录音机没录到任何声音，就不保存空录音文件
+		content := acc.FullContent.String()
+		thinkingContent := acc.FullThinking.String()
+		if content != "" || thinkingContent != "" {
+			aiMsg := &store.Message{
+				ConversationID:   convID,
+				Role:             "assistant",
+				Content:          content,
+				ThinkingContent:  thinkingContent,
+				ThinkingDuration: clampDuration(acc.ThinkingDuration),
+			}
+			if aiMsg.ThinkingContent != "" && aiMsg.ThinkingDuration == 0 && acc.FirstRoundThinkingDuration > 0 {
+				aiMsg.ThinkingDuration = clampDuration(acc.FirstRoundThinkingDuration)
+			}
+			if acc.LastSearchJSON != "" {
+				aiMsg.SearchResults = acc.LastSearchJSON
+			}
+			if err := store.CreateMessage(s.db, aiMsg, secrets.CipherKey(s.cipher)); err != nil {
+				log.Error().Err(err).Msg("save ai message")
+			}
+			chatMsg := storeMsgToChat(aiMsg)
+			chatMsg.TokensPerSecond = acc.TokensPerSecond
+			chatMsg.PredictedN = acc.PredictedN
+			s.emitForConv(convID, "assistant_message", chatMsg)
 		}
-		if aiMsg.ThinkingContent != "" && aiMsg.ThinkingDuration == 0 && acc.FirstRoundThinkingDuration > 0 {
-			aiMsg.ThinkingDuration = clampDuration(acc.FirstRoundThinkingDuration)
-		}
-		if acc.LastSearchJSON != "" {
-			aiMsg.SearchResults = acc.LastSearchJSON
-		}
-		if err := store.CreateMessage(s.db, aiMsg, s.encKey); err != nil {
-			log.Error().Err(err).Msg("save ai message")
-		}
-		chatMsg := storeMsgToChat(aiMsg)
-		chatMsg.TokensPerSecond = acc.TokensPerSecond
-		chatMsg.PredictedN = acc.PredictedN
-		s.emitForConv(convID, "assistant_message", chatMsg)
 	}
 
-	conv, err := store.GetConversation(s.db, convID, s.encKey)
+	conv, err := store.GetConversation(s.db, convID, secrets.CipherKey(s.cipher))
 	if err != nil {
 		log.Error().Err(err).Str("convID", convID).Msg("[chat] 无法获取会话以更新标题")
 	} else if conv != nil {
 		if (conv.Title == "新对话" || conv.Title == "新的对话") && len(titleContent) > 0 {
 			title := generateConversationTitle(titleContent)
 			conv.Title = title
-			if err := store.UpdateConversation(s.db, conv, s.encKey); err != nil {
+			if err := store.UpdateConversation(s.db, conv, secrets.CipherKey(s.cipher)); err != nil {
 				log.Error().Err(err).Str("convID", convID).Msg("[chat] 更新会话标题失败")
 			}
 		}
@@ -910,7 +958,9 @@ func generateConversationTitle(content string) string {
 	truncateAt := maxLen
 
 	// 从后向前搜索合适的截断点（在前40-50字符范围内）
-	for i := maxLen; i >= 40 && i < len(runes); i++ {
+	// 修复（M-后1）：原代码 i++ 导致从位置50向后递增搜索，与"从后向前"语义相反，
+	// 截断点可能落在50字符之后使标题更长。改为 i-- 从50向40递减搜索最近的分隔符。
+	for i := maxLen; i >= 40 && i < len(runes); i-- {
 		r := runes[i]
 		// 检查是否是适合截断的字符
 		if r == ' ' || r == '，' || r == ',' || r == '。' || r == '.' ||

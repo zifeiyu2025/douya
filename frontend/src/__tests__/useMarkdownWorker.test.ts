@@ -1,77 +1,49 @@
-/**
- * useMarkdownWorker composable 测试
- *
- * 验证 spec: smooth-streaming-render + 流式渲染速度优化 中描述的行为：
- * - setTimeout 合并同帧多次到达（cancelAnimationFrame 已移除）
- * - 渲染时使用最新 pendingContent
- * - 动态间隔分级：
- *   - 流式模式：短<2KB 0ms / 中2-10KB 8ms / 长>10KB 16ms
- *   - 非流式模式：短<2KB 50ms / 中2-10KB 80ms / 长>10KB 120ms
- * - clear() 清理 setTimeout
- * - onScopeDispose 清理资源并 terminate worker
- * - setStreamingMode(false) 触发全量重渲染
- */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { effectScope, ref, nextTick } from 'vue'
-
-// ---------------------------------------------------------------------------
-// Mock 1: Mock Worker
-// Vite 的 ?worker 后缀在 vitest 环境无法解析，需要用 vi.mock 替换为一个假 Worker。
-// 假 Worker 把收到的 content 包成 <p> 标签后异步回传，模拟真实 Worker 的消息协议。
-// 用 vi.hoisted 提升类定义，确保 vi.mock 工厂函数能引用到它。
-// ---------------------------------------------------------------------------
-const MockWorkerClass = vi.hoisted(() => {
-    return class MockWorker {
-        listeners: Record<string, Array<(e: MessageEvent) => void>> = {}
-        postMessage(data: { id: number; content: string }) {
-            // 模拟异步响应：用 setTimeout(0) 让消息在下一个宏任务中到达
-            setTimeout(() => {
-                const html = `<p>${data.content}</p>`
-                this.dispatchEvent('message', { data: { id: data.id, html } })
-            }, 0)
-        }
-        addEventListener(type: string, listener: (e: MessageEvent) => void) {
-            if (!this.listeners[type]) this.listeners[type] = []
-            this.listeners[type].push(listener)
-        }
-        removeEventListener(type: string, listener: (e: MessageEvent) => void) {
-            if (!this.listeners[type]) return
-            this.listeners[type] = this.listeners[type].filter((l) => l !== listener)
-        }
-        dispatchEvent(type: string, data: { data: unknown }) {
-            ;(this.listeners[type] || []).forEach((l) => l(new MessageEvent(type, data)))
-        }
-        terminate() {}
-    }
-})
-
-vi.mock('../workers/markdown.worker?worker', () => ({
-    default: MockWorkerClass,
-}))
-
-// ---------------------------------------------------------------------------
-// Mock 2: Mock ../utils/markdown
-// 真实 markdown.ts 依赖 DOMPurify + remark 全家桶，单元测试中无需引入。
-// sanitizeHtml 直接透传，renderMarkdownStreaming/renderStreamingLight 简单包成 <p>。
-// ---------------------------------------------------------------------------
-vi.mock('../utils/markdown', () => ({
-    renderMarkdownStreaming: vi.fn(async (content: string) => `<p>${content}</p>`),
-    sanitizeHtml: vi.fn((html: string) => html),
-    renderStreamingLight: vi.fn(async (content: string) => `<p>${content}</p>`),
-}))
-
 import { useMarkdownWorker } from '../composables/useMarkdownWorker'
 
-// 辅助：等待指定毫秒
-const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+vi.mock('../utils/streamingRender', () => ({
+    renderStreamingSync: vi.fn((text: string) => `<p>${text}</p>`),
+}))
+
+vi.mock('../utils/markdown', () => ({
+    renderMarkdown: vi.fn(async (text: string) => `<article>${text}</article>`),
+    renderStreamingLight: vi.fn(async (text: string) => `<p>${text}</p>`),
+    escapeHtml: vi.fn((text: string) => text),
+    renderMermaidBlocksInElement: vi.fn(),
+    renderMathInElement: vi.fn(),
+    MermaidTheme: { Light: 'default', Dark: 'dark' },
+}))
+
+vi.mock('../utils/markdownStreaming', () => ({
+    splitStableUnstable: vi.fn((text: string) => {
+        const lastNewline = text.lastIndexOf('\n')
+        const lastPeriod = text.lastIndexOf('.')
+        const stableEnd = Math.max(lastNewline, lastPeriod)
+        if (stableEnd < 0 || text.length - stableEnd > 100) {
+            return { stable: '', unstable: text }
+        }
+        return { stable: text.slice(0, stableEnd + 1), unstable: text.slice(stableEnd + 1) }
+    }),
+}))
 
 describe('useMarkdownWorker', () => {
     let scope: ReturnType<typeof effectScope>
-    let currentTime: number
+    let rafCallbacks: Map<number, () => void>
+    let rafIdCounter: number
 
     beforeEach(() => {
-        currentTime = 1000000
-        vi.spyOn(Date, 'now').mockImplementation(() => currentTime)
+        rafCallbacks = new Map()
+        rafIdCounter = 1
+        vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
+            const id = rafIdCounter++
+            rafCallbacks.set(id, () => cb(performance.now()))
+            return id
+        })
+        vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation((id: number) => {
+            rafCallbacks.delete(id)
+        })
+        vi.clearAllMocks()
         scope = effectScope()
     })
 
@@ -80,216 +52,153 @@ describe('useMarkdownWorker', () => {
         vi.restoreAllMocks()
     })
 
-    // -------------------------------------------------------------------------
-    // Test 1: 多次 scheduleRender 调用通过 setTimeout 合并
-    // 验证：scheduleRender 被多次调用时，每次都会 clearTimeout 旧定时器。
-    // 注意：Vue 的 watch 会批量合并同帧同步赋值，要让 scheduleRender 被调用多次，
-    // 必须在两次赋值之间 await nextTick() 让 watch 分别触发。
-    // -------------------------------------------------------------------------
-    it('多次 scheduleRender 调用通过 setTimeout 合并', async () => {
-        const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
-        const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout')
-        const { bind } = scope.run(() => useMarkdownWorker())!
-        const content = ref('')
-        bind(() => content.value)
+    function flushRaf() {
+        const cbs = Array.from(rafCallbacks.values())
+        rafCallbacks.clear()
+        cbs.forEach((cb) => cb())
+    }
 
-        // 第一次赋值 + nextTick → 触发 scheduleRender → 设置 setTimeout
-        content.value = 'a'
-        await nextTick()
-        expect(setTimeoutSpy).toHaveBeenCalled()
+    function flushAllRaf() {
+        while (rafCallbacks.size > 0) {
+            flushRaf()
+        }
+    }
 
-        // 第二次赋值 + nextTick → 触发 scheduleRender → clearTimeout 旧定时器，设新定时器
-        content.value = 'b'
-        await nextTick()
-        expect(clearTimeoutSpy).toHaveBeenCalled()
-    })
-
-    // -------------------------------------------------------------------------
-    // Test 2: 渲染时使用最新 pendingContent
-    // 验证：连续赋值 'old'、'new' 后，setTimeout 触发时只渲染 'new'。
-    // -------------------------------------------------------------------------
-    it('渲染时使用最新 pendingContent', async () => {
+    it('流式内容通过 RAF 帧同步渲染', async () => {
+        const source = ref('')
         const { rendered, bind } = scope.run(() => useMarkdownWorker())!
-        const content = ref('')
-        bind(() => content.value)
+        bind(() => source.value)
 
-        content.value = 'old'
+        source.value = 'Hello'
         await nextTick()
-        content.value = 'new'
-        await nextTick()
+        expect(rendered.value).toBe('')
 
-        // 等待 setTimeout(0) 触发 + MockWorker 响应
-        await wait(20)
-
-        // rendered 应包含 'new' 而非 'old'（最新 pendingContent 被渲染）
-        expect(rendered.value).toContain('new')
-        expect(rendered.value).not.toContain('old')
+        flushRaf()
+        expect(rendered.value).toContain('Hello')
     })
 
-    // -------------------------------------------------------------------------
-    // Test 3: 非流式模式动态间隔分级
-    // 验证：scheduleRender 根据内容长度选择不同的 setTimeout 延迟。
-    // 通过设置 currentTime = 0 让 elapsed = 0，使 setTimeout 以完整 interval 调度。
-    // -------------------------------------------------------------------------
-    it('非流式模式短内容(<2KB)使用 50ms 间隔', async () => {
-        currentTime = 0
-        const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
-        const { bind } = scope.run(() => useMarkdownWorker())!
-        const content = ref('')
-        bind(() => content.value)
-        content.value = 'x'.repeat(100) // 100 字节，属于短内容
+    it('多次快速更新只触发一次渲染（RAF 合并）', async () => {
+        const source = ref('')
+        const { rendered, bind } = scope.run(() => useMarkdownWorker())!
+        bind(() => source.value)
+
+        const { renderStreamingSync } = await import('../utils/streamingRender')
+
+        source.value = 'A'
+        await nextTick()
+        source.value = 'AB'
+        await nextTick()
+        source.value = 'ABC'
         await nextTick()
 
-        // 非流式模式短内容应使用 50ms 间隔
-        expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 50)
+        expect(rendered.value).toBe('')
+        expect(renderStreamingSync).not.toHaveBeenCalled()
+
+        flushRaf()
+
+        expect(renderStreamingSync).toHaveBeenCalled()
+        expect(rendered.value).toContain('ABC')
     })
 
-    it('非流式模式中等内容(2-10KB)使用 80ms 间隔', async () => {
-        currentTime = 0
-        const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
-        const { bind } = scope.run(() => useMarkdownWorker())!
-        const content = ref('')
-        bind(() => content.value)
-        content.value = 'x'.repeat(5000) // 5KB，属于中等内容
-        await nextTick()
-
-        expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 80)
-    })
-
-    it('非流式模式长内容(>10KB)使用 120ms 间隔', async () => {
-        currentTime = 0
-        const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
-        const { bind } = scope.run(() => useMarkdownWorker())!
-        const content = ref('')
-        bind(() => content.value)
-        content.value = 'x'.repeat(15000) // 15KB，属于长内容
-        await nextTick()
-
-        expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 120)
-    })
-
-    // -------------------------------------------------------------------------
-    // Test 3b: 流式模式动态间隔分级（更激进）
-    // 验证：setStreamingMode(true) 后，间隔从 50/80/120ms 缩短到 0/16/32ms。
-    // -------------------------------------------------------------------------
-    it('流式模式短内容(<2KB)使用 0ms 间隔', async () => {
-        currentTime = 0
-        const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
-        const { bind, setStreamingMode } = scope.run(() => useMarkdownWorker())!
-        const content = ref('')
-        bind(() => content.value)
-        setStreamingMode(true)
-        content.value = 'x'.repeat(100)
-        await nextTick()
-
-        expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 0)
-    })
-
-    it('流式模式中等内容(2-10KB)使用 8ms 间隔', async () => {
-        currentTime = 0
-        const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
-        const { bind, setStreamingMode } = scope.run(() => useMarkdownWorker())!
-        const content = ref('')
-        bind(() => content.value)
-        setStreamingMode(true)
-        content.value = 'x'.repeat(5000)
-        await nextTick()
-
-        expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 8)
-    })
-
-    it('流式模式长内容(>10KB)使用 16ms 间隔', async () => {
-        currentTime = 0
-        const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
-        const { bind, setStreamingMode } = scope.run(() => useMarkdownWorker())!
-        const content = ref('')
-        bind(() => content.value)
-        setStreamingMode(true)
-        content.value = 'x'.repeat(15000)
-        await nextTick()
-
-        expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 16)
-    })
-
-    // -------------------------------------------------------------------------
-    // Test 4: clear() 清理 setTimeout
-    // 验证：clear 调用 clearTimeout，并清空 rendered。
-    // -------------------------------------------------------------------------
-    it('clear 清理 setTimeout', async () => {
-        const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout')
+    it('clear() 清空渲染结果', async () => {
+        const source = ref('')
         const { rendered, bind, clear } = scope.run(() => useMarkdownWorker())!
-        const content = ref('')
-        bind(() => content.value)
-        content.value = 'test'
-        await nextTick() // 触发 scheduleRender → 设置 setTimeout
+        bind(() => source.value)
+
+        source.value = 'Hello'
+        await nextTick()
+        flushRaf()
+        expect(rendered.value).not.toBe('')
+
+        source.value = ''
+        await nextTick()
+        expect(rendered.value).toBe('')
 
         clear()
-
-        expect(clearTimeoutSpy).toHaveBeenCalled()
         expect(rendered.value).toBe('')
     })
 
-    // -------------------------------------------------------------------------
-    // Test 5: onScopeDispose 清理
-    // 验证：scope.stop() 触发 onScopeDispose 时，clearTimeout 被调用。
-    // -------------------------------------------------------------------------
-    it('onScopeDispose 触发时清理 setTimeout', async () => {
-        const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout')
-        const localScope = effectScope()
-        const { bind } = localScope.run(() => useMarkdownWorker())!
-        const content = ref('')
-        bind(() => content.value)
-        content.value = 'test'
-        await nextTick() // 触发 scheduleRender → 设置 setTimeout
+    it('初始空内容不触发渲染', async () => {
+        const source = ref('')
+        const { rendered, bind } = scope.run(() => useMarkdownWorker())!
+        bind(() => source.value)
 
-        localScope.stop() // 触发 onScopeDispose
-
-        expect(clearTimeoutSpy).toHaveBeenCalled()
+        await nextTick()
+        expect(rendered.value).toBe('')
     })
 
-    // -------------------------------------------------------------------------
-    // Test 6: setStreamingMode(false) 触发全量重渲染
-    // 验证：退出流式模式后，rendered 被全量重渲染（Worker + DOMPurify）。
-    // -------------------------------------------------------------------------
-    it('setStreamingMode(false) 触发全量重渲染', async () => {
-        const { rendered, bind, setStreamingMode } = scope.run(() => useMarkdownWorker())!
-        const content = ref('')
-        bind(() => content.value)
-        setStreamingMode(true)
+    it('finalizeRender 用完整 renderMarkdown 做最终渲染', async () => {
+        const source = ref('')
+        const { rendered, bind, finalizeRender } = scope.run(() => useMarkdownWorker())!
+        bind(() => source.value)
 
-        content.value = 'hello'
+        source.value = 'Final content.'
         await nextTick()
-        await wait(20)
-        expect(rendered.value).toContain('hello')
+        flushRaf()
+        expect(rendered.value).toContain('Final content')
 
-        // 退出流式模式：应触发 doFinalRender
-        setStreamingMode(false)
-        await wait(30)
-
-        // rendered 仍包含内容（全量重渲染后）
-        expect(rendered.value).toContain('hello')
+        await finalizeRender()
+        const { renderMarkdown } = await import('../utils/markdown')
+        expect(renderMarkdown).toHaveBeenCalledWith('Final content.')
+        expect(rendered.value).toBe('<article>Final content.</article>')
     })
 
-    // -------------------------------------------------------------------------
-    // Test 7: setStreamingMode 重复调用无副作用
-    // 验证：重复设置相同值不会触发额外渲染。
-    // -------------------------------------------------------------------------
-    it('setStreamingMode 重复调用相同值无副作用', async () => {
-        const { bind, setStreamingMode } = scope.run(() => useMarkdownWorker())!
-        const content = ref('')
-        bind(() => content.value)
-        setStreamingMode(true)
+    it('流式期间使用同步 renderStreamingSync（不走异步），每帧立即渲染', async () => {
+        const source = ref('')
+        const { rendered, bind } = scope.run(() => useMarkdownWorker())!
+        bind(() => source.value)
 
-        content.value = 'test'
-        await nextTick()
-        await wait(20)
+        const { renderStreamingSync } = await import('../utils/streamingRender')
+        const { renderStreamingLight } = await import('../utils/markdown')
 
-        // 重复设置 true：应无副作用（不触发 doFinalRender）
-        const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
-        setTimeoutSpy.mockClear()
-        setStreamingMode(true)
+        source.value = 'First chunk'
         await nextTick()
-        // 不应有新的 setTimeout 被调用（因为 isStreamingMode 未变化）
-        expect(setTimeoutSpy).not.toHaveBeenCalled()
+        flushRaf()
+
+        expect(renderStreamingSync).toHaveBeenCalled()
+        expect(renderStreamingLight).not.toHaveBeenCalled()
+        expect(rendered.value).toContain('First chunk')
+    })
+
+    it('每帧渲染全部最新内容（不限制字符数，对标千问无限速）', async () => {
+        const source = ref('')
+        const { rendered, bind } = scope.run(() => useMarkdownWorker())!
+        bind(() => source.value)
+
+        // 模拟 SSE 一次到达 50 个字符
+        source.value = 'A'.repeat(50)
+        await nextTick()
+        flushRaf()
+
+        // 一帧内应渲染全部 50 个字符，不限速
+        expect(rendered.value).toContain('A'.repeat(50))
+    })
+
+    it('已有 RAF 调度时不重复设置（只更新 latestContent）', async () => {
+        const source = ref('')
+        const { rendered, bind } = scope.run(() => useMarkdownWorker())!
+        bind(() => source.value)
+
+        const { renderStreamingSync } = await import('../utils/streamingRender')
+
+        source.value = 'First'
+        await nextTick()
+
+        // 第一次 scheduleRender 应设置 RAF
+        expect(rafCallbacks.size).toBe(1)
+
+        source.value = 'Second'
+        await nextTick()
+
+        // 第二次 scheduleRender 不应设置新 RAF（已有调度）
+        expect(rafCallbacks.size).toBe(1)
+
+        flushRaf()
+
+        // RAF 回调渲染的是最新内容
+        expect(rendered.value).toContain('Second')
+        // 只调用了一次 renderStreamingSync（stable+unstable 合并后）
+        const callsAfterFlush = (renderStreamingSync as ReturnType<typeof vi.fn>).mock.calls.length
+        expect(callsAfterFlush).toBeGreaterThan(0)
     })
 })

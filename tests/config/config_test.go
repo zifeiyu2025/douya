@@ -87,6 +87,7 @@ func TestSaveAndLoad_Roundtrip(t *testing.T) {
 		RAGMinScore:     0.3,
 		RAGChunkSize:    512,
 		RAGChunkOverlap: 64,
+		RerankTopN:      5,
 	}
 
 	if err := config.Save(cfgPath, original); err != nil {
@@ -252,6 +253,7 @@ func TestSaveAndLoad_Overwrite(t *testing.T) {
 		RAGMinScore:     0.3,
 		RAGChunkSize:    512,
 		RAGChunkOverlap: 64,
+		RerankTopN:      5,
 	}
 	config.Save(cfgPath, cfg1)
 
@@ -264,6 +266,7 @@ func TestSaveAndLoad_Overwrite(t *testing.T) {
 		RAGMinScore:     0.3,
 		RAGChunkSize:    512,
 		RAGChunkOverlap: 64,
+		RerankTopN:      5,
 	}
 	config.Save(cfgPath, cfg2)
 
@@ -386,6 +389,7 @@ func TestSaveAndLoad_GenerationParams(t *testing.T) {
 		RAGMinScore:     0.3,
 		RAGChunkSize:    512,
 		RAGChunkOverlap: 64,
+		RerankTopN:      5,
 	}
 
 	if err := config.Save(cfgPath, original); err != nil {
@@ -478,6 +482,7 @@ func TestValidate_GenerationParams(t *testing.T) {
 		RAGMinScore:     0.3,
 		RAGChunkSize:    512,
 		RAGChunkOverlap: 64,
+		RerankTopN:      5,
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("valid config should pass validation, got: %v", err)
@@ -494,6 +499,7 @@ func TestValidate_GenerationParams(t *testing.T) {
 		RAGMinScore:     0.3,
 		RAGChunkSize:    512,
 		RAGChunkOverlap: 64,
+		RerankTopN:      5,
 	}
 	if err := invalidTemp.Validate(); err == nil {
 		t.Error("Temperature=3.0 should fail validation")
@@ -510,6 +516,7 @@ func TestValidate_GenerationParams(t *testing.T) {
 		RAGMinScore:     0.3,
 		RAGChunkSize:    512,
 		RAGChunkOverlap: 64,
+		RerankTopN:      5,
 	}
 	if err := invalidTopP.Validate(); err == nil {
 		t.Error("TopP=1.5 should fail validation")
@@ -526,6 +533,7 @@ func TestValidate_GenerationParams(t *testing.T) {
 		RAGMinScore:     0.3,
 		RAGChunkSize:    512,
 		RAGChunkOverlap: 64,
+		RerankTopN:      5,
 	}
 	if err := invalidCtx.Validate(); err == nil {
 		t.Error("ContextSize=-1 should fail validation")

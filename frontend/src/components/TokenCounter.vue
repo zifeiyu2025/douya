@@ -113,6 +113,8 @@ function formatCtx(n: number): string {
 }
 
 // 使用 llama.cpp 原生 /tokenize API 实时计算 token 数
+let requestVersion = 0  // IPC 请求版本号，防止快速输入时旧结果覆盖新结果
+
 function scheduleCount(text: string) {
   if (timer) {
     clearTimeout(timer)
@@ -124,8 +126,11 @@ function scheduleCount(text: string) {
   }
   if (!show.value) return
   timer = setTimeout(async () => {
+    const version = ++requestVersion
     try {
       const tokens = await wails.tokenize(text)
+      // 丢弃过期结果：用户已输入新内容，旧请求的结果不再适用
+      if (version !== requestVersion) return
       tokenCount.value = tokens.length
     } catch {
       // 静默

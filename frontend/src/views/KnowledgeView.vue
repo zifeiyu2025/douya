@@ -382,13 +382,14 @@ async function handleFileUpload({ file }: any) {
     }
     const arrayBuffer = await f.arrayBuffer()
     const bytes = new Uint8Array(arrayBuffer)
-    let binary = ''
+    // 分块转字符串后 join，避免 binary += 造成 O(n²) 字符串拼接开销
+    const chunks: string[] = []
     const chunkSize = 8192
     for (let i = 0; i < bytes.length; i += chunkSize) {
       const slice = bytes.subarray(i, i + chunkSize)
-      binary += String.fromCharCode.apply(null, Array.from(slice))
+      chunks.push(String.fromCharCode.apply(null, slice as unknown as number[]))
     }
-    const base64 = btoa(binary)
+    const base64 = btoa(chunks.join(''))
     await wails.uploadDocument(activeKB.value, f.name, base64, f.type || 'application/octet-stream')
     showSuccess(message, `${f.name} 上传成功`)
     await loadDocuments()
@@ -774,7 +775,7 @@ onMounted(async () => {
 }
 
 .status-active {
-  color: var(--accent-success, #07c160);
+  color: var(--accent-success, #1f883d);
   font-weight: 500;
 }
 

@@ -62,6 +62,45 @@ var allowedDocMIMETypes = map[string]bool{
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": true,
 }
 
+// extToMIME 扩展名到 MIME 类型的映射，用于前端未传 mimeType（或仅传占位值）时兜底推断。
+// 生活类比：就像快递单上没写内容物时，根据包裹外形（扩展名）判断里面是什么。
+// 所有映射值都应在 allowedDocMIMETypes 中，确保推断后能通过 MIME 白名单校验；
+// 代码/配置类文件统一映射为 text/plain，因为更精确的 x- 类型不在白名单中，避免误拒。
+var extToMIME = map[string]string{
+	".txt":  "text/plain",
+	".md":   "text/markdown",
+	".csv":  "text/csv",
+	".json": "application/json",
+	".xml":  "application/xml",
+	".html": "text/html",
+	".yaml": "application/x-yaml",
+	".yml":  "application/x-yaml",
+	// 文本类配置/日志文件统一归为 text/plain
+	".toml": "text/plain",
+	".ini":  "text/plain",
+	".cfg":  "text/plain",
+	".log":  "text/plain",
+	".sql":  "text/plain",
+	// 代码文件统一归为 text/plain
+	".go":    "text/plain",
+	".py":    "text/plain",
+	".js":    "text/plain",
+	".ts":    "text/plain",
+	".java":  "text/plain",
+	".c":     "text/plain",
+	".cpp":   "text/plain",
+	".h":     "text/plain",
+	".rs":    "text/plain",
+	".sh":    "text/plain",
+	".rb":    "text/plain",
+	".php":   "text/plain",
+	".swift": "text/plain",
+	".kt":    "text/plain",
+	// 二进制文档
+	".pdf":  "application/pdf",
+	".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+
 const maxUploadSize = 200 * 1024 * 1024 // 200MB
 
 func (a *App) UploadDocument(kbName string, fileName string, fileData string, mimeType string) error {
@@ -78,8 +117,18 @@ func (a *App) UploadDocument(kbName string, fileName string, fileData string, mi
 		return fmt.Errorf("不支持的文件类型: %s", ext)
 	}
 
-	// 验证 MIME 类型（如果前端提供了）
-	if mimeType != "" && !allowedDocMIMETypes[mimeType] {
+	// MIME 类型校验与兜底推断
+	// 生活类比：就像快递员送件时先看包裹标签（mimeType），如果标签缺失或只是"通用包裹"占位，
+	// 就根据包装盒外形（扩展名）判断内容物；判断不出来则拒收。
+	// 前端在浏览器无法识别文件类型时会传 "application/octet-stream"，同样视为需要推断。
+	if mimeType == "" || mimeType == "application/octet-stream" {
+		inferred, ok := extToMIME[ext]
+		if !ok {
+			return fmt.Errorf("无法识别文件类型")
+		}
+		mimeType = inferred
+	}
+	if !allowedDocMIMETypes[mimeType] {
 		return fmt.Errorf("不支持的 MIME 类型: %s", mimeType)
 	}
 

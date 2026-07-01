@@ -33,13 +33,16 @@ const DANGEROUS_TAG_PATTERNS: RegExp[] = [
     /<select[\s\S]*?<\/select>/gi,
     /<option[\s\S]*?<\/option>/gi,
     /<svg[\s\S]*?<\/svg>/gi,
-    /<math[\s\S]*?<\/math>/gi,
+    // 保留 <math> 标签：KaTeX 公式渲染依赖它（任务 27）
+    // math 标签上的危险属性（如 on* 事件）已由 DANGEROUS_ATTR_PATTERNS 覆盖清理
 ]
 
 // 危险属性（事件处理器、危险协议、SVG 外链）
 const DANGEROUS_ATTR_PATTERNS: RegExp[] = [
     // 事件属性 onclick="..." onerror='...' onload=...（支持前后空白和换行）
-    /\s+on\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,
+    // 修复（M-前1）：原正则只匹配 \s+ 前缀，<img/onerror=alert(1)> 用 / 分隔可绕过。
+    // 加入 / 作为分隔符，覆盖 <tag/on*=...> 的绕过向量。
+    /[\s\/]+on\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,
     // javascript: / vbscript: / data:text/html（支持 HTML 实体绕过）
     /(?:j\s*a\s*v\s*a\s*s\s*c\s*r\s*i\s*p\s*t|v\s*b\s*s\s*c\s*r\s*i\s*p\s*t|d\s*a\s*t\s*a\s*:\s*t\s*e\s*x\s*t\s*\/\s*h\s*t\s*m\s*l)\s*:/gi,
     // HTML 实体编码的 javascript:，例如 &#106;avascript:

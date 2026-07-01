@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -442,9 +443,8 @@ func TestSendMessage_ImageAttachment_NoDuplicate(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 		receivedReq = &req
 
 		sseData := makeSSEData([]string{
@@ -505,9 +505,8 @@ func TestSendMessage_PDFAttachment_SentAsDataURL(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 		receivedReq = &req
 
 		sseData := makeSSEData([]string{
@@ -642,9 +641,8 @@ func TestSendMessage_HistoryAttachmentsRestored(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 
 		if callCount == 1 {
 			sseData := makeSSEData([]string{
@@ -687,9 +685,8 @@ func TestSendMessage_HistoryAttachmentsRestored(t *testing.T) {
 
 	server2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 		secondRoundMessages = req.Messages
 
 		sseData := makeSSEData([]string{
@@ -738,9 +735,8 @@ func TestSendMessage_ImageOnly_AlwaysHasTextContentPart(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 		receivedReq = &req
 
 		sseData := makeSSEData([]string{
@@ -801,9 +797,8 @@ func TestSendMessage_TextAttachment_HasFileLabel(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 		receivedReq = &req
 
 		sseData := makeSSEData([]string{

@@ -21,10 +21,10 @@
       <div class="message-bubble" :class="isUser ? 'user-bubble' : 'ai-bubble'" ref="rootRef" @mouseup="handleMouseUp">
         <template v-if="isUser">
           <div v-if="parsedImages.length > 0" class="message-images">
-            <img v-for="(src, idx) in parsedImages" :key="idx" :src="src" class="message-image" @click="previewImage(src)" />
+            <img v-for="src in parsedImages" :key="src" :src="src" class="message-image" @click="previewImage(src)" />
           </div>
           <div v-if="nonImageAttachments.length > 0" class="message-attachments">
-            <div v-for="(att, idx) in nonImageAttachments" :key="idx" class="attachment-tag" :class="'att-' + att.type">
+            <div v-for="att in nonImageAttachments" :key="att.name" class="attachment-tag" :class="'att-' + att.type">
               <AppIcon :name="attachmentIcon(att.type)" class="att-icon" :size="14" />
               <span class="att-name">{{ att.name }}</span>
             </div>
@@ -61,7 +61,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
-import { useMessage, useDialog } from 'naive-ui'
+import { useMessage } from 'naive-ui'
 import ThinkBlock from './ThinkBlock.vue'
 import SearchStatus from './SearchStatus.vue'
  import { renderMarkdown, escapeHtml } from '../utils/markdown'
@@ -78,7 +78,6 @@ const props = defineProps<{ message: Message }>()
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
 const messageApi = useMessage()
-const dialog = useDialog()
 
 const ATTACHMENT_ICON_MAP: Record<string, 'audio' | 'video' | 'pdf' | 'file' | 'image'> = {
     audio: 'audio',
@@ -131,16 +130,23 @@ const nonImageAttachments = computed<AttachmentSummary[]>(() => {
 
 // remark 是异步的，使用 ref + watch 模式
 const renderedContent = ref('')
+// L-7：渲染版本号防止异步竞态——若 content 在短时间内多次变化，
+// 先发起的渲染任务可能后完成并覆盖最新内容。版本号校验确保只采用最新结果。
+let renderVersion = 0
 
 watch(() => props.message.content, async (newContent) => {
   if (!newContent) {
     renderedContent.value = ''
     return
   }
+  const version = ++renderVersion
   try {
     let html = await renderMarkdown(newContent)
+    // 版本号不匹配说明期间有更新的渲染任务发起，丢弃本次过期结果
+    if (version !== renderVersion) return
     renderedContent.value = html
   } catch (_) {
+    if (version !== renderVersion) return
     // 渲染失败时转义后作为纯文本显示，避免直接赋值原始未消毒内容到 v-html（XSS 防护）
     renderedContent.value = escapeHtml(newContent)
   }
@@ -170,7 +176,8 @@ onMounted(() => {
         cleanupCodeCopyDelegation = setupCodeCopyDelegation(el)
     }
     document.addEventListener('mousedown', handleDocumentMouseDown)
-    document.addEventListener('scroll', hideSelectionBtn, true)
+    // scroll 监听器改为按需注册（见下方 watch(selectionBtnVisible)），
+    // 避免每个 MessageItem 实例都常驻全局 scroll 监听导致长会话滚动卡顿
 })
 
 watch(renderedContent, async () => {
@@ -285,6 +292,16 @@ function hideSelectionBtn() {
   selectionBtnVisible.value = false
 }
 
+// scroll 监听器按需注册：仅在选择按钮可见时注册，隐藏时移除
+// 避免每个 MessageItem 实例常驻全局 scroll 监听导致长会话滚动卡顿
+watch(selectionBtnVisible, (visible) => {
+  if (visible) {
+    document.addEventListener('scroll', hideSelectionBtn, true)
+  } else {
+    document.removeEventListener('scroll', hideSelectionBtn, true)
+  }
+})
+
 function handleDocumentMouseDown(e: MouseEvent) {
   const target = e.target as HTMLElement
   if (!target.closest('.selection-copy-btn')) {
@@ -344,18 +361,7 @@ async function deleteMsg() {
 function regenerate() {
   const userMessageId = findPreviousUserMessage()
   if (userMessageId) {
-    dialog.create({
-      title: '重新生成',
-      content: '是否启用联网搜索？',
-      positiveText: '联网搜索',
-      negativeText: '直接生成',
-      onPositiveClick: () => {
-        chatStore.regenerateMessage(userMessageId, 'on')
-      },
-      onNegativeClick: () => {
-        chatStore.regenerateMessage(userMessageId, 'off')
-      },
-    })
+    chatStore.regenerateMessage(userMessageId, settingsStore.searchMode)
   }
 }
 
@@ -368,8 +374,13 @@ function regenerate() {
   margin-bottom: 26px;
   position: relative;
   width: 100%;
-  max-width: var(--msg-max-width);
   align-items: flex-start;
+  /* M-前3 渐进式性能优化：contain: content 等同于 contain: layout style paint，
+     让浏览器跳过离屏 MessageItem 的布局计算和绘制工作，长会话下减少渲染开销。
+     注意：不用 content-visibility: auto（项目记忆中该属性在流式场景导致高度跳转）。
+     完整虚拟滚动（DynamicScroller）需单独迭代，因与 useScrollToBottom 的
+     MutationObserver + RAF 滚动控制深度耦合。 */
+  contain: content;
 }
 
 @keyframes messageSlideIn {
@@ -386,12 +397,12 @@ function regenerate() {
 /* messageSlideIn 动画只应用于用户消息，避免 AI 流式消息动画干扰 */
 .message-item.user {
   flex-direction: row-reverse;
-  margin-left: auto;
+  justify-content: flex-start;
   animation: messageSlideIn 0.4s cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .message-item:not(.user) {
-  margin-right: auto;
+  justify-content: flex-start;
 }
 
 .message-avatar {
@@ -456,9 +467,11 @@ function regenerate() {
   width: auto;
   max-width: 100%;
   min-width: 0;
-  background: var(--bg-user-msg);
-  color: var(--text-user-msg);
+  /* 内部颜色与 AI 气泡完全一致，仅靠位置（右对齐）和头像区分 */
+  background: var(--bg-ai-msg);
+  color: var(--text-ai-msg);
   border-radius: var(--border-radius-xl) var(--border-radius-xl) var(--border-radius-sm) var(--border-radius-xl);
+  border: 1px solid var(--border-color);
 }
 
 .ai-bubble {
@@ -469,10 +482,6 @@ function regenerate() {
   color: var(--text-ai-msg);
   border-radius: var(--border-radius-xl) var(--border-radius-xl) var(--border-radius-xl) var(--border-radius-sm);
   border: 1px solid var(--border-color);
-}
-
-:global(.dark) .user-bubble {
-  background: var(--bg-user-msg);
 }
 
 .user-text {
@@ -683,17 +692,11 @@ function regenerate() {
   padding-left: 18px;
   margin: 16px 0;
   color: var(--text-secondary);
-  background: rgba(7, 193, 96, 0.05);
+  background: color-mix(in srgb, var(--accent-primary) 5%, transparent);
   padding-top: 12px;
   padding-bottom: 12px;
   padding-right: 16px;
   border-radius: 0 var(--border-radius-md) var(--border-radius-md) 0;
-}
-
-:global(.dark) .message-bubble :deep(.markdown-body) blockquote {
-  border-left-color: var(--accent-secondary);
-  color: var(--text-secondary);
-  background: rgba(134, 230, 171, 0.08);
 }
 
 .message-bubble :deep(.markdown-body) table {
@@ -774,7 +777,8 @@ function regenerate() {
 }
 
 .has-background .user-bubble {
-  background: color-mix(in srgb, var(--bg-user-msg) 88%, transparent);
+  /* 与 AI 气泡一致的毛玻璃背景 */
+  background: color-mix(in srgb, var(--bg-ai-msg) 88%, transparent);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
 }

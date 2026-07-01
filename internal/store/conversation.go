@@ -154,6 +154,44 @@ func DeleteConversation(db *sql.DB, id string) error {
 	return err
 }
 
+// DeleteConversationsBatch 在单事务内批量删除多个对话及其消息。
+// 相比循环调用 DeleteConversation，避免了 N 次独立事务的开启/提交开销。
+// 生活类比：像去快递站一次取走所有包裹，而不是每个包裹跑一趟。
+//
+// 注意：单事务内删除过多记录可能撑大 SQLite WAL 文件，调用方应控制批量大小。
+func DeleteConversationsBatch(db *sql.DB, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	err := withDBTimeout(func(ctx context.Context) error {
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("begin transaction: %w", err)
+		}
+		// 失败时统一回滚，保证批量删除的原子性
+		success := false
+		defer func() {
+			if !success {
+				tx.Rollback()
+			}
+		}()
+		for _, id := range ids {
+			if _, err := tx.ExecContext(ctx, "DELETE FROM messages WHERE conversation_id = ?", id); err != nil {
+				return fmt.Errorf("delete messages for %s: %w", id, err)
+			}
+			if _, err := tx.ExecContext(ctx, "DELETE FROM conversations WHERE id = ?", id); err != nil {
+				return fmt.Errorf("delete conversation %s: %w", id, err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit transaction: %w", err)
+		}
+		success = true
+		return nil
+	})
+	return err
+}
+
 type AbnormalConversation struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
@@ -161,32 +199,38 @@ type AbnormalConversation struct {
 }
 
 func FindAbnormalConversations(db *sql.DB, encKey []byte) ([]*AbnormalConversation, error) {
-	rows, err := db.Query(`
-		SELECT c.id, c.title
-		FROM conversations c
-		LEFT JOIN messages m ON m.conversation_id = c.id AND m.role = 'user'
-		WHERE m.id IS NULL AND c.created_at < datetime('now', '-5 minutes')
-		ORDER BY c.updated_at DESC
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("find abnormal conversations: %w", err)
-	}
-	defer rows.Close()
-
+	// L-12：改用 withDBTimeout 包装，与包内其他查询保持一致（10s 超时保护）
 	var abnormal []*AbnormalConversation
-	for rows.Next() {
-		var id, title string
-		if err := rows.Scan(&id, &title); err != nil {
-			return nil, fmt.Errorf("scan abnormal conversation: %w", err)
+	err := withDBTimeout(func(ctx context.Context) error {
+		rows, err := db.QueryContext(ctx, `
+			SELECT c.id, c.title
+			FROM conversations c
+			LEFT JOIN messages m ON m.conversation_id = c.id AND m.role = 'user'
+			WHERE m.id IS NULL AND c.created_at < datetime('now', '-5 minutes')
+			ORDER BY c.updated_at DESC
+		`)
+		if err != nil {
+			return fmt.Errorf("find abnormal conversations: %w", err)
 		}
-		abnormal = append(abnormal, &AbnormalConversation{
-			ID:     id,
-			Title:  decryptField(title, encKey),
-			Reason: "no_user_messages",
-		})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate abnormal conversations: %w", err)
+		defer rows.Close()
+		for rows.Next() {
+			var id, title string
+			if err := rows.Scan(&id, &title); err != nil {
+				return fmt.Errorf("scan abnormal conversation: %w", err)
+			}
+			abnormal = append(abnormal, &AbnormalConversation{
+				ID:     id,
+				Title:  decryptField(title, encKey),
+				Reason: "no_user_messages",
+			})
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("iterate abnormal conversations: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return abnormal, nil
 }
@@ -201,17 +245,31 @@ func CleanupAbnormalConversations(db *sql.DB, encKey []byte) ([]*AbnormalConvers
 		return nil, nil
 	}
 
-	var removed []*AbnormalConversation
+	// 改用批量删除接口：单事务内删除所有异常对话，避免 N 次独立事务开销
+	ids := make([]string, 0, len(abnormal))
 	for _, ac := range abnormal {
-		if err := DeleteConversation(db, ac.ID); err != nil {
-			log.Error().Err(err).Str("id", ac.ID).Msg("[cleanup] failed to delete abnormal conversation")
-			continue
+		ids = append(ids, ac.ID)
+	}
+	if err := DeleteConversationsBatch(db, ids); err != nil {
+		// 批量删除失败：记录错误并回退到逐个删除，保留容错能力
+		log.Error().Err(err).Msg("[cleanup] batch delete failed, falling back to individual deletes")
+		var removed []*AbnormalConversation
+		for _, ac := range abnormal {
+			if err := DeleteConversation(db, ac.ID); err != nil {
+				log.Error().Err(err).Str("id", ac.ID).Msg("[cleanup] failed to delete abnormal conversation")
+				continue
+			}
+			log.Info().Str("id", ac.ID).Str("title", ac.Title).Str("reason", ac.Reason).Msg("[cleanup] removed abnormal conversation")
+			removed = append(removed, ac)
 		}
-		log.Info().Str("id", ac.ID).Str("title", ac.Title).Str("reason", ac.Reason).Msg("[cleanup] removed abnormal conversation")
-		removed = append(removed, ac)
+		return removed, nil
 	}
 
-	return removed, nil
+	// 批量删除成功：记录每个被删除的对话
+	for _, ac := range abnormal {
+		log.Info().Str("id", ac.ID).Str("title", ac.Title).Str("reason", ac.Reason).Msg("[cleanup] removed abnormal conversation")
+	}
+	return abnormal, nil
 }
 
 // UpdateConversationSummary 只更新对话的摘要字段

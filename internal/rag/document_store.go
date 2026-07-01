@@ -20,11 +20,14 @@ type DocumentMeta struct {
 }
 
 type DocumentStore struct {
-	db *badger.DB
+	vs *VectorStore
 }
 
-func NewDocumentStore(db *badger.DB) *DocumentStore {
-	return &DocumentStore{db: db}
+// NewDocumentStore 创建文档元数据存储。
+// 改为接收 *VectorStore 而非 *badger.DB，通过 WithTx 访问底层 Badger，
+// 避免直接暴露 *badger.DB 句柄。
+func NewDocumentStore(vs *VectorStore) *DocumentStore {
+	return &DocumentStore{vs: vs}
 }
 
 func docMetaKey(collection, id string) []byte {
@@ -37,7 +40,8 @@ func (ds *DocumentStore) Put(meta DocumentMeta) error {
 		return fmt.Errorf("marshal document meta: %w", err)
 	}
 	key := docMetaKey(meta.Collection, meta.ID)
-	err = ds.db.Update(func(txn *badger.Txn) error {
+	// 通过 VectorStore.WithTx 访问 Badger，不再直接持有 *badger.DB
+	err = ds.vs.WithTx(func(txn *badger.Txn) error {
 		return txn.Set(key, data)
 	})
 	if err != nil {
@@ -50,7 +54,8 @@ func (ds *DocumentStore) Put(meta DocumentMeta) error {
 func (ds *DocumentStore) Get(collection, id string) (*DocumentMeta, error) {
 	key := docMetaKey(collection, id)
 	var meta DocumentMeta
-	err := ds.db.View(func(txn *badger.Txn) error {
+	// 读操作也走 WithTx（读写事务），功能等价于原 db.View
+	err := ds.vs.WithTx(func(txn *badger.Txn) error {
 		item, err := txn.Get(key)
 		if err != nil {
 			return err
@@ -68,7 +73,7 @@ func (ds *DocumentStore) Get(collection, id string) (*DocumentMeta, error) {
 func (ds *DocumentStore) List(collection string) ([]DocumentMeta, error) {
 	prefix := []byte("docmeta:" + collection + ":")
 	var result []DocumentMeta
-	err := ds.db.View(func(txn *badger.Txn) error {
+	err := ds.vs.WithTx(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
@@ -96,7 +101,7 @@ func (ds *DocumentStore) List(collection string) ([]DocumentMeta, error) {
 
 func (ds *DocumentStore) Delete(collection, id string) error {
 	key := docMetaKey(collection, id)
-	err := ds.db.Update(func(txn *badger.Txn) error {
+	err := ds.vs.WithTx(func(txn *badger.Txn) error {
 		return txn.Delete(key)
 	})
 	if err != nil {

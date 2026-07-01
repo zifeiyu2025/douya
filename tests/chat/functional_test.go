@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -79,9 +80,8 @@ func TestFunctional_ForcedSearch_InjectsContext(t *testing.T) {
 	var receivedMessages []llm.ChatMessage
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 		receivedMessages = req.Messages
 
 		sseData := makeSSEData([]string{
@@ -136,9 +136,8 @@ func TestFunctional_ForcedSearch_NoTools(t *testing.T) {
 	var receivedTools []llm.ToolDefinition
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 		receivedTools = req.Tools
 
 		sseData := makeSSEData([]string{
@@ -266,9 +265,8 @@ func TestFunctional_SingleToolCall(t *testing.T) {
 		}
 		callCount++
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 
 		if callCount == 1 {
 			firstReqTools = req.Tools
@@ -320,9 +318,8 @@ func TestFunctional_MaxRounds_NoToolsOnLastRound(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 
 		if callCount < 4 {
 			sseData := makeSSEData([]string{
@@ -470,9 +467,8 @@ func TestFunctional_MultiTurnContext(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 		receivedMessages = req.Messages
 
 		sseData := makeSSEData([]string{
@@ -585,9 +581,8 @@ func TestFunctional_SearchI18n_ChineseQuery(t *testing.T) {
 	var receivedMessages []llm.ChatMessage
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 		receivedMessages = req.Messages
 
 		sseData := makeSSEData([]string{
@@ -642,9 +637,8 @@ func TestFunctional_SearchI18n_EnglishQuery(t *testing.T) {
 	var receivedMessages []llm.ChatMessage
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.ChatCompletionRequest
-		body := make([]byte, 1024*1024)
-		n, _ := r.Body.Read(body)
-		json.Unmarshal(body[:n], &req)
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
 		receivedMessages = req.Messages
 
 		sseData := makeSSEData([]string{

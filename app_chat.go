@@ -19,7 +19,9 @@ func (a *App) SendMessage(params chat.SendMessageParams) error {
 		return fmt.Errorf("AI 服务未启动，请等待服务就绪或检查配置。")
 	}
 
-	go func() {
+	// 纳入 trackedGo 跟踪：shutdown 时 g.Wait() 会等待本 goroutine 退出，
+	// 避免 db/ragVS 关闭后仍访问这些资源导致 panic 或数据损坏。
+	a.trackedGo(func() {
 		defer func() {
 			if r := recover(); r != nil {
 				zlog.Error().Interface("panic", r).Msg("SendMessage panic")
@@ -46,7 +48,7 @@ func (a *App) SendMessage(params chat.SendMessageParams) error {
 				ConversationID: convID,
 			})
 		}
-	}()
+	})
 	return nil
 }
 
@@ -172,7 +174,9 @@ func (a *App) RegenerateMessage(userMessageID string, searchMode string) error {
 		return fmt.Errorf("AI 服务未启动，请等待服务就绪或检查配置。")
 	}
 
-	go func() {
+	// 纳入 trackedGo 跟踪：shutdown 时 g.Wait() 会等待本 goroutine 退出，
+	// 避免 db/ragVS 关闭后仍访问这些资源导致 panic 或数据损坏。
+	a.trackedGo(func() {
 		defer func() {
 			if r := recover(); r != nil {
 				zlog.Error().Interface("panic", r).Msg("RegenerateMessage panic")
@@ -193,7 +197,7 @@ func (a *App) RegenerateMessage(userMessageID string, searchMode string) error {
 				ConversationID: convID,
 			})
 		}
-	}()
+	})
 	return nil
 }
 
