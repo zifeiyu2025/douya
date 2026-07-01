@@ -73,6 +73,10 @@ type ServerConfig struct {
 	Mmap             bool
 	KVOffload        bool
 	ContextShift     bool
+	// KeepSize 保护初始 prompt 中前 N 个 token 不被 context-shift 移位（通常用于保护 system prompt）。
+	// 仅当 ContextShift=true 且 KeepSize>0 时传递 --keep 给 llama-server。
+	// 默认 0=不传递；app_server.go 会赋一个保守默认值（512）。
+	KeepSize         int
 	MinP             float64
 	DryMultiplier    float64
 	DryBase          float64
@@ -388,6 +392,11 @@ func (s *Server) buildStartArgs() []string {
 		args = append(args, "--no-kv-offload")
 	}
 	args = appendBoolArg(args, "--context-shift", s.config.ContextShift)
+	// 启用 context-shift 时传递 --keep，保护 system prompt 不被移位（P0-B3）
+	// 否则一旦启用滑窗，豆芽的身份/规则等 system prompt 可能被从前面丢弃
+	if s.config.ContextShift && s.config.KeepSize > 0 {
+		args = appendIntArg(args, "--keep", s.config.KeepSize)
+	}
 	args = appendFloatArg(args, "--min-p", s.config.MinP, "%.2f")
 	if s.config.DryMultiplier > 0 {
 		args = append(args, "--dry-multiplier", fmt.Sprintf("%.2f", s.config.DryMultiplier))

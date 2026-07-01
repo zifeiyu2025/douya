@@ -374,6 +374,17 @@ func (s *Service) buildLLMMessages(ctx context.Context, convID string, dbMsgs []
 	if reserve < 512 {
 		reserve = 512
 	}
+	// P1-A1: 主动压缩阈值 - 当估算接近上限时提前压缩，避免到溢出边缘才动。
+	// 默认 0.8，effectiveMax = 80% * maxContext（而非 90%），为后续对话留出更多空间。
+	// 生活类比：油表剩 20% 就去加油，而不是等红灯亮了才找加油站。
+	proactiveThreshold := cfg.ProactiveCompressThreshold
+	if proactiveThreshold <= 0 || proactiveThreshold > 0.95 {
+		proactiveThreshold = 0.8
+	}
+	proactiveReserve := int(float64(maxContext) * (1.0 - proactiveThreshold))
+	if proactiveReserve > reserve {
+		reserve = proactiveReserve
+	}
 	effectiveMax := maxContext - reserve
 
 	currentMsgTokens := 0

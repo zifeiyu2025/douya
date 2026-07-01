@@ -24,15 +24,30 @@
       <div v-if="contextSize > 0" class="token-bar">
         <div class="token-bar-fill" :class="statusClass" :style="{ width: pct + '%' }"></div>
       </div>
+      <!-- P2-A2: 上下文使用率提示文案 -->
+      <span v-if="statusText" class="status-text" :class="statusClass">{{ statusText }}</span>
+      <!-- P2-A3: 手动压缩按钮（仅当使用率 >= 50% 且有会话时显示） -->
+      <button
+        v-if="pct >= 50 && conversationId"
+        class="compress-btn"
+        :class="{ loading: isCompressing }"
+        :disabled="isCompressing"
+        @click="handleCompress"
+        title="立即压缩早期对话"
+      >
+        {{ isCompressing ? '压缩中…' : '压缩' }}
+      </button>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from 'vue'
+import { useMessage } from 'naive-ui'
 import { wails } from '../services/wails'
 import { useSettingsStore } from '../stores/settings'
 import { useChatStore } from '../stores/chat'
+import { showSuccess, showError } from '../utils/showError'
 
 const props = withDefaults(defineProps<{
   text: string
@@ -43,6 +58,7 @@ const props = withDefaults(defineProps<{
 
 const settings = useSettingsStore()
 const chatStore = useChatStore()
+const message = useMessage()
 const tokenCount = ref(0)
 let timer: ReturnType<typeof setTimeout> | null = null
 
@@ -99,6 +115,18 @@ const statusClass = computed(() => {
   const r = tokenCount.value / props.contextSize
   if (r >= 0.95) return 'danger'
   if (r >= 0.8) return 'warn'
+  if (r >= 0.6) return 'notice'  // P2-A2: 新增 60% 提示档
+  return ''
+})
+
+// P2-A2: 状态提示文案
+// 60% 提示用户上下文紧张，80% 提示已自动压缩，95% 警告即将溢出
+const statusText = computed(() => {
+  if (!props.contextSize || props.contextSize <= 0) return ''
+  const r = tokenCount.value / props.contextSize
+  if (r >= 0.95) return '即将超出上下文，请开启新对话'
+  if (r >= 0.8) return '上下文紧张，已自动压缩早期对话'
+  if (r >= 0.6) return '上下文较紧张'
   return ''
 })
 
@@ -144,6 +172,31 @@ watch(() => props.text, (t) => scheduleCount(t))
 watch(show, (ready) => {
   if (ready && props.text) scheduleCount(props.text)
 })
+
+// ---- P2-A3: 手动压缩逻辑 ----
+const isCompressing = ref(false)
+const conversationId = computed(() => chatStore.currentConversationId)
+
+async function handleCompress() {
+  const convId = conversationId.value
+  if (!convId || isCompressing.value) return
+  isCompressing.value = true
+  try {
+    const result = await wails.compressConversation(convId)
+    // 显示压缩结果提示
+    if (result.trimmedCount > 0) {
+      showSuccess(message, `${result.message}：已压缩 ${result.trimmedCount} 条早期消息`)
+    } else {
+      showSuccess(message, result.message || '无需压缩')
+    }
+    // 压缩后重新计算 token（下次输入会自动触发 scheduleCount）
+    if (props.text) scheduleCount(props.text)
+  } catch (err) {
+    showError(message, '压缩失败', err)
+  } finally {
+    isCompressing.value = false
+  }
+}
 
 onUnmounted(() => {
   if (timer) clearTimeout(timer)
@@ -250,5 +303,69 @@ onUnmounted(() => {
 
 .token-bar-fill.danger {
   background: var(--accent-danger, #ef4444);
+}
+
+/* ---- P2-A2: 状态文案样式 ---- */
+/* 60% 档 notice 用主色（蓝绿），80% 档 warn 用警告色（橙），95% 档 danger 用危险色（红） */
+.status-text {
+  margin-left: 6px;
+  font-size: 10px;
+  opacity: 0.85;
+  transition: color 0.2s, opacity 0.2s;
+  white-space: nowrap;
+}
+
+.status-text.notice {
+  color: var(--accent-primary, #10b981);
+}
+
+.status-text.warn {
+  color: var(--accent-warning, #f59e0b);
+  font-weight: 500;
+}
+
+.status-text.danger {
+  color: var(--accent-danger, #ef4444);
+  font-weight: 600;
+}
+
+/* 60% 档 token-label 和进度条也用 notice 色，与文案保持一致 */
+.token-label.notice {
+  color: var(--accent-primary, #10b981);
+}
+
+.token-bar-fill.notice {
+  background: var(--accent-primary, #10b981);
+}
+
+/* ---- P2-A3: 手动压缩按钮样式 ---- */
+.compress-btn {
+  margin-left: 8px;
+  padding: 1px 8px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-muted, #888);
+  background: var(--bg-hover, rgba(0, 0, 0, 0.06));
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.compress-btn:hover:not(:disabled) {
+  color: var(--accent-primary, #10b981);
+  border-color: var(--accent-primary, #10b981);
+  background: color-mix(in srgb, var(--accent-primary, #10b981) 8%, transparent);
+}
+
+.compress-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.compress-btn.loading {
+  color: var(--accent-warning, #f59e0b);
+  border-color: var(--accent-warning, #f59e0b);
 }
 </style>

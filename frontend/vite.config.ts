@@ -30,38 +30,31 @@ export default defineConfig({
         sourcemap: false,
         rollupOptions: {
             output: {
-                // Rolldown 代码分割优化：按模块级别拆分，减少单个 chunk 体积
-                codeSplitting: 'advanced',
-                // 第三方库显式分块：让浏览器并行下载,且按需加载
-                manualChunks(id) {
-                    if (!id.includes('node_modules')) return undefined
-                    if (id.includes('mermaid') || id.includes('cytoscape') || id.includes('d3')) {
-                        return 'lib-mermaid'
-                    }
-                    if (id.includes('katex')) {
-                        return 'lib-katex'
-                    }
-                    if (id.includes('lowlight') || id.includes('highlight.js')) {
-                        return 'lib-highlight'
-                    }
-                    if (id.includes('naive-ui') || id.includes('@css-render') || id.includes('@juggle') || id.includes('date-fns') || id.includes('evtd')) {
-                        return 'lib-naive-ui'
-                    }
-                    if (id.includes('rehype') || id.includes('remark') || id.includes('unist-util') || id.includes('mdast') || id.includes('hast') || id.includes('micromark') || id.includes('bail') || id.includes('is-plain-obj') || id.includes('trough') || id.includes('vfile') || id.includes('zwitch')) {
-                        return 'lib-markdown'
-                    }
-                    if (id.includes('dompurify')) {
-                        return 'lib-sanitize'
-                    }
-                    if (id.includes('@vue/') || id.includes('pinia') || id.includes('vue-router') || id.includes('vue@')) {
-                        return 'lib-vue'
-                    }
-                    if (id.includes('@vicons/') || id.includes('@iconify')) {
-                        return 'lib-icons'
-                    }
-                    return 'lib-vendor'
+                // Vite 8 (Rolldown) 第三方库显式分块：让浏览器并行下载,且按需加载
+                // Vite 8 推荐 codeSplitting.groups（manualChunks/advancedChunks 均已弃用）
+                // [\\/] 兼容 Windows 反斜杠路径分隔符；groups 按顺序匹配第一个命中的
+                codeSplitting: {
+                    groups: [
+                        // mermaid 图表库（含 cytoscape、d3 依赖）
+                        { name: 'lib-mermaid', test: /node_modules[\\/](mermaid|cytoscape|.*d3.*)/ },
+                        // KaTeX 数学公式渲染
+                        { name: 'lib-katex', test: /node_modules[\\/]katex/ },
+                        // 代码高亮（lowlight + highlight.js）
+                        { name: 'lib-highlight', test: /node_modules[\\/](lowlight|highlight\.js)/ },
+                        // Naive UI 组件库及其依赖
+                        { name: 'lib-naive-ui', test: /node_modules[\\/](naive-ui|@css-render|@juggle|date-fns|evtd)/ },
+                        // Markdown 处理链（rehype/remark/micromark 等）
+                        { name: 'lib-markdown', test: /node_modules[\\/](rehype|remark|unist-util|mdast|hast|micromark|bail|is-plain-obj|trough|vfile|zwitch)/ },
+                        // HTML 消毒库
+                        { name: 'lib-sanitize', test: /node_modules[\\/]dompurify/ },
+                        // Vue 生态核心（@vue/*、pinia、vue-router、vue 本体）
+                        { name: 'lib-vue', test: /node_modules[\\/](@vue[\\/]|pinia|vue-router|vue@|vue[\\/])/ },
+                        // 图标库
+                        { name: 'lib-icons', test: /node_modules[\\/](@vicons[\\/]|@iconify)/ },
+                        // 兜底：其余 node_modules 统一归入 vendor
+                        { name: 'lib-vendor', test: /node_modules[\\/]/ },
+                    ],
                 },
-                chunkLoadingGlobal: 'douyaChunk',
                 banner: '/*!\n * 豆芽 - AI 聊天助手\n * Copyright © 2025 zifeiyu. All rights reserved.\n */',
             },
         },

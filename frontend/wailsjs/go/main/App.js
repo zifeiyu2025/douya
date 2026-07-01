@@ -30,6 +30,22 @@ export function DeleteMessage(arg1) {
   return window['go']['main']['App']['DeleteMessage'](arg1);
 }
 
+export function CompressConversation(arg1) {
+  return window['go']['main']['App']['CompressConversation'](arg1);
+}
+
+export function GetConversationSummaryView(arg1) {
+  return window['go']['main']['App']['GetConversationSummaryView'](arg1);
+}
+
+export function UpdateConversationSummaryManual(arg1, arg2, arg3) {
+  return window['go']['main']['App']['UpdateConversationSummaryManual'](arg1, arg2, arg3);
+}
+
+export function ResetConversationSummary(arg1) {
+  return window['go']['main']['App']['ResetConversationSummary'](arg1);
+}
+
 export function DeleteModel(arg1) {
   return window['go']['main']['App']['DeleteModel'](arg1);
 }

@@ -789,7 +789,10 @@ html, body, #app {
     position: relative;
 }
 
+/* AI 气泡不限制宽度：流式渲染完毕后内容应撑满可用空间，
+   不受 .message-bubble 的 85% 全局限制（scoped 样式可能被全局覆盖） */
 .ai-bubble {
+    max-width: 100%;
     background: var(--bg-ai-msg);
     color: var(--text-ai-msg);
     border-radius: var(--border-radius-lg);
@@ -1427,11 +1430,12 @@ html.dark .n-message.n-message--info-type {
    morphdom DOM Diff 保留未变化节点，新增节点通过 onBeforeNodeAdded 添加 .stream-node-enter 类
    动画只作用于新增节点，未变化节点不受影响（v-html 方案无法实现此效果）
    曲线选择 cubic-bezier(0.16, 1, 0.3, 1)（expo-out）：开始快、结束极慢，视觉上"飘"而非"蹦"
-   时长 0.18s：平衡飘逸感与快速生成时的堆叠问题（豆芽本地模型生成速度快于云端千问） */
+   时长 0.13s：更快的浮现节奏，配合本地模型高速生成，视觉上敏捷而不堆叠
+   位移 6px + scale(0.96)：更大的初始位移和缩放，浮现感更强烈 */
 @keyframes streamNodeEnter {
   from {
     opacity: 0;
-    transform: translateY(4px) scale(0.985);
+    transform: translateY(6px) scale(0.96);
   }
   to {
     opacity: 1;
@@ -1439,5 +1443,5 @@ html.dark .n-message.n-message--info-type {
   }
 }
 .stream-node-enter {
-  animation: streamNodeEnter 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: streamNodeEnter 0.13s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }

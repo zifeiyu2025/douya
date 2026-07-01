@@ -16,9 +16,14 @@ import (
 type Conversation struct {
 	ID        string    `json:"id"`
 	Title     string    `json:"title"`
-	Summary   string    `json:"summary,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Summary   string    `json:"summary,omitempty"` // 短期摘要（每次压缩都更新）
+	// P1-C1: 摘要分层管理
+	// LongSummary 长期摘要：每 N 次压缩合并一次（N=5），保留跨多次压缩的关键事实/决策/实体
+	// CompressCount 压缩次数计数：用于触发长期摘要合并和重置（C2）
+	LongSummary   string `json:"long_summary,omitempty"`
+	CompressCount int    `json:"compress_count,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // withDBTimeout 在带超时的 context 中执行数据库操作。
@@ -61,12 +66,12 @@ func CreateConversation(db *sql.DB, conv *Conversation, encKey []byte) error {
 
 func GetConversation(db *sql.DB, id string, encKey []byte) (*Conversation, error) {
 	conv := &Conversation{}
-	var summary sql.NullString
+	var summary, longSummary sql.NullString
 	err := withDBTimeout(func(ctx context.Context) error {
 		return db.QueryRowContext(ctx,
-			"SELECT id, title, summary, created_at, updated_at FROM conversations WHERE id = ?",
+			"SELECT id, title, summary, long_summary, compress_count, created_at, updated_at FROM conversations WHERE id = ?",
 			id,
-		).Scan(&conv.ID, &conv.Title, &summary, &conv.CreatedAt, &conv.UpdatedAt)
+		).Scan(&conv.ID, &conv.Title, &summary, &longSummary, &conv.CompressCount, &conv.CreatedAt, &conv.UpdatedAt)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("get conversation: %w", err)
@@ -75,6 +80,9 @@ func GetConversation(db *sql.DB, id string, encKey []byte) (*Conversation, error
 	conv.Title = decryptField(conv.Title, encKey)
 	if summary.Valid {
 		conv.Summary = summary.String
+	}
+	if longSummary.Valid {
+		conv.LongSummary = longSummary.String
 	}
 	return conv, nil
 }
@@ -272,11 +280,11 @@ func CleanupAbnormalConversations(db *sql.DB, encKey []byte) ([]*AbnormalConvers
 	return abnormal, nil
 }
 
-// UpdateConversationSummary 只更新对话的摘要字段
+// UpdateConversationSummary 只更新对话的短期摘要字段（向后兼容旧调用）
 func UpdateConversationSummary(db *sql.DB, id string, summary string) error {
 	err := withDBTimeout(func(ctx context.Context) error {
 		_, err := db.ExecContext(ctx,
-			"UPDATE conversations SET summary = ? WHERE id = ?",
+			"UPDATE conversations SET summary = ?, compress_count = compress_count + 1 WHERE id = ?",
 			summary, id,
 		)
 		return err
@@ -287,7 +295,91 @@ func UpdateConversationSummary(db *sql.DB, id string, summary string) error {
 	return nil
 }
 
-// GetConversationSummary 只获取对话的摘要字段
+// UpdateConversationLayeredSummary P1-C1: 同时更新短期摘要、长期摘要和压缩计数。
+// 每次压缩都会调用：shortSummary 更新为最新摘要，compress_count + 1。
+// longSummary 仅在触发合并时（由调用方判断 compress_count % 5 == 0）传入新值，否则传空串保持不变。
+func UpdateConversationLayeredSummary(db *sql.DB, id string, shortSummary, longSummary string) error {
+	err := withDBTimeout(func(ctx context.Context) error {
+		var query string
+		var args []interface{}
+		if longSummary != "" {
+			// 同时更新短期+长期摘要
+			query = "UPDATE conversations SET summary = ?, long_summary = ?, compress_count = compress_count + 1 WHERE id = ?"
+			args = []interface{}{shortSummary, longSummary, id}
+		} else {
+			// 仅更新短期摘要（长期摘要保持不变）
+			query = "UPDATE conversations SET summary = ?, compress_count = compress_count + 1 WHERE id = ?"
+			args = []interface{}{shortSummary, id}
+		}
+		_, err := db.ExecContext(ctx, query, args...)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("update conversation layered summary: %w", err)
+	}
+	return nil
+}
+
+// GetConversationLayeredSummary P1-C1: 获取分层摘要和压缩计数。
+// 返回 shortSummary, longSummary, compressCount。
+func GetConversationLayeredSummary(db *sql.DB, id string) (shortSummary, longSummary string, compressCount int, err error) {
+	var short, long sql.NullString
+	err = withDBTimeout(func(ctx context.Context) error {
+		return db.QueryRowContext(ctx,
+			"SELECT summary, long_summary, compress_count FROM conversations WHERE id = ?",
+			id,
+		).Scan(&short, &long, &compressCount)
+	})
+	if err != nil {
+		return "", "", 0, fmt.Errorf("get conversation layered summary: %w", err)
+	}
+	if short.Valid {
+		shortSummary = short.String
+	}
+	if long.Valid {
+		longSummary = long.String
+	}
+	return shortSummary, longSummary, compressCount, nil
+}
+
+// ResetConversationSummary P2-C4: 重置会话摘要（清空短期+长期+计数归零）。
+// 用户在摘要面板点击"重置"按钮时调用。
+// 与 UpdateConversationLayeredSummary 的区别：
+//   - Update 会 compress_count+1（增量）
+//   - Reset 把 compress_count 归零（完全清除）
+func ResetConversationSummary(db *sql.DB, id string) error {
+	err := withDBTimeout(func(ctx context.Context) error {
+		_, err := db.ExecContext(ctx,
+			"UPDATE conversations SET summary = '', long_summary = '', compress_count = 0 WHERE id = ?",
+			id,
+		)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("reset conversation summary: %w", err)
+	}
+	return nil
+}
+
+// SetConversationSummaryManual P2-C4: 手动设置会话摘要（用户编辑后保存）。
+// 与 UpdateConversationLayeredSummary 的区别：
+//   - Update 会 compress_count+1（自动/手动压缩时调用）
+//   - Set 不改 compress_count（用户编辑视为修正，不触发压缩计数）
+func SetConversationSummaryManual(db *sql.DB, id string, shortSummary, longSummary string) error {
+	err := withDBTimeout(func(ctx context.Context) error {
+		_, err := db.ExecContext(ctx,
+			"UPDATE conversations SET summary = ?, long_summary = ? WHERE id = ?",
+			shortSummary, longSummary, id,
+		)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("set conversation summary manual: %w", err)
+	}
+	return nil
+}
+
+// GetConversationSummary 只获取对话的短期摘要字段（向后兼容旧调用）
 func GetConversationSummary(db *sql.DB, id string) (string, error) {
 	var summary sql.NullString
 	err := withDBTimeout(func(ctx context.Context) error {

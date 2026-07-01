@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
@@ -188,6 +189,126 @@ func storeMsgToChat(m *store.Message) *Message {
 		}
 	}
 	return msg
+}
+
+// CompressResult 是手动压缩操作的返回结果
+type CompressResult struct {
+	ShortSummary string `json:"shortSummary"` // 新生成的短期摘要
+	LongSummary  string `json:"longSummary"`  // 新生成的长期摘要（可能为空，仅在触发合并时有值）
+	TrimmedCount int    `json:"trimmedCount"`  // 被裁剪的早期消息数
+	Message      string `json:"message"`       // 状态提示信息（如"压缩成功"/"消息较少，无需压缩"）
+}
+
+// CompressConversation 手动触发对话压缩（P2-A3）。
+//
+// 用户点击 TokenCounter 旁的"立即压缩"按钮时调用。
+// 行为：按滑动窗口裁剪早期消息，同步生成新摘要并保存到 DB。
+// 与 CompressContext 的区别：
+//   - CompressContext 是构建 LLM 消息列表时的同步压缩（返回压缩后的消息供立即使用，摘要异步生成）
+//   - CompressConversation 是用户主动触发（同步生成摘要并返回，不返回消息列表）
+//
+// 复用的核心函数：CalcSlidingWindowSize / summarizeMessages / shouldMergeLongSummary / mergeLongSummary
+func (s *Service) CompressConversation(convID string) (*CompressResult, error) {
+	if convID == "" {
+		return nil, fmt.Errorf("会话 ID 不能为空")
+	}
+
+	// 1. 加载会话所有 DB 消息
+	dbMsgs, err := store.GetMessagesByConversation(s.db, convID, secrets.CipherKey(s.cipher))
+	if err != nil {
+		return nil, fmt.Errorf("加载消息失败: %w", err)
+	}
+
+	// 2. 读取上下文大小（用于计算滑动窗口）
+	cfg := s.getConfigSnapshot()
+	maxContext := 0
+	if cfg != nil {
+		maxContext = cfg.ContextSize
+	}
+	if maxContext <= 0 {
+		maxContext = 4096
+	}
+
+	// 3. 按滑动窗口大小分离 kept 和 trimmed
+	// 生活类比：像整理书架，最近看过的书留在桌上，旧书归档到箱子里
+	windowSize := CalcSlidingWindowSize(maxContext)
+	if windowSize >= len(dbMsgs) {
+		// 消息较少，无需压缩
+		short, long, _, _ := store.GetConversationLayeredSummary(s.db, convID)
+		return &CompressResult{
+			ShortSummary: short,
+			LongSummary:  long,
+			TrimmedCount: 0,
+			Message:      "消息较少，无需压缩",
+		}, nil
+	}
+	trimmedMsgs := dbMsgs[:len(dbMsgs)-windowSize]
+
+	// 被裁剪消息过少时不生成摘要（summarizeMessages 要求 >=4 条）
+	if len(trimmedMsgs) < 4 {
+		short, long, _, _ := store.GetConversationLayeredSummary(s.db, convID)
+		return &CompressResult{
+			ShortSummary: short,
+			LongSummary:  long,
+			TrimmedCount: len(trimmedMsgs),
+			Message:      "被裁剪消息过少，无需生成摘要",
+		}, nil
+	}
+
+	// 4. 读取现有分层摘要（用于增量更新）
+	shortSummary, longSummary, compressCount, _ := store.GetConversationLayeredSummary(s.db, convID)
+
+	// 5. 获取 LLM 客户端
+	client := s.getClientSnapshot()
+	if client == nil {
+		return nil, fmt.Errorf("LLM 客户端未初始化，请等待模型加载完成")
+	}
+
+	// 6. 同步生成新短期摘要
+	// 超时设为 summaryTimeoutSec*2+10s，与 CompressContext 一致，留出短期+长期两次 LLM 调用时间
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(summaryTimeoutSec*2+10)*time.Second)
+	defer cancel()
+
+	// P3-C2: 判断是否触发周期性重置（与 CompressContext 保持一致）
+	// 重置优先级高于合并，触发时跳过 shouldMergeLongSummary
+	var newShortSummary, newLongSummary string
+	if ShouldResetSummary(compressCount) {
+		// 重置模式：从当前所有被裁剪消息重新生成摘要，丢弃旧摘要
+		newShortSummary = resetSummary(ctx, client, trimmedMsgs)
+		if newShortSummary == "" {
+			return nil, fmt.Errorf("摘要重置失败，请稍后重试或检查模型是否正常")
+		}
+		newLongSummary = "" // 清空长期摘要，下次 mergeLongSummary 会重新积累
+	} else {
+		// 原有流程：增量短期摘要 + 每 5 次合并长期摘要
+		newShortSummary = summarizeMessages(ctx, client, shortSummary, trimmedMsgs)
+		if newShortSummary == "" {
+			return nil, fmt.Errorf("摘要生成失败，请稍后重试或检查模型是否正常")
+		}
+		if shouldMergeLongSummary(compressCount) {
+			newLongSummary = mergeLongSummary(ctx, client, longSummary, newShortSummary)
+		}
+	}
+
+	// 8. 保存分层摘要到 DB（短期每次更新，长期仅在合并时有值）
+	if err := store.UpdateConversationLayeredSummary(s.db, convID, newShortSummary, newLongSummary); err != nil {
+		return nil, fmt.Errorf("保存摘要失败: %w", err)
+	}
+
+	totalTrimmed := len(trimmedMsgs)
+	msg := "压缩成功"
+	if ShouldResetSummary(compressCount) {
+		msg = "压缩成功，已重置摘要（周期性重述）"
+	} else if newLongSummary != "" {
+		msg = "压缩成功，已合并长期记忆"
+	}
+
+	return &CompressResult{
+		ShortSummary: newShortSummary,
+		LongSummary:  newLongSummary,
+		TrimmedCount: totalTrimmed,
+		Message:      msg,
+	}, nil
 }
 
 // 测试导出函数

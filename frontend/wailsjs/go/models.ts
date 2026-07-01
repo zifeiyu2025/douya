@@ -156,6 +156,42 @@ export namespace chat {
 		    return a;
 		}
 	}
+	// P2-A3: 手动压缩返回结果
+	export class CompressResult {
+	    shortSummary: string;
+	    longSummary: string;
+	    trimmedCount: number;
+	    message: string;
+
+	    static createFrom(source: any = {}) {
+	        return new CompressResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.shortSummary = source["shortSummary"];
+	        this.longSummary = source["longSummary"];
+	        this.trimmedCount = source["trimmedCount"];
+	        this.message = source["message"];
+	    }
+	}
+	// P2-C4: 分层摘要视图
+	export class SummaryView {
+	    shortSummary: string;
+	    longSummary: string;
+	    compressCount: number;
+
+	    static createFrom(source: any = {}) {
+	        return new SummaryView(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.shortSummary = source["shortSummary"];
+	        this.longSummary = source["longSummary"];
+	        this.compressCount = source["compressCount"];
+	    }
+	}
 }
 
 export namespace config {

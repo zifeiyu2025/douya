@@ -22,6 +22,10 @@ type Config struct {
 	APIBase         string  `json:"api_base"`
 	Port            int     `json:"port"`
 	ContextSize     int     `json:"context_size"`
+	// ProactiveCompressThreshold 主动压缩阈值：当估算 token 占比 >= 该阈值时，
+	// 提前触发上下文压缩（不等溢出），为后续对话留出空间。
+	// 默认 0.8（80%），范围 0.5-0.95。值越小越激进（更早压缩）。
+	ProactiveCompressThreshold float64 `json:"proactive_compress_threshold"`
 	Temperature     float64 `json:"temperature"`
 	TopP            float64 `json:"top_p"`
 	TopK            int     `json:"top_k"`
@@ -181,6 +185,7 @@ func DefaultConfig() *Config {
 		APIBase:                  "http://127.0.0.1:8080",
 		Port:                     8080,
 		ContextSize:              8192,
+		ProactiveCompressThreshold: 0.8, // P1-A1: 80% 时主动压缩，为后续对话留出 20% 空间
 		Temperature:              0.8, // 与 llama.cpp 默认值对齐
 		TopP:                     0.95,
 		TopK:                     40, // 与 llama.cpp 默认值对齐
@@ -487,6 +492,10 @@ func (c *Config) Validate() error {
 	}
 	if c.ContextSize < 1 || c.ContextSize > 131072 {
 		return fmt.Errorf("invalid context_size: %d (must be 1-131072)", c.ContextSize)
+	}
+	// P1-A1: 验证主动压缩阈值范围
+	if c.ProactiveCompressThreshold > 0 && (c.ProactiveCompressThreshold < 0.5 || c.ProactiveCompressThreshold > 0.95) {
+		return fmt.Errorf("invalid proactive_compress_threshold: %.2f (must be 0.5-0.95 or 0 for default)", c.ProactiveCompressThreshold)
 	}
 	if c.Temperature < 0 || c.Temperature > 2 {
 		return fmt.Errorf("invalid temperature: %.2f (must be 0-2)", c.Temperature)

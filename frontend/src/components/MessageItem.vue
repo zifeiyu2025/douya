@@ -475,7 +475,9 @@ function regenerate() {
 }
 
 .ai-bubble {
-  width: auto;
+  /* width: 100% 让 AI 气泡撑满 wrapper，不受内容宽度限制
+     渲染完毕后短内容也撑满可用空间，与 wrapper 的 max-width: 100% 配合 */
+  width: 100%;
   max-width: 100%;
   min-width: 0;
   background: var(--bg-ai-msg);

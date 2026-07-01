@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -503,15 +504,39 @@ func TrimMessagesToFit(messages []llm.ChatMessage, maxTokens int, reserve int) [
 		return []llm.ChatMessage{lastMsg}
 	}
 
-	var kept []llm.ChatMessage
+	// P1-B1: 引入消息重要性评分，避免机械裁剪丢失关键决策/代码。
+	// 策略：必保消息（评分>=5，如含代码块或用户明确指令）强制保留；
+	//       非必保消息按原"从后向前 break"逻辑填充至剩余预算。
+	scores := ScoreChatMessages(rest)
+	keepDecision := make([]bool, len(rest))
+	mustKeepTokens := 0
+	for i := range rest {
+		if IsMustKeep(scores[i]) {
+			keepDecision[i] = true
+			mustKeepTokens += estimateChatMessageTokens(rest[i])
+		}
+	}
+	// 非必保消息的预算 = 总剩余预算 - 必保消息已占用
+	// 注意：必保消息即使超预算也保留（丢失重要决策的代价 >> 超预算的代价）
+	nonMustKeepBudget := remaining - mustKeepTokens
 	acc := 0
 	for i := len(rest) - 1; i >= 0; i-- {
+		if keepDecision[i] {
+			continue
+		}
 		t := estimateChatMessageTokens(rest[i])
-		if acc+t > remaining {
+		if acc+t > nonMustKeepBudget {
 			break
 		}
+		keepDecision[i] = true
 		acc += t
-		kept = append([]llm.ChatMessage{rest[i]}, kept...)
+	}
+	// 按原顺序构造 kept，保持消息时序合法性
+	var kept []llm.ChatMessage
+	for i, msg := range rest {
+		if keepDecision[i] {
+			kept = append(kept, msg)
+		}
 	}
 
 	// 保护 tool call 配对（提取为独立函数 cleanToolCallPairs，供 CompressContext 复用）
@@ -576,6 +601,97 @@ type CompressContextResult struct {
 	SummaryInserted bool              // 是否插入了摘要
 }
 
+// selectImportantMessages P3-B2: 从被裁剪消息中按评分挑选高价值消息填充预算。
+//
+// 策略（与 TrimMessagesToFit 的"必保+按分填充"逻辑一致，但用于已裁剪列表的回收）：
+//   1. 计算每条消息评分（复用 ScoreChatMessage）
+//   2. 必保消息（评分>=5）强制保留，即使超预算也保留
+//   3. 非必保消息按分数降序+原索引升序，累加 token 填充预算
+//   4. 选中的消息按原索引升序返回，保持时序合法性
+//
+// 生活类比：像整理旧书架，先把"必藏经典"（高评分）全部留下，
+// 再用剩余空间按"推荐指数"挑几本"值得一读"的书，最后按出版年份排好。
+//
+// 参数：
+//   - msgs: 被裁剪的消息列表（按时间顺序，slice 位置即时间顺序）
+//   - budget: token 预算（必保消息可能超预算，调用方应预留余量）
+//
+// 返回：选中的消息列表（按原时间顺序）
+func selectImportantMessages(msgs []llm.ChatMessage, budget int) []llm.ChatMessage {
+	if len(msgs) == 0 || budget <= 0 {
+		return nil
+	}
+
+	// 1. 计算每条消息评分和 token
+	type msgMeta struct {
+		index    int
+		score    int
+		tokens   int
+		mustKeep bool
+	}
+	metas := make([]msgMeta, len(msgs))
+	mustKeepTokens := 0
+	for i := range msgs {
+		score := ScoreChatMessage(msgs[i])
+		tokens := estimateChatMessageTokens(msgs[i])
+		mustKeep := IsMustKeep(score)
+		metas[i] = msgMeta{
+			index:    i,
+			score:    score,
+			tokens:   tokens,
+			mustKeep: mustKeep,
+		}
+		if mustKeep {
+			mustKeepTokens += tokens
+		}
+	}
+
+	// 2. 必保消息全部选中（即使超预算，丢失重要决策代价更大）
+	selected := make([]bool, len(msgs))
+	for i := range metas {
+		if metas[i].mustKeep {
+			selected[i] = true
+		}
+	}
+
+	// 3. 非必保消息按"分数降序+索引升序"排序后贪心填充剩余预算
+	remainingBudget := budget - mustKeepTokens
+	if remainingBudget > 0 {
+		// 复制一份 metas 用于排序（不破坏原顺序）
+		sortedMetas := make([]msgMeta, 0, len(metas))
+		for i := range metas {
+			if !metas[i].mustKeep {
+				sortedMetas = append(sortedMetas, metas[i])
+			}
+		}
+		// 排序：分数降序，同分按索引升序（旧的优先）
+		sort.Slice(sortedMetas, func(i, j int) bool {
+			if sortedMetas[i].score != sortedMetas[j].score {
+				return sortedMetas[i].score > sortedMetas[j].score
+			}
+			return sortedMetas[i].index < sortedMetas[j].index
+		})
+		// 贪心填充（continue 而非 break：后面的消息可能更小能放下）
+		acc := 0
+		for _, m := range sortedMetas {
+			if acc+m.tokens > remainingBudget {
+				continue
+			}
+			selected[m.index] = true
+			acc += m.tokens
+		}
+	}
+
+	// 4. 按原索引升序构造结果，保持时序合法性
+	var result []llm.ChatMessage
+	for i, msg := range msgs {
+		if selected[i] {
+			result = append(result, msg)
+		}
+	}
+	return result
+}
+
 // CompressContext 统一上下文压缩函数：滑动窗口裁剪 + 异步摘要
 // 参数：
 //   - messages: 原始消息列表（第一条可能是 system 消息）
@@ -617,19 +733,54 @@ func CompressContext(
 	kept := rest[windowStart:]
 	trimmed := rest[:windowStart] // 被裁剪的消息（ChatMessage 格式）
 
+	// P3-B2: 3a. 从被裁剪消息中回收高分历史消息
+	// 高分历史预算 = 上下文大小的 20%（上限 1000，下限 200），避免挤占最近窗口
+	// 生活类比：像从旧书堆里挑几本"必藏经典"放到书桌显眼处，而不是全扔进仓库
+	importantBudget := contextSize / 5
+	if importantBudget > 1000 {
+		importantBudget = 1000
+	}
+	if importantBudget < 200 {
+		importantBudget = 200
+	}
+	importantMsgs := selectImportantMessages(trimmed, importantBudget)
+
 	// 4. 构建结果消息列表
 	var result []llm.ChatMessage
 	if systemMsg != nil {
 		result = append(result, *systemMsg)
 	}
 
-	// 5. 如果有已有摘要，立即插入
+	// P1-C1: 5. 如果有分层摘要（长期+短期），合并注入
+	// 优先从 DB 读取分层摘要；若失败则回退到 existingSummary 参数（向后兼容）
+	var existingLongSummary string
+	var compressCount int
+	if db != nil && convID != "" {
+		if short, long, count, err := store.GetConversationLayeredSummary(db, convID); err == nil {
+			if existingSummary == "" {
+				existingSummary = short // DB 读取的短期摘要作为 fallback
+			}
+			existingLongSummary = long
+			compressCount = count
+		}
+	}
+	// 构造注入的摘要文本
+	summaryParts := []string{}
+	if existingLongSummary != "" {
+		summaryParts = append(summaryParts, "长期记忆："+existingLongSummary)
+	}
 	if existingSummary != "" {
+		summaryParts = append(summaryParts, "近期对话："+existingSummary)
+	}
+	if len(summaryParts) > 0 {
 		result = append(result, llm.ChatMessage{
 			Role:    "system",
-			Content: "[对话摘要] 以下是之前对话的摘要：" + existingSummary,
+			Content: "[对话摘要] " + strings.Join(summaryParts, "；"),
 		})
 	}
+
+	// P3-B2: 5a. 添加高分历史消息（在摘要之后、最近窗口之前，时序合法）
+	result = append(result, importantMsgs...)
 
 	// 6. 添加窗口内的消息
 	result = append(result, kept...)
@@ -642,8 +793,14 @@ func CompressContext(
 		result = result[1:]
 	}
 
-	// 9. 异步生成摘要
+	// P1-C1: 9. 异步生成分层摘要（短期 + 长期）
+	// 短期摘要：每次压缩都更新（基于被裁剪的消息）
+	// 长期摘要：每 N 次压缩合并一次（避免无限递归漂移）
 	if len(trimmedStoreMsgs) >= 4 && llmClient != nil && convID != "" && db != nil {
+		// 捕获分层摘要状态，避免在 goroutine 中访问共享变量
+		capturedExistingSummary := existingSummary
+		capturedLongSummary := existingLongSummary
+		capturedCompressCount := compressCount
 		go func() {
 			// 防止 panic 导致整个进程崩溃（异步 goroutine 的 panic 无法被外层 recover 捕获）
 			defer func() {
@@ -651,18 +808,40 @@ func CompressContext(
 					log.Warn().Interface("panic", r).Str("conv_id", convID).Msg("[compress] 异步摘要生成 panic")
 				}
 			}()
-			// CompressContext 自身没有 ctx 参数，这里在 goroutine 内创建一个可取消的 ctx。
-			// 超时设为 summaryTimeoutSec+5s，比 summarizeMessages 内部的超时稍长，
-			// 留出余量让内部 ctx 正常超时返回，而不是被外层先取消。
-			summarizeCtx, cancel := context.WithTimeout(context.Background(), (summaryTimeoutSec+5)*time.Second)
+			// 超时设为 summaryTimeoutSec*2+10s，留出足够时间给短期+长期两次 LLM 调用
+			summarizeCtx, cancel := context.WithTimeout(context.Background(), (summaryTimeoutSec*2+10)*time.Second)
 			defer cancel()
-			newSummary := summarizeMessages(summarizeCtx, llmClient, existingSummary, trimmedStoreMsgs)
-			if newSummary != "" {
-				if err := store.UpdateConversationSummary(db, convID, newSummary); err != nil {
-					log.Warn().Err(err).Msg("[compress] 保存摘要失败")
-				} else {
-					log.Debug().Str("conv_id", convID).Msg("[compress] 摘要已异步保存")
+
+			// P3-C2: 周期性摘要重置判断（每 10 次压缩重置一次）
+			// 与 shouldMergeLongSummary（每 5 次）错开周期，重置优先级更高，触发时跳过合并
+			var newShortSummary, newLongSummary string
+			if ShouldResetSummary(capturedCompressCount) {
+				// 重置模式：从当前所有被裁剪消息重新生成摘要，丢弃旧摘要
+				// 生活类比：像定期把笔记本撕掉重写，而不是在旧笔记上涂涂改改
+				newShortSummary = resetSummary(summarizeCtx, llmClient, trimmedStoreMsgs)
+				if newShortSummary == "" {
+					return
 				}
+				newLongSummary = "" // 清空长期摘要，下次 mergeLongSummary 会重新积累
+				log.Info().Int("compress_count", capturedCompressCount+1).Str("conv_id", convID).Msg("[compress] 触发周期性摘要重置")
+			} else {
+				// 原有流程：增量短期摘要 + 每 5 次合并长期摘要
+				newShortSummary = summarizeMessages(summarizeCtx, llmClient, capturedExistingSummary, trimmedStoreMsgs)
+				if newShortSummary == "" {
+					return
+				}
+				if shouldMergeLongSummary(capturedCompressCount) {
+					// 合并长期摘要：旧长期 + 新短期 → 新长期
+					newLongSummary = mergeLongSummary(summarizeCtx, llmClient, capturedLongSummary, newShortSummary)
+					log.Info().Int("compress_count", capturedCompressCount+1).Str("conv_id", convID).Msg("[compress] 触发长期摘要合并")
+				}
+			}
+
+			// 9c. 保存分层摘要（短期+长期）和递增的压缩计数
+			if err := store.UpdateConversationLayeredSummary(db, convID, newShortSummary, newLongSummary); err != nil {
+				log.Warn().Err(err).Msg("[compress] 保存分层摘要失败")
+			} else {
+				log.Debug().Str("conv_id", convID).Int("compress_count", capturedCompressCount+1).Bool("long_merged", newLongSummary != "").Bool("reset", ShouldResetSummary(capturedCompressCount)).Msg("[compress] 分层摘要已异步保存")
 			}
 		}()
 	}

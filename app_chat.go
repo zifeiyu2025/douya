@@ -165,6 +165,19 @@ func (a *App) DeleteMessage(id string) error {
 	return a.service.DeleteMessage(id)
 }
 
+// CompressConversation 手动触发对话压缩（P2-A3）。
+// 用户点击 TokenCounter 旁的"立即压缩"按钮时调用，同步返回压缩结果。
+// 注意：此方法会阻塞至摘要生成完成（可能数秒~数十秒），前端需显示 loading。
+func (a *App) CompressConversation(convID string) (*chat.CompressResult, error) {
+	if !a.ready.Load() {
+		return nil, fmt.Errorf("应用未就绪。")
+	}
+	if !a.serverReady.Load() {
+		return nil, fmt.Errorf("AI 服务未启动，请等待服务就绪。")
+	}
+	return a.service.CompressConversation(convID)
+}
+
 func (a *App) RegenerateMessage(userMessageID string, searchMode string) error {
 	if !a.ready.Load() {
 		return fmt.Errorf("应用未就绪。")

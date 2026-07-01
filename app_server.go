@@ -194,6 +194,10 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 		Mmap:                     cfg.Mmap,
 		KVOffload:                cfg.KVOffload,
 		ContextShift:             cfg.ContextShift,
+		// P0-B3: 启用 context-shift 时保护 system prompt 不被移位。
+		// 512 是保守值，足够覆盖豆芽的 system prompt（约 200-400 token）。
+		// 若用户 system prompt 较长，可后续在高级设置中暴露 KeepSize 配置。
+		KeepSize:                 512,
 		MinP:                     cfg.MinP,
 		DryMultiplier:            cfg.DryMultiplier,
 		DryBase:                  cfg.DryBase,

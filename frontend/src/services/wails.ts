@@ -18,6 +18,7 @@ import {
     UpdateConfig,
     GetServerStatus,
     DeleteMessage,
+    CompressConversation,
     RegenerateMessage,
     PrepareShutdown,
     GetAvailableModels,
@@ -179,6 +180,14 @@ export interface ChatMessage {
     content: string  // 移除 | any，避免类型擦除（任务 28.2）
     reasoning_content?: string
     tool_call_id?: string
+}
+
+/** P2-A3: 手动压缩返回结果 */
+export interface CompressResult {
+    shortSummary: string
+    longSummary: string
+    trimmedCount: number
+    message: string
 }
 
 /**
@@ -347,6 +356,10 @@ export const wails = {
     },
     deleteMessage: async (id: string): Promise<void> => {
         await DeleteMessage(id)
+    },
+    // P2-A3: 手动触发对话压缩
+    compressConversation: async (convID: string): Promise<CompressResult> => {
+        return (await CompressConversation(convID)) as CompressResult
     },
     regenerateMessage: async (userMessageID: string, searchMode: string): Promise<void> => {
         await RegenerateMessage(userMessageID, searchMode)

@@ -125,6 +125,12 @@ func migrateAddColumns(db *sql.DB) error {
 		typ  string
 	}{
 		{"summary", "TEXT"},
+		// P1-C1: 摘要分层管理 - 长期摘要 + 压缩计数
+		// summary 字段保留作为"短期摘要"（每次压缩都更新）
+		// long_summary 是"长期摘要"（每 N 次压缩合并一次，避免无限递归漂移）
+		// compress_count 记录压缩次数，用于触发合并/重置
+		{"long_summary", "TEXT"},
+		{"compress_count", "INTEGER DEFAULT 0"},
 	}
 
 	for _, col := range convAddCols {
