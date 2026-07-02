@@ -611,6 +611,7 @@ export interface ConvStreamingState {
     streamingContent: string
     streamingChunks: string[]  // 流式内容分块累积（M-前5：避免 += 的 O(N²) 字符串拼接）
     thinkingContent: string
+    thinkingChunks: string[]   // 思考内容分块累积（与 streamingChunks 同理，避免 += 的 O(N²) 拼接）
     searchResults: string
     isSearching: boolean
     isThinking: boolean

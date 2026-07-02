@@ -132,7 +132,7 @@ import ContextTrimmed from './ContextTrimmed.vue'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import { wails } from '../services/wails'
-import { renderMarkdownStreaming, escapeHtml } from '../utils/markdown'
+import { renderMarkdown, escapeHtml } from '../utils/markdown'
 import { useMorphRender } from '../composables/useMorphRender'
 import { useScrollToBottom } from '../composables/useScrollToBottom'
 // 任务 38：虚拟滚动 feature flag（默认关闭，纯前端 localStorage 开关）
@@ -191,8 +191,8 @@ const thinkingAsContent = computed(() => {
   return !isThinking.value && thinkingContent.value && !streamingContent.value
 })
 
-// 渲染思考内容为 HTML。renderMarkdownStreaming 是 async 函数返回 Promise<string>，
-// 不能用 computed（Vue 不会 unwrap Promise，v-html 会渲染成 [object Promise]）。
+// 渲染思考内容为 HTML（仅在思考结束且无正文时触发，此时思考已完成，直接全量渲染）。
+// renderMarkdown 是 async 函数返回 Promise<string>，不能用 computed（v-html 会渲染成 [object Promise]），
 // 改用 ref + watch 异步模式，与 MessageItem.vue 的 renderedContent 写法一致。
 const renderedThinkingAsContent = ref('')
 watch([thinkingAsContent, thinkingContent], async () => {
@@ -201,7 +201,7 @@ watch([thinkingAsContent, thinkingContent], async () => {
     return
   }
   try {
-    renderedThinkingAsContent.value = await renderMarkdownStreaming(thinkingContent.value)
+    renderedThinkingAsContent.value = await renderMarkdown(thinkingContent.value)
   } catch (_) {
     // 渲染失败时转义后作为纯文本显示，避免直接赋值原始未消毒内容到 v-html（XSS 防护）
     renderedThinkingAsContent.value = escapeHtml(thinkingContent.value)
@@ -240,13 +240,10 @@ async function handleStopThinking() {
 // 模型切换 overlay 相关逻辑已移至 App.vue 统一管理
 // 这里保留 isSwitching 等变量供其他用途（如禁用输入）
 
-// 流式 Markdown 渲染（对标千问：morphdom DOM Diff + CSS 淡入）：
-// - SSE token 到达即渲染，用 RAF 合并同帧多次更新（60fps）
-// - stable/unstable 拆分：稳定块缓存，只渲染不稳定块增量
-// - 同步渲染（renderStreamingSync）：无 async/await，每帧立即出 DOM
-// - morphdom DOM Diff：只更新增量节点，未变化节点保留同一引用（O(Δ) vs v-html 的 O(N)）
-// - 新增节点添加 stream-node-enter 类，触发 CSS 淡入动画
-// - 流式结束 finalizeRender() 用完整 remark+DOMPurify 做最终渲染（不加淡入类）
+// 流式渲染（对标 llama.cpp webui：stable/unstable 分块缓存 + 实时格式化）：
+// - 流式中：marked.lexer 分块，stable blocks 缓存，只重新渲染最后一个 unstable block
+// - 流式结束：finalizeRender() 用 renderMarkdown（marked + DOMPurify）全量渲染确保完整
+// - RAF 合帧：同一帧内多次 token 只渲染一次（60fps）
 const { containerRef: streamingContainerRef, bind: bindMarkdown, finalizeRender } = useMorphRender()
 bindMarkdown(() => streamingContent.value)
 
@@ -326,8 +323,7 @@ onUnmounted(() => {
 watchMessagesLength(() => chatStore.messages?.length || 0)
 
 // 流式内容变化时平滑滚动跟随
-// morphdom 更新 DOM 后由 MutationObserver 触发滚动；此处额外监听 streamingContent
-// 确保 scheduleScroll 与 morphdom 的 RAF 在同一帧注册（morphdom 先更新 DOM，scrollBy 后读取 scrollHeight）
+// useMorphRender 用 innerHTML 更新 DOM（分块渲染），由 watchContentChange 响应式触发 scheduleScroll
 watchContentChange(() => streamingContent.value)
 // 思考内容变化时平滑滚动跟随
 watchContentChange(() => chatStore.thinkingContent)
@@ -416,6 +412,9 @@ watch(() => chatStore.lastError, (err) => {
 /* 流式内容容器：仅用 contain: style 隔离样式重算
  * 不用 contain: layout（高度增长时强制重排导致跳跃）
  * 不用 content-visibility: auto（流式场景下切换渲染状态导致高度突变）
+ *
+ * 实时格式化方案：流式中用 innerHTML 渲染 markdown HTML（stable/unstable 分块缓存）
+ * 不需要 pre-wrap（marked 已将换行转为 <br> 或块级元素）
  */
 .markdown-body.streaming {
   contain: style;

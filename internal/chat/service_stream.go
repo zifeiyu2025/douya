@@ -68,10 +68,20 @@ type StreamAccumulator struct {
 	PredictedN                 int                                  // 来自 SSE 流式响应的 timings.predicted_n
 	OnTimings                  func(timings llm.SSETimings)         // 当收到 timings 数据时的回调，用于实时推送速度
 	OnPromptProgress           func(progress llm.SSEPromptProgress) // 当收到 prompt_progress 数据时的回调
+	TokenBuf                   strings.Builder                      // token 批量化累积缓冲（减少 IPC 频率）
+	LastTokenEmit              time.Time                            // 上次 token 发射时间（用于时间触发 flush）
 }
 
 // 流式响应缓冲区最大大小（10MB）
 const maxStreamBufferSize = 10 * 1024 * 1024
+
+// token 批量化降频阈值
+// 首 token 立即发送（消除首字延迟）；后续累积到 tokenBatchSize 字符或 tokenBatchInterval 间隔再发射
+// 减少高频 IPC 跨进程调用，避免长内容时前端 IPC 队列积压导致 token 到达节奏不均匀
+const (
+	tokenBatchSize     = 48                    // 累积字符数阈值（约 1-2 个中文句子，视觉上仍是逐句流式）
+	tokenBatchInterval = 16 * time.Millisecond // 时间间隔阈值（对齐 60fps，保证每帧有 token 到达）
+)
 
 func NewStreamAccumulator(convID string, emitFn func(string, any), emitForConvFn func(string, string, any)) *StreamAccumulator {
 	return &StreamAccumulator{
@@ -133,7 +143,8 @@ func (a *StreamAccumulator) callback() func(llm.SSEChunk) error {
 			a.PendingBytes = pending
 			fixed := llm.FixUTF8(valid)
 			a.FullContent.WriteString(fixed)
-			a.EmitForConvFn(a.ConvID, "token", fixed)
+			// 批量化降频：首 token 立即发送，后续累积到阈值或时间间隔再发射
+			a.emitTokenBatched(fixed)
 		}
 
 		if choice.Delta.ReasoningContent != "" {
@@ -175,6 +186,8 @@ func (a *StreamAccumulator) callback() func(llm.SSEChunk) error {
 		}
 
 		if choice.FinishReason != nil {
+			// 流式结束前 flush 残留的 token 缓冲，确保最终内容完整送达
+			a.flushTokenBuffer()
 			if a.FullThinking.Len() > 0 && !a.ThinkingDone && !a.ThinkingStartTime.IsZero() {
 				a.ThinkingDuration = time.Since(a.ThinkingStartTime).Seconds()
 				a.ThinkingDone = true
@@ -189,6 +202,33 @@ func (a *StreamAccumulator) callback() func(llm.SSEChunk) error {
 		}
 
 		return nil
+	}
+}
+
+// emitTokenBatched 批量化发射 token 事件
+// 首 token 立即发送（消除首字延迟）；后续累积到 tokenBatchSize 字符或 tokenBatchInterval 间隔再发射
+// 减少高频 IPC 跨进程调用，避免长内容时前端 IPC 队列积压
+func (a *StreamAccumulator) emitTokenBatched(fixed string) {
+	// 首 token：FullContent 刚写入，长度等于本次 fixed 长度（首字延迟是用户感知最强的卡顿源，不降频）
+	if a.FullContent.Len() == len(fixed) {
+		a.EmitForConvFn(a.ConvID, "token", fixed)
+		a.LastTokenEmit = time.Now()
+		return
+	}
+	a.TokenBuf.WriteString(fixed)
+	// 累积到阈值或时间间隔：发射缓冲区内容
+	if a.TokenBuf.Len() >= tokenBatchSize || time.Since(a.LastTokenEmit) >= tokenBatchInterval {
+		a.EmitForConvFn(a.ConvID, "token", a.TokenBuf.String())
+		a.TokenBuf.Reset()
+		a.LastTokenEmit = time.Now()
+	}
+}
+
+// flushTokenBuffer 发射缓冲区中残留的 token（流式结束/中断时调用，确保最终内容完整送达）
+func (a *StreamAccumulator) flushTokenBuffer() {
+	if a.TokenBuf.Len() > 0 {
+		a.EmitForConvFn(a.ConvID, "token", a.TokenBuf.String())
+		a.TokenBuf.Reset()
 	}
 }
 

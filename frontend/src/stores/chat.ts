@@ -20,6 +20,7 @@ function createEmptyStreamingState(): ConvStreamingState {
         streamingContent: '',
         streamingChunks: [],
         thinkingContent: '',
+        thinkingChunks: [],
         searchResults: '',
         isSearching: false,
         isThinking: false,
@@ -39,6 +40,7 @@ function clearConvState(state: ConvStreamingState) {
     state.streamingContent = ''
     state.streamingChunks = []
     state.thinkingContent = ''
+    state.thinkingChunks = []
     state.searchResults = ''
     state.isSearching = false
     state.isThinking = false
@@ -102,6 +104,7 @@ export const useChatStore = defineStore('chat', () => {
     //（setTimeout 0 实际约 4ms，比原 20ms 快 5 倍），让 token 尽快到达 UI。
     // 渲染频率由 useMorphRender 的 RAF 合帧保证 60fps，不会因 flush 频繁而过度渲染。
     // 旧值 20ms 是为已删除的打字动画设计，快速生成时一次 flush 积压多 token 导致"蹦字"。
+    // handleThinking 同理用 thinkingChunks 累积，复用同一定时器同时 flush 两者。
     const FLUSH_INTERVAL = 0
     const flushTimers = new Map<string, ReturnType<typeof setTimeout>>()
     function scheduleStreamingFlush(convId: string) {
@@ -109,8 +112,12 @@ export const useChatStore = defineStore('chat', () => {
         const id = setTimeout(() => {
             flushTimers.delete(convId)
             const state = convStreamingStates.get(convId)
-            if (state && state.streamingChunks.length > 0) {
+            if (!state) return
+            if (state.streamingChunks.length > 0) {
                 state.streamingContent = state.streamingChunks.join('')
+            }
+            if (state.thinkingChunks.length > 0) {
+                state.thinkingContent = state.thinkingChunks.join('')
             }
         }, FLUSH_INTERVAL)
         flushTimers.set(convId, id)
@@ -122,8 +129,12 @@ export const useChatStore = defineStore('chat', () => {
             flushTimers.delete(convId)
         }
         const state = convStreamingStates.get(convId)
-        if (state && state.streamingChunks.length > 0) {
+        if (!state) return
+        if (state.streamingChunks.length > 0) {
             state.streamingContent = state.streamingChunks.join('')
+        }
+        if (state.thinkingChunks.length > 0) {
+            state.thinkingContent = state.thinkingChunks.join('')
         }
     }
 
@@ -319,7 +330,14 @@ export const useChatStore = defineStore('chat', () => {
             state.thinkingStartTime = Date.now()
             state.thinkingDuration = 0
         }
-        state.thinkingContent += content
+        // 与 handleToken 同理：用数组累积替代字符串 +=，避免长思考时 O(N²) 拼接
+        state.thinkingChunks.push(content)
+        // 首个思考 token 立即 flush（消除首字延迟）；后续节流合并
+        if (state.thinkingChunks.length === 1) {
+            flushStreamingImmediately(convId)
+        } else {
+            scheduleStreamingFlush(convId)
+        }
     }
 
     // 已迁移：content 类型对齐 ToolCallStartEvent['content']（任务 24）

@@ -12,7 +12,16 @@
     <div v-if="expanded" class="think-block-content">
       <!-- 左边缘脉络流光：仅思考中显示，沿边缘上下流动 -->
       <div class="think-vein" aria-hidden="true"></div>
-      <div class="think-block-content-inner markdown-body" v-html="renderedContent" />
+      <!--
+        实时格式化渲染（与正文 useMorphRender 一致）：
+        - 流式中（isThinking=true）：stable/unstable 分块缓存 + 实时 markdown 格式
+        - 流式结束（isThinking=false）：finalizeRender 全量渲染确保完整
+        - 历史消息：bind 后自动渲染一次
+      -->
+      <div
+        ref="containerRef"
+        class="think-block-content-inner markdown-body"
+      ></div>
     </div>
   </div>
 </template>
@@ -21,8 +30,7 @@
 import { ref, computed, watch } from 'vue'
 import { NIcon } from 'naive-ui'
 import { ChevronForwardOutline, BulbOutline } from '@vicons/ionicons5'
-import { renderMarkdown, escapeHtml } from '../utils/markdown'
-import { cleanStreamingContent } from '../utils/streaming'
+import { useMorphRender } from '../composables/useMorphRender'
 
 const props = defineProps<{
   content: string
@@ -33,6 +41,10 @@ const props = defineProps<{
 
 const expanded = ref(props.defaultExpanded ?? false)
 
+/**
+ * 清理内容：过滤思考内容里偶发的工具调用标签行
+ * （这些是模型误输出，不应展示给用户）
+ */
 const cleanedContent = computed(() => {
   if (!props.content) return ''
   return props.content
@@ -45,28 +57,16 @@ const cleanedContent = computed(() => {
     .trim()
 })
 
-// remark 是异步的，使用 ref + watch 模式
-const renderedContent = ref('')
-// 渲染版本号防止异步竞态——若 content 在短时间内多次变化，
-// 先发起的渲染任务可能后完成并覆盖最新内容。版本号校验确保只采用最新结果。
-let renderVersion = 0
+// 使用 useMorphRender 实现实时格式化渲染（stable/unstable 分块缓存）
+const { containerRef, bind, finalizeRender } = useMorphRender()
+bind(() => cleanedContent.value)
 
-watch(cleanedContent, async (newVal) => {
-  if (!newVal) {
-    renderedContent.value = ''
-    return
+// isThinking 从 true 切到 false 时触发最终渲染（全量渲染确保完整）
+watch(() => props.isThinking, (thinking) => {
+  if (!thinking) {
+    finalizeRender()
   }
-  const version = ++renderVersion
-  try {
-    const html = await renderMarkdown(cleanStreamingContent(newVal))
-    if (version !== renderVersion) return
-    renderedContent.value = html
-  } catch (_) {
-    // 渲染失败时转义后作为纯文本显示，避免直接赋值原始未消毒内容到 v-html（XSS 防护）
-    if (version !== renderVersion) return
-    renderedContent.value = escapeHtml(newVal)
-  }
-}, { immediate: true })
+})
 
 const safeDuration = computed(() => props.duration ?? 0)
 

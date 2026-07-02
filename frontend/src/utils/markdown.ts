@@ -196,23 +196,6 @@ export async function renderMarkdown(content: string): Promise<string> {
     }
 }
 
-/**
- * 渲染流式 Markdown（异步）
- * 用于：模型正在生成的文本
- *
- * 与 renderMarkdown 使用相同的管道，只是语义上区分
- * marked 同步渲染，性能足够支持流式场景
- */
-export async function renderMarkdownStreaming(content: string): Promise<string> {
-    if (!content) return ''
-    try {
-        const html = marked.parse(content, { async: false }) as string
-        return sanitizeHtml(html)
-    } catch (_) {
-        return sanitizeHtml(escapeHtml(content))
-    }
-}
-
 // ===== 安全过滤 =====
 
 /**
