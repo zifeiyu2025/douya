@@ -31,7 +31,11 @@ const (
 
 // truncateRunes 按 rune（字符）截断字符串，避免在多字节字符中间截断产生非法 UTF-8
 // L-11 修复：原实现用 len()+[:] 按字节截断，中文每字符 3 字节，[:800] 可能切断字符。
+// maxRunes<=0 时不截断（视为"无限制"），直接返回原字符串。
 func truncateRunes(s string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return s
+	}
 	if utf8.RuneCountInString(s) <= maxRunes {
 		return s
 	}

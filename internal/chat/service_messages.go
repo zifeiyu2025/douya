@@ -20,6 +20,17 @@ import (
 	"douya/internal/store"
 )
 
+// maxSearchResultsToInject 限制注入 prompt 的搜索结果条数。
+// 条数过多会让 prompt 体积膨胀，拖慢本地模型的 prompt eval（搜索完成后到首字输出的等待主要耗在这里）。
+// 前 5 条已能覆盖主要信息，更多条收益递减但延迟线性增加。
+const maxSearchResultsToInject = 5
+
+// maxSearchTitleRunes 单条搜索结果标题的字符上限，超长截断，避免过长标题占用 token。
+const maxSearchTitleRunes = 60
+
+// maxSearchSnippetRunes 单条搜索结果摘要的字符上限，超长截断，避免超长 snippet 撑大 prompt。
+const maxSearchSnippetRunes = 200
+
 func formatSearchResults(results []search.SearchResult) string {
 	return formatSearchResultsWithLang(results, "zh")
 }
@@ -27,16 +38,16 @@ func formatSearchResults(results []search.SearchResult) string {
 func formatSearchResultsWithLang(results []search.SearchResult, lang string) string {
 	var sb strings.Builder
 	sb.WriteString("<search_results>\n")
-	for _, r := range results {
+	// 限制注入条数：只取前 maxSearchResultsToInject 条，减少 prompt 体积，加快 prompt eval
+	count := len(results)
+	if count > maxSearchResultsToInject {
+		count = maxSearchResultsToInject
+	}
+	for _, r := range results[:count] {
 		sb.WriteString("<result>\n")
-		sb.WriteString(fmt.Sprintf("<title>%s</title>\n", escapeXML(r.Title)))
-		// URL 协议校验：仅允许 http/https，防止 javascript:、data: 等危险协议
-		url := r.URL
-		if !isSafeHTTPURL(url) {
-			url = "" // 不安全的 URL 替换为空
-		}
-		sb.WriteString(fmt.Sprintf("<url>%s</url>\n", escapeXML(url)))
-		sb.WriteString(fmt.Sprintf("<snippet>%s</snippet>\n", escapeXML(r.Snippet)))
+		// 只保留 title 和 snippet，移除 url：url 对回答内容无帮助，仅占 token
+		sb.WriteString(fmt.Sprintf("<title>%s</title>\n", escapeXML(truncateRunes(r.Title, maxSearchTitleRunes))))
+		sb.WriteString(fmt.Sprintf("<snippet>%s</snippet>\n", escapeXML(truncateRunes(r.Snippet, maxSearchSnippetRunes))))
 		sb.WriteString("</result>\n")
 	}
 	sb.WriteString("</search_results>")
@@ -52,15 +63,6 @@ func escapeXML(s string) string {
 	s = strings.ReplaceAll(s, "\"", "&quot;")
 	s = strings.ReplaceAll(s, "'", "&apos;")
 	return s
-}
-
-// isSafeHTTPURL 校验 URL 是否使用 http/https 协议，防止 javascript:、data: 等危险协议。
-func isSafeHTTPURL(url string) bool {
-	if url == "" {
-		return false
-	}
-	lower := strings.ToLower(url)
-	return strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://")
 }
 
 // buildRAGContext 根据混合检索结果构建 RAG 上下文字符串。
@@ -93,7 +95,10 @@ func truncateSearchContext(searchContext string, ctxSize int) string {
 	}
 	// 安全实践：中文 token 估算系数从 3 调整为 2，与 estimateTokensByLang 保持一致，避免过度截断丢失关键信息
 	searchTokenEstimate := len([]rune(searchContext)) * 2
-	maxSearchTokens := ctxSize / 3
+	// 截断上限从 ctxSize/3 收紧到 ctxSize/6：搜索结果体积过大是"搜索后等好久才输出"的主因
+	// （prompt eval 耗时与 prompt 体积近似线性相关）。收紧到 ctxSize/6 可将 prompt eval 时间下降约 50%。
+	// 搜索结果只是辅助信息，不应占用过多上下文预算。
+	maxSearchTokens := ctxSize / 6
 	if searchTokenEstimate > maxSearchTokens {
 		runes := []rune(searchContext)
 		if maxSearchTokens/2 < len(runes) {

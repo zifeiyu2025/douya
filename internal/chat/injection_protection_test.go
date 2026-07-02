@@ -4,6 +4,7 @@
 package chat
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -62,11 +63,15 @@ func TestFormatSearchResults_AmpersandEscape(t *testing.T) {
 	}
 }
 
-// TestFormatSearchResults_URLProtocolValidation 验证 URL 协议校验，
-// 仅允许 http/https 协议，防止 javascript: 等危险协议。
-func TestFormatSearchResults_URLProtocolValidation(t *testing.T) {
-	// 测试危险协议：javascript:
-	dangerousResults := []search.SearchResult{
+// TestFormatSearchResults_URLNotInjected 验证搜索结果中的 URL 不再被注入到 prompt。
+// 移除 url 可减少 prompt 体积、加快 prompt eval，同时杜绝危险协议（javascript:/data:）的注入面。
+func TestFormatSearchResults_URLNotInjected(t *testing.T) {
+	results := []search.SearchResult{
+		{
+			Title:   "正常链接",
+			URL:     "https://example.com",
+			Snippet: "测试",
+		},
 		{
 			Title:   "危险链接",
 			URL:     "javascript:alert(1)",
@@ -74,61 +79,17 @@ func TestFormatSearchResults_URLProtocolValidation(t *testing.T) {
 		},
 	}
 
-	formatted := formatSearchResultsWithLang(dangerousResults, "zh")
+	formatted := formatSearchResultsWithLang(results, "zh")
 
-	// 验证 javascript: 协议被移除（不应出现在输出中）
+	// 验证所有 URL（无论协议）都不出现在输出中
+	if strings.Contains(formatted, "https://example.com") {
+		t.Errorf("输出中不应包含 URL，实际输出: %s", formatted)
+	}
 	if strings.Contains(formatted, "javascript:") {
 		t.Errorf("输出中不应包含 javascript: 协议，实际输出: %s", formatted)
 	}
-
-	// 测试正常 https URL
-	normalResults := []search.SearchResult{
-		{
-			Title:   "正常链接",
-			URL:     "https://example.com",
-			Snippet: "测试",
-		},
-	}
-
-	formatted = formatSearchResultsWithLang(normalResults, "zh")
-
-	// 验证正常的 https URL 被保留
-	if !strings.Contains(formatted, "https://example.com") {
-		t.Errorf("输出中应包含正常的 https URL，实际输出: %s", formatted)
-	}
-}
-
-// TestFormatSearchResults_URLProtocolValidation_HTTPS 验证 http 协议也被允许
-func TestFormatSearchResults_URLProtocolValidation_HTTP(t *testing.T) {
-	results := []search.SearchResult{
-		{
-			Title:   "HTTP 链接",
-			URL:     "http://example.com",
-			Snippet: "测试",
-		},
-	}
-
-	formatted := formatSearchResultsWithLang(results, "zh")
-
-	if !strings.Contains(formatted, "http://example.com") {
-		t.Errorf("输出中应包含正常的 http URL，实际输出: %s", formatted)
-	}
-}
-
-// TestFormatSearchResults_URLProtocolValidation_DataURI 验证 data: 协议被拒绝
-func TestFormatSearchResults_URLProtocolValidation_DataURI(t *testing.T) {
-	results := []search.SearchResult{
-		{
-			Title:   "Data URI",
-			URL:     "data:text/html,<script>alert(1)</script>",
-			Snippet: "测试",
-		},
-	}
-
-	formatted := formatSearchResultsWithLang(results, "zh")
-
-	if strings.Contains(formatted, "data:") {
-		t.Errorf("输出中不应包含 data: 协议，实际输出: %s", formatted)
+	if strings.Contains(formatted, "<url>") {
+		t.Errorf("输出中不应包含 <url> 标签，实际输出: %s", formatted)
 	}
 }
 
@@ -215,5 +176,158 @@ func TestRAGContext_EmptyResults(t *testing.T) {
 	ragContext := buildRAGContext(nil)
 	if ragContext != "" {
 		t.Errorf("空结果应返回空字符串，实际返回: %s", ragContext)
+	}
+}
+
+// ---- 搜索结果精简与截断相关测试（优化"搜索后输出延迟"） ----
+
+// TestTruncateRunes_ShortString 验证短字符串不被截断
+func TestTruncateRunes_ShortString(t *testing.T) {
+	got := truncateRunes("hello", 10)
+	if got != "hello" {
+		t.Errorf("短字符串不应被截断，期望 'hello'，实际 '%s'", got)
+	}
+}
+
+// TestTruncateRunes_LongString 验证长字符串被截断并追加省略号
+func TestTruncateRunes_LongString(t *testing.T) {
+	// 10 个中文字符，max=5 → 截断为前5个 + "..."
+	input := "一二三四五六七八九十"
+	got := truncateRunes(input, 5)
+	if got != "一二三四五..." {
+		t.Errorf("长字符串应被截断为 '一二三四五...'，实际 '%s'", got)
+	}
+}
+
+// TestTruncateRunes_NonPositiveMax 验证 max<=0 时不截断
+func TestTruncateRunes_NonPositiveMax(t *testing.T) {
+	input := "测试字符串"
+	if got := truncateRunes(input, 0); got != input {
+		t.Errorf("max=0 时不应截断，期望 '%s'，实际 '%s'", input, got)
+	}
+	if got := truncateRunes(input, -1); got != input {
+		t.Errorf("max=-1 时不应截断，期望 '%s'，实际 '%s'", input, got)
+	}
+}
+
+// TestTruncateSearchContext_NewRatio 验证截断上限为 ctxSize/6（而非旧的 ctxSize/3）。
+// 这是"搜索后输出延迟"优化的核心：更小的搜索上下文 = 更快的 prompt eval。
+func TestTruncateSearchContext_NewRatio(t *testing.T) {
+	// 构造 1000 个中文字符的搜索上下文
+	runes := make([]rune, 1000)
+	for i := range runes {
+		runes[i] = '字'
+	}
+	searchCtx := string(runes)
+
+	// ctxSize=8192 → maxSearchTokens = 8192/6 = 1365
+	// searchTokenEstimate = 1000 * 2 = 2000 > 1365 → 触发截断
+	// 截断到 maxSearchTokens/2 = 682 个 rune + "\n..."
+	got := truncateSearchContext(searchCtx, 8192)
+	gotRunes := []rune(got)
+	// 截断后应包含省略号标记，且 rune 数应明显小于原始 1000
+	if !strings.Contains(got, "...") {
+		t.Errorf("截断后应包含省略号，实际: %s(前30字符)", string(gotRunes[:min(30, len(gotRunes))]))
+	}
+	// 682 个内容 rune + "\n..."（3个rune）= 685
+	if len(gotRunes) > 690 {
+		t.Errorf("截断后 rune 数应约为 685，实际 %d", len(gotRunes))
+	}
+}
+
+// TestTruncateSearchContext_SmallContextNotTruncated 验证小上下文不截断
+func TestTruncateSearchContext_SmallContextNotTruncated(t *testing.T) {
+	// 100 个中文字符，estimate=200，ctxSize=8192 时 maxSearchTokens=1365，不触发截断
+	runes := make([]rune, 100)
+	for i := range runes {
+		runes[i] = '字'
+	}
+	input := string(runes)
+	got := truncateSearchContext(input, 8192)
+	if got != input {
+		t.Errorf("小上下文不应被截断，期望长度 %d，实际长度 %d", len([]rune(input)), len([]rune(got)))
+	}
+}
+
+// TestTruncateSearchContext_ZeroCtxSize 验证 ctxSize<=0 时使用默认值 4096
+func TestTruncateSearchContext_ZeroCtxSize(t *testing.T) {
+	// 4096/6 = 682，需要 estimate > 682 即 rune 数 > 341
+	runes := make([]rune, 500)
+	for i := range runes {
+		runes[i] = '字'
+	}
+	input := string(runes)
+	got := truncateSearchContext(input, 0)
+	if got == input {
+		t.Errorf("ctxSize=0 应使用默认 4096 并触发截断，但未被截断")
+	}
+}
+
+// TestFormatSearchResults_ResultCountLimit 验证注入条数上限为 5。
+// 超过 5 条时只保留前 5 条，减少 prompt 体积以加快 prompt eval。
+func TestFormatSearchResults_ResultCountLimit(t *testing.T) {
+	// 构造 7 条结果
+	results := make([]search.SearchResult, 7)
+	for i := range results {
+		results[i] = search.SearchResult{
+			Title:   fmt.Sprintf("标题%d", i),
+			URL:     fmt.Sprintf("https://example.com/%d", i),
+			Snippet: fmt.Sprintf("摘要%d", i),
+		}
+	}
+
+	formatted := formatSearchResultsWithLang(results, "zh")
+
+	// 统计 <result> 块数量
+	count := strings.Count(formatted, "<result>")
+	if count != 5 {
+		t.Errorf("应只注入 5 条结果，实际注入 %d 条，输出: %s", count, formatted)
+	}
+	// 验证保留的是前 5 条（标题0~4）
+	for i := 0; i < 5; i++ {
+		needle := fmt.Sprintf("标题%d", i)
+		if !strings.Contains(formatted, needle) {
+			t.Errorf("应包含前5条结果，缺少 '%s'，输出: %s", needle, formatted)
+		}
+	}
+	// 验证第 6、7 条被丢弃
+	if strings.Contains(formatted, "标题5") || strings.Contains(formatted, "标题6") {
+		t.Errorf("不应包含第6、7条结果，输出: %s", formatted)
+	}
+}
+
+// TestFormatSearchResults_TitleSnippetTruncation 验证 title 和 snippet 被截断
+func TestFormatSearchResults_TitleSnippetTruncation(t *testing.T) {
+	// 构造超长 title（100字符）和 snippet（300字符）
+	longTitle := strings.Repeat("标题", 50)   // 100 个 rune
+	longSnippet := strings.Repeat("摘要", 150) // 300 个 rune
+	results := []search.SearchResult{
+		{Title: longTitle, URL: "https://example.com", Snippet: longSnippet},
+	}
+
+	formatted := formatSearchResultsWithLang(results, "zh")
+
+	// title 应被截断到 60 个 rune + "..."（不应包含完整的 100 字符标题）
+	if strings.Contains(formatted, longTitle) {
+		t.Errorf("超长标题应被截断，不应包含完整标题")
+	}
+	// snippet 应被截断到 200 个 rune + "..."（不应包含完整的 300 字符摘要）
+	if strings.Contains(formatted, longSnippet) {
+		t.Errorf("超长摘要应被截断，不应包含完整摘要")
+	}
+	// 验证截断标记存在
+	if !strings.Contains(formatted, "...") {
+		t.Errorf("截断后应包含省略号标记，实际输出: %s", formatted)
+	}
+}
+
+// TestFormatSearchResults_EmptyResults 验证空结果只输出空容器
+func TestFormatSearchResults_EmptyResults(t *testing.T) {
+	formatted := formatSearchResultsWithLang(nil, "zh")
+	if !strings.Contains(formatted, "<search_results>") || !strings.Contains(formatted, "</search_results>") {
+		t.Errorf("空结果仍应输出 XML 容器，实际: %s", formatted)
+	}
+	if strings.Contains(formatted, "<result>") {
+		t.Errorf("空结果不应包含 <result> 块，实际: %s", formatted)
 	}
 }

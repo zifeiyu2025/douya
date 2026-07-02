@@ -868,7 +868,9 @@ func (s *Service) doSearch(ctx context.Context, query string) *search.SearchResp
 	if isCodeRelated(query) {
 		category = "code"
 	}
-	resp := chain.SearchWithCategory(ctx, query, category, 10)
+	// 请求条数从 10 降到 6：formatSearchResultsWithLang 只注入前 5 条到 prompt，
+	// 多请求 1 条作为冗余。减少返回数据量可加快 HTTP 响应，也减少后续处理体积。
+	resp := chain.SearchWithCategory(ctx, query, category, 6)
 	if resp == nil {
 		log.Warn().Str("query", query).Msg("[chat] search returned nil")
 	}

@@ -88,11 +88,14 @@
                 </button>
               </div>
               <div v-if="streamingContent" ref="streamingContainerRef" class="markdown-body streaming" />
-              <!-- 等待首个 token 的指示器：三点脉冲，比 spinner 更安静、更现代 -->
+              <!-- 等待首个 token 的指示器：三点脉冲 + prompt 处理进度，比 spinner 更安静、更现代 -->
               <div v-else-if="!thinkingContent && !isSearching" class="thinking-dots" aria-label="正在思考" role="status">
                 <span class="thinking-dot"></span>
                 <span class="thinking-dot"></span>
                 <span class="thinking-dot"></span>
+                <span v-if="promptPercent > 0" class="thinking-progress-text">
+                  正在处理提示词 {{ promptPercent }}%<span v-if="promptEta" class="thinking-progress-eta">（约 {{ promptEta }}s）</span>
+                </span>
               </div>
               <!-- 生成速度：仅在流式生成且有速度数据时显示，低调不抢焦点 -->
               <div v-if="generationSpeed > 0" class="generation-speed">
@@ -185,6 +188,28 @@ const thinkingDuration = computed(() => chatStore.thinkingDuration)
 const searchQuery = computed(() => chatStore.searchQuery)
 const contextTrimmed = computed(() => chatStore.contextTrimmed)
 const generationSpeed = computed(() => chatStore.generationSpeed)
+// Prompt 处理进度：搜索完成后到首 token 之间，向用户展示"正在处理提示词 X%"，
+// 避免用户误以为卡死。生活类比：像电梯里的楼层显示屏，看到数字在动心里就不慌。
+const promptProgress = computed(() => chatStore.promptProgress)
+const promptPercent = computed(() => {
+  const pp = promptProgress.value
+  if (!pp || pp.total <= 0) return 0
+  const actualTotal = pp.total - pp.cache
+  const actualProcessed = pp.processed - pp.cache
+  if (actualTotal <= 0) return 0
+  return Math.min(100, Math.round((actualProcessed / actualTotal) * 100))
+})
+const promptEta = computed(() => {
+  const pp = promptProgress.value
+  if (!pp || pp.processed <= 0 || pp.timeMs <= 0) return null
+  const actualProcessed = pp.processed - pp.cache
+  const actualTotal = pp.total - pp.cache
+  if (actualProcessed <= 0 || actualTotal <= 0) return null
+  const elapsedSec = pp.timeMs / 1000
+  const eta = elapsedSec * (actualTotal / actualProcessed - 1)
+  if (eta < 1) return null
+  return Math.ceil(eta)
+})
 
 // 当思考完成且正文为空时，将思考内容作为正文展示（纯前端展示优化，不干预引擎输出）
 const thinkingAsContent = computed(() => {
@@ -764,6 +789,20 @@ watch(() => chatStore.lastError, (err) => {
 
 .thinking-dot:nth-child(3) {
   animation-delay: 0.36s;
+}
+
+/* Prompt 处理进度文本：搜索完成后到首 token 之间显示，让用户知道正在处理而非卡死 */
+.thinking-progress-text {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--text-secondary, #888);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.thinking-progress-eta {
+  opacity: 0.7;
+  margin-left: 2px;
 }
 
 @keyframes thinking-pulse {
