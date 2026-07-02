@@ -284,7 +284,7 @@ func TestFormatSearchResults_ResultCountLimit(t *testing.T) {
 		t.Errorf("应只注入 5 条结果，实际注入 %d 条，输出: %s", count, formatted)
 	}
 	// 验证保留的是前 5 条（标题0~4）
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		needle := fmt.Sprintf("标题%d", i)
 		if !strings.Contains(formatted, needle) {
 			t.Errorf("应包含前5条结果，缺少 '%s'，输出: %s", needle, formatted)
@@ -299,7 +299,7 @@ func TestFormatSearchResults_ResultCountLimit(t *testing.T) {
 // TestFormatSearchResults_TitleSnippetTruncation 验证 title 和 snippet 被截断
 func TestFormatSearchResults_TitleSnippetTruncation(t *testing.T) {
 	// 构造超长 title（100字符）和 snippet（300字符）
-	longTitle := strings.Repeat("标题", 50)   // 100 个 rune
+	longTitle := strings.Repeat("标题", 50)    // 100 个 rune
 	longSnippet := strings.Repeat("摘要", 150) // 300 个 rune
 	results := []search.SearchResult{
 		{Title: longTitle, URL: "https://example.com", Snippet: longSnippet},

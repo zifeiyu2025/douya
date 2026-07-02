@@ -405,6 +405,7 @@ export interface SmartParamsInfo {
         has_reasoning: boolean
         n_params: number
         size_label: string
+        ftype: string
     }
     params: {
         gpu_layers: number

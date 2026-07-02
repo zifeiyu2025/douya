@@ -183,9 +183,12 @@ func (a *App) SetActiveKnowledgeBase(kbName string) error {
 	if a.ragVS == nil {
 		return fmt.Errorf("知识库未初始化")
 	}
+	// 采用"复制→修改副本→替换指针"模式，避免直接修改 a.config 字段破坏快照语义
 	a.configMu.Lock()
-	a.config.RAGActiveKB = kbName
-	cfg := a.config
+	newCfg := *a.config
+	newCfg.RAGActiveKB = kbName
+	cfg := &newCfg
+	a.config = cfg
 	a.configMu.Unlock()
 	a.service.SetRAGCollection(kbName)
 	return config.Save(filepath.Join(appDir(), "config.json"), cfg)
@@ -196,17 +199,20 @@ func (a *App) GetActiveKnowledgeBase() string {
 }
 
 func (a *App) SetRAGEnabled(enabled bool) {
+	// 采用"复制→修改副本→替换指针"模式，避免直接修改 a.config 字段破坏快照语义
 	a.configMu.Lock()
-	a.config.RAGEnabled = enabled
+	newCfg := *a.config
+	newCfg.RAGEnabled = enabled
 	// RAG 开启时自动关闭联网搜索（两者互斥，RAG 优先级更高）
-	if enabled && a.config.SearchMode != "off" {
-		a.config.SearchMode = "off"
+	if enabled && newCfg.SearchMode != "off" {
+		newCfg.SearchMode = "off"
 		// 通知前端搜索已自动关闭
 		if a.ctx != nil {
 			runtime.EventsEmit(a.ctx, "search:autoDisabled", nil)
 		}
 	}
-	cfg := a.config
+	cfg := &newCfg
+	a.config = cfg
 	a.configMu.Unlock()
 	a.service.SetRAGEnabled(enabled)
 	if err := config.Save(filepath.Join(appDir(), "config.json"), cfg); err != nil {

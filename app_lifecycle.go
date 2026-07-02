@@ -402,10 +402,12 @@ func (a *App) HandleCloseRequest() string {
 
 // SetCloseAction 设置关闭行为并持久化
 func (a *App) SetCloseAction(action string) {
-	cfg := a.getConfig()
-	cfg.CloseAction = action
-	a.setConfig(cfg)
-	_ = config.Save(filepath.Join(appDir(), "config.json"), cfg)
+	// 采用"复制→修改副本→替换指针"模式，避免直接修改 getConfig() 返回的指针
+	old := a.getConfig()
+	newCfg := *old
+	newCfg.CloseAction = action
+	a.setConfig(&newCfg)
+	_ = config.Save(filepath.Join(appDir(), "config.json"), &newCfg)
 }
 
 func (a *App) GracefulExit() {

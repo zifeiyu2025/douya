@@ -219,7 +219,7 @@ onUnmounted(() => {
 /* ---- 生成速度样式 ---- */
 .gen-speed {
   font-weight: 600;
-  color: var(--accent-primary, #10b981);
+  color: var(--accent-success);
   letter-spacing: 0.02em;
 }
 
@@ -233,7 +233,7 @@ onUnmounted(() => {
 
 /* ---- Prompt 处理进度样式 ---- */
 .prompt-progress-text {
-  color: var(--accent-primary, #10b981);
+  color: var(--accent-success);
   font-weight: 500;
 }
 
@@ -245,7 +245,7 @@ onUnmounted(() => {
 .prompt-bar {
   width: 60px;
   height: 3px;
-  background: var(--bg-hover, rgba(0, 0, 0, 0.06));
+  background: var(--bg-tertiary);
   border-radius: 1.5px;
   overflow: hidden;
   margin-left: 6px;
@@ -253,7 +253,7 @@ onUnmounted(() => {
 
 .prompt-bar-fill {
   height: 100%;
-  background: var(--accent-primary, #10b981);
+  background: var(--accent-success);
   border-radius: 1.5px;
   transition: width 0.3s ease;
 }
@@ -266,11 +266,11 @@ onUnmounted(() => {
 }
 
 .token-label.warn {
-  color: var(--accent-warning, #f59e0b);
+  color: var(--accent-warning);
 }
 
 .token-label.danger {
-  color: var(--accent-danger, #ef4444);
+  color: var(--accent-danger);
 }
 
 .token-sep {
@@ -284,7 +284,7 @@ onUnmounted(() => {
 .token-bar {
   width: 48px;
   height: 2px;
-  background: var(--bg-hover, rgba(0, 0, 0, 0.06));
+  background: var(--bg-tertiary);
   border-radius: 1px;
   overflow: hidden;
   margin-left: 2px;
@@ -292,17 +292,17 @@ onUnmounted(() => {
 
 .token-bar-fill {
   height: 100%;
-  background: var(--accent-primary, #10b981);
+  background: var(--accent-primary);
   border-radius: 1px;
   transition: width 0.25s ease, background 0.25s;
 }
 
 .token-bar-fill.warn {
-  background: var(--accent-warning, #f59e0b);
+  background: var(--accent-warning);
 }
 
 .token-bar-fill.danger {
-  background: var(--accent-danger, #ef4444);
+  background: var(--accent-danger);
 }
 
 /* ---- P2-A2: 状态文案样式 ---- */
@@ -316,26 +316,26 @@ onUnmounted(() => {
 }
 
 .status-text.notice {
-  color: var(--accent-primary, #10b981);
+  color: var(--accent-primary);
 }
 
 .status-text.warn {
-  color: var(--accent-warning, #f59e0b);
+  color: var(--accent-warning);
   font-weight: 500;
 }
 
 .status-text.danger {
-  color: var(--accent-danger, #ef4444);
+  color: var(--accent-danger);
   font-weight: 600;
 }
 
 /* 60% 档 token-label 和进度条也用 notice 色，与文案保持一致 */
 .token-label.notice {
-  color: var(--accent-primary, #10b981);
+  color: var(--accent-primary);
 }
 
 .token-bar-fill.notice {
-  background: var(--accent-primary, #10b981);
+  background: var(--accent-primary);
 }
 
 /* ---- P2-A3: 手动压缩按钮样式 ---- */
@@ -344,9 +344,9 @@ onUnmounted(() => {
   padding: 1px 8px;
   font-size: 10px;
   line-height: 1.4;
-  color: var(--text-muted, #888);
-  background: var(--bg-hover, rgba(0, 0, 0, 0.06));
-  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
@@ -354,9 +354,9 @@ onUnmounted(() => {
 }
 
 .compress-btn:hover:not(:disabled) {
-  color: var(--accent-primary, #10b981);
-  border-color: var(--accent-primary, #10b981);
-  background: color-mix(in srgb, var(--accent-primary, #10b981) 8%, transparent);
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
 }
 
 .compress-btn:disabled {
@@ -365,7 +365,7 @@ onUnmounted(() => {
 }
 
 .compress-btn.loading {
-  color: var(--accent-warning, #f59e0b);
-  border-color: var(--accent-warning, #f59e0b);
+  color: var(--accent-warning);
+  border-color: var(--accent-warning);
 }
 </style>

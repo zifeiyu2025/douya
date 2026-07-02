@@ -394,6 +394,10 @@ export const wails = {
         EventsOn('server:mmprojUnavailable', callback)
     },
     offMmprojUnavailable: () => EventsOff('server:mmprojUnavailable'),
+    onSearchAutoDisabled: (callback: () => void) => {
+        EventsOn('search:autoDisabled', callback)
+    },
+    offSearchAutoDisabled: () => EventsOff('search:autoDisabled'),
     onShutdownProgress: (callback: (progress: ShutdownProgressEvent) => void) => {
         EventsOn('shutdown:progress', callback)
     },

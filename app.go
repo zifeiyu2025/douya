@@ -261,6 +261,7 @@ type SmartParamsInfo struct {
 		HasReasoning    bool   `json:"has_reasoning"`
 		NParams         int64  `json:"n_params"`
 		SizeLabel       string `json:"size_label"`
+		FType           string `json:"ftype"`
 	} `json:"model"`
 
 	Params struct {

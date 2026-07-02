@@ -338,10 +338,12 @@ func Load(path string) (*Config, error) {
 				if innerErr := json.Unmarshal([]byte(inner), cfg); innerErr == nil {
 					cfg.migrate([]byte(inner))
 					_ = Save(path, cfg)
-					// 校验配置，若失败则回退到默认配置
+					// 校验配置，若失败则回退到默认配置并写盘，避免每次启动都告警
 					if validateErr := cfg.Validate(); validateErr != nil {
-						log.Printf("警告: 配置校验失败: %v，回退到默认配置", validateErr)
-						return DefaultConfig(), nil
+						log.Printf("警告: 配置校验失败: %v，回退到默认配置并写盘", validateErr)
+						fallback := DefaultConfig()
+						_ = Save(path, fallback)
+						return fallback, nil
 					}
 					return cfg, nil
 				}
@@ -352,10 +354,12 @@ func Load(path string) (*Config, error) {
 
 	cfg.migrate(data)
 
-	// 校验配置，若失败则回退到默认配置
+	// 校验配置，若失败则回退到默认配置并写盘，避免每次启动都告警
 	if validateErr := cfg.Validate(); validateErr != nil {
-		log.Printf("警告: 配置校验失败: %v，回退到默认配置", validateErr)
-		return DefaultConfig(), nil
+		log.Printf("警告: 配置校验失败: %v，回退到默认配置并写盘", validateErr)
+		fallback := DefaultConfig()
+		_ = Save(path, fallback)
+		return fallback, nil
 	}
 	// 补全缺失的配置项（新增字段），值用 cfg 当前值（含迁移结果），保留用户已有值
 	ensureConfigFields(path, data, cfg)

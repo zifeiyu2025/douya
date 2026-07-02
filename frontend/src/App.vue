@@ -3,7 +3,7 @@
     <n-message-provider>
       <n-dialog-provider>
         <Transition name="main-fade">
-          <div v-if="!showSplash" class="app-layout" :class="{ dark: isDark, 'has-background': !!settingsStore.config.chat_background }" :style="mainAreaStyle">
+          <div v-if="!showSplash" class="app-layout" :class="{ dark: isDark, 'has-background': isDark && !!settingsStore.config.chat_background }" :style="mainAreaStyle">
             <Sidebar :collapsed="sidebarCollapsed" @toggle="sidebarCollapsed = !sidebarCollapsed" />
             <div class="main-area" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
               <div class="main-header" style="--wails-draggable:drag">
@@ -195,7 +195,8 @@ const serverStatus = computed(() => settingsStore.serverStatus)
 const sidebarCollapsed = defineModel<boolean>('sidebarCollapsed', { default: false })
 
 const mainAreaStyle = computed(() => {
-  if (settingsStore.config.chat_background) {
+  // 亮色模式禁用背景图：只在深色模式下注入背景 CSS 变量
+  if (isDark.value && settingsStore.config.chat_background) {
     const opacity = settingsStore.config.chat_background_opacity ?? 0.9
     const bg = settingsStore.config.chat_background
     let bgUrl: string
@@ -679,6 +680,7 @@ onMounted(async () => {
   settingsStore.initSwitchProgressListener()
   settingsStore.initMmprojUnavailableListener()
   settingsStore.initModelLoadProgressListener()
+  settingsStore.initSearchAutoDisabledListener()
 
   // 2. 所有 watch 必须在 await 之前注册
   //    原因：await 期间后端可能已推送状态变化，延迟注册会错过首次事件导致无限转圈或会话列表不加载
@@ -771,6 +773,7 @@ onUnmounted(() => {
   settingsStore.cleanupSwitchProgressListener()
   settingsStore.cleanupMmprojUnavailableListener()
   settingsStore.cleanupModelLoadProgressListener()
+  settingsStore.cleanupSearchAutoDisabledListener()
   wails.offAbnormalCleanup()
   wails.offSwitchProgress()
   wails.offShutdownProgress()

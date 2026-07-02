@@ -419,7 +419,18 @@ async function doAutoSave() {
   }
   saving.value = true
   try {
-    await settingsStore.updateConfig(formConfig.value)
+    // 先拉取后端最新配置，避免覆盖其他路径（如 RAG 开启、模型切换）的修改
+    const latest = await wails.getConfig()
+    // 仅合并用户实际修改过的字段（formConfig 相对于 settingsStore.config 的 diff）
+    // 用户未改的字段保留 latest 的值（后端最新），避免用过期值覆盖后端改动
+    const merged: Config = { ...latest }
+    for (const k of ALL_CONFIG_KEYS) {
+      if (formConfig.value[k] !== settingsStore.config[k]) {
+        // 字段名和值均来自同一 Config 对象，类型必然匹配
+        ;(merged as any)[k] = formConfig.value[k]
+      }
+    }
+    await settingsStore.updateConfig(merged)
     // 浅拷贝替代 JSON.parse(JSON.stringify)，Config 字段均为原始类型（任务 13）
     formConfig.value = { ...settingsStore.config }
     genParamsDirty.value = false

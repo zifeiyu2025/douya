@@ -658,6 +658,18 @@ export const useSettingsStore = defineStore('settings', () => {
         wails.offMmprojUnavailable()
     }
 
+    // 监听后端 RAG 开启时自动关闭搜索的事件，同步前端状态，避免后续 autoSave 用旧值覆盖后端
+    function initSearchAutoDisabledListener() {
+        wails.onSearchAutoDisabled(() => {
+            searchMode.value = 'off'
+            if (config.value) config.value.search_mode = 'off'
+        })
+    }
+
+    function cleanupSearchAutoDisabledListener() {
+        wails.offSearchAutoDisabled()
+    }
+
     function initModelLoadProgressListener() {
         wails.onModelLoadProgress((progress: ModelLoadProgressEvent) => {
             if (progress.status === 'running') {
@@ -719,6 +731,8 @@ export const useSettingsStore = defineStore('settings', () => {
         cleanupSwitchProgressListener,
         initMmprojUnavailableListener,
         cleanupMmprojUnavailableListener,
+        initSearchAutoDisabledListener,
+        cleanupSearchAutoDisabledListener,
         initModelLoadProgressListener,
         cleanupModelLoadProgressListener,
         resetSwitchProgress,

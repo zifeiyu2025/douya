@@ -728,7 +728,8 @@ watch(() => chatStore.lastError, (err) => {
   justify-content: center;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
   z-index: 10;
-  transition: all 0.2s ease;
+  /* 只过渡颜色和阴影，不过渡 transform，避免 transform 分量时机不同导致椭圆 */
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .scroll-to-bottom-btn:hover {
@@ -853,6 +854,15 @@ watch(() => chatStore.lastError, (err) => {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
+}
+
+/* 虚拟模式 hover/active：保留 translateX(-50%) 居中，叠加垂直位移和缩放 */
+.message-list--virtual .scroll-to-bottom-btn:hover {
+  transform: translateX(-50%) translateY(-2px);
+}
+
+.message-list--virtual .scroll-to-bottom-btn:active {
+  transform: translateX(-50%) scale(0.95);
 }
 </style>
 

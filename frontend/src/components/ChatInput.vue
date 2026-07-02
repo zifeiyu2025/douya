@@ -299,7 +299,9 @@ const deepReasoningTitle = computed(() =>
 )
 async function handleDeepReasonClick() {
     const newVal = !deepReasoningOn.value
-    const cfg = { ...settingsStore.config, reasoning_preserve: newVal }
+    // 先拉取后端最新配置，避免用过期的 settingsStore.config 覆盖其他路径的修改
+    const cfg = await wails.getConfig()
+    cfg.reasoning_preserve = newVal
     await settingsStore.updateConfig(cfg)
     message.destroyAll()
     if (newVal) {
@@ -1617,9 +1619,9 @@ onUnmounted(() => {
 
 <style>
 .has-background .chat-input-container {
-  background: color-mix(in srgb, var(--bg-secondary) 45%, transparent) !important;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: color-mix(in srgb, var(--bg-secondary) 28%, transparent) !important;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 
 .has-background .input-area {

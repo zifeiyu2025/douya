@@ -1,7 +1,11 @@
 <template>
   <!-- 外观设置 -->
   <n-form-item label="聊天背景">
-    <div class="upload-wrapper">
+    <!-- 亮色模式禁用背景图：仅深色模式可选 -->
+    <div class="bg-disabled-hint" v-if="!isDark">
+      背景图仅支持深色模式，请先切换到深色主题
+    </div>
+    <div class="upload-wrapper" v-else>
         <div class="upload-placeholder" v-if="!formConfig.chat_background" @click="selectBackgroundImage">
           <div class="upload-icon">🖼️</div>
           <div class="upload-text">点击选择背景图片</div>
@@ -18,7 +22,7 @@
     </div>
   </n-form-item>
 
-  <n-form-item label="背景透明度" v-if="formConfig.chat_background">
+  <n-form-item label="背景透明度" v-if="isDark && formConfig.chat_background">
     <n-slider v-model:value="formConfig.chat_background_opacity" :min="0.2" :max="1" :step="0.05" />
     <span class="slider-value">{{ Math.round(formConfig.chat_background_opacity * 100) }}%</span>
   </n-form-item>
@@ -213,12 +217,16 @@
 </template>
 
 <script setup lang="ts">
-import { inject, defineComponent, h } from 'vue'
+import { inject, defineComponent, h, computed } from 'vue'
 import {
   NButton, NFormItem, NInput, NSlider, NUpload,
   NInputNumber, NSelect, NTooltip, NCheckbox,
 } from 'naive-ui'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
+import { useThemeStore } from '../../stores/theme'
+
+const themeStore = useThemeStore()
+const isDark = computed(() => themeStore.isDark)
 
 const HelpTip = defineComponent({
   props: { content: String },
@@ -247,6 +255,18 @@ const {
 </script>
 
 <style scoped>
+/* 亮色模式禁用背景图的提示文字 */
+.bg-disabled-hint {
+  width: 100%;
+  padding: 24px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--border-radius-md);
+}
+
 .upload-wrapper {
   width: 100%;
 }

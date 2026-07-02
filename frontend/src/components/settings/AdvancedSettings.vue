@@ -79,6 +79,12 @@
     </div>
   </n-form-item>
 
+  <!-- 模型量化类型（只读显示） -->
+  <n-form-item v-if="modelFtype">
+    <template #label>量化类型 <HelpTip content="当前模型的量化格式，从 GGUF 元数据解析。影响模型质量与显存占用的平衡" /></template>
+    <n-tag size="small" type="info">{{ modelFtype }}</n-tag>
+  </n-form-item>
+
   <!-- 生成参数扩展 -->
   <n-divider style="margin: 8px 0" />
   <n-form-item>
@@ -277,13 +283,14 @@
 </template>
 
 <script setup lang="ts">
-import { inject, defineComponent, h } from 'vue'
+import { inject, defineComponent, h, ref, onMounted, watch } from 'vue'
 import {
   NButton, NFormItem, NInput, NDivider,
   NSwitch, NInputNumber, NSelect, NTooltip, NTag, NA,
 } from 'naive-ui'
 import LoraManager from '../LoraManager.vue'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
+import { wails } from '../../services/wails'
 
 const HelpTip = defineComponent({
   props: { content: String },
@@ -305,6 +312,22 @@ const {
   cacheTypeKOptions, cacheTypeVOptions, specTypeOptions,
   settingsStore,
 } = ctx
+
+// 模型量化类型（从 GGUF 元数据解析）
+const modelFtype = ref('')
+
+async function loadModelFtype() {
+  try {
+    const smartParams = await wails.getSmartParams()
+    modelFtype.value = smartParams.model.ftype || ''
+  } catch {
+    modelFtype.value = ''
+  }
+}
+
+onMounted(loadModelFtype)
+// 模型切换时重新加载量化类型
+watch(() => settingsStore.currentModel, loadModelFtype)
 </script>
 
 <style scoped>

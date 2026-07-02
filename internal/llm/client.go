@@ -473,6 +473,7 @@ type ModelMeta struct {
 	NEmbd     int     `json:"n_embd"`
 	NParams   float64 `json:"n_params"`
 	Size      int64   `json:"size"`
+	FType     string  `json:"ftype"` // 模型量化类型名（如 "Q4_K - Medium"），由 llama.cpp fdb1db877+ 提供
 }
 
 func (c *Client) GetModelInfo(ctx context.Context) (*ModelInfo, error) {

@@ -39,10 +39,7 @@ func formatSearchResultsWithLang(results []search.SearchResult, lang string) str
 	var sb strings.Builder
 	sb.WriteString("<search_results>\n")
 	// 限制注入条数：只取前 maxSearchResultsToInject 条，减少 prompt 体积，加快 prompt eval
-	count := len(results)
-	if count > maxSearchResultsToInject {
-		count = maxSearchResultsToInject
-	}
+	count := min(len(results), maxSearchResultsToInject)
 	for _, r := range results[:count] {
 		sb.WriteString("<result>\n")
 		// 只保留 title 和 snippet，移除 url：url 对回答内容无帮助，仅占 token

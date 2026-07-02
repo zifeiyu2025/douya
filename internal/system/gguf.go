@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 
@@ -79,6 +80,7 @@ type GGUFMetadata struct {
 	ChatTemplateToolUse string
 	KVHeadCount         int
 	HeadDimKV           int
+	FileType            string // 从 general.file_type 枚举值映射的量化类型名（如 "Q4_K - Medium"）
 }
 
 func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
@@ -97,6 +99,10 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 	}
 	if n, ok := toInt64(kvMap["general.parameter_count"]); ok {
 		meta.NParams = n
+	}
+
+	if n, ok := toInt(kvMap["general.file_type"]); ok {
+		meta.FileType = fileTypeName(int(n))
 	}
 
 	if v, ok := kvMap["tokenizer.chat_template"].(string); ok {
@@ -170,11 +176,8 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 		// 安全实践：使用精确匹配避免未来架构误匹配（见安全审查 #29）
 		// archTemplateKeywords 中的关键词均为完整架构名（如 "qwen3"、"qwen3moe" 是不同架构），
 		// 无需前缀/子串匹配
-		for _, kw := range archTemplateKeywords {
-			if lowerArch == kw {
-				meta.HasReasoning = true
-				break
-			}
+		if slices.Contains(archTemplateKeywords, lowerArch) {
+			meta.HasReasoning = true
 		}
 		// Reasoning 模式：通过 reasoning 参数控制
 		if !meta.HasReasoning {
@@ -531,5 +534,72 @@ func toInt64(v any) (int64, bool) {
 		return int64(n), true
 	default:
 		return 0, false
+	}
+}
+
+// fileTypeName 将 GGUF general.file_type 枚举值映射为量化类型名
+// 参考 llama.cpp 的 llama_ftype 枚举定义
+func fileTypeName(ftype int) string {
+	switch ftype {
+	case 0:
+		return "F32"
+	case 1:
+		return "F16"
+	case 2:
+		return "Q4_0"
+	case 3:
+		return "Q4_1"
+	case 7:
+		return "Q8_0"
+	case 8:
+		return "Q5_0"
+	case 9:
+		return "Q5_1"
+	case 10:
+		return "Q2_K"
+	case 11:
+		return "Q3_K - Small"
+	case 12:
+		return "Q3_K - Medium"
+	case 13:
+		return "Q3_K - Large"
+	case 14:
+		return "Q4_K - Small"
+	case 15:
+		return "Q4_K - Medium"
+	case 16:
+		return "Q5_K - Small"
+	case 17:
+		return "Q5_K - Medium"
+	case 18:
+		return "Q6_K"
+	case 19:
+		return "IQ2_XXS"
+	case 20:
+		return "IQ2_XS"
+	case 21:
+		return "Q2_K - Small"
+	case 22:
+		return "IQ3_XS"
+	case 23:
+		return "IQ3_XXS"
+	case 24:
+		return "IQ1_S"
+	case 25:
+		return "IQ4_NL"
+	case 26:
+		return "IQ3_S"
+	case 27:
+		return "IQ3_M"
+	case 28:
+		return "IQ2_S"
+	case 29:
+		return "IQ2_M"
+	case 30:
+		return "IQ4_XS"
+	case 31:
+		return "IQ1_M"
+	default:
+		return ""
 	}
 }

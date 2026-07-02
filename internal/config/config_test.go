@@ -11,8 +11,9 @@ import (
 )
 
 // TestLoad_InvalidConfigFallsBackToDefault 验证当配置文件中存在非法字段时，
-// Load() 应当通过 Validate() 检测到错误，并回退到默认配置。
-// 这里用 temperature=999 触发校验失败，期望返回的配置 Temperature 等于默认值 0.8。
+// Load() 应当通过 Validate() 检测到错误，并回退到默认配置，同时写盘避免下次启动重复告警。
+// 这里用 temperature=999 触发校验失败，期望返回的配置 Temperature 等于默认值 0.8，
+// 且磁盘文件已被重写为默认配置。
 func TestLoad_InvalidConfigFallsBackToDefault(t *testing.T) {
 	// 创建临时目录
 	tmpDir := t.TempDir()
@@ -36,6 +37,15 @@ func TestLoad_InvalidConfigFallsBackToDefault(t *testing.T) {
 	}
 	if cfg.Temperature != 0.8 {
 		t.Errorf("期望回退到默认 Temperature=0.8，实际得到: %.2f", cfg.Temperature)
+	}
+
+	// 验证磁盘文件已被重写为默认配置（避免每次启动重复告警）
+	persisted, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("二次 Load 返回了非预期的错误: %v", err)
+	}
+	if persisted.Temperature != 0.8 {
+		t.Errorf("期望磁盘已持久化默认 Temperature=0.8，实际得到: %.2f", persisted.Temperature)
 	}
 }
 

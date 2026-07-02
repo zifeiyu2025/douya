@@ -1364,6 +1364,7 @@ func (a *App) GetSmartParams() *SmartParamsInfo {
 			info.Model.HasReasoning = meta.HasReasoning
 			info.Model.NParams = meta.NParams
 			info.Model.SizeLabel = meta.SizeLabel
+			info.Model.FType = meta.FileType
 		}
 	}
 
@@ -1799,9 +1800,12 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 	relPath, hasRelPath := a.presetRelPaths[modelName]
 	a.presetsMu.RUnlock()
 	if hasRelPath {
+		// 采用"复制→修改副本→替换指针"模式，避免直接修改 a.config 字段破坏快照语义
 		a.configMu.Lock()
-		a.config.ModelPath = relPath
-		cfg := a.config
+		newCfg := *a.config
+		newCfg.ModelPath = relPath
+		cfg := &newCfg
+		a.config = cfg
 		a.configMu.Unlock()
 		if err := config.Save(filepath.Join(appDir(), "config.json"), cfg); err != nil {
 			zlog.Error().Err(err).Msg("[router] save config after model switch failed")
