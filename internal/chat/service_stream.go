@@ -28,6 +28,11 @@ const streamRequestTimeout = 300 * time.Second // 业务层流式请求超时
 // 生活类比：每个快递员有 30 秒配送时限，超时就标记失败让其他人继续工作
 var toolCallSearchTimeout = 30 * time.Second
 
+// defaultSsePingInterval 流式请求默认 SSE ping 间隔（秒）
+// 防止大上下文 prefill 慢时连接被误断：静默超过此间隔时发送 ping，3s 后才 kick
+// 5 秒间隔平衡稳定性和开销（WebUI 用 1s，默认 30s 太长）
+var defaultSsePingInterval = 5
+
 var searchToolDef = llm.ToolDefinition{
 	Type: "function",
 	Function: llm.FunctionDef{
@@ -547,17 +552,18 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 		}
 
 		req := &llm.ChatCompletionRequest{
-			Model:           s.modelNameForRequest(),
-			Messages:        llmMessages,
-			MaxTokens:       s.calcMaxTokens(totalTokens + 250), // +250 for tool schema（任务 14：复用增量计数）
-			Temperature:     cfg.Temperature,
-			TopP:            cfg.TopP,
-			TopK:            cfg.TopK,
-			RepeatPenalty:   cfg.RepeatPenalty,
-			TimingsPerToken: true,
-			ReturnProgress:  true,
-			StreamOptions:   &llm.StreamOptions{IncludeUsage: true},
-		}
+		Model:           s.modelNameForRequest(),
+		Messages:        llmMessages,
+		MaxTokens:       s.calcMaxTokens(totalTokens + 250), // +250 for tool schema（任务 14：复用增量计数）
+		Temperature:     cfg.Temperature,
+		TopP:            cfg.TopP,
+		TopK:            cfg.TopK,
+		RepeatPenalty:   cfg.RepeatPenalty,
+		TimingsPerToken: true,
+		ReturnProgress:  true,
+		StreamOptions:   &llm.StreamOptions{IncludeUsage: true},
+		SsePingInterval: &defaultSsePingInterval,
+	}
 		if !hitMaxRounds {
 			req.Tools = []llm.ToolDefinition{searchToolDef}
 		}
@@ -827,6 +833,7 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 		TimingsPerToken: true,
 		ReturnProgress:  true,
 		StreamOptions:   &llm.StreamOptions{IncludeUsage: true},
+		SsePingInterval: &defaultSsePingInterval,
 	}
 	// 支持 tool call 的模型，在 "auto" 和 "on" 模式下提供工具
 	if (searchMode == "auto" || searchMode == "on") && caps.ToolCallSupport {

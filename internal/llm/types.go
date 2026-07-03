@@ -203,6 +203,10 @@ type ChatCompletionRequest struct {
 	AdaptiveDecay  float64  `json:"adaptive_decay,omitempty"`  // 请求级自适应采样衰减（0=禁用）
 	// Anthropic 风格 thinking 参数兼容（llama.cpp 自动转换为 reasoning_budget_tokens）
 	Thinking *AnthropicThinking `json:"thinking,omitempty"`
+	// SSE 流式响应静默 ping 间隔（秒，fdb1db877+ 起为请求级字段）
+	// 防止大上下文 prefill 慢时连接被误断：静默超过此间隔时发送 ping，3s 后才 kick
+	// nil=用 server 默认 30s，正值启用 ping，-1 禁用
+	SsePingInterval *int `json:"sse_ping_interval,omitempty"`
 }
 
 // AnthropicThinking Anthropic 风格的思考参数，llama-server 会自动转换为 reasoning_budget_tokens
