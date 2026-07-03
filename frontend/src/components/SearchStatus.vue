@@ -21,6 +21,7 @@
         :rel="isSafeUrl(item.url) ? 'noopener noreferrer' : undefined"
         class="search-result-item"
         :class="{ 'unsafe-url': !isSafeUrl(item.url) }"
+        @click.prevent="openExternal(item.url)"
       >
         <div class="search-result-title">{{ item.title }}</div>
         <div class="search-result-snippet">{{ item.snippet }}</div>
@@ -34,6 +35,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { NIcon, NSpin } from 'naive-ui'
 import { ChevronForwardOutline, SearchOutline } from '@vicons/ionicons5'
+import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
 import { isSafeUrl } from '../utils/lightSanitize'
 
 interface SearchResultItem {
@@ -59,6 +61,16 @@ let autoCollapseTimer: ReturnType<typeof setTimeout> | null = null
  */
 function safeUrl(url: string): string {
   return isSafeUrl(url) ? url : '#'
+}
+
+/**
+ * 安全实践（基于 VUE-XSS-004 #3）：拦截链接点击，走系统默认浏览器打开
+ * 防止 Wails WebView 内部导航，与 MessageList.vue 的 handleLinkClick 保持一致
+ */
+function openExternal(url: string) {
+  if (isSafeUrl(url)) {
+    BrowserOpenURL(url)
+  }
 }
 
 const resultItems = computed<SearchResultItem[]>(() => {

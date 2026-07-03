@@ -44,6 +44,32 @@ type Embedder interface {
 	Embed(ctx context.Context, texts []string) ([][]float64, error)
 }
 
+// sanitizeFileName 过滤文件名中的控制字符并限制长度。
+// 生活类比：像快递员在包裹上重新写收件人姓名时，跳过那些看不见的特殊符号（如换行、响铃等控制字符），
+// 用下划线替换，避免污染后续的存储系统（如 JSON 序列化、数据库索引）。
+// fileName 仅用于扩展名校验和 metadata.source 回显，不作为存储路径使用。
+const maxFileNameLength = 255
+
+func sanitizeFileName(fileName string) string {
+	// 过滤控制字符（ASCII < 0x20 和 0x7f DEL），替换为下划线
+	fileName = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return '_'
+		}
+		return r
+	}, fileName)
+	// 限制长度，避免超长文件名撑大元数据存储
+	if len(fileName) > maxFileNameLength {
+		// 保留扩展名，截断主体部分
+		ext := ""
+		if dot := strings.LastIndex(fileName, "."); dot >= 0 && dot > len(fileName)-20 {
+			ext = fileName[dot:]
+		}
+		fileName = fileName[:maxFileNameLength-len(ext)] + ext
+	}
+	return fileName
+}
+
 type IngestResult struct {
 	CollectionName string
 	DocumentID     string
@@ -188,6 +214,11 @@ func IngestDocument(ctx context.Context, vs *VectorStore, embedder Embedder, col
 
 func IngestDocumentWithMeta(ctx context.Context, vs *VectorStore, ds *DocumentStore, embedder Embedder,
 	collectionName string, docID string, text string, fileName string, fileSize int64, mimeType string, chunkCfg ChunkConfig) (*IngestResult, error) {
+
+	// 安全实践（基于 GO-PATH-001 #8）：过滤 fileName 中的控制字符并限制长度
+	// fileName 来自前端上传，仅用于扩展名校验和写入 metadata.source（回显展示），
+	// 不作为存储路径使用（docID 由服务端生成）。过滤控制字符防止污染 metadata 存储（Badger JSON 序列化）。
+	fileName = sanitizeFileName(fileName)
 
 	if docID == "" {
 		docID = fmt.Sprintf("doc_%d", time.Now().UnixNano())

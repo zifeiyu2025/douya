@@ -1,0 +1,30 @@
+# 基于 GO-SUPPLY-001 安全实践：在 CI 中运行 govulncheck 扫描 Go 依赖的已知 CVE 漏洞。
+# CodeQL 主要检测代码模式漏洞（注入、错误处理），govulncheck 专注依赖供应链漏洞，两者互补。
+name: govulncheck
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    # 每周一次扫描，与 CodeQL 保持一致的节奏
+    - cron: '39 8 * * 0'
+
+jobs:
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.0'
+          check-latest: true
+
+      - name: Run govulncheck
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-input: '1.26.0'

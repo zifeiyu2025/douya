@@ -110,6 +110,8 @@ func migrateAddColumns(db *sql.DB) error {
 
 	for _, col := range addCols {
 		if !existingColumns[col.name] {
+			// 安全说明（基于 GO-INJECT-001 #6）：col.name/col.typ 来自上方硬编码常量数组，不接受外部输入，
+			// 故字符串拼接是安全的。SQLite ALTER TABLE 语句不支持 ? 占位符，必须使用字符串拼接。
 			_, err := db.Exec("ALTER TABLE messages ADD COLUMN " + col.name + " " + col.typ)
 			if err != nil {
 				return err
@@ -138,6 +140,8 @@ func migrateAddColumns(db *sql.DB) error {
 
 	for _, col := range convAddCols {
 		if !convColumns[col.name] {
+			// 安全说明（基于 GO-INJECT-001 #6）：col.name/col.typ 来自上方硬编码常量数组，不接受外部输入，
+			// 故字符串拼接是安全的。SQLite ALTER TABLE 语句不支持 ? 占位符，必须使用字符串拼接。
 			_, err := db.Exec("ALTER TABLE conversations ADD COLUMN " + col.name + " " + col.typ)
 			if err != nil {
 				return err
@@ -157,6 +161,9 @@ func GetTableColumns(db *sql.DB, tableName string) (map[string]bool, error) {
 	if !allowedTables[tableName] {
 		return nil, fmt.Errorf("table %q is not in allowed list", tableName)
 	}
+	// 安全说明（基于 GO-INJECT-001 #6）：tableName 已通过上方 allowedTables 白名单校验
+	// （仅允许 "conversations" 和 "messages"），故字符串拼接是安全的。
+	// SQLite PRAGMA 语句不支持 ? 占位符，必须使用字符串拼接。
 	rows, err := db.Query("PRAGMA table_info(" + tableName + ")")
 	if err != nil {
 		return nil, err

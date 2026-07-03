@@ -187,6 +187,13 @@ type Server struct {
 	status              ServerStatus
 	ctx                 context.Context
 	cancel              context.CancelFunc
+	// mu 保护下方所有字段（cmd/pty/config/status/job/stderrBuf/mtpFallbackDisabled/...）。
+	// 安全说明（基于 GO-CONC-001 #9）：当前使用单一粗粒度 RWMutex 保护所有字段，
+	// 读写访问通过 s.mu.RLock()/s.mu.Lock() 统一加锁。当前所有访问路径已审计无数据竞争。
+	// 若未来扩展并发场景出现锁竞争，可参考 internal/chat/service.go 的做法
+	// （每个语义字段配独立锁，或简单标量改用 atomic.Bool/atomic.Int64）。
+	// 拆分锁时需特别注意 Start/stopInternal 等方法内部的临时释放模式（s.mu.Unlock()），
+	// 避免引入死锁。CI 已配置 go test -race 持续监控（见 .github/workflows/govulncheck.yml 之外的 test workflow）。
 	mu                  sync.RWMutex
 	job                 *JobObject
 	stderrBuf           *RingBuffer

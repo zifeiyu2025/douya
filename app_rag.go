@@ -138,6 +138,25 @@ func (a *App) UploadDocument(kbName string, fileName string, fileData string, mi
 		return fmt.Errorf("文件大小超过限制（最大 %d MB）", maxUploadSize/(1024*1024))
 	}
 
+	// 安全实践（基于 GO-UPLOAD-001 #7）：对 PDF 增加 magic bytes 内容校验
+	// 防止伪造 MIME 类型的文件通过校验后利用 PDF 解析库漏洞。
+	// PDF 文件头固定为 "%PDF-"（5 字节），此处只需解码前 8 字节即可判断。
+	if ext == ".pdf" {
+		// base64 解码前 8 字节（base64 每 4 字符解码为 3 字节，前 8 字符可解码出前 6 字节，足够判断）
+		minDecodeLen := 8
+		if len(fileData) < minDecodeLen {
+			minDecodeLen = len(fileData)
+		}
+		// base64 编码长度必须是 4 的倍数，截取到最近的 4 倍数边界
+		minDecodeLen -= minDecodeLen % 4
+		if minDecodeLen > 0 {
+			decoded, err := base64.StdEncoding.DecodeString(fileData[:minDecodeLen])
+			if err != nil || len(decoded) < 5 || string(decoded[:5]) != "%PDF-" {
+				return fmt.Errorf("文件扩展名为 PDF 但内容不是有效的 PDF 文件（magic bytes 不匹配）")
+			}
+		}
+	}
+
 	embedder := a.ragEmbedder
 	if embedder == nil {
 		return fmt.Errorf("知识库未初始化")

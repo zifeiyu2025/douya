@@ -1,0 +1,26 @@
+# 基于 GO-CONC-001 安全实践：运行 go test -race 持续监控数据竞争。
+# -race 会在运行时检测并发访问冲突，是发现数据竞争的最有效手段。
+# 对应 Server 结构体单一粗粒度锁等并发设计的持续验证（见安全审查 #9）。
+name: test
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  race-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.0'
+          check-latest: true
+
+      - name: Run tests with race detector
+        run: go test -race -timeout 600s ./...

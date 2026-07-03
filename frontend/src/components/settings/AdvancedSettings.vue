@@ -17,7 +17,7 @@
     </div>
     <template #feedback>
       <span class="api-key-hint">
-        获取地址：<n-a href="https://ollama.com/settings/keys" target="_blank" rel="noopener noreferrer">https://ollama.com/settings/keys</n-a>
+        获取地址：<a href="https://ollama.com/settings/keys" class="external-link" @click.prevent="openExternal('https://ollama.com/settings/keys')">https://ollama.com/settings/keys</a>
       </span>
     </template>
   </n-form-item>
@@ -39,7 +39,7 @@
     </div>
     <template #feedback>
       <span class="api-key-hint">
-        获取地址：<n-a href="https://app.tavily.com/" target="_blank" rel="noopener noreferrer">https://app.tavily.com/</n-a>
+        获取地址：<a href="https://app.tavily.com/" class="external-link" @click.prevent="openExternal('https://app.tavily.com/')">https://app.tavily.com/</a>
         （免费额度 1000 次/月）
       </span>
     </template>
@@ -286,11 +286,20 @@
 import { inject, defineComponent, h, ref, onMounted, watch } from 'vue'
 import {
   NButton, NFormItem, NInput, NDivider,
-  NSwitch, NInputNumber, NSelect, NTooltip, NTag, NA,
+  NSwitch, NInputNumber, NSelect, NTooltip, NTag,
 } from 'naive-ui'
+import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime'
 import LoraManager from '../LoraManager.vue'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
 import { wails } from '../../services/wails'
+
+/**
+ * 安全实践（基于 VUE-XSS-004 #4）：外部链接统一走 BrowserOpenURL 用系统默认浏览器打开
+ * 防止 Wails WebView 内部导航，与 MessageList.vue 的 handleLinkClick 保持一致
+ */
+function openExternal(url: string) {
+  BrowserOpenURL(url)
+}
 
 const HelpTip = defineComponent({
   props: { content: String },
@@ -345,6 +354,17 @@ watch(() => settingsStore.currentModel, loadModelFtype)
 .api-key-hint {
   font-size: 12px;
   color: var(--n-text-color-3);
+}
+
+/* 外部链接样式：与 naive-ui 默认链接外观一致 */
+.external-link {
+  color: var(--n-color-primary, #18a058);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.external-link:hover {
+  text-decoration: underline;
 }
 
 /* "已设置"标签淡入动画：保存成功后的微妙视觉确认 */

@@ -75,8 +75,10 @@ func (a *App) CheckUpdate() (*UpdateInfo, error) {
 	}
 
 	// 解析 JSON 响应
+	// 安全实践（基于 GO-HTTP-002 #5）：限制响应体大小为 1MB，防止恶意/异常响应耗尽内存
+	// GitHub Release API 响应通常 < 100KB，1MB 足够且留有余量
 	var release githubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1024*1024)).Decode(&release); err != nil {
 		return nil, fmt.Errorf("解析 GitHub Release 信息失败: %w", err)
 	}
 
