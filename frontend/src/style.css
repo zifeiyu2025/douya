@@ -568,7 +568,7 @@ html.dark .app-layout::before {
 }
 
 .has-background .main-header {
-  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
+  background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
   border-bottom-color: color-mix(in srgb, var(--border-color) 60%, transparent);
 }
 
@@ -785,7 +785,7 @@ html.dark .app-layout::before {
   align-items: center;
   padding: 0 0 0 12px;
   border-bottom: 1px solid var(--border-color);
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
   box-sizing: border-box;
   -webkit-app-region: drag;
   position: relative;

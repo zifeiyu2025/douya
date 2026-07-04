@@ -630,7 +630,7 @@ provide(SETTINGS_CONTEXT_KEY, settingsContext)
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
 }
 
 .settings-header {

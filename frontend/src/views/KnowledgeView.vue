@@ -483,7 +483,7 @@ onMounted(async () => {
   align-items: center;
   gap: 14px;
   padding: 14px 24px;
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
   height: var(--header-height);

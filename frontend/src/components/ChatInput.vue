@@ -1020,7 +1020,7 @@ onUnmounted(() => {
 .input-area {
   padding: 10px 24px 10px;
   border-top: 1px solid var(--border-color);
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
   position: relative;
   z-index: 1;
 }

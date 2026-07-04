@@ -1,8 +1,9 @@
 <template>
   <div class="sidebar" :class="{ collapsed }">
-    <!-- Logo 区：DOUYA 字母 wordmark 居中显示 -->
+    <!-- Logo 区：appicon + 品牌名横向排列，左对齐作为窗口左上角视觉锚点 -->
     <div class="sidebar-header" style="--wails-draggable:drag">
       <div class="sidebar-logo">
+        <img :src="appLogo" alt="豆芽" class="logo-image" draggable="false" />
         <span class="logo-wordmark">DOUYA</span>
       </div>
     </div>
@@ -85,6 +86,7 @@ import { useChatStore } from '../stores/chat'
 import { fixUtf8 } from '../utils/utf8'
 import { showSuccess } from '../utils/showError'
 import type { Conversation } from '../services/wails'
+import appLogo from '../assets/images/appicon.png'
 
 const props = defineProps<{ collapsed: boolean }>()
 
@@ -226,26 +228,51 @@ async function handleExport(id: string, format: string) {
 </script>
 
 <style scoped>
-/* ===== Logo 区：DOUYA wordmark 居中 =====
- * 大写字母 + 加宽字距 → 顶级 SaaS wordmark 气质
+/* ===== Logo 区：appicon + 品牌名横向排列，左对齐 =====
+ * 作为窗口左上角的视觉锚点，采用左对齐（非居中）
+ * LOGO 图像 24px + 品牌名 18px 横向排列，克制精致
  * 用实色（避免 background-clip:text 在 WebView2 中不可靠）
- * 单一品牌色，双主题自动跟随 --accent-primary
  */
+.sidebar-header {
+  justify-content: flex-start; /* 覆盖全局 center，改为左对齐 */
+  padding: 8px 16px;
+}
+
 .sidebar-logo {
-  width: 100%;
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 10px;
+  user-select: none;
+}
+
+/* LOGO 图像：appicon.png
+ * 24px 尺寸，圆角 6px，微妙阴影增强立体感
+ * 避免使用 filter:drop-shadow 在容器上，直接用 box-shadow
+ */
+.logo-image {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  object-fit: cover;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  user-select: none;
+  -webkit-user-drag: none;
+  flex-shrink: 0;
+}
+
+/* 暗色主题下 LOGO 阴影调整 */
+:global(body.theme-dark) .logo-image {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
 .logo-wordmark {
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 700;
-  letter-spacing: 4px;
+  letter-spacing: 3px;
   line-height: 1;
   color: var(--accent-primary);
   user-select: none;
-  padding-left: 4px; /* 视觉补偿 letter-spacing 尾部留白 */
+  padding-left: 3px; /* 视觉补偿 letter-spacing 尾部留白 */
 }
 
 /* ===== 加载状态 ===== */

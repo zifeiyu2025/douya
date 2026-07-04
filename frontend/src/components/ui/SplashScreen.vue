@@ -1,62 +1,42 @@
 <template>
   <Transition name="splash" @after-leave="$emit('complete')">
     <div v-if="visible" class="splash-screen" style="--wails-draggable:drag">
-      <!-- SVG 装饰层：网格 + 多层弧线，全部在 SVG 内部，不遮挡文字 -->
-      <svg class="splash-deco" width="400" height="400" viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <!-- 同心圆装饰 -->
-        <circle cx="200" cy="200" r="180" stroke="currentColor" stroke-width="1" opacity="0.05" />
-        <circle cx="200" cy="200" r="140" stroke="currentColor" stroke-width="1" opacity="0.08" />
-        <circle cx="200" cy="200" r="100" stroke="currentColor" stroke-width="1" opacity="0.1" />
-
-        <!-- 外层旋转弧线（慢速） -->
-        <circle cx="200" cy="200" r="180" stroke="currentColor" stroke-width="1.5"
-          stroke-linecap="round"
-          stroke-dasharray="60 360"
-          class="deco-ring-outer" opacity="0.4" />
-
-        <!-- 中层旋转弧线（中速，反向） -->
-        <circle cx="200" cy="200" r="140" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round"
-          stroke-dasharray="40 280"
-          class="deco-ring-mid" opacity="0.5" />
-
-        <!-- 网格点缀（四个角的十字标记） -->
-        <g opacity="0.15" stroke="currentColor" stroke-width="1">
-          <path d="M40 40 L40 55 M40 40 L55 40" />
-          <path d="M360 40 L360 55 M360 40 L345 40" />
-          <path d="M40 360 L40 345 M40 360 L55 360" />
-          <path d="M360 360 L360 345 M360 360 L345 360" />
-        </g>
-      </svg>
+      <!-- 背景氛围层：单一径向渐变，营造空间感（非装饰覆盖层，避免堆叠问题） -->
+      <div class="splash-ambient" aria-hidden="true"></div>
 
       <div class="splash-content">
-        <!-- Logo + 旋转弧线 -->
-        <div class="splash-logo" :class="{ 'is-done': stage === 'done', 'is-failed': stage === 'failed' }">
-          <svg width="72" height="72" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <!-- 底层静态淡圈 -->
-            <circle cx="36" cy="36" r="34" stroke="currentColor" stroke-width="2" opacity="0.12" />
+        <!-- LOGO 区域：appicon.png 作为唯一视觉锚点 -->
+        <div class="splash-logo-wrap" :class="{ 'is-done': stage === 'done', 'is-failed': stage === 'failed' }">
+          <!-- 外层发光环：加载中旋转弧线，完成时画圆 -->
+          <svg class="logo-ring" width="112" height="112" viewBox="0 0 112 112" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <!-- 底层静态淡圈（轨道） -->
+            <circle cx="56" cy="56" r="52" stroke="currentColor" stroke-width="1" opacity="0.1" />
             <!-- 旋转弧线（加载中） -->
-            <circle v-if="stage !== 'done' && stage !== 'failed'" cx="36" cy="36" r="34" stroke="currentColor" stroke-width="2.5"
+            <circle v-if="stage !== 'done' && stage !== 'failed'" cx="56" cy="56" r="52"
+              stroke="currentColor" stroke-width="2"
               stroke-linecap="round"
-              stroke-dasharray="78 136"
-              class="logo-spinner-ring" />
-            <!-- 完成圆环 -->
-            <circle v-else cx="36" cy="36" r="34" stroke="currentColor" stroke-width="2.5"
+              stroke-dasharray="80 246"
+              class="logo-spinner" />
+            <!-- 完成圆环（画圆动画） -->
+            <circle v-else cx="56" cy="56" r="52"
+              stroke="currentColor" stroke-width="2"
               stroke-linecap="round"
-              class="logo-complete-ring" />
-            <!-- Logo 图标 -->
-            <image x="10" y="10" width="52" height="52" :href="appLogo" />
+              class="logo-complete" />
           </svg>
+
+          <!-- LOGO 图像：appicon.png -->
+          <img class="logo-image" :src="appLogo" alt="豆芽" draggable="false" />
         </div>
 
-        <!-- 品牌标识 -->
+        <!-- 品牌标识：品牌名最响亮 -->
         <div class="splash-brand">
-          <div class="splash-title">豆芽</div>
-          <div class="splash-subtitle">本地 AI 聊天助手</div>
+          <h1 class="splash-title">豆芽</h1>
+          <p class="splash-subtitle">本地 AI 聊天助手</p>
         </div>
 
-        <!-- 状态文字 -->
+        <!-- 状态指示器：底部安静展示 -->
         <div class="splash-status">
+          <span class="status-dot" :class="'dot-' + stage" aria-hidden="true"></span>
           <span class="status-text" :class="{ 'status-done': stage === 'done', 'status-failed': stage === 'failed' }">{{ stageText }}</span>
           <span v-if="modelName && stage !== 'done' && stage !== 'failed'" class="status-model">{{ modelName }}</span>
         </div>
@@ -87,23 +67,26 @@ defineEmits<{
 
 const stageText = computed(() => {
   const map: Record<string, string> = {
-    idle: '初始化中...',
-    preparing: '准备启动引擎...',
-    loading: '加载模型中...',
-    waiting: '初始化模型...',
-    detecting: '检测模型能力...',
+    idle: '初始化中',
+    preparing: '准备启动引擎',
+    loading: '加载模型中',
+    waiting: '初始化模型',
+    detecting: '检测模型能力',
     done: '加载完成',
     failed: '加载失败',
-    rolling_back: '回滚中...',
-    'vram-warning': 'VRAM 不足警告，可能影响性能...',
-    'spec-warning': '推测解码兼容性警告...',
+    rolling_back: '回滚中',
+    'vram-warning': 'VRAM 不足警告',
+    'spec-warning': '推测解码兼容性警告',
   }
-  return map[props.stage] || '加载中...'
+  return map[props.stage] || '加载中'
 })
 </script>
 
 <style scoped>
-/* 整个启动屏支持窗口拖动（--wails-draggable:drag 在 template 内联） */
+/* ===== 启动屏容器 =====
+ * 支持窗口拖动（--wails-draggable:drag 在 template 内联）
+ * 单一背景层 + 单一氛围层，避免复杂堆叠
+ */
 .splash-screen {
   position: fixed;
   inset: 0;
@@ -113,96 +96,102 @@ const stageText = computed(() => {
   justify-content: center;
   background: var(--bg-primary);
   overflow: hidden;
-  /* 微妙的径向渐变背景，营造氛围（不影响文字可见性） */
-  background-image: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--accent-primary) 4%, transparent) 0%, transparent 70%);
 }
 
-/* ===== SVG 装饰层 =====
- * 全部在 SVG 内部，不用 absolute 覆盖层，避免 WebView2 堆叠 bug
- * currentColor 跟随 .splash-screen 的 color（继承 accent-primary）
+/* 背景氛围层：径向渐变营造空间感
+ * 避免使用多层覆盖，单一层即可
  */
-.splash-deco {
+.splash-ambient {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  color: var(--accent-primary);
+  inset: 0;
+  background: radial-gradient(
+    circle at 50% 45%,
+    rgba(9, 105, 218, 0.06) 0%,
+    transparent 60%
+  );
   pointer-events: none;
-  /* 装饰层在内容之下（DOM 顺序 + 默认堆叠） */
-  z-index: 0;
 }
 
-/* 外层弧线：60s 慢速旋转 */
-.deco-ring-outer {
-  transform-origin: 200px 200px;
-  animation: spin 60s linear infinite;
-  will-change: transform;
+/* 暗色主题下的氛围层调整 */
+:global(body.theme-dark) .splash-ambient {
+  background: radial-gradient(
+    circle at 50% 45%,
+    rgba(68, 147, 248, 0.08) 0%,
+    transparent 60%
+  );
 }
 
-/* 中层弧线：40s 反向旋转 */
-.deco-ring-mid {
-  transform-origin: 200px 200px;
-  animation: spin-reverse 40s linear infinite;
-  will-change: transform;
-}
-
-@keyframes spin-reverse {
-  to { transform: rotate(-360deg); }
-}
-
+/* ===== 内容区域 ===== */
 .splash-content {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 24px;
+  gap: 32px;
   position: relative;
   z-index: 1;
+  padding: 0 24px;
 }
 
-/* Logo 区域
- * 不在 .splash-logo 上用 filter:drop-shadow，否则会模糊整个 SVG 包括内部 <image>
- * 发光效果改到具体的 circle 元素上
+/* ===== LOGO 区域 =====
+ * LOGO 图像作为唯一视觉锚点，外层发光环指示状态
+ * 不使用 filter:drop-shadow 在整个容器上，避免模糊图像
  */
-.splash-logo {
+.splash-logo-wrap {
+  position: relative;
+  width: 112px;
+  height: 112px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--accent-primary);
-  transition: color var(--transition-normal);
-  animation: logo-enter 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: color 0.3s ease;
+  animation: logo-enter 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.splash-logo.is-done {
+.splash-logo-wrap.is-done {
   color: var(--accent-success);
 }
 
-.splash-logo.is-failed {
+.splash-logo-wrap.is-failed {
   color: var(--accent-danger);
 }
 
 @keyframes logo-enter {
   from {
     opacity: 0;
-    transform: scale(0.8);
+    transform: scale(0.85);
+    filter: blur(8px);
   }
   to {
     opacity: 1;
     transform: scale(1);
+    filter: blur(0);
   }
 }
 
-.logo-spinner-ring {
-  transform-origin: 36px 36px;
-  animation: spin 1.4s linear infinite;
-  /* 仅圆环发光，不影响内部 Logo 图像 */
+/* 发光环 SVG：绝对定位，环绕 LOGO */
+.logo-ring {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* 旋转弧线：加载中 */
+.logo-spinner {
+  transform-origin: 56px 56px;
+  animation: spin 1.6s linear infinite;
   filter: drop-shadow(0 0 4px currentColor);
 }
 
-/* 完成圆环动画 */
-.logo-complete-ring {
-  stroke-dasharray: 214;
-  stroke-dashoffset: 214;
-  animation: draw-circle 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 完成圆环：画圆动画 */
+.logo-complete {
+  stroke-dasharray: 327;
+  stroke-dashoffset: 327;
+  animation: draw-circle 0.7s cubic-bezier(0.4, 0, 0.2, 1) forwards;
   filter: drop-shadow(0 0 6px currentColor);
 }
 
@@ -212,19 +201,41 @@ const stageText = computed(() => {
   }
 }
 
-/* ===== 品牌标识 ===== */
+/* LOGO 图像：appicon.png
+ * 圆角处理，尺寸略小于发光环，让环清晰可见
+ */
+.logo-image {
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
+  object-fit: cover;
+  /* 微妙的阴影增强立体感 */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* 暗色主题下 LOGO 阴影调整 */
+:global(body.theme-dark) .logo-image {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+/* ===== 品牌标识 =====
+ * 品牌名是最响亮的文字，字重重、字号大
+ * 副标题安静地跟随
+ */
 .splash-brand {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  animation: brand-enter 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.15s both;
+  gap: 8px;
+  animation: brand-enter 0.7s cubic-bezier(0.4, 0, 0.2, 1) 0.2s both;
 }
 
 @keyframes brand-enter {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -233,42 +244,65 @@ const stageText = computed(() => {
 }
 
 .splash-title {
-  font-size: 38px;
+  margin: 0;
+  font-size: 36px;
   font-weight: 700;
-  color: var(--accent-primary);
-  letter-spacing: 6px;
-  padding-left: 6px;
-  /* 阴影色从 --accent-primary 派生，自动跟随主题切换（亮/暗一套规则） */
-  text-shadow: 0 0 12px color-mix(in srgb, var(--accent-primary) 40%, transparent);
-  animation: title-glow 2.5s ease-in-out infinite;
+  color: var(--text-primary);
+  letter-spacing: 8px;
+  padding-left: 8px;
+  line-height: 1;
+  /* 用 rgba 替代 color-mix，兼容旧版 WebView2 */
+  text-shadow: 0 0 16px rgba(9, 105, 218, 0.25);
+  animation: title-glow 3s ease-in-out infinite;
+}
+
+/* 暗色主题下标题阴影 */
+:global(body.theme-dark) .splash-title {
+  text-shadow: 0 0 16px rgba(68, 147, 248, 0.35);
 }
 
 @keyframes title-glow {
   0%, 100% {
-    text-shadow: 0 0 12px color-mix(in srgb, var(--accent-primary) 40%, transparent);
+    text-shadow: 0 0 16px rgba(9, 105, 218, 0.25);
   }
   50% {
-    text-shadow: 0 0 20px color-mix(in srgb, var(--accent-primary) 60%, transparent);
+    text-shadow: 0 0 24px rgba(9, 105, 218, 0.4);
+  }
+}
+
+:global(body.theme-dark) .splash-title {
+  animation: title-glow-dark 3s ease-in-out infinite;
+}
+
+@keyframes title-glow-dark {
+  0%, 100% {
+    text-shadow: 0 0 16px rgba(68, 147, 248, 0.35);
+  }
+  50% {
+    text-shadow: 0 0 24px rgba(68, 147, 248, 0.5);
   }
 }
 
 .splash-subtitle {
+  margin: 0;
   font-size: 13px;
+  font-weight: 400;
   color: var(--text-secondary);
-  letter-spacing: 3px;
-  padding-left: 3px;
+  letter-spacing: 4px;
+  padding-left: 4px;
 }
 
-/* ===== 进度条已移除（用户要求）===== */
-
-/* 状态文字 */
+/* ===== 状态指示器 =====
+ * 底部安静展示：圆点 + 状态文字 + 模型名
+ * 圆点颜色跟随阶段变化
+ */
 .splash-status {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
-  min-height: 34px;
-  animation: status-enter 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.3s both;
+  gap: 6px;
+  min-height: 40px;
+  animation: status-enter 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.4s both;
 }
 
 @keyframes status-enter {
@@ -280,10 +314,51 @@ const stageText = computed(() => {
   }
 }
 
+/* 状态圆点：加载中脉动，完成静止，失败闪烁 */
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  animation: dot-pulse 1.8s ease-in-out infinite;
+}
+
+.dot-done {
+  background: var(--accent-success);
+  animation: none;
+}
+
+.dot-failed {
+  background: var(--accent-danger);
+  animation: dot-blink 1s ease-in-out infinite;
+}
+
+@keyframes dot-pulse {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+@keyframes dot-blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
 .status-text {
   font-size: 13px;
+  font-weight: 500;
   color: var(--text-secondary);
-  transition: color var(--transition-normal);
+  transition: color 0.3s ease;
+  letter-spacing: 0.5px;
 }
 
 .status-done {
@@ -298,14 +373,15 @@ const stageText = computed(() => {
 
 .status-model {
   font-size: 12px;
-  color: var(--text-primary);
-  max-width: 240px;
+  color: var(--text-tertiary, var(--text-secondary));
+  max-width: 280px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  opacity: 0.7;
 }
 
-/* 进出场过渡 */
+/* ===== 进出场过渡 ===== */
 .splash-enter-active {
   transition: opacity 0.4s ease;
 }
@@ -320,15 +396,20 @@ const stageText = computed(() => {
 
 .splash-leave-to {
   opacity: 0;
-  transform: translateY(-16px);
+  transform: translateY(-12px);
 }
 
-/* 尊重用户的减少动画偏好 */
+/* ===== 尊重减少动画偏好 ===== */
 @media (prefers-reduced-motion: reduce) {
-  .deco-ring-outer,
-  .deco-ring-mid,
-  .logo-spinner-ring,
-  .splash-title {
+  .logo-spinner,
+  .splash-title,
+  .status-dot {
+    animation: none;
+  }
+
+  .splash-logo-wrap,
+  .splash-brand,
+  .splash-status {
     animation: none;
   }
 }
