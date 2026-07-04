@@ -1054,21 +1054,19 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
-  border-radius: var(--border-radius-md);
-  border: 1px solid var(--border-color);
+  padding: 6px 10px;
+  border-radius: var(--border-radius-sm);
   background: var(--bg-secondary);
   max-width: 220px;
   transition: all 0.2s;
 }
 
 .attachment-preview-item:hover {
-  border-color: var(--accent-primary);
-  box-shadow: var(--shadow-sm);
+  background: var(--bg-hover);
 }
 
 .attachment-preview-item.image {
-  padding: 6px;
+  padding: 4px;
   max-width: none;
 }
 
@@ -1080,8 +1078,8 @@ onUnmounted(() => {
 }
 
 .att-thumb.image-thumb {
-  width: 52px;
-  height: 52px;
+  width: 64px;
+  height: 64px;
   border-radius: var(--border-radius-sm);
   overflow: hidden;
 }
@@ -1154,10 +1152,10 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 14px;
+  height: 36px;
+  padding: 0 14px;
   margin: 0 0 4px;
   background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
   border-radius: var(--border-radius-md);
   animation: fadeIn 0.2s ease;
 }
@@ -1181,7 +1179,7 @@ onUnmounted(() => {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: rgba(239, 68, 68, 0.15);
+  background: var(--accent-r-soft);
   animation: pulse 1.5s ease-in-out infinite;
 }
 
@@ -1213,7 +1211,7 @@ onUnmounted(() => {
 }
 
 .voice-stop-btn:hover {
-  background: rgba(239, 68, 68, 0.1);
+  background: var(--accent-r-soft);
   border-color: var(--accent-danger);
   color: var(--accent-danger);
 }
@@ -1222,7 +1220,8 @@ onUnmounted(() => {
   display: flex;
   align-items: flex-end;
   gap: 12px;
-  background: var(--bg-secondary);
+  /* 容器与 textarea 同色，避免双层底色撕裂 */
+  background: var(--bg-input);
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-lg);
   padding: 12px 14px;
@@ -1330,8 +1329,8 @@ onUnmounted(() => {
 }
 
 .search-btn.active {
-  color: var(--accent-primary);
-  background: var(--accent-tertiary);
+  color: var(--accent-g-primary);
+  background: var(--accent-g-soft);
 }
 
 .search-btn.auto-mode {
@@ -1344,14 +1343,14 @@ onUnmounted(() => {
 }
 
 .think-btn.active {
-    color: var(--accent-warning);
-    background: color-mix(in srgb, var(--accent-warning) 12%, transparent);
+    color: var(--accent-primary);
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
     animation: think-pulse 3s ease-in-out infinite;
 }
 
 @keyframes think-pulse {
-    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-warning) 0%, transparent); }
-    50% { box-shadow: 0 0 6px 1px color-mix(in srgb, var(--accent-warning) 18%, transparent); }
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-primary) 0%, transparent); }
+    50% { box-shadow: 0 0 6px 1px color-mix(in srgb, var(--accent-primary) 18%, transparent); }
 }
 
 .think-btn.unsupported {
@@ -1404,7 +1403,7 @@ onUnmounted(() => {
 
 .voice-btn.active {
   color: var(--accent-danger);
-  background: rgba(239, 68, 68, 0.1);
+  background: var(--accent-r-soft);
 }
 
 .voice-btn.unsupported {
@@ -1521,6 +1520,7 @@ onUnmounted(() => {
 .chat-textarea {
   width: 100%;
   border: none;
+  /* 透明背景，让容器 .chat-input-container 的底色透出，避免双底色 */
   background: transparent;
   font-family: inherit;
   font-size: 15px;
@@ -1566,6 +1566,7 @@ onUnmounted(() => {
 }
 
 .send-btn:not(:disabled):hover {
+  background: var(--accent-secondary);
   transform: scale(1.05);
   box-shadow: 0 4px 14px color-mix(in srgb, var(--accent-primary) 40%, transparent);
 }
@@ -1577,7 +1578,7 @@ onUnmounted(() => {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: rgba(255, 255, 255, 0.3);
+  background: var(--bg-tertiary);
   animation: ripple 0.5s ease-out;
   pointer-events: none;
 }
@@ -1601,29 +1602,24 @@ onUnmounted(() => {
   height: 42px;
   border-radius: var(--border-radius-md);
   border: none;
-  background: var(--accent-danger);
+  background: var(--accent-r-primary);
   color: white;
   cursor: pointer;
   transition: transform 0.2s, box-shadow 0.2s;
   flex-shrink: 0;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(250, 81, 81, 0.25);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent-r-primary) 25%, transparent);
 }
 
 .stop-btn:hover {
+  background: var(--accent-r-strong);
   transform: scale(1.05);
-  box-shadow: 0 4px 14px rgba(250, 81, 81, 0.4);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent-r-primary) 40%, transparent);
 }
 </style>
 
 <style>
-.has-background .chat-input-container {
-  background: color-mix(in srgb, var(--bg-secondary) 28%, transparent) !important;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
-
 .has-background .input-area {
   background: transparent;
   border-top-color: transparent;

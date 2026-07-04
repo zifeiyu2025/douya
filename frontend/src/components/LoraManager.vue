@@ -52,7 +52,7 @@
     </div>
 
     <!-- 运行时 LoRA 状态（热切换，无需重启） -->
-    <div class="lora-section" style="margin-top: 16px;">
+    <div class="lora-section">
       <div class="section-header">
         <span class="section-title">运行时状态</span>
         <n-button quaternary circle size="tiny" class="lora-refresh-btn" :class="{ spinning: loading }" @click="loadAdapters" title="刷新">
@@ -278,6 +278,11 @@ onMounted(() => {
   width: 100%;
 }
 
+/* 两段式布局：第二段与第一段之间留 16px 间距 */
+.lora-section + .lora-section {
+  margin-top: 16px;
+}
+
 .section-header {
   display: flex;
   align-items: center;
@@ -285,34 +290,33 @@ onMounted(() => {
   margin-bottom: 10px;
 }
 
+/* 段落标题强排版：16px / 600 */
 .section-title {
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
+  letter-spacing: -0.2px;
 }
 
-/* ===== 路径列表 ===== */
+/* ===== 路径列表（row 布局，hover 用 --bg-hover）===== */
 
 .lora-path-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
 }
 
 .lora-path-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--border-radius-md, 12px);
-  background: var(--bg-secondary);
-  transition: border-color 0.2s, background 0.2s;
+  padding: 6px 8px;
+  border-radius: var(--border-radius-sm);
+  transition: background 0.2s;
 }
 
 .lora-path-item:hover {
-  border-color: var(--accent-primary);
-  background: var(--bg-tertiary, var(--bg-primary));
+  background: var(--bg-hover);
 }
 
 .lora-path-text {
@@ -343,7 +347,7 @@ onMounted(() => {
 }
 
 .lora-path-remove:hover {
-  color: var(--accent-danger);
+  color: var(--accent-r-primary);
 }
 
 /* ===== 添加按钮 ===== */
@@ -353,7 +357,7 @@ onMounted(() => {
   margin-top: 8px;
 }
 
-/* ===== 提示信息 ===== */
+/* ===== 提示信息（语义色变量）===== */
 
 .lora-hint {
   display: flex;
@@ -361,21 +365,23 @@ onMounted(() => {
   gap: 8px;
   margin-top: 10px;
   padding: 8px 12px;
-  border-radius: var(--border-radius-sm, 8px);
+  border-radius: var(--border-radius-sm);
   font-size: 12px;
   line-height: 1.4;
 }
 
+/* warning：黄色语义色（背景 --accent-y-soft，边框 color-mix，文字 --accent-y-strong） */
 .lora-hint.warning {
-  background: rgba(255, 195, 0, 0.08);
-  border: 1px solid rgba(255, 195, 0, 0.2);
-  color: var(--accent-warning);
+  background: var(--accent-y-soft);
+  border: 1px solid color-mix(in srgb, var(--accent-y-primary) 25%, transparent);
+  color: var(--accent-y-strong);
 }
 
+/* error：红色语义色（背景 --accent-r-soft，边框 color-mix，文字 --accent-r-strong） */
 .lora-hint.error {
-  background: rgba(250, 81, 81, 0.08);
-  border: 1px solid rgba(250, 81, 81, 0.2);
-  color: var(--accent-danger);
+  background: var(--accent-r-soft);
+  border: 1px solid color-mix(in srgb, var(--accent-r-primary) 25%, transparent);
+  color: var(--accent-r-strong);
 }
 
 .lora-hint-enter-active,
@@ -429,20 +435,20 @@ onMounted(() => {
   animation: spin 0.8s linear infinite;
 }
 
-/* ===== 适配器列表 ===== */
+/* ===== 适配器列表（紧凑布局）===== */
 
 .lora-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .lora-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
+  gap: 10px;
+  padding: 8px 10px;
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-md, 12px);
   background: var(--bg-secondary);
@@ -450,7 +456,7 @@ onMounted(() => {
 }
 
 .lora-item:hover {
-  background: var(--bg-tertiary, var(--bg-primary));
+  background: var(--bg-hover);
 }
 
 .lora-item.active {
@@ -469,6 +475,7 @@ onMounted(() => {
   gap: 8px;
 }
 
+/* 状态标签：语义色变量（on=绿色 active，off=灰色 neutral） */
 .lora-badge {
   display: inline-flex;
   align-items: center;
@@ -483,8 +490,8 @@ onMounted(() => {
 }
 
 .lora-badge.on {
-  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
-  color: var(--accent-primary);
+  background: var(--accent-g-soft);
+  color: var(--accent-g-primary);
 }
 
 .lora-badge.off {

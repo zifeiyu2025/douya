@@ -1,6 +1,7 @@
 package rag
 
 import (
+	"context"
 	"encoding/json"
 	"maps"
 	"math"
@@ -345,13 +346,14 @@ type HybridSearchResult struct {
 }
 
 // HybridSearch 执行混合检索：向量检索 + BM25 关键词检索，RRF 融合
-func (vs *VectorStore) HybridSearch(collection string, query []float64, queryText string, topK int, minScore float64) ([]HybridSearchResult, error) {
+// ctx 用于传播取消信号到向量检索
+func (vs *VectorStore) HybridSearch(ctx context.Context, collection string, query []float64, queryText string, topK int, minScore float64) ([]HybridSearchResult, error) {
 	if topK <= 0 {
 		topK = 10
 	}
 
 	// 1. 向量检索
-	vectorResults, vecErr := vs.SearchWithThreshold(collection, query, topK*2, minScore)
+	vectorResults, vecErr := vs.SearchWithThreshold(ctx, collection, query, topK*2, minScore)
 
 	// 2. BM25 检索（按 collection 隔离，每个 collection 拥有独立索引）
 	bm25Results := vs.getOrCreateBM25(collection).Search(queryText, topK*2)

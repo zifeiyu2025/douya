@@ -338,18 +338,19 @@ onUnmounted(() => {
   background: var(--accent-primary);
 }
 
-/* ---- P2-A3: 手动压缩按钮样式 ---- */
+/* ---- P2-A3: 手动压缩按钮样式 ----
+ * 统一风格：透明底色 + 字体颜色（与气泡操作按钮一致） */
 .compress-btn {
   margin-left: 8px;
   padding: 1px 8px;
   font-size: 10px;
   line-height: 1.4;
   color: var(--text-muted);
-  background: var(--bg-hover);
-  border: 1px solid var(--border-color);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 30%, transparent);
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
   user-select: none;
 }
 

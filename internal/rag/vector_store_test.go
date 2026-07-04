@@ -209,7 +209,7 @@ func TestSearch_OK(t *testing.T) {
 	}
 
 	// Query for vector "a": [1,0,0,0].
-	results, err := vs.Search("search_col", []float64{1.0, 0.0, 0.0, 0.0}, 2)
+	results, err := vs.Search(context.Background(), "search_col", []float64{1.0, 0.0, 0.0, 0.0}, 2)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestSearch_CollectionNotFound(t *testing.T) {
 	vs, cleanup := newTestStore(t)
 	defer cleanup()
 
-	_, err := vs.Search("non_existent", []float64{1.0, 2.0}, 5)
+	_, err := vs.Search(context.Background(), "non_existent", []float64{1.0, 2.0}, 5)
 	if !errors.Is(err, ErrCollectionNotFound) {
 		t.Fatalf("expected ErrCollectionNotFound, got %v", err)
 	}
@@ -244,7 +244,7 @@ func TestSearch_DimMismatch(t *testing.T) {
 		t.Fatalf("CreateCollection: %v", err)
 	}
 
-	_, err := vs.Search("search_dim_mismatch", []float64{1.0, 2.0, 3.0}, 5) // dim 3 vs expected 4
+	_, err := vs.Search(context.Background(), "search_dim_mismatch", []float64{1.0, 2.0, 3.0}, 5) // dim 3 vs expected 4
 	if !errors.Is(err, ErrVectorDimMismatch) {
 		t.Fatalf("expected ErrVectorDimMismatch, got %v", err)
 	}
@@ -258,7 +258,7 @@ func TestSearch_EmptyQuery(t *testing.T) {
 		t.Fatalf("CreateCollection: %v", err)
 	}
 
-	_, err := vs.Search("empty_query_col", []float64{}, 5)
+	_, err := vs.Search(context.Background(), "empty_query_col", []float64{}, 5)
 	if !errors.Is(err, ErrEmptyVector) {
 		t.Fatalf("expected ErrEmptyVector, got %v", err)
 	}
@@ -280,7 +280,7 @@ func TestSearch_TopKLargerThanCollection(t *testing.T) {
 	}
 
 	// Request topK=100 on a collection with only 1 vector — should succeed.
-	results, err := vs.Search("small_col", []float64{1.0, 0.0, 0.0, 0.0}, 100)
+	results, err := vs.Search(context.Background(), "small_col", []float64{1.0, 0.0, 0.0, 0.0}, 100)
 	if err != nil {
 		t.Fatalf("Search with large topK: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestPersist_VectorsSurviveReopen(t *testing.T) {
 	}
 	defer vs2.Close()
 
-	results, err := vs2.Search("persistent", []float64{1.0, 0.0, 0.0, 0.0}, 2)
+	results, err := vs2.Search(context.Background(), "persistent", []float64{1.0, 0.0, 0.0, 0.0}, 2)
 	if err != nil {
 		t.Fatalf("Search after reopen: %v", err)
 	}
@@ -401,7 +401,7 @@ func TestSearch_SimilarVectorsRankHigher(t *testing.T) {
 		t.Fatalf("AddVectors: %v", err)
 	}
 
-	results, err := vs.Search("similarity_test", vecs[0], 5)
+	results, err := vs.Search(context.Background(), "similarity_test", vecs[0], 5)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -525,7 +525,7 @@ func TestSearchWithThreshold_FiltersLowScore(t *testing.T) {
 
 	// 先用普通 Search 获取实际分数
 	query := normalize([]float64{0.9, 0.1, 0.0})
-	allResults, err := vs.Search("thresh-test", query, 5)
+	allResults, err := vs.Search(context.Background(), "thresh-test", query, 5)
 	if err != nil {
 		t.Fatalf("Search failed: %v", err)
 	}
@@ -535,7 +535,7 @@ func TestSearchWithThreshold_FiltersLowScore(t *testing.T) {
 
 	// 用最高分数 + 0.01 作为阈值，应该过滤掉所有结果
 	highestScore := allResults[0].Score
-	results, err := vs.SearchWithThreshold("thresh-test", query, 5, highestScore+0.01)
+	results, err := vs.SearchWithThreshold(context.Background(), "thresh-test", query, 5, highestScore+0.01)
 	if err != nil {
 		t.Fatalf("SearchWithThreshold failed: %v", err)
 	}
@@ -563,7 +563,7 @@ func TestSearchWithThreshold_AcceptsHighScore(t *testing.T) {
 
 	// 查询与 v1 完全相同的向量
 	query := normalize([]float64{1.0, 0.0, 0.0})
-	results, err := vs.SearchWithThreshold("thresh-accept", query, 5, 0.5)
+	results, err := vs.SearchWithThreshold(context.Background(), "thresh-accept", query, 5, 0.5)
 	if err != nil {
 		t.Fatalf("SearchWithThreshold failed: %v", err)
 	}
@@ -584,7 +584,7 @@ func TestSearchWithThreshold_CollectionNotFound(t *testing.T) {
 	defer cleanup()
 
 	query := normalize([]float64{1.0, 0.0, 0.0})
-	_, err := vs.SearchWithThreshold("nonexistent", query, 5, 0.5)
+	_, err := vs.SearchWithThreshold(context.Background(), "nonexistent", query, 5, 0.5)
 	if err == nil {
 		t.Error("expected error for nonexistent collection, got nil")
 	}
@@ -1004,7 +1004,7 @@ func TestGetOrLoadIndex_NoCrossCollectionBlock(t *testing.T) {
 	// 设置 3 秒超时，如果超时说明存在阻塞
 	done := make(chan struct{})
 	go func() {
-		_, _ = vs.Search("colB", vecsB[0], 3)
+		_, _ = vs.Search(context.Background(), "colB", vecsB[0], 3)
 		close(done)
 	}()
 

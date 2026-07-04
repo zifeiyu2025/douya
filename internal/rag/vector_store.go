@@ -1106,12 +1106,18 @@ func (vs *VectorStore) addVectorsCore(collection string, ids []string, vectors [
 // Search finds the topK most similar vectors to the query in the collection.
 // Uses cosine similarity; higher scores (closer to 1.0) mean more similar.
 // Returns ErrCollectionNotFound or ErrVectorDimMismatch.
-func (vs *VectorStore) Search(collection string, query []float64, topK int) ([]SearchResult, error) {
+// ctx 用于传播取消信号（如用户关闭应用、取消请求），检索仍受 5 秒上限保护
+func (vs *VectorStore) Search(ctx context.Context, collection string, query []float64, topK int) ([]SearchResult, error) {
 	if len(query) == 0 {
 		return nil, ErrEmptyVector
 	}
 	if topK <= 0 {
 		topK = 10
+	}
+
+	// 优先检查 ctx 是否已取消，避免无谓的锁获取和索引加载
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	meta, err := vs.getCollectionMeta(collection)
@@ -1138,7 +1144,8 @@ func (vs *VectorStore) Search(collection string, query []float64, topK int) ([]S
 	}
 
 	// 任务 34:为索引检索设置 5 秒超时,防止单次检索耗时过长
-	searchCtx, searchCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// 修复 C1: 用传入的 ctx 派生超时 ctx，使取消信号能传播到索引检索
+	searchCtx, searchCancel := context.WithTimeout(ctx, 5*time.Second)
 	// 通过 vectorIndex 接口检索，memIndex 和 badgerIndex 均返回带 ID 的 SearchResult
 	out, err := idx.Search(searchCtx, query, topK)
 	searchCancel()
@@ -1332,8 +1339,9 @@ func (vs *VectorStore) ListCollections() ([]CollectionInfo, error) {
 
 // SearchWithThreshold finds the topK most similar vectors to the query,
 // but only returns results with a cosine similarity score >= minScore.
-func (vs *VectorStore) SearchWithThreshold(collection string, query []float64, topK int, minScore float64) ([]SearchResult, error) {
-	all, err := vs.Search(collection, query, topK)
+// ctx 用于传播取消信号
+func (vs *VectorStore) SearchWithThreshold(ctx context.Context, collection string, query []float64, topK int, minScore float64) ([]SearchResult, error) {
+	all, err := vs.Search(ctx, collection, query, topK)
 	if err != nil {
 		return nil, err
 	}

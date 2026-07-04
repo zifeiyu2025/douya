@@ -23,6 +23,45 @@
   --accent-think: #16a34a;
   --accent-think-glow: #22c55e;
 
+  /* 语义色变量集（附件标签/状态色专用，每色系三档：primary/soft/strong） */
+  /* 红色语义色（danger/error/PDF 附件） */
+  --accent-r-primary: #cf222e;
+  --accent-r-soft: rgba(207, 34, 46, 0.12);
+  --accent-r-strong: #a40e26;
+
+  /* 黄色语义色（warning/LoRA warning） */
+  --accent-y-primary: #d4a72c;
+  --accent-y-soft: rgba(212, 167, 44, 0.15);
+  --accent-y-strong: #9a6700;
+
+  /* 紫色语义色（audio 附件） */
+  --accent-p-primary: #8250df;
+  --accent-p-soft: rgba(130, 80, 223, 0.12);
+  --accent-p-strong: #6f42c1;
+
+  /* 绿色语义色（success/video 附件，与 --accent-success 协调） */
+  --accent-g-primary: #1f883d;
+  --accent-g-soft: rgba(31, 136, 61, 0.12);
+  --accent-g-strong: #1a7f37;
+
+  /* 灰色语义色（file 附件/中性） */
+  --accent-n-primary: #656d76;
+  --accent-n-soft: rgba(101, 109, 118, 0.12);
+  --accent-n-strong: #3b4147;
+
+  /* 语义色别名（供组件 var(--warning-color) 等引用，与上方语义色变量保持一致） */
+  --warning-color: var(--accent-y-primary);
+  --error-color: var(--accent-r-primary);
+  --success-color: var(--accent-g-primary);
+
+  /* 亮色 .has-background 模式专用（毛玻璃白底） */
+  --bg-glass-primary: rgba(255, 255, 255, 0.72);
+  --bg-glass-secondary: rgba(255, 255, 255, 0.55);
+  --bg-glass-tertiary: rgba(255, 255, 255, 0.40);
+  --bg-glass-hover: rgba(255, 255, 255, 0.65);
+  --bg-glass-active: rgba(255, 255, 255, 0.50);
+  --text-shadow-glass: 0 1px 2px rgba(255, 255, 255, 0.6);
+
   /* 背景色系 - canvas/subtle/muted 三层（柔和米白调，降低刺眼感） */
   --bg-primary: #fbfbfc;
   --bg-secondary: #f3f4f7;
@@ -51,6 +90,12 @@
   --border-radius-md: 12px;
   --border-radius-lg: 16px;
   --border-radius-xl: 20px;
+
+  /* 次级表面（中性半透明灰，用于代码块 header/行内代码/hover/滚动条等次要表面） */
+  --surface-subtle: rgba(0, 0, 0, 0.04);
+  --surface-subtle-hover: rgba(0, 0, 0, 0.08);
+  --surface-border-subtle: rgba(0, 0, 0, 0.06);
+  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
 
   --shadow-sm: 0 1px 0 rgba(31, 35, 40, 0.04);
   --shadow-md: 0 3px 6px rgba(140, 149, 159, 0.15);
@@ -86,6 +131,45 @@ html.dark {
   --accent-think: #3fb950;
   --accent-think-glow: #56d364;
 
+  /* 语义色变量集（附件标签/状态色专用，每色系三档：primary/soft/strong） */
+  /* 红色语义色 */
+  --accent-r-primary: #f85149;
+  --accent-r-soft: rgba(248, 81, 73, 0.15);
+  --accent-r-strong: #da3633;
+
+  /* 黄色语义色 */
+  --accent-y-primary: #d29922;
+  --accent-y-soft: rgba(210, 153, 34, 0.15);
+  --accent-y-strong: #e3b341;
+
+  /* 紫色语义色 */
+  --accent-p-primary: #a371f7;
+  --accent-p-soft: rgba(163, 113, 247, 0.15);
+  --accent-p-strong: #bc8cff;
+
+  /* 绿色语义色 */
+  --accent-g-primary: #3fb950;
+  --accent-g-soft: rgba(63, 185, 80, 0.15);
+  --accent-g-strong: #46d369;
+
+  /* 灰色语义色 */
+  --accent-n-primary: #8b949e;
+  --accent-n-soft: rgba(139, 148, 158, 0.15);
+  --accent-n-strong: #c9d1d9;
+
+  /* 语义色别名（供组件 var(--warning-color) 等引用，与上方语义色变量保持一致） */
+  --warning-color: var(--accent-y-primary);
+  --error-color: var(--accent-r-primary);
+  --success-color: var(--accent-g-primary);
+
+  /* 深色 .has-background 模式专用（毛玻璃黑底） */
+  --bg-glass-primary: rgba(13, 17, 23, 0.72);
+  --bg-glass-secondary: rgba(13, 17, 23, 0.55);
+  --bg-glass-tertiary: rgba(13, 17, 23, 0.40);
+  --bg-glass-hover: rgba(22, 27, 34, 0.65);
+  --bg-glass-active: rgba(22, 27, 34, 0.50);
+  --text-shadow-glass: 0 1px 3px rgba(0, 0, 0, 0.7);
+
   /* 背景色系 - GitHub dark_high_contrast canvas/subtle/muted（接近纯黑） */
   /* 交互区域（聊天区、侧边栏、输入框）用纯黑 #000000，次级元素保持层次 */
   --bg-primary: #000000;
@@ -111,6 +195,12 @@ html.dark {
   --border-color: #30363d;
   --border-light: #161b22;
 
+  /* 次级表面（深色版：白色半透明，用于代码块 header/行内代码/hover/滚动条等次要表面） */
+  --surface-subtle: rgba(255, 255, 255, 0.05);
+  --surface-subtle-hover: rgba(255, 255, 255, 0.1);
+  --surface-border-subtle: rgba(255, 255, 255, 0.08);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.15);
+
   --shadow-sm: 0 0 transparent;
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.9);
   --shadow-lg: 0 16px 32px rgba(0, 0, 0, 0.95);
@@ -129,28 +219,6 @@ html.dark {
   --code-attribute: #9CDCFE;
   --code-regexp: #D16969;
   --code-tag: #569CD6;
-}
-
-/* ========================================
- * 工具类（utility classes）
- * 消除 .has-background 等场景下散落的玻璃样式
- * ======================================== */
-@layer components {
-  .glass {
-    background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
-    backdrop-filter: blur(16px) saturate(180%);
-    -webkit-backdrop-filter: blur(16px) saturate(180%);
-  }
-  .glass-soft {
-    background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-  }
-  .glass-dark {
-    background: color-mix(in srgb, var(--bg-primary) 74%, transparent);
-    backdrop-filter: blur(20px) saturate(180%);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
-  }
 }
 
 /* ========================================
@@ -319,10 +387,17 @@ html, body, #app {
   background-position: center;
   background-repeat: no-repeat;
   background-attachment: fixed;
+  /* 背景图透明度：用户可控，默认 0.9 让背景图充分可见
+   * 文字可读性由 .has-background 的 text-shadow 和组件半透明底色共同保证 */
   opacity: var(--chat-background-opacity, 0.9);
   z-index: 0;
   pointer-events: none;
   transition: opacity 0.4s ease;
+}
+
+/* 深色版背景图层：与亮色同 opacity，由用户统一控制 */
+html.dark .app-layout::before {
+  opacity: var(--chat-background-opacity, 0.9);
 }
 
 .sidebar {
@@ -391,7 +466,7 @@ html, body, #app {
 .conversation-item {
   padding: 12px 16px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -462,50 +537,71 @@ html, body, #app {
   z-index: 1;
 }
 
-/* ===== 全界面背景覆盖：毛玻璃系统 ===== */
+/* ===== .has-background 三层透明度体系（VSCode 背景插件效果）=====
+ * 背景图充满窗口，所有组件半透明浮于其上，形成层次感
+ * 不用 backdrop-filter（用户要求），只用 color-mix 半透明
+ *
+ * 层次定义：
+ * - 背景图层（z-index: 0）：.app-layout::before 充满窗口，opacity 由用户控制
+ * - 结构层（z-index: 1，70% 透明度）：sidebar/header/input 半透明，让背景透出
+ * - 内容层（z-index: 1，完全透明）：列表/容器透明，背景图充分可见
+ * - 气泡/卡片层（z-index: 2，80% 透明度）：气泡/代码块/卡片半透明浮起
+ */
 
-/* 深色模式用黑色阴影 */
+/* ===== 文字阴影（可读性增强）===== */
+.has-background {
+  text-shadow: var(--text-shadow-glass);
+}
+
 .dark.has-background {
   text-shadow: 0 0 1px rgba(0, 0, 0, 0.7), 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
+/* ===== 结构层（70% 透明度）===== */
 .has-background .main-area {
   background: transparent;
 }
 
-/* 主头部 — 轻底色形成层次感，轻度模糊 */
-.has-background .main-header {
-  background: color-mix(in srgb, var(--bg-primary) 25%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  border-bottom-color: color-mix(in srgb, var(--border-color) 55%, transparent);
-}
-
-/* 服务状态标签 */
-.has-background .server-status {
-  background: color-mix(in srgb, var(--bg-secondary) 25%, transparent);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  border-color: color-mix(in srgb, var(--border-color) 45%, transparent);
-}
-
-/* 侧边栏主体 — 轻底色，比头部略通透 */
 .has-background .sidebar {
-  background: color-mix(in srgb, var(--bg-sidebar) 20%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  border-right-color: color-mix(in srgb, var(--border-color) 50%, transparent);
+  background: color-mix(in srgb, var(--bg-sidebar) 70%, transparent);
+  border-right-color: color-mix(in srgb, var(--border-color) 60%, transparent);
 }
 
-/* 侧边栏子区域 — 完全透明，靠父级毛玻璃覆盖 */
+.has-background .main-header {
+  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--border-color) 60%, transparent);
+}
+
+.has-background .server-status {
+  background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+  border-color: color-mix(in srgb, var(--border-color) 50%, transparent);
+}
+
+.has-background .chat-input-container {
+  background: color-mix(in srgb, var(--bg-input) 70%, transparent) !important;
+}
+
+.has-background .scroll-to-bottom-btn {
+  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
+}
+
+.has-background .ctx-menu,
+.has-background .attach-menu {
+  background: color-mix(in srgb, var(--bg-primary) 85%, transparent);
+}
+
+.has-background .attachment-preview-item {
+  background: color-mix(in srgb, var(--bg-secondary) 80%, transparent);
+}
+
+/* ===== 内容层（完全透明）===== */
 .has-background .sidebar-header,
 .has-background .sidebar-search,
 .has-background .sidebar-footer {
   background: transparent;
-  border-color: color-mix(in srgb, var(--border-color) 45%, transparent);
+  border-color: color-mix(in srgb, var(--border-color) 50%, transparent);
 }
 
-/* 对话列表 — 透明底，hover/active 浮起毛玻璃 */
 .has-background .conversation-list {
   background: transparent;
 }
@@ -513,201 +609,173 @@ html, body, #app {
 .has-background .conversation-item {
   background: transparent;
   border-bottom-color: color-mix(in srgb, var(--border-color) 35%, transparent);
-  transition: background 0.2s ease, backdrop-filter 0.2s ease;
+  transition: background 0.2s ease;
 }
 
 .has-background .conversation-item:hover {
-  background: color-mix(in srgb, var(--bg-hover) 15%, transparent);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
 }
 
-/* active 保留稍高底色标识选中状态 */
 .has-background .conversation-item.active {
-  background: color-mix(in srgb, var(--bg-active) 22%, transparent);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: color-mix(in srgb, var(--bg-active) 70%, transparent);
 }
 
-/* 对话头像 — 背景图模式下保持辨识度 */
-.has-background .conversation-avatar {
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
-}
-
-/* 消息列表和容器 — 保持透明让背景透出 */
 .has-background .chat-container,
 .has-background .message-list {
   background: transparent;
 }
 
-/* 消息气泡 — 轻底色+轻模糊，文字阴影由全局 .has-background 统一处理 */
-/* 用三层 class 选择器(特异性0,0,3,0)覆盖组件 scoped 样式(0,0,2,0) */
-.has-background .message-item .ai-bubble,
-.has-background .message-item .user-bubble {
-  background: color-mix(in srgb, var(--bg-ai-msg) 22%, transparent);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  border-color: color-mix(in srgb, var(--border-color) 30%, transparent);
-}
-
-/* 暗色模式 + 背景图：气泡与亮色同梯度 */
-.dark .has-background .message-item .ai-bubble,
-.dark .has-background .message-item .user-bubble {
-  background: color-mix(in srgb, var(--bg-ai-msg) 35%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
-
-/* 暗色代码块 — 与亮色同梯度 */
-.dark .has-background .hljs {
-  background: color-mix(in srgb, var(--bg-code) 55%, transparent) !important;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.dark .has-background .markdown-body pre {
-  background: color-mix(in srgb, var(--bg-code) 52%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.dark .has-background .markdown-body pre .code-header {
-  background: color-mix(in srgb, var(--bg-code) 62%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-/* 暗色输入框容器 — 与亮色同梯度 */
-.dark .has-background .chat-input-container {
-  background: color-mix(in srgb, var(--bg-secondary) 28%, transparent) !important;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
-
-/* 回到底部按钮 — 半透明毛玻璃 */
-.app-layout.has-background .scroll-to-bottom-btn {
-  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-/* 上下文菜单 / 附件菜单 — 半透明毛玻璃（菜单需保证可读，比例略高） */
-.app-layout.has-background .ctx-menu,
-.app-layout.has-background .attach-menu {
-  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-/* 附件预览项 — 半透明 */
-.app-layout.has-background .attachment-preview-item {
+/* 用 .app-layout.has-background 提升特异性（0,3,0），覆盖组件 scoped 实色背景 */
+.app-layout.has-background .knowledge-container {
   background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  border-radius: 12px;
 }
 
-/* 代码块 — 亮色模式：通透+层次感，去除 blur 避免白雾，靠边框+阴影浮起 */
-/* 覆盖 .hljs 的 !important 需用 !important */
+.app-layout.has-background .settings-container {
+  background: color-mix(in srgb, var(--bg-primary) 60%, transparent);
+  border-radius: 12px;
+}
+
+.app-layout.has-background .knowledge-header,
+.app-layout.has-background .settings-header {
+  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
+}
+
+/* ===== 气泡/卡片层（80% 透明度）===== */
 .has-background .hljs {
-  background: color-mix(in srgb, var(--bg-code) 22%, transparent) !important;
+  background: color-mix(in srgb, var(--bg-code) 80%, transparent) !important;
 }
 
 .has-background .markdown-body pre {
-  background: color-mix(in srgb, var(--bg-code) 20%, transparent);
-  /* 边框+阴影让代码块从背景图中"浮"起，不靠厚底色也不靠 blur */
+  background: color-mix(in srgb, var(--bg-code) 80%, transparent);
   border: 1px solid color-mix(in srgb, var(--border-color) 50%, transparent);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
 }
 
-/* 代码块头部（语言标签+复制按钮栏）— 略实于代码体形成工具栏层次 */
 .has-background .markdown-body pre .code-header {
-  background: color-mix(in srgb, var(--bg-code) 32%, transparent);
+  background: color-mix(in srgb, var(--bg-code) 90%, transparent);
   border-bottom-color: color-mix(in srgb, var(--border-color) 40%, transparent);
 }
 
-/* 思考块 — 亮色：轻底色+边框+阴影，与代码块同风格浮起 */
-/* 用三层 class 覆盖 ThinkBlock.vue 的 scoped 样式 */
 .has-background .message-item .think-block-content {
-  background: color-mix(in srgb, var(--bg-tertiary) 32%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent);
   border-color: color-mix(in srgb, var(--border-color) 45%, transparent);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
 }
 
-/* 思考中状态：保留能量渐变，但底色改为半透明 */
 .has-background .message-item .think-block.is-thinking .think-block-content {
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--accent-think) 7%, transparent) 0%,
-      color-mix(in srgb, var(--bg-tertiary) 32%, transparent) 55%
-    );
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent-think) 7%, transparent) 0%,
+    color-mix(in srgb, var(--bg-tertiary) 80%, transparent) 55%
+  );
   border-color: color-mix(in srgb, var(--accent-think) 38%, var(--border-color));
 }
 
-/* 思考块 — 深色：与亮色同梯度，文字阴影用黑色 */
-.dark .has-background .message-item .think-block-content {
-  background: color-mix(in srgb, var(--bg-tertiary) 32%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  border-color: color-mix(in srgb, var(--border-color) 45%, transparent);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+/* 用 .app-layout.has-background 提升特异性，覆盖组件 scoped 实色背景 */
+.app-layout.has-background .doc-icon-box {
+  background: color-mix(in srgb, var(--accent-p-soft) 80%, transparent);
 }
 
-.dark .has-background .message-item .think-block.is-thinking .think-block-content {
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--accent-think) 7%, transparent) 0%,
-      color-mix(in srgb, var(--bg-tertiary) 32%, transparent) 55%
-    );
-  border-color: color-mix(in srgb, var(--accent-think) 38%, var(--border-color));
+.app-layout.has-background .kb-count {
+  background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent);
 }
 
-/* 侧边栏底部按钮在毛玻璃上的hover */
+.app-layout.has-background .embedding-help {
+  background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color) 35%, transparent);
+}
+
+.app-layout.has-background .recommend-tag {
+  background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
+  border-color: color-mix(in srgb, var(--border-color) 50%, transparent);
+}
+
+.app-layout.has-background .model-ref-card {
+  background: color-mix(in srgb, var(--bg-secondary) 80%, transparent);
+}
+
+.app-layout.has-background .model-ref-header {
+  background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
+}
+
+/* ===== 对话头像保持辨识度 ===== */
+.has-background .conversation-avatar {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+
+/* ===== 侧边栏底部按钮 hover ===== */
 .has-background .sidebar-footer .footer-btn:hover {
-  background: color-mix(in srgb, var(--bg-hover) 15%, transparent);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
 }
 
-/* ===== 暗色模式 + 背景图：与亮色同梯度通透，文字阴影用黑色增强 ===== */
-
-.dark .has-background .main-header {
-  background: color-mix(in srgb, var(--bg-primary) 22%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+/* ===== 设置/知识库界面 hover 半透明（覆盖 scoped 实色 hover）===== */
+.app-layout.has-background .back-btn:hover {
+  background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
 }
 
-.dark .has-background .sidebar {
-  background: color-mix(in srgb, var(--bg-sidebar) 20%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+.app-layout.has-background .back-btn:active {
+  background: color-mix(in srgb, var(--bg-active) 70%, transparent);
 }
 
-.dark .has-background .server-status {
-  background: color-mix(in srgb, var(--bg-secondary) 22%, transparent);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+.app-layout.has-background .doc-item:hover {
+  background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
 }
 
-.dark .has-background .conversation-item:hover {
-  background: color-mix(in srgb, var(--bg-hover) 15%, transparent);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+.app-layout.has-background .settings-content .n-collapse-item__header:hover {
+  background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
 }
 
-.dark .has-background .conversation-item.active {
-  background: color-mix(in srgb, var(--bg-active) 22%, transparent);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+.app-layout.has-background .recommend-tag:hover {
+  background: color-mix(in srgb, var(--accent-primary) 80%, transparent);
 }
 
-.dark .has-background .sidebar-footer .footer-btn:hover {
-  background: color-mix(in srgb, var(--bg-hover) 15%, transparent);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+/* ===== 次要文字/按钮：背景图模式下用 text-shadow 提升对比度 =====
+ * 原则：保持透明底色（不用半透明背景块），让背景图穿透
+ * - 气泡操作按钮（复制/重新生成/删除）：透明底 + 字体色
+ * - 输入框上方 token 信息：透明底 + 字体色
+ * - 输入框下方提示文字：透明底 + 字体色
+ *
+ * 双层光晕策略（VSCode 背景插件标准做法）：
+ * 1. 描边层（0 blur）：与文字主色相反的颜色，1px 紧贴描边
+ * 2. 光晕层（2-4px blur）：更大范围的柔和光晕
+ * 无论背景图是深是浅，文字都能清晰可读
+ */
+.has-background .msg-actions .action-btn,
+.has-background .msg-actions .token-speed,
+.has-background .token-info,
+.has-background .input-footer-reminder,
+.has-background .token-info .compress-btn {
+  /* 亮色主题：深色文字 → 白色描边 + 白色光晕 */
+  color: var(--text-secondary);
+  text-shadow:
+    0 0 1px rgba(255, 255, 255, 0.95),
+    0 0 3px rgba(255, 255, 255, 0.75),
+    0 1px 4px rgba(255, 255, 255, 0.55);
+}
+
+/* 深色主题：浅色文字 → 黑色描边 + 黑色光晕 */
+.dark.has-background .msg-actions .action-btn,
+.dark.has-background .msg-actions .token-speed,
+.dark.has-background .token-info,
+.dark.has-background .input-footer-reminder,
+.dark.has-background .token-info .compress-btn {
+  color: var(--text-secondary);
+  text-shadow:
+    0 0 1px rgba(0, 0, 0, 0.95),
+    0 0 3px rgba(0, 0, 0, 0.75),
+    0 1px 4px rgba(0, 0, 0, 0.55);
+}
+
+/* 背景图模式下操作按钮 hover 背景：用 currentColor 半透明，自动适配主题 */
+.has-background .msg-actions .action-btn:hover {
+  background: color-mix(in srgb, var(--text-primary) 12%, transparent);
+}
+
+/* token 计数条在背景图模式下保持可见性（进度条容器透明，填充色保留） */
+.has-background .token-info .token-bar,
+.has-background .token-info .prompt-bar {
+  background: color-mix(in srgb, var(--text-muted) 25%, transparent);
 }
 
 .main-header {
@@ -866,20 +934,12 @@ html, body, #app {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
+  background: var(--scrollbar-thumb);
   border-radius: 4px;
   transition: background var(--transition-fast);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--accent-primary) 50%, transparent);
-}
-
-.dark ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-}
-
-.dark ::-webkit-scrollbar-thumb:hover {
   background: color-mix(in srgb, var(--accent-primary) 50%, transparent);
 }
 
@@ -999,15 +1059,10 @@ html, body, #app {
     position: relative;
 }
 
-/* AI 气泡不限制宽度：流式渲染完毕后内容应撑满可用空间，
-   不受 .message-bubble 的 85% 全局限制（scoped 样式可能被全局覆盖） */
-.ai-bubble {
-    max-width: 100%;
-    background: var(--bg-ai-msg);
-    color: var(--text-ai-msg);
-    border-radius: var(--border-radius-lg);
-    box-shadow: var(--shadow-sm);
-}
+/* AI 气泡样式已迁移到 MessageItem.vue scoped 样式
+ * （.ai-bubble[data-v-xxx] 特异性 0,2,0，覆盖全局 .message-bubble 的 0,1,0）
+ * 此处保留 .message-bubble 基础规则供 MessageList.vue 流式气泡使用
+ */
 
 .markdown-body p {
     margin: 0 0 8px 0;
@@ -1075,8 +1130,8 @@ html, body, #app {
   justify-content: space-between;
   align-items: center;
   padding: 10px 16px;
-  background: rgba(0, 0, 0, 0.04);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--surface-border-subtle);
   font-size: 12.5px;
 }
 
@@ -1093,11 +1148,11 @@ html, body, #app {
   font-size: 12.5px;
   padding: 4px 10px;
   border-radius: 8px;
-  transition: all var(--transition-fast);
+  transition: background-color var(--transition-fast), color var(--transition-fast);
 }
 
 .markdown-body pre .code-copy-btn:hover {
-  background: rgba(0, 0, 0, 0.08);
+  background: var(--surface-subtle-hover);
   color: var(--text-primary);
 }
 
@@ -1116,7 +1171,7 @@ html, body, #app {
 }
 
 .markdown-body :not(pre) > code {
-    background: rgba(0, 0, 0, 0.06);
+    background: var(--surface-subtle);
     padding: 2px 6px;
     border-radius: 4px;
     font-size: 0.85em;
@@ -1165,19 +1220,6 @@ html, body, #app {
     border-bottom-color: var(--link-dark);
 }
 
-.dark .markdown-body :not(pre) > code {
-    background: rgba(255, 255, 255, 0.1);
-}
-
-.dark .markdown-body pre .code-header {
-    background: rgba(255, 255, 255, 0.05);
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-}
-
-.dark .markdown-body pre .code-copy-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-}
-
 /* 右键菜单样式 - 完全使用主题变量，配合 Naive UI 主题系统 */
 .n-dropdown-menu {
   border-radius: var(--border-radius-lg) !important;
@@ -1187,8 +1229,6 @@ html, body, #app {
   min-width: 180px !important;
   max-width: 240px !important;
   width: auto !important;
-  backdrop-filter: blur(16px) !important;
-  -webkit-backdrop-filter: blur(16px) !important;
   box-shadow: var(--shadow-lg) !important;
   background: color-mix(in srgb, var(--bg-tertiary) 85%, transparent) !important;
   color: var(--text-primary) !important;
@@ -1203,15 +1243,11 @@ html, body, #app {
 
 /* 背景图模式下进一步增强毛玻璃效果 */
 .has-background .n-dropdown-menu {
-  background: color-mix(in srgb, var(--bg-tertiary) 65%, transparent) !important;
-  backdrop-filter: blur(16px) !important;
-  -webkit-backdrop-filter: blur(16px) !important;
+  background: color-mix(in srgb, var(--bg-tertiary) 85%, transparent) !important;
 }
 
 .dark.has-background .n-dropdown-menu {
-  background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent) !important;
-  backdrop-filter: blur(22px) !important;
-  -webkit-backdrop-filter: blur(22px) !important;
+  background: color-mix(in srgb, var(--bg-tertiary) 85%, transparent) !important;
 }
 
 @keyframes menuFadeIn {
@@ -1229,7 +1265,7 @@ html, body, #app {
   border-radius: var(--border-radius-md) !important;
   margin: 2px 4px !important;
   padding: 10px 14px !important;
-  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.18s cubic-bezier(0.4, 0, 0.2, 1), color 0.18s cubic-bezier(0.4, 0, 0.2, 1) !important;
   cursor: pointer;
   color: var(--text-primary) !important;
 }
@@ -1265,7 +1301,7 @@ html, body, #app {
 .menu-icon {
   color: var(--text-secondary) !important;
   flex-shrink: 0;
-  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: color 0.18s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.18s cubic-bezier(0.4, 0, 0.2, 1), transform 0.18s cubic-bezier(0.4, 0, 0.2, 1);
   opacity: 0.8;
 }
 
@@ -1294,11 +1330,7 @@ html, body, #app {
 }
 
 .n-dropdown-option:hover:has(.context-menu-item.danger) {
-  background: rgba(250, 81, 81, 0.15) !important;
-}
-
-.dark .n-dropdown-option:hover:has(.context-menu-item.danger) {
-  background: rgba(255, 107, 107, 0.25) !important;
+  background: var(--accent-r-soft) !important;
 }
 
 .n-dropdown-divider {
@@ -1327,102 +1359,14 @@ html, body, #app {
   letter-spacing: -0.2px;
 }
 
-/* ===== 知识库界面背景图样式 */
-/* 用 .app-layout.has-background 提升特异性，覆盖组件 scoped 实色背景 */
-.app-layout.has-background .knowledge-container {
-  background: color-mix(in srgb, var(--bg-primary) 50%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border-radius: 12px;
-}
+/* ===== 知识库界面背景图样式 =====
+ * 已由第 540-708 行的三层透明度体系统一处理
+ * 此处保留空注释占位，避免误删其他规则
+ */
 
-.app-layout.has-background .knowledge-header {
-  background: color-mix(in srgb, var(--bg-primary) 50%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.has-background .doc-icon-box {
-  background: color-mix(in srgb, var(--bg-primary) 60%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
-
-/* 深色模式下知识库界面 — 与亮色同梯度 */
-.dark .has-background .knowledge-container {
-  background: color-mix(in srgb, var(--bg-primary) 50%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.dark .has-background .knowledge-header {
-  background: color-mix(in srgb, var(--bg-primary) 50%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.dark .has-background .doc-icon-box {
-  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
-
-/* 知识库界面其他实色子元素 — 亮色同梯度透明（去除 blur 避免亮色白雾） */
-.has-background .kb-count {
-  background: color-mix(in srgb, var(--bg-tertiary) 40%, transparent);
-}
-
-.has-background .embedding-help {
-  background: color-mix(in srgb, var(--bg-tertiary) 32%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border-color) 35%, transparent);
-}
-
-.has-background .recommend-tag {
-  background: color-mix(in srgb, var(--bg-primary) 50%, transparent);
-  border-color: color-mix(in srgb, var(--border-color) 50%, transparent);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-}
-
-/* 知识库界面其他实色子元素 — 深色同梯度 */
-.dark .has-background .kb-count {
-  background: color-mix(in srgb, var(--bg-tertiary) 45%, transparent);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-}
-
-.dark .has-background .embedding-help {
-  background: color-mix(in srgb, var(--bg-tertiary) 38%, transparent);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-}
-
-.dark .has-background .recommend-tag {
-  background: color-mix(in srgb, var(--bg-primary) 50%, transparent);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-}
-
-/* ===== 设置界面背景图样式 ===== */
-/* 用 .app-layout.has-background 提升特异性，覆盖组件 scoped 实色背景 */
-.app-layout.has-background .settings-container {
-  background: color-mix(in srgb, var(--bg-primary) 50%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border-radius: 12px;
-}
-
-.app-layout.has-background .settings-header {
-  background: color-mix(in srgb, var(--bg-primary) 50%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.has-background .model-ref-card {
-  background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
+/* ===== 设置界面背景图样式 =====
+ * 已由第 540-708 行的三层透明度体系统一处理
+ */
 
 /* ===== 设置界面 & 知识库界面 naive-ui 控件透明规则 ===== */
 /* 背景图模式下让 n-input、n-select、n-collapse 等控件通透，无 blur 避免亮色白雾 */
@@ -1444,8 +1388,8 @@ html, body, #app {
 .app-layout.has-background .settings-content .n-base-selection,
 .app-layout.has-background .knowledge-body .n-input,
 .app-layout.has-background .knowledge-body .n-base-selection {
-  background: color-mix(in srgb, var(--bg-primary) 30%, transparent) !important;
-  border-color: color-mix(in srgb, var(--border-color) 55%, transparent) !important;
+  background: color-mix(in srgb, var(--bg-primary) 80%, transparent) !important;
+  border-color: var(--border-color) !important;
 }
 
 /* 数字输入框、n-input-number 容器 */
@@ -1453,7 +1397,7 @@ html, body, #app {
 .app-layout.has-background .settings-content .n-input-number .n-input,
 .app-layout.has-background .knowledge-body .n-input-number,
 .app-layout.has-background .knowledge-body .n-input-number .n-input {
-  background: color-mix(in srgb, var(--bg-primary) 30%, transparent) !important;
+  background: color-mix(in srgb, var(--bg-primary) 80%, transparent) !important;
 }
 
 /* 折叠面板 — 透明底，仅保留分割线 */
@@ -1464,33 +1408,31 @@ html, body, #app {
 
 /* 折叠面板头部 — 轻底色形成可识别的栏 */
 .app-layout.has-background .settings-content .n-collapse-item__header {
-  background: color-mix(in srgb, var(--bg-primary) 18%, transparent) !important;
+  background: color-mix(in srgb, var(--bg-primary) 80%, transparent) !important;
 }
 
 /* 切换按钮轨道（n-switch）— 关闭状态：半透明灰；开启状态：保留绿色区分 */
 .app-layout.has-background .settings-content .n-switch:not(.n-switch--active) .n-switch__rail,
 .app-layout.has-background .knowledge-body .n-switch:not(.n-switch--active) .n-switch__rail {
-  background: color-mix(in srgb, var(--bg-tertiary) 60%, transparent) !important;
+  background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent) !important;
 }
 
 /* 设置界面 help-tip-icon — 透明（小图标，无需底色） */
 .app-layout.has-background .settings-content .help-tip-icon,
 .app-layout.has-background .knowledge-body .help-tip-icon {
-  background: color-mix(in srgb, var(--bg-tertiary) 40%, transparent);
+  background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent);
 }
 
 /* 滑块轨道（n-slider）— 半透明 */
 .app-layout.has-background .settings-content .n-slider__rail,
 .app-layout.has-background .knowledge-body .n-slider__rail {
-  background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent) !important;
+  background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent) !important;
 }
 
 /* 标签输入框、n-tag、n-dynamic-tags — 半透明 */
 .app-layout.has-background .settings-content .n-tag,
 .app-layout.has-background .knowledge-body .n-tag {
-  background: color-mix(in srgb, var(--bg-tertiary) 45%, transparent) !important;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent) !important;
 }
 
 /* ========================================
@@ -1533,8 +1475,6 @@ html, body, #app {
 /* 删除对话确认框 - 与右键菜单同款透明度和圆角 */
 .n-modal {
   background: color-mix(in srgb, var(--bg-tertiary) 85%, transparent) !important;
-  backdrop-filter: blur(16px) !important;
-  -webkit-backdrop-filter: blur(16px) !important;
   border: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent) !important;
   border-radius: var(--border-radius-lg) !important;
   box-shadow: var(--shadow-lg) !important;
@@ -1548,49 +1488,21 @@ html, body, #app {
   border-color: color-mix(in srgb, var(--border-color) 55%, transparent) !important;
 }
 
-/* 背景图模式下增强毛玻璃效果（与右键菜单一致） */
+/* 背景图模式下模态框半透明（与三层透明度体系一致） */
 .has-background .n-modal {
-  background: color-mix(in srgb, var(--bg-tertiary) 65%, transparent) !important;
-  backdrop-filter: blur(16px) !important;
-  -webkit-backdrop-filter: blur(16px) !important;
+  background: color-mix(in srgb, var(--bg-tertiary) 85%, transparent) !important;
 }
 
 .dark.has-background .n-modal {
-  background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent) !important;
-  backdrop-filter: blur(22px) !important;
-  -webkit-backdrop-filter: blur(22px) !important;
+  background: color-mix(in srgb, var(--bg-tertiary) 85%, transparent) !important;
 }
 
 .has-background .model-ref-header {
-  background: color-mix(in srgb, var(--bg-tertiary, var(--bg-primary)) 85%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
 }
 
-/* 深色模式下设置界面 — 与亮色同梯度 */
-.dark .has-background .settings-container {
-  background: color-mix(in srgb, var(--bg-primary) 50%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
+/* 深色模式下设置界面 — 已由第 540-708 行三层透明度体系统一处理 */
 
-.dark .has-background .settings-header {
-  background: color-mix(in srgb, var(--bg-primary) 50%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.dark .has-background .model-ref-card {
-  background: color-mix(in srgb, var(--bg-secondary) 55%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
-
-.dark .has-background .model-ref-header {
-  background: color-mix(in srgb, var(--bg-tertiary, var(--bg-primary)) 78%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
 
 /* ========================================
  * 科幻风格消息提示（覆盖 NaiveUI message 默认样式）
@@ -1598,15 +1510,12 @@ html, body, #app {
  * 性能原则：仅入场动画，静态状态零动画成本；transform/opacity 走 GPU 合成层
  * ======================================== */
 
-/* 1. 消息容器基础样式：轻量玻璃态 + 单层发光边框 */
+/* 1. 消息容器基础样式：发光边框 + 圆角
+ * Task 2：颜色（背景/边框色）已由 useThemeOverrides.ts 的 Message.color 提供，
+ *   此处仅保留圆角、阴影、布局、动画等非颜色定制。
+ */
 .n-message {
-  /* 轻量玻璃态背景：blur(8px) 平衡视觉与性能 */
-  background: color-mix(in srgb, var(--bg-primary) 82%, transparent) !important;
-  backdrop-filter: blur(8px) saturate(150%);
-  -webkit-backdrop-filter: blur(8px) saturate(150%);
-
-  /* 单层发光边框 + 圆角（合并 box-shadow，减少层数） */
-  border: 1px solid color-mix(in srgb, var(--accent-primary) 30%, transparent) !important;
+  /* 圆角 + 发光阴影（非颜色定制，保留 !important 覆盖 Naive UI 默认值） */
   border-radius: 10px !important;
   box-shadow:
     0 6px 20px -6px rgba(0, 0, 0, 0.35),
@@ -1662,10 +1571,13 @@ html, body, #app {
   pointer-events: none;
 }
 
-/* 4. 各类型颜色变量覆盖（仅改颜色，不重复 box-shadow 定义） */
+/* 4. 各类型颜色变量覆盖（仅改颜色，不重复 box-shadow 定义）
+ * Task 2：border-color !important 已移除，由 themeOverrides 的 Message 接管边框色。
+ *   --msg-accent 变量保留（供 ::after 色条和 ::before 扫描线使用）。
+ *   box-shadow 保留（阴影属非颜色定制，发光色条仍跟随 --msg-accent）。
+ */
 .n-message.n-message--success-type {
   --msg-accent: var(--accent-success);
-  border-color: color-mix(in srgb, var(--accent-success) 30%, transparent) !important;
   box-shadow:
     0 6px 20px -6px rgba(0, 0, 0, 0.35),
     0 0 12px -2px color-mix(in srgb, var(--accent-success) 35%, transparent) !important;
@@ -1673,7 +1585,6 @@ html, body, #app {
 
 .n-message.n-message--error-type {
   --msg-accent: var(--accent-danger);
-  border-color: color-mix(in srgb, var(--accent-danger) 30%, transparent) !important;
   box-shadow:
     0 6px 20px -6px rgba(0, 0, 0, 0.35),
     0 0 12px -2px color-mix(in srgb, var(--accent-danger) 35%, transparent) !important;
@@ -1681,7 +1592,6 @@ html, body, #app {
 
 .n-message.n-message--warning-type {
   --msg-accent: var(--accent-warning);
-  border-color: color-mix(in srgb, var(--accent-warning) 30%, transparent) !important;
   box-shadow:
     0 6px 20px -6px rgba(0, 0, 0, 0.35),
     0 0 12px -2px color-mix(in srgb, var(--accent-warning) 35%, transparent) !important;
@@ -1689,43 +1599,45 @@ html, body, #app {
 
 .n-message.n-message--info-type {
   --msg-accent: var(--link-light, #0969da);
-  border-color: color-mix(in srgb, var(--link-light, #0969da) 30%, transparent) !important;
   box-shadow:
     0 6px 20px -6px rgba(0, 0, 0, 0.35),
     0 0 12px -2px color-mix(in srgb, var(--link-light, #0969da) 35%, transparent) !important;
 }
 
-/* 5. 文字颜色微调，增强可读性 */
+/* 5. 文字字号微调，增强可读性
+ * Task 2：color !important 已移除，文字色由 themeOverrides 的 Message.textColor 接管。
+ *   font-size 保留（非颜色定制）。
+ */
 .n-message .n-message__content {
-  color: var(--text-primary) !important;
   font-size: 13px !important;
   letter-spacing: 0.2px;
 }
 
-/* 6. 图标样式：保留 NaiveUI 默认图标，颜色随类型变化（无 filter，性能更好） */
+/* 6. 图标样式：保留 NaiveUI 默认图标，颜色由 themeOverrides 接管（Task 2 移除 color !important） */
 .n-message .n-message__icon {
-  color: var(--msg-accent, var(--accent-primary)) !important;
+  /* color 由 Naive UI 根据 message type 自动着色（themeOverrides 已配置） */
 }
 
-/* 7. 关闭按钮（无 filter 发光，仅用 color 过渡） */
+/* 7. 关闭按钮（无 filter 发光，仅用 color 过渡）
+ * Task 2：color !important 已移除，由 themeOverrides 的 common.closeColor 接管。
+ *   transition 保留（非颜色定制）。
+ */
 .n-message .n-message__close {
-  color: var(--text-secondary) !important;
   transition: color 0.2s ease;
 }
 .n-message .n-message__close:hover {
-  color: var(--msg-accent, var(--accent-primary)) !important;
+  /* hover 色由 Naive UI 默认交互样式处理 */
 }
 
-/* 8. 深色模式微调 */
-html.dark .n-message {
-  background: color-mix(in srgb, var(--bg-tertiary) 78%, transparent) !important;
-  border-color: color-mix(in srgb, var(--accent-primary) 25%, transparent) !important;
-}
+/* 8. 深色模式微调
+ * Task 2：深色模式背景色和边框色已由 useThemeOverrides.ts 的 darkOverrides 提供
+ *   （Message.color = #0d1117，borderColor 由 common.borderColor = #30363d 接管）。
+ *   此处仅保留 info 类型的 --msg-accent 变量和发光阴影。
+ */
 
 /* 深色模式下 info 类型用 --link-dark 保持对比度 */
 html.dark .n-message.n-message--info-type {
   --msg-accent: var(--link-dark, #2f81f7);
-  border-color: color-mix(in srgb, var(--link-dark, #2f81f7) 30%, transparent) !important;
   box-shadow:
     0 6px 20px -6px rgba(0, 0, 0, 0.35),
     0 0 12px -2px color-mix(in srgb, var(--link-dark, #2f81f7) 35%, transparent) !important;

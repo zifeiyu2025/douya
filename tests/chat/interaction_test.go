@@ -1033,8 +1033,9 @@ func TestSendMessage_ToolCallSearchResultFormat(t *testing.T) {
 			if !strings.Contains(toolMsg.ContentString(), "<search_results>") {
 				t.Errorf("tool message should contain search results in XML format, got: %s", toolMsg.ContentString())
 			}
-			if !strings.Contains(toolMsg.ContentString(), "https://example.com") {
-				t.Errorf("tool message should contain 'https://example.com', got: %s", toolMsg.ContentString())
+			// URL 被有意移除：url 对回答内容无帮助，仅占 token（见 service_messages.go formatSearchResultsWithLang）
+			if strings.Contains(toolMsg.ContentString(), "https://example.com") {
+				t.Errorf("tool message should NOT contain URL (removed to save tokens), got: %s", toolMsg.ContentString())
 			}
 			if !strings.Contains(toolMsg.ContentString(), "搜索摘要") {
 				t.Errorf("tool message should contain '搜索摘要', got: %s", toolMsg.ContentString())

@@ -175,8 +175,6 @@ douya/
 │       └── utils/           # Markdown 渲染、UTF-8 修复、模型名格式化、轻量消毒
 ├── docs/
 │   └── external-tools-access.md  # 外部编程工具接入文档
-├── cmd/
-│   └── test_api/            # API 测试命令行工具
 ├── tests/                   # 测试用例（含 -race 竞态检测）
 │   ├── chat/                # 对话功能测试（功能、交互、质量、架构、注入保护等）
 │   ├── llm/                 # LLM 模块测试
@@ -302,18 +300,18 @@ Douya-vX.X.X/
 | `expose_server` | 暴露服务器地址（局域网访问） | `false` |
 | `mmproj_auto` | 自动检测 mmproj | `true` |
 | `mmproj_offload` | mmproj GPU 卸载 | `true` |
-| `sleep_idle_seconds` | 模型空闲休眠超时（秒） | `120` |
+| `sleep_idle_seconds` | 模型空闲休眠超时（秒，-1 禁用） | `-1` |
 | `models_max` | 最大并行模型数 | `1` |
 
 ### 生成参数
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
-| `temperature` | 生成温度（越高越随机） | `0.6` |
+| `temperature` | 生成温度（越高越随机） | `0.8` |
 | `top_p` | 核采样阈值 | `0.95` |
-| `top_k` | Top-K 采样 | `20` |
+| `top_k` | Top-K 采样 | `40` |
 | `min_p` | 最小概率阈值 | `0.05` |
-| `repeat_penalty` | 重复惩罚系数 | `1.1` |
+| `repeat_penalty` | 重复惩罚系数 | `1` |
 | `dry_multiplier` | DRY 采样器强度 | `0.0` |
 | `dry_base` | DRY 采样器基准 | `1.75` |
 | `dry_allowed_length` | DRY 允许的重复长度 | `2` |
@@ -322,7 +320,7 @@ Douya-vX.X.X/
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
-| `reasoning` | 推理模式（auto / on / off） | `"auto"` |
+| `reasoning` | 推理模式（auto / on / off） | `"off"` |
 | `reasoning_budget` | 推理 Token 预算 | `0` |
 | `reasoning_format` | 推理输出格式 | （空） |
 | `thinking_enabled` | 思考过程开关 | `true` |
@@ -332,11 +330,11 @@ Douya-vX.X.X/
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
 | `kv_unified` | 统一 KV Cache | `false` |
-| `kv_offload` | KV Cache GPU 卸载 | `false` |
+| `kv_offload` | KV Cache GPU 卸载 | `true` |
 | `cache_type_k` / `cache_type_v` | KV Cache 量化类型 | `"f16"` |
 | `spec_type` | 投机解码草稿模型类型 | （空） |
 | `spec_draft_n_max` | 草稿 Token 数量 | `0` |
-| `context_shift` | 上下文移位开关 | `true` |
+| `context_shift` | 上下文移位开关 | `false` |
 | `mmap` | 内存映射加载 | `true` |
 
 ### 搜索与 RAG
@@ -357,7 +355,7 @@ Douya-vX.X.X/
 | `system_prompt` | 自定义系统提示词 | （空） |
 | `system_prompt_mode` | 提示词模式（append / replace） | `"append"` |
 | `chat_background` | 聊天背景图片路径 | （空） |
-| `chat_background_opacity` | 背景图片透明度 | `0.1` |
+| `chat_background_opacity` | 背景图片透明度 | `0.9` |
 | `user_avatar` | 用户头像路径 | （空） |
 | `ai_avatar` | AI 头像路径 | （空） |
 
@@ -411,7 +409,7 @@ Douya-vX.X.X/
 
 ### Tool Call 支持检测
 
-基于 GGUF 元数据的 `chat_template_tool_use` 字段判断模型是否支持工具调用，替代传统的弱模型白名单判断。
+基于 `/props` 端点的 `chat_template_caps.supports_tools` 字段判断模型是否支持工具调用，替代传统的弱模型白名单判断。
 
 ### 会话异常恢复
 

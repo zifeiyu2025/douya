@@ -76,8 +76,13 @@ func GetConversation(db *sql.DB, id string, encKey []byte) (*Conversation, error
 	if err != nil {
 		return nil, fmt.Errorf("get conversation: %w", err)
 	}
-	// 解密标题
-	conv.Title = decryptField(conv.Title, encKey)
+	// 解密标题：失败时降级为占位符，保证会话仍可列出
+	decryptedTitle, decErr := decryptField(conv.Title, encKey)
+	if decErr != nil {
+		conv.Title = "[解密失败]"
+	} else {
+		conv.Title = decryptedTitle
+	}
 	if summary.Valid {
 		conv.Summary = summary.String
 	}
@@ -105,8 +110,13 @@ func ListConversations(db *sql.DB, encKey []byte) ([]*Conversation, error) {
 			if err := rows.Scan(&conv.ID, &conv.Title, &conv.CreatedAt, &conv.UpdatedAt); err != nil {
 				return fmt.Errorf("scan conversation: %w", err)
 			}
-			// 解密标题
-			conv.Title = decryptField(conv.Title, encKey)
+			// 解密标题：失败时降级为占位符
+			decryptedTitle, decErr := decryptField(conv.Title, encKey)
+			if decErr != nil {
+				conv.Title = "[解密失败]"
+			} else {
+				conv.Title = decryptedTitle
+			}
 			convs = append(convs, conv)
 		}
 		if err := rows.Err(); err != nil {
@@ -226,9 +236,15 @@ func FindAbnormalConversations(db *sql.DB, encKey []byte) ([]*AbnormalConversati
 			if err := rows.Scan(&id, &title); err != nil {
 				return fmt.Errorf("scan abnormal conversation: %w", err)
 			}
+			// 解密标题：失败时降级为占位符
+			decryptedTitle, decErr := decryptField(title, encKey)
+			displayTitle := decryptedTitle
+			if decErr != nil {
+				displayTitle = "[解密失败]"
+			}
 			abnormal = append(abnormal, &AbnormalConversation{
 				ID:     id,
-				Title:  decryptField(title, encKey),
+				Title:  displayTitle,
 				Reason: "no_user_messages",
 			})
 		}

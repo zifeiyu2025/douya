@@ -43,6 +43,15 @@ Thumbs.db
 *.md5
 focus_*.ps1
 
+# Temp / debug / patch files
+*.log
+*.tmp
+*.bak
+*.patch
+_*.py
+_*.go
+patch-*.ps1
+
 # Release artifacts
 *.zip
 security_best_practices_report.md

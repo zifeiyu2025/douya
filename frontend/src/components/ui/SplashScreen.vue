@@ -238,32 +238,17 @@ const stageText = computed(() => {
   color: var(--accent-primary);
   letter-spacing: 6px;
   padding-left: 6px;
-  /* 纯色 rgba 阴影，避免 color-mix 兼容性问题；使用 GitHub 蓝 */
-  text-shadow: 0 0 12px rgba(9, 105, 218, 0.4);
+  /* 阴影色从 --accent-primary 派生，自动跟随主题切换（亮/暗一套规则） */
+  text-shadow: 0 0 12px color-mix(in srgb, var(--accent-primary) 40%, transparent);
   animation: title-glow 2.5s ease-in-out infinite;
 }
 
 @keyframes title-glow {
   0%, 100% {
-    text-shadow: 0 0 12px rgba(9, 105, 218, 0.4);
+    text-shadow: 0 0 12px color-mix(in srgb, var(--accent-primary) 40%, transparent);
   }
   50% {
-    text-shadow: 0 0 20px rgba(9, 105, 218, 0.6);
-  }
-}
-
-/* 深色模式：使用深色 GitHub 蓝的 rgba 值 */
-:global(.dark) .splash-title {
-  text-shadow: 0 0 12px rgba(47, 129, 247, 0.4);
-  animation: title-glow-dark 2.5s ease-in-out infinite;
-}
-
-@keyframes title-glow-dark {
-  0%, 100% {
-    text-shadow: 0 0 12px rgba(47, 129, 247, 0.4);
-  }
-  50% {
-    text-shadow: 0 0 20px rgba(47, 129, 247, 0.6);
+    text-shadow: 0 0 20px color-mix(in srgb, var(--accent-primary) 60%, transparent);
   }
 }
 
@@ -313,7 +298,7 @@ const stageText = computed(() => {
 
 .status-model {
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--text-primary);
   max-width: 240px;
   white-space: nowrap;
   overflow: hidden;

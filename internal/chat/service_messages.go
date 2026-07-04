@@ -51,6 +51,52 @@ func formatSearchResultsWithLang(results []search.SearchResult, lang string) str
 	return sb.String()
 }
 
+// MergeSearchJSON 合并两个搜索结果 JSON 数组为一个数组。
+// 用于多 tool call 场景：当 LLM 一次返回多个 search tool call 时，每个 tool call 的搜索结果
+// 需要聚合到 LastSearchJSON，而非覆盖前一个。
+//
+// 安全降级：任一输入 JSON 无效时，返回另一个有效输入；两者都无效时返回空数组 "[]"。
+func MergeSearchJSON(existing, newResults string) string {
+	// 两者都为空，返回空数组
+	if existing == "" && newResults == "" {
+		return "[]"
+	}
+	// existing 为空，直接返回 new
+	if existing == "" {
+		return newResults
+	}
+	// new 为空，保持 existing 不变
+	if newResults == "" {
+		return existing
+	}
+
+	var existingResults []search.SearchResult
+	var newResultsArr []search.SearchResult
+
+	existingValid := json.Unmarshal([]byte(existing), &existingResults) == nil
+	newValid := json.Unmarshal([]byte(newResults), &newResultsArr) == nil
+
+	// 降级处理：任一无效时返回另一个
+	if !existingValid && !newValid {
+		return "[]"
+	}
+	if !existingValid {
+		return newResults
+	}
+	if !newValid {
+		return existing
+	}
+
+	// 合并并序列化
+	merged := append(existingResults, newResultsArr...)
+	mergedBytes, err := json.Marshal(merged)
+	if err != nil {
+		// 序列化失败，降级返回 existing
+		return existing
+	}
+	return string(mergedBytes)
+}
+
 // escapeXML 对字符串进行 XML 实体转义，防止搜索结果内容破坏 XML 结构或注入指令。
 // 处理 & < > " ' 五个特殊字符。
 func escapeXML(s string) string {
@@ -369,223 +415,6 @@ func applyDynamicSystemPrompt(base, searchMode string, caps llm.ModelCapabilitie
 	return systemContent
 }
 
-func (s *Service) buildLLMMessages(ctx context.Context, convID string, dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment, searchMode string, searchContext string) ([]llm.ChatMessage, bool, error) {
-	// 在函数入口获取配置快照，避免数据竞争
-	cfg := s.getConfigSnapshot()
-	maxContext := 0
-	if cfg != nil {
-		maxContext = cfg.ContextSize
-	}
-	if maxContext <= 0 {
-		maxContext = 4096
-	}
-
-	s.modelCapsMu.RLock()
-	caps := s.modelCaps
-	s.modelCapsMu.RUnlock()
-
-	for _, att := range currentAttachments {
-		if att.Type == "image" && !caps.ImageInput {
-			return nil, false, fmt.Errorf("当前模型不支持图片输入，请加载支持视觉的模型（如 llava 系列）")
-		}
-		if att.Type == "audio" && !caps.AudioInput {
-			return nil, false, fmt.Errorf("当前模型不支持音频输入，请加载支持音频的模型（如 whisper 系列）")
-		}
-	}
-
-	now := time.Now()
-	today := now.Format("2006-01-02")
-	configPrompt := ""
-	systemPromptMode := "append"
-	if cfg != nil {
-		configPrompt = cfg.SystemPrompt
-		systemPromptMode = cfg.SystemPromptMode
-	}
-
-	// Rebuild cache if date changed or config changed
-	s.promptMu.RLock()
-	cacheHit := s.sysPromptCache != "" && s.sysPromptDate == today && s.sysPromptConfig == configPrompt
-	cachedPrompt := s.sysPromptCache
-	s.promptMu.RUnlock()
-
-	if !cacheHit {
-		s.detectedModelMu.RLock()
-		modelName := s.detectedModelName
-		s.detectedModelMu.RUnlock()
-		if modelName == "" {
-			modelName = "本地模型"
-		}
-		base := buildBaseSystemPrompt(modelName, configPrompt, systemPromptMode)
-		s.promptMu.Lock()
-		s.sysPromptCache = base
-		s.sysPromptDate = today
-		s.sysPromptConfig = configPrompt
-		s.promptMu.Unlock()
-		cachedPrompt = base
-	}
-
-	systemContent := applyDynamicSystemPrompt(cachedPrompt, searchMode, caps, now)
-
-	ragContext := s.retrieveRAGContext(ctx, cfg, currentUserContent)
-
-	estimatedTokens := estimateTokensByLang(systemContent, detectLanguage(systemContent)) + 10 // +10 for chat template overhead
-	if ragContext != "" {
-		estimatedTokens += estimateTokensByLang(ragContext, detectLanguage(ragContext)) + 10
-	}
-
-	// 利用历史 prompt_tokens 反馈校准估算系数
-	s.tokenCalibMu.RLock()
-	calibActual := s.lastPromptTokens
-	calibEstimated := s.lastEstimatedTokens
-	s.tokenCalibMu.RUnlock()
-	calibRatio := 1.0
-	if calibEstimated > 0 && calibActual > 0 {
-		calibRatio = float64(calibActual) / float64(calibEstimated)
-		// 限制校准系数在合理范围 [1.0, 3.0]，避免极端值
-		if calibRatio < 1.0 {
-			calibRatio = 1.0
-		} else if calibRatio > 3.0 {
-			calibRatio = 3.0
-		}
-		// 应用校准：估算值 * 校准系数
-		estimatedTokens = int(float64(estimatedTokens) * calibRatio)
-	}
-
-	reserve := max(maxContext/10, 512)
-	// P1-A1: 主动压缩阈值 - 当估算接近上限时提前压缩，避免到溢出边缘才动。
-	// 默认 0.8，effectiveMax = 80% * maxContext（而非 90%），为后续对话留出更多空间。
-	// 生活类比：油表剩 20% 就去加油，而不是等红灯亮了才找加油站。
-	proactiveThreshold := cfg.ProactiveCompressThreshold
-	if proactiveThreshold <= 0 || proactiveThreshold > 0.95 {
-		proactiveThreshold = 0.8
-	}
-	proactiveReserve := int(float64(maxContext) * (1.0 - proactiveThreshold))
-	if proactiveReserve > reserve {
-		reserve = proactiveReserve
-	}
-	effectiveMax := maxContext - reserve
-
-	currentMsgTokens := 0
-	if len(dbMsgs) > 0 {
-		lastMsg := dbMsgs[len(dbMsgs)-1]
-		currentMsgTokens = estimateMessageTokens(lastMsg)
-		if currentMsgTokens == 0 {
-			currentMsgTokens = 1
-		}
-		if len(currentAttachments) > 0 {
-			for _, att := range currentAttachments {
-				currentMsgTokens += EstimateAttachmentTokensWithData(att.Type, att.Data)
-			}
-		}
-	}
-
-	if estimatedTokens+currentMsgTokens > effectiveMax {
-		// 降级路径：上下文严重超限，调用 CompressContext 进行统一压缩
-		// 摘要作为独立 system 消息插入（不拼到 system prompt 末尾）
-		var lastMsg llm.ChatMessage
-		hasLastMsg := false
-		if len(dbMsgs) > 0 {
-			dbLastMsg := dbMsgs[len(dbMsgs)-1]
-			content := currentUserContent
-			if content == "" && (dbLastMsg.Images != "" || dbLastMsg.Attachments != "") {
-				content = "请描述这张图片"
-			}
-			if len(currentAttachments) > 0 {
-				lastMsg = buildMessageFromAttachments(dbLastMsg.Role, content, currentAttachments)
-			} else {
-				lastMsg = llm.NewTextMessage(dbLastMsg.Role, content)
-			}
-			hasLastMsg = true
-		}
-
-		baseMessages := []llm.ChatMessage{
-			{Role: "system", Content: systemContent},
-		}
-		if hasLastMsg {
-			baseMessages = append(baseMessages, lastMsg)
-		}
-
-		existingSummary := ""
-		if convID != "" {
-			existingSummary, _ = store.GetConversationSummary(s.db, convID)
-		}
-		client := s.getClientSnapshot()
-		result := CompressContext(baseMessages, maxContext, existingSummary, dbMsgs, client, convID, s.db)
-		messages := result.Messages
-
-		// 如果 CompressContext 返回的消息仍然超限（极端情况），fallback 到只保留 system + 最后一条消息
-		if estimateMessagesTokens(messages) > effectiveMax {
-			messages = baseMessages
-			log.Warn().Int("effective_max", effectiveMax).Msg("[buildLLMMessages] 降级路径压缩后仍超限，fallback 到最小消息")
-		}
-
-		log.Info().Int("trimmed_count", result.TrimmedCount).Bool("summary_inserted", result.SummaryInserted).Str("convID", convID).Msg("[buildLLMMessages] 降级路径上下文已压缩")
-		return messages, true, nil
-	}
-
-	history, trimmedMsgs := s.buildHistoryFromDB(dbMsgs, currentUserContent, currentAttachments, caps, estimatedTokens, effectiveMax)
-
-	history = cleanHistoryMessages(history)
-
-	// 构建基础消息列表（system + history）
-	baseMessages := []llm.ChatMessage{
-		{Role: "system", Content: systemContent},
-	}
-	baseMessages = append(baseMessages, history...)
-
-	// 如果有消息被裁剪，调用 CompressContext 进行统一压缩（滑动窗口裁剪 + 异步摘要）
-	var messages []llm.ChatMessage
-	if len(trimmedMsgs) > 0 && convID != "" {
-		existingSummary, _ := store.GetConversationSummary(s.db, convID)
-		client := s.getClientSnapshot()
-		result := CompressContext(baseMessages, maxContext, existingSummary, trimmedMsgs, client, convID, s.db)
-		messages = result.Messages
-		log.Info().Int("trimmed_count", result.TrimmedCount).Bool("summary_inserted", result.SummaryInserted).Str("convID", convID).Msg("[buildLLMMessages] 上下文已压缩")
-	} else {
-		messages = baseMessages
-	}
-
-	// 将 RAG 参考资料作为独立的 system 上下文消息，与主系统提示词解耦
-	// 插入位置：在所有 system 消息（system + 摘要）之后、history 之前
-	if ragContext != "" {
-		insertIdx := 0
-		for i, m := range messages {
-			if m.Role != "system" {
-				insertIdx = i
-				break
-			}
-			insertIdx = i + 1
-		}
-		ragMsg := llm.ChatMessage{Role: "system", Content: ragContext}
-		messages = append(messages[:insertIdx], append([]llm.ChatMessage{ragMsg}, messages[insertIdx:]...)...)
-	}
-
-	if searchContext != "" {
-		// 模拟方案A：插入 assistant(tool_call) + tool(搜索结果) 消息
-		// 让模型将搜索结果视为工具返回的数据，而非用户提供的上下文
-		messages = append(messages, llm.ChatMessage{
-			Role:    "assistant",
-			Content: "",
-			ToolCalls: []llm.ToolCall{{
-				ID:   "search_pre",
-				Type: "function",
-				Function: llm.FunctionCall{
-					Name:      "search",
-					Arguments: fmt.Sprintf(`{"query":%q}`, currentUserContent),
-				},
-			}},
-		})
-		lang := detectLanguage(currentUserContent)
-		messages = append(messages, llm.ChatMessage{
-			Role:       "tool",
-			Content:    searchContext + searchResultInstruction(lang),
-			ToolCallID: "search_pre",
-		})
-	}
-
-	return messages, false, nil
-}
-
 // cleanHistoryMessages 清理历史消息列表，三步操作：
 //  1. 砍掉开头非 user/system 的消息（避免以 assistant/tool 开头导致 LLM 困惑）
 //  2. 清除孤立的 tool 消息和没有后续 tool 响应的 assistant(ToolCalls) 消息
@@ -694,7 +523,8 @@ func (s *Service) retrieveRAGContext(ctx context.Context, cfg *config.Config, cu
 	}
 
 	// 混合检索：向量语义 + BM25 关键词，RRF 融合
-	hybridResults, err2 := ragVectorStore.HybridSearch(ragCollection, vecs[0], currentUserContent, topK, minScore)
+	// 传入 ctxRag 使取消信号能传播到向量检索
+	hybridResults, err2 := ragVectorStore.HybridSearch(ctxRag, ragCollection, vecs[0], currentUserContent, topK, minScore)
 	if err2 != nil || len(hybridResults) == 0 {
 		return ""
 	}

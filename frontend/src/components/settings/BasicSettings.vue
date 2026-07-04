@@ -1,11 +1,16 @@
 <template>
+  <!-- 主题模式选择器（亮色/深色/跟随系统） -->
+  <n-form-item label="主题模式">
+    <n-radio-group :value="themeStore.mode" @update:value="handleModeChange">
+      <n-radio value="light">亮色</n-radio>
+      <n-radio value="dark">深色</n-radio>
+      <n-radio value="auto">跟随系统</n-radio>
+    </n-radio-group>
+  </n-form-item>
+
   <!-- 外观设置 -->
   <n-form-item label="聊天背景">
-    <!-- 亮色模式禁用背景图：仅深色模式可选 -->
-    <div class="bg-disabled-hint" v-if="!isDark">
-      背景图仅支持深色模式，请先切换到深色主题
-    </div>
-    <div class="upload-wrapper" v-else>
+    <div class="upload-wrapper">
         <div class="upload-placeholder" v-if="!formConfig.chat_background" @click="selectBackgroundImage">
           <div class="upload-icon">🖼️</div>
           <div class="upload-text">点击选择背景图片</div>
@@ -22,7 +27,7 @@
     </div>
   </n-form-item>
 
-  <n-form-item label="背景透明度" v-if="isDark && formConfig.chat_background">
+  <n-form-item label="背景透明度" v-if="formConfig.chat_background">
     <n-slider v-model:value="formConfig.chat_background_opacity" :min="0.2" :max="1" :step="0.05" />
     <span class="slider-value">{{ Math.round(formConfig.chat_background_opacity * 100) }}%</span>
   </n-form-item>
@@ -217,16 +222,14 @@
 </template>
 
 <script setup lang="ts">
-import { inject, defineComponent, h, computed } from 'vue'
+import { inject, defineComponent, h } from 'vue'
 import {
   NButton, NFormItem, NInput, NSlider, NUpload,
   NInputNumber, NSelect, NTooltip, NCheckbox,
+  NRadioGroup, NRadio,
 } from 'naive-ui'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
 import { useThemeStore } from '../../stores/theme'
-
-const themeStore = useThemeStore()
-const isDark = computed(() => themeStore.isDark)
 
 const HelpTip = defineComponent({
   props: { content: String },
@@ -252,21 +255,16 @@ const {
   formatContextSize, applyContextSizeRef,
   settingsStore,
 } = ctx
+
+// 主题模式选择器：从 themeStore 获取 mode，调用 setMode 切换
+const themeStore = useThemeStore()
+
+function handleModeChange(value: 'light' | 'dark' | 'auto') {
+  themeStore.setMode(value)
+}
 </script>
 
 <style scoped>
-/* 亮色模式禁用背景图的提示文字 */
-.bg-disabled-hint {
-  width: 100%;
-  padding: 24px 16px;
-  text-align: center;
-  font-size: 13px;
-  color: var(--text-muted);
-  background: var(--bg-tertiary);
-  border: 1px dashed var(--border-color);
-  border-radius: var(--border-radius-md);
-}
-
 .upload-wrapper {
   width: 100%;
 }
@@ -384,6 +382,7 @@ const {
   box-shadow: var(--shadow-md);
   transition: all 0.2s;
   flex-shrink: 0;
+  background: var(--bg-secondary);
 }
 
 .avatar-preview:hover {
@@ -412,10 +411,14 @@ const {
 
 .rounded-textarea :deep(.n-input__textarea-wrapper) {
   border-radius: var(--border-radius-lg);
+  /* 透明，让 n-input 容器底色（Input.color = --bg-input）透出，避免双底色 */
+  background: transparent;
 }
 
 .rounded-textarea :deep(.n-input__textarea) {
   border-radius: var(--border-radius-lg);
+  /* 透明，与 wrapper 一致，由 n-input 容器统一提供底色 */
+  background: transparent;
 }
 
 .rounded-textarea :deep(.n-input__border) {
@@ -542,7 +545,7 @@ const {
   font-size: 10px;
   font-weight: 600;
   color: var(--text-muted);
-  background: var(--bg-tertiary, rgba(0,0,0,0.06));
+  background: var(--bg-tertiary);
   margin-left: 4px;
   cursor: help;
   vertical-align: middle;

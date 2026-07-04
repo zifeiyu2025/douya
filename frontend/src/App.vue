@@ -1,9 +1,9 @@
 <template>
-  <n-config-provider :theme="isDark ? darkTheme : undefined" :locale="zhCN" :date-locale="dateZhCN">
+  <n-config-provider :theme="isDark ? darkTheme : undefined" :theme-overrides="themeOverrides" :locale="zhCN" :date-locale="dateZhCN">
     <n-message-provider>
       <n-dialog-provider>
         <Transition name="main-fade">
-          <div v-if="!showSplash" class="app-layout" :class="{ dark: isDark, 'has-background': isDark && !!settingsStore.config.chat_background }" :style="mainAreaStyle">
+          <div v-if="!showSplash" class="app-layout" :class="{ dark: isDark, 'has-background': !!settingsStore.config.chat_background }" :style="mainAreaStyle">
             <Sidebar :collapsed="sidebarCollapsed" @toggle="sidebarCollapsed = !sidebarCollapsed" />
             <div class="main-area" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
               <div class="main-header" style="--wails-draggable:drag">
@@ -132,7 +132,7 @@
       </div>
     </Transition>
     <Transition name="exit-overlay">
-      <div v-if="isExiting" class="switch-overlay switch-overlay--exit">
+      <div v-if="showExitOverlay" class="switch-overlay switch-overlay--exit">
         <!-- 退出动效：渐变收缩消散装饰 -->
         <svg class="exit-deco" width="360" height="360" viewBox="0 0 360 360" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
           <!-- 三层同心圆，从外到内逐渐消失 -->
@@ -146,7 +146,7 @@
             <img :src="appLogo" alt="豆芽" class="exit-logo-img" />
           </div>
           <div class="switch-model-name">正在退出豆芽</div>
-          <div class="switch-progress-msg">{{ exitMessage }}</div>
+          <div class="switch-progress-msg">{{ exitProgress }}</div>
         </div>
       </div>
     </Transition>
@@ -163,7 +163,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, h, onMounted, ref, watch } from 'vue'
 import { darkTheme, zhCN, dateZhCN } from 'naive-ui'
 import { NConfigProvider, NMessageProvider, NDialogProvider, NButton, NIcon, NSelect, NTooltip } from 'naive-ui'
 import { MenuOutline, SunnyOutline, MoonOutline, TerminalOutline, TrashOutline } from '@vicons/ionicons5'
@@ -173,222 +173,89 @@ import SplashScreen from './components/ui/SplashScreen.vue'
 import ServerConsole from './components/ServerConsole.vue'
 import { useChatStore } from './stores/chat'
 import { fixUtf8 } from './utils/utf8'
+// Task 21：抽取 mainAreaStyle 背景图逻辑为纯函数，便于单元测试双主题支持
+import { buildBackgroundStyle } from './utils/backgroundStyle'
 // 复用全局单例 discrete API，确保 message/dialog 跟随应用主题（任务 9）
 import { discreteMessage, discreteDialog } from './utils/discrete'
 import { useSettingsStore } from './stores/settings'
 import { useThemeStore } from './stores/theme'
+// Naive UI 全局主题覆盖：让所有组件使用项目 GitHub 蓝配色而非默认绿色（Task 2）
+import { useThemeOverrides } from './composables/useThemeOverrides'
+// 任务 9：抽取模型切换/窗口控制/生命周期到 composable
+import { useModelSwitch } from './composables/useModelSwitch'
+import { useWindowControls } from './composables/useWindowControls'
+import { useAppLifecycle } from './composables/useAppLifecycle'
 import { formatModelName, formatModelNameFromPath, extractQuantSuffix } from './utils/model'
 import { classifyError } from './utils/errorGuidance'
 import type { Conversation, ModelOption } from './services/wails'
 import { wails } from './services/wails'
-import { WindowMinimise, WindowToggleMaximise, WindowIsMaximised, WindowHide } from '../wailsjs/runtime/runtime'
 import appLogo from './assets/images/appicon.png'
 
-// discreteMessage / discreteDialog 来自全局单例（./utils/discrete），无需本地创建（任务 9）
-
+// ----- Store / 主题 -----
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
 const themeStore = useThemeStore()
+// themeOverrides 是 ComputedRef<GlobalThemeOverrides>，会随 isDark 自动切换
+// n-config-provider 接受 ref，会自动 unwrap，模板里直接传 ref 即可
+const themeOverrides = useThemeOverrides()
 
 const isDark = computed(() => themeStore.isDark)
 const serverStatus = computed(() => settingsStore.serverStatus)
 const sidebarCollapsed = defineModel<boolean>('sidebarCollapsed', { default: false })
 
 const mainAreaStyle = computed(() => {
-  // 亮色模式禁用背景图：只在深色模式下注入背景 CSS 变量
-  if (isDark.value && settingsStore.config.chat_background) {
-    const opacity = settingsStore.config.chat_background_opacity ?? 0.9
-    const bg = settingsStore.config.chat_background
-    let bgUrl: string
-    if (bg.startsWith('data:')) {
-      bgUrl = bg
-    } else {
-      bgUrl = '/local-file/' + encodeURIComponent(bg)
-    }
-    return {
-      '--chat-background': `url(${bgUrl})`,
-      '--chat-background-opacity': String(opacity)
-    } as Record<string, string>
-  }
-  return {}
+  // 双主题都支持背景图：逻辑抽取到 utils/backgroundStyle.ts（Task 21）
+  // isDark 不再作为限制条件，亮色与深色都会注入 --chat-background 变量
+  return buildBackgroundStyle(
+    settingsStore.config.chat_background ?? '',
+    settingsStore.config.chat_background_opacity,
+  )
 })
 
+// ----- 调用三个 composable（任务 9：抽取模型切换/窗口控制/生命周期）-----
+const {
+  switchProgressStage,
+  switchingModelName,
+  switchDuration,
+  switchStageText,
+  showSwitchOverlay,
+  overlayModelName,
+  switchStages,
+  isModelSwitching,
+  switchingModelDisplay,
+  getSwitchStageIndex,
+} = useModelSwitch()
+
+const {
+  isMaximized,
+  handleMinimize,
+  handleToggleMaximize,
+  handleClose,
+} = useWindowControls()
+
+const {
+  showSplash,
+  splashStage,
+  splashModelName,
+  splashProgress,
+  showExitOverlay,
+  exitProgress,
+} = useAppLifecycle()
+
+// ----- 服务器状态显示 -----
 const isServerLoading = computed(() => {
   return serverStatus.value.switching || (!serverStatus.value.model_ready && !serverStatus.value.error)
 })
-
-const isModelSwitching = computed(() => settingsStore.isModelSwitching)
 const isFirstLoad = computed(() => settingsStore.isFirstLoad)
 const modelLoadFailed = computed(() => settingsStore.modelLoadFailed)
 const modelLoadProgress = computed(() => settingsStore.modelLoadProgress)
-const switchingModelDisplay = computed(() => settingsStore.switchingModelDisplay)
-const switchStartedAt = computed(() => settingsStore.switchStartedAt)
-const previousModelBeforeSwitch = computed(() => settingsStore.previousModelBeforeSwitch)
-
-const switchingModelName = computed(() => {
-  if (switchingModelDisplay.value) return switchingModelDisplay.value
-  if (serverStatus.value.switching_to) return formatModelName(serverStatus.value.switching_to).display
-  return ''
-})
 
 const loadProgressModelName = computed(() => {
   if (!modelLoadProgress.value) return ''
   return formatModelName(modelLoadProgress.value.model).display
 })
 
-const errorModelName = computed(() => {
-  if (switchingModelDisplay.value) return switchingModelDisplay.value
-  if (serverStatus.value.switching_to) return formatModelName(serverStatus.value.switching_to).display
-  return modelName.value || ''
-})
-
-const switchDuration = ref('')
-let switchDurationTimer: ReturnType<typeof setInterval> | null = null
-
-// 合并触发条件：切换进行中（isModelSwitching）或切换后反馈（stage 非 idle）都显示 overlay
-// 这样 MessageList.vue 不再需要自己的切换 overlay，避免重复
-const showSwitchOverlay = computed(() =>
-  isModelSwitching.value || (settingsStore.switchProgress.stage !== 'idle' && settingsStore.hasEverBeenReady)
-)
-
-const switchProgressStage = computed(() => settingsStore.switchProgress.stage)
-
-const switchStageText = computed(() => {
-  // 切换进行中（前端发起，后端还未推送 stage）
-  if (isModelSwitching.value && settingsStore.switchProgress.stage === 'idle') {
-    return '正在切换模型...'
-  }
-  const stage = settingsStore.switchProgress.stage
-  const texts: Record<string, string> = {
-    'preparing': '准备切换模型...',
-    'loading': '加载模型中...',
-    'waiting': '初始化模型...',
-    'detecting': '检测模型能力...',
-    'done': '加载完成',
-    'failed': '模型加载失败',
-    'vram-warning': 'VRAM 不足警告，可能影响性能...',
-    'spec-warning': '推测解码兼容性警告...',
-  }
-  return texts[stage] || '加载中...'
-})
-
-const overlayModelName = computed(() => {
-  if (settingsStore.switchProgress.targetModel) return settingsStore.switchProgress.targetModel
-  if (switchingModelDisplay.value) return switchingModelDisplay.value
-  return ''
-})
-
-// 切换阶段指示器（3 阶段，与原 MessageList 逻辑一致）
-const switchStages = ['准备切换', '加载新模型', '初始化完成']
-
-function getSwitchStageIndex(): number {
-  // 切换进行中但后端未推送 stage 时，显示第一阶段
-  if (isModelSwitching.value && settingsStore.switchProgress.stage === 'idle') return 0
-  const stage = settingsStore.switchProgress.stage
-  switch (stage) {
-    case 'preparing': return 0
-    case 'loading': return 1
-    case 'done': return 2
-    default: return 0
-  }
-}
-
-const isMaximized = ref(false)
-const isExiting = ref(false)
-const exitMessage = ref('')
-
-// 服务器控制台
-const consoleRef = ref()
-const toggleConsole = () => {
-  consoleRef.value?.toggle()
-}
-
-// SplashScreen 逻辑
-const modelLoadTimeout = computed(() => settingsStore.switchState.phase === 'timeout')
-const showSplash = computed(() => {
-  // 首次启动已彻底失败，仍显示启动屏展示错误（但不转圈）
-  if (settingsStore.switchState.phase === 'first_load_failed') return true
-  // 首次加载未就绪时显示 splash（无论 failed 还是 timeout 都仍显示）
-  // SplashScreen 组件会根据 stage 决定是否转圈（timeout/failed 均映射为 'failed' stage，停止转圈）
-  if (!settingsStore.hasEverBeenReady) return true
-  // 已就绪后无论是否 timeout 都不显示 splash
-  if (modelLoadTimeout.value) return false
-  return false
-})
-
-const splashStage = computed(() => {
-  if (settingsStore.switchState.phase === 'first_load_failed') return 'failed'
-  return settingsStore.switchProgress.stage
-})
-
-const splashModelName = computed(() => {
-  const name = settingsStore.switchProgress.targetModel || settingsStore.currentModel
-  if (!name) return ''
-  return formatModelName(name).display
-})
-
-const splashProgress = computed(() => {
-  // 优先使用后端推送的真实加载进度
-  if (modelLoadProgress.value && modelLoadProgress.value.status === 'loading') {
-    return Math.max(5, Math.min(99, Math.round(modelLoadProgress.value.progress)))
-  }
-  // 无真实进度时使用粗略阶段映射（仅作为兜底）
-  const stageMap: Record<string, number> = {
-    idle: 0, preparing: 5, loading: 10,
-    waiting: 10, detecting: 90, done: 100,
-    failed: 100, rolling_back: 50,
-  }
-  return stageMap[settingsStore.switchProgress.stage] ?? 0
-})
-
-// 切换 overlay 进度条百分比（复用 splashProgress 逻辑）
-const switchProgressPercent = computed(() => {
-  if (modelLoadProgress.value && modelLoadProgress.value.status === 'loading') {
-    return Math.max(5, Math.min(99, Math.round(modelLoadProgress.value.progress)))
-  }
-  const stageMap: Record<string, number> = {
-    idle: 0, preparing: 5, loading: 10,
-    waiting: 10, detecting: 90, done: 100,
-    failed: 100, rolling_back: 50,
-  }
-  return stageMap[settingsStore.switchProgress.stage] ?? 0
-})
-
-watch(switchProgressStage, (stage) => {
-  if (stage !== 'idle') {
-    stopSwitchDurationTimer()
-    switchDurationTimer = setInterval(() => {
-      const startTime = settingsStore.switchStartedAt || settingsStore.switchProgress.startTime
-      if (startTime > 0) {
-        const elapsed = Math.floor((Date.now() - startTime) / 1000)
-        if (elapsed > 0) {
-          switchDuration.value = ` · 已等待 ${elapsed}s`
-        }
-      }
-    }, 1000)
-  } else {
-    stopSwitchDurationTimer()
-  }
-})
-
-function stopSwitchDurationTimer() {
-  if (switchDurationTimer) {
-    clearInterval(switchDurationTimer)
-    switchDurationTimer = null
-  }
-  switchDuration.value = ''
-}
-
-watch(() => settingsStore.currentModel, (newModel) => {
-  if (isModelSwitching.value) return
-  if (newModel && newModel !== selectedModel.value) {
-    const match = modelOptions.value.find(m => m.value === newModel)
-    if (match) {
-      selectedModel.value = newModel
-    }
-  }
-})
-
+// ----- 模型选择 -----
 const modelOptions = ref<{ label: string; value: string; fullName: string; quantSuffix: string; isLoaded: boolean; mmprojVision: boolean; mmprojAudio: boolean; mmprojVideo: boolean; status: string }[]>([])
 const availableModels = ref<ModelOption[]>([])
 const selectedModel = ref('')
@@ -412,9 +279,25 @@ const modelFullName = computed(() => {
   return path || ''
 })
 
+const errorModelName = computed(() => {
+  if (switchingModelDisplay.value) return switchingModelDisplay.value
+  if (serverStatus.value.switching_to) return formatModelName(serverStatus.value.switching_to).display
+  return modelName.value || ''
+})
+
 const currentTitle = computed(() => {
   const conv = chatStore.conversations.find((c: Conversation) => c.id === chatStore.currentConversationId)
   return fixUtf8(conv?.title || '豆芽 AI')
+})
+
+watch(() => settingsStore.currentModel, (newModel) => {
+  if (isModelSwitching.value) return
+  if (newModel && newModel !== selectedModel.value) {
+    const match = modelOptions.value.find(m => m.value === newModel)
+    if (match) {
+      selectedModel.value = newModel
+    }
+  }
 })
 
 function renderModelLabel(option: { label: string; value: string; fullName?: string; quantSuffix?: string; isLoaded?: boolean; mmprojVision?: boolean; mmprojAudio?: boolean; mmprojVideo?: boolean; status?: string }) {
@@ -621,178 +504,31 @@ async function handleModelChange(value: string) {
   }
 }
 
-function handleMinimize() {
-  WindowMinimise()
+// ----- 服务器控制台 -----
+const consoleRef = ref()
+const toggleConsole = () => {
+  consoleRef.value?.toggle()
 }
 
-function handleToggleMaximize() {
-  WindowToggleMaximise()
-  updateMaximizedState()
-}
-
-async function handleClose() {
-  const action = await wails.handleCloseRequest()
-  if (action === 'exit') {
-    wails.gracefulExit()
-    return
-  }
-  if (action === 'tray') {
-    WindowHide()
-    return
-  }
-  // action === 'ask'：首次关闭时询问
-  discreteDialog.warning({
-    title: '关闭窗口',
-    content: '你希望将豆芽最小化到系统托盘后台运行，还是直接退出程序？',
-    positiveText: '最小化到托盘',
-    negativeText: '直接退出',
-    onPositiveClick: async () => {
-      await wails.setCloseAction('tray')
-      WindowHide()
-    },
-    onNegativeClick: async () => {
-      await wails.setCloseAction('exit')
-      wails.gracefulExit()
-    },
-  })
-}
-
-async function updateMaximizedState() {
-  try {
-    isMaximized.value = await WindowIsMaximised()
-  } catch {
-    isMaximized.value = false
-  }
-}
-
-// resize 防抖定时器（任务 24）
-let resizeTimer: ReturnType<typeof setTimeout> | null = null
-// 防抖处理 resize 事件：200ms 内多次触发只执行最后一次，避免频繁查询窗口状态
-function handleResize() {
-  if (resizeTimer) clearTimeout(resizeTimer)
-  resizeTimer = setTimeout(updateMaximizedState, 200)
-}
-
+// ----- 启动时加载可用模型列表 -----
+// 注：其他生命周期事件（监听器注册、loadConfig、异常清理、退出进度）由 useAppLifecycle 负责；
+//     窗口控制（resize、maximize）由 useWindowControls 负责；
+//     模型切换监听（switchProgress、modelLoadProgress）由 useModelSwitch 负责。
+//     loadAvailableModels 仅调用 wails.getAvailableModels()，不依赖 config，可独立调用。
 onMounted(async () => {
-  // 1. 最早注册所有事件监听器，确保不遗漏后端推送的早期事件
-  chatStore.initStreamListener()
-  settingsStore.initStatusListener()
-  settingsStore.initSwitchProgressListener()
-  settingsStore.initMmprojUnavailableListener()
-  settingsStore.initModelLoadProgressListener()
-  settingsStore.initSearchAutoDisabledListener()
-
-  // 2. 所有 watch 必须在 await 之前注册
-  //    原因：await 期间后端可能已推送状态变化，延迟注册会错过首次事件导致无限转圈或会话列表不加载
-
-  // 模型加载成功（model_ready=true）后加载会话列表
-  // - 用 model_ready 而非 running：running 在 LoadModel 之前就为 true，但模型尚未就绪
-  // - model_ready 只在模型真正加载完成后置 true，失败时永远为 false（符合"失败后不加载"）
-  // - immediate: 捕获 watch 注册时已有的状态（await 期间可能已变化）
-  let hasLoadedOnReady = false
-  watch(() => settingsStore.serverStatus.model_ready, (ready) => {
-    if (ready && !hasLoadedOnReady) {
-      hasLoadedOnReady = true
-      chatStore.loadConversations()
-    }
-  }, { immediate: true })
-
-  // 首次启动失败时弹出修复建议对话框（而非仅在状态栏显示文字）
-  // 生活类比：就像开店时设备出故障，不只挂个"暂停营业"牌子，还要告诉顾客具体出了什么问题、怎么修
-  let hasShownStartupError = false
-  let hasShownPermanentFailure = false
-  watch(() => settingsStore.serverStatus.error, (errorVal) => {
-    if (!errorVal) return
-    // 永久失败是严重状态，跳过阶段限制独立弹窗，确保用户立即感知
-    const isPermanentFailure = /永久失败/.test(errorVal)
-    if (isPermanentFailure) {
-      if (hasShownPermanentFailure) return
-      hasShownPermanentFailure = true
-    } else {
-      if (hasShownStartupError) return
-      // 仅在首次加载阶段（从未就绪过）弹出 dialog，避免与手动切换模型的提示重复
-      if (settingsStore.hasEverBeenReady) return
-      // 仅在 first_load/switching 阶段弹窗，避免 idle 阶段（后端引擎尚未启动）
-      // 的 "server not initialized" 等早期错误触发误弹窗
-      const phase = settingsStore.switchState.phase
-      if (phase !== 'first_load' && phase !== 'switching') return
-      hasShownStartupError = true
-    }
-    const guidance = classifyError(errorVal)
-    if (guidance) {
-      const suggestions = guidance.suggestions.map((s, i) => `${i + 1}. ${s}`).join('\n')
-      discreteDialog.error({
-        title: guidance.title,
-        content: `${guidance.description}\n\n错误详情：${errorVal}\n\n修复建议：\n${suggestions}`,
-        positiveText: '知道了',
-        style: { whiteSpace: 'pre-wrap' },
-      })
-    } else {
-      // 未匹配到已知错误分类时，也弹窗显示原始错误信息
-      discreteDialog.error({
-        title: '模型加载失败',
-        content: `启动引擎时发生错误，请根据以下信息排查：\n\n错误详情：${errorVal}\n\n可尝试：\n1. 查看设置中的模型路径和参数配置是否正确\n2. 检查 runtime/ 和 models/ 目录文件是否完整\n3. 查看控制台日志获取更多详细信息`,
-        positiveText: '知道了',
-        style: { whiteSpace: 'pre-wrap' },
-      })
-    }
-  }, { immediate: true })
-
-  // 3. 加载配置（await 可能耗时，但 watch 已注册，不会错过期间的事件）
-  await settingsStore.loadConfig()
-
-  wails.onAbnormalCleanup((data) => {
-    chatStore.loadConversations()
-    discreteMessage.info(`已自动清理 ${data.count} 个异常会话（无有效消息）`, { duration: 5000 })
-  })
-
-  try {
-    const result = await wails.getCleanupResult()
-    if (result && result.length > 0) {
-      chatStore.loadConversations()
-      discreteMessage.info(`已自动清理 ${result.length} 个异常会话（无有效消息）`, { duration: 5000 })
-    }
-  } catch (e) {
-    console.error('检查清理结果失败:', e)
-  }
-
-  await Promise.all([loadAvailableModels(), updateMaximizedState()])
-
-  wails.onShutdownProgress((progress: { stage: string, message: string }) => {
-    isExiting.value = true
-    exitMessage.value = progress.message
-  })
-
-  window.addEventListener('resize', handleResize)
-})
-
-onUnmounted(() => {
-  stopSwitchDurationTimer()
-  chatStore.cleanupStreamListener()
-  settingsStore.cleanupStatusListener()
-  settingsStore.cleanupSwitchProgressListener()
-  settingsStore.cleanupMmprojUnavailableListener()
-  settingsStore.cleanupModelLoadProgressListener()
-  settingsStore.cleanupSearchAutoDisabledListener()
-  wails.offAbnormalCleanup()
-  wails.offSwitchProgress()
-  wails.offShutdownProgress()
-  window.removeEventListener('resize', handleResize)
-  // 清理 resize 防抖定时器（任务 24）
-  if (resizeTimer) {
-    clearTimeout(resizeTimer)
-    resizeTimer = null
-  }
+  await loadAvailableModels()
 })
 </script>
 
 <style scoped>
 .main-fade-enter-active {
   transition: opacity 0.5s ease 0.3s, transform 0.5s cubic-bezier(0.4, 0, 0.2, 1) 0.3s;
+  will-change: transform, opacity;
 }
 
 .main-fade-leave-active {
   transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform, opacity;
 }
 
 .main-fade-enter-from {
@@ -924,8 +660,8 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
+  /* 实色背景：主题对齐 */
   background: var(--bg-primary);
-  opacity: 0.92;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1121,7 +857,8 @@ onUnmounted(() => {
  * 与切换动效区分：装饰层向中心收缩 + 图标 + 文字渐变色
  */
 .switch-overlay--exit {
-  background-image: radial-gradient(circle at 50% 50%, rgba(250, 81, 81, 0.04) 0%, transparent 70%);
+  /* 退出语义色用 --accent-danger 派生，移除硬编码 rgba */
+  background-image: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--accent-danger) 4%, transparent) 0%, transparent 70%);
 }
 
 .exit-deco {
@@ -1283,4 +1020,5 @@ onUnmounted(() => {
 .route-fade-leave-to {
   opacity: 0;
   transform: translateY(-4px);
-}</style>
+}
+</style>

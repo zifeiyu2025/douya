@@ -55,7 +55,7 @@
     />
   </n-form-item>
   <n-form-item label="暴露服务器地址" label-width="140" label-placement="left">
-    <n-switch v-model:value="formConfig.expose_server" @update:value="onExposeServerToggle" />
+    <n-switch v-model:value="formConfig.expose_server" @update:value="onExposeServerToggle" class="expose-switch" />
     <span class="setting-hint">开启后局域网设备可通过本机 IP 访问（需重启服务生效）。开启后必须配置 API Key，否则服务将拒绝启动</span>
   </n-form-item>
   <n-form-item label-width="140" label-placement="left">
@@ -351,14 +351,20 @@ watch(() => settingsStore.currentModel, loadModelFtype)
   flex: 1;
 }
 
+/* API Key 输入框：透明背景，由 n-input 容器统一提供底色（Input.color = --bg-input） */
+.api-key-input :deep(.n-input__textarea-el),
+.api-key-input :deep(.n-input__input-el) {
+  background: transparent;
+}
+
 .api-key-hint {
   font-size: 12px;
   color: var(--n-text-color-3);
 }
 
-/* 外部链接样式：与 naive-ui 默认链接外观一致 */
+/* 外部链接样式：用项目主色变量替代 naive-ui 默认色 */
 .external-link {
-  color: var(--n-color-primary, #18a058);
+  color: var(--accent-primary);
   text-decoration: none;
   cursor: pointer;
 }
@@ -377,6 +383,17 @@ watch(() => settingsStore.currentModel, loadModelFtype)
   to { opacity: 1; transform: scale(1); }
 }
 
+/* 暴露服务开关：启用=绿色（--accent-g-primary），禁用=灰色（--text-muted）
+   状态色与"安全相关"语义对齐，启用时强调安全开启。
+   class="expose-switch" 加在 n-switch 根元素上，与 n-switch--active 同级 */
+.expose-switch.n-switch--active :deep(.n-switch__rail) {
+  background-color: var(--accent-g-primary) !important;
+}
+
+.expose-switch:not(.n-switch--active) :deep(.n-switch__rail) {
+  background-color: var(--text-muted) !important;
+}
+
 .setting-hint {
   font-size: 12px;
   color: var(--n-text-color-3);
@@ -393,7 +410,7 @@ watch(() => settingsStore.currentModel, loadModelFtype)
   font-size: 10px;
   font-weight: 600;
   color: var(--text-muted);
-  background: var(--bg-tertiary, rgba(0,0,0,0.06));
+  background: var(--bg-tertiary);
   margin-left: 4px;
   cursor: help;
   vertical-align: middle;

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -23,12 +24,19 @@ func Init(dbPath string, encKey []byte) (*sql.DB, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_foreign_keys=on&_busy_timeout=5000")
+	// PRAGMA 优化说明：
+	// - _synchronous=NORMAL：WAL 模式下 NORMAL 足够安全（仅断电时可能丢失最后一条事务），性能提升 2-3 倍
+	// - _cache_size=-65536：64MB 页缓存（负值表示 KB 单位），减少磁盘 I/O
+	// - _mmap_size=268435456：256MB 内存映射，加速读取
+	// - _wal_autocheckpoint=1000：显式控制 WAL checkpoint（默认值，避免 -wal 文件膨胀）
+	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_foreign_keys=on&_busy_timeout=5000&_synchronous=NORMAL&_cache_size=-65536&_wal_autocheckpoint=1000&_mmap_size=268435456")
 	if err != nil {
 		return nil, err
 	}
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(2)
+	// 设置连接最大生命周期，避免长时间运行时连接老化
+	db.SetConnMaxLifetime(time.Hour)
 	if err := Migrate(db, encKey); err != nil {
 		db.Close()
 		return nil, err
@@ -73,6 +81,12 @@ func Migrate(db *sql.DB, encKey []byte) error {
 
 	if err := migrateAddColumns(db); err != nil {
 		return err
+	}
+
+	// mmap_size 通过连接字符串设置不生效（go-sqlite3 驱动限制），需通过 PRAGMA 语句执行
+	// 256MB 内存映射，加速读取
+	if _, err := db.Exec("PRAGMA mmap_size = 268435456"); err != nil {
+		log.Warn().Err(err).Msg("[db] failed to set mmap_size")
 	}
 
 	// 移除 FTS5（内容加密后 FTS5 无法使用）

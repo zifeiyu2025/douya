@@ -238,7 +238,7 @@ func TestIngestDocumentWithMeta_BM25Hit(t *testing.T) {
 
 	// 额外验证：向量检索也能命中，且 SearchResult 包含已写入的 chunk 文本
 	queryVec, _ := embedder.Embed(context.Background(), []string{"机器学习"})
-	sr, sErr := vs.Search("test_bm25", queryVec[0], 5)
+	sr, sErr := vs.Search(context.Background(), "test_bm25", queryVec[0], 5)
 	if sErr != nil {
 		t.Fatalf("Vector Search 失败: %v", sErr)
 	}
@@ -292,7 +292,7 @@ func TestIngestDocumentWithMeta_ManyChunksBatchWrite(t *testing.T) {
 
 	// 验证向量检索能命中
 	queryVec, _ := embedder.Embed(context.Background(), []string{"第50个"})
-	sr, sErr := vs.Search("test_100chunks", queryVec[0], 10)
+	sr, sErr := vs.Search(context.Background(), "test_100chunks", queryVec[0], 10)
 	if sErr != nil {
 		t.Fatalf("Search 失败: %v", sErr)
 	}

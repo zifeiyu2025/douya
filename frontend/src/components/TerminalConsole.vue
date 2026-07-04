@@ -5,12 +5,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import { wails } from '../services/wails'
+import { useThemeStore } from '../stores/theme'
 
 const terminalContainer = ref<HTMLElement>()
 let terminal: Terminal | null = null
@@ -18,6 +19,27 @@ let fitAddon: FitAddon | null = null
 let paused = false
 let resizeTimer: ReturnType<typeof setTimeout> | null = null
 let resizeObserver: ResizeObserver | null = null
+
+const themeStore = useThemeStore()
+
+// 从 CSS 变量读取终端配色，确保与全局主题对齐（背景跟随 --bg-secondary，文字跟随 --text-primary）
+function readCssVar(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+}
+
+function buildTerminalTheme() {
+  return {
+    background: readCssVar('--bg-secondary'),
+    foreground: readCssVar('--text-primary'),
+  }
+}
+
+// 主题切换时同步终端配色，避免亮/暗模式下背景与文字对比度失效
+watch(() => themeStore.isDark, () => {
+  if (terminal) {
+    terminal.options.theme = buildTerminalTheme()
+  }
+})
 
 // base64 字符串解码为 Uint8Array（Wails 传递 []byte 时自动编码为 base64）
 function base64ToUint8Array(base64: string): Uint8Array {
@@ -41,6 +63,8 @@ async function initTerminal() {
     cursorBlink: false,
     disableStdin: true, // 禁止用户输入（llama-server 不需要 stdin）
     allowProposedApi: true,
+    // 终端配色跟随全局主题变量（背景 --bg-secondary，文字 --text-primary）
+    theme: buildTerminalTheme(),
   })
 
   fitAddon = new FitAddon()
@@ -154,7 +178,7 @@ onUnmounted(() => {
   height: 100%;
   width: 100%;
   overflow: hidden;
-  background: #1e1e1e;
+  background: var(--bg-secondary);
 }
 .terminal-container {
   height: 100%;
@@ -165,9 +189,9 @@ onUnmounted(() => {
   height: 100%;
 }
 .terminal-container :deep(.xterm-viewport) {
-  background-color: #1e1e1e !important;
+  background-color: var(--bg-secondary) !important;
 }
 .terminal-container :deep(.xterm-screen) {
-  background-color: #1e1e1e !important;
+  background-color: var(--bg-secondary) !important;
 }
 </style>

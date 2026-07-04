@@ -30,7 +30,7 @@ type Service struct {
 	appDir            string
 	currentCancel     context.CancelFunc
 	currentConvID     string
-	mutex             sync.Mutex
+	mutex             sync.RWMutex
 	modelCaps         llm.ModelCapabilities
 	modelCapsMu       sync.RWMutex
 	detectedModelName string
@@ -75,16 +75,16 @@ func (s *Service) SetContext(ctx context.Context) {
 }
 
 func (s *Service) CurrentConvID() string {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
 	return s.currentConvID
 }
 
 // IsGenerating 返回当前是否正在生成（currentConvID 非空表示正在生成）。
 // 用于让 router 模式轮询在生成期间暂停，避免与生成请求争用 HTTP 连接。
 func (s *Service) IsGenerating() bool {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
 	return s.currentConvID != ""
 }
 
@@ -100,25 +100,26 @@ func (s *Service) UpdateSearchChain(chain *search.SearchChain) {
 	s.searchChain = chain
 }
 
-// getConfigSnapshot 在锁保护下获取配置快照，避免数据竞争。
-// 生活类比：就像在图书馆查阅共享资料时，先借出（加锁）再阅读，避免别人同时修改。
+// getConfigSnapshot 在读锁保护下获取配置快照，避免数据竞争。
+// 升级为 RWMutex 后，多个并发请求读取 config 可并行，不再串行化。
+// 生活类比：就像在图书馆查阅共享资料时，多人可同时阅读（读锁），只有修改时才独占（写锁）。
 func (s *Service) getConfigSnapshot() *config.Config {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
 	return s.config
 }
 
-// getClientSnapshot 在锁保护下获取 LLM 客户端快照，避免数据竞争。
+// getClientSnapshot 在读锁保护下获取 LLM 客户端快照，避免数据竞争。
 func (s *Service) getClientSnapshot() *llm.Client {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
 	return s.llmClient
 }
 
-// getSearchChainSnapshot 在锁保护下获取搜索链快照，避免数据竞争。
+// getSearchChainSnapshot 在读锁保护下获取搜索链快照，避免数据竞争。
 func (s *Service) getSearchChainSnapshot() *search.SearchChain {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
 	return s.searchChain
 }
 

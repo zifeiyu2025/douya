@@ -77,7 +77,7 @@ const { enableVirtualScroll } = useVirtualScroll()
   font-size: 10px;
   font-weight: 600;
   color: var(--text-muted);
-  background: var(--bg-tertiary, rgba(0,0,0,0.06));
+  background: var(--bg-tertiary);
   margin-left: 4px;
   cursor: help;
   vertical-align: middle;

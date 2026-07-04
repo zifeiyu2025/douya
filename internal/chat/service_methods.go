@@ -168,11 +168,14 @@ func (s *Service) DeleteMessage(id string) error {
 		}
 	}
 
-	for _, delID := range deletedIDs {
-		if delErr := store.DeleteMessage(s.db, delID); delErr != nil {
-			log.Error().Err(delErr).Str("id", delID).Msg("[chat] delete message failed")
+	// 批量删除消息（修复 N+1 问题：原实现循环调用 DeleteMessage，每条独立事务）
+	if len(deletedIDs) > 0 {
+		if delErr := store.DeleteMessagesBatch(s.db, deletedIDs); delErr != nil {
+			log.Error().Err(delErr).Msg("[chat] batch delete messages failed")
 		}
-		s.emitForConv(convID, "message_deleted", delID)
+		for _, delID := range deletedIDs {
+			s.emitForConv(convID, "message_deleted", delID)
+		}
 	}
 
 	return nil
@@ -236,11 +239,14 @@ func (s *Service) RegenerateMessage(msgID string, searchMode string) error {
 			break
 		}
 	}
-	for _, id := range assistantMsgIDs {
-		if delErr := store.DeleteMessage(s.db, id); delErr != nil {
-			log.Error().Err(delErr).Str("id", id).Msg("delete assistant message for regeneration")
+	// 批量删除消息（修复 N+1 问题：原实现循环调用 DeleteMessage，每条独立事务）
+	if len(assistantMsgIDs) > 0 {
+		if delErr := store.DeleteMessagesBatch(s.db, assistantMsgIDs); delErr != nil {
+			log.Error().Err(delErr).Msg("batch delete assistant messages for regeneration")
 		}
-		s.emitForConv(convID, "message_deleted", id)
+		for _, id := range assistantMsgIDs {
+			s.emitForConv(convID, "message_deleted", id)
+		}
 	}
 
 	s.mutex.Lock()
@@ -439,8 +445,8 @@ func (s *Service) CleanupAbnormalConversations() []*AbnormalConversation {
 
 // GetConfig returns the current service configuration.
 func (s *Service) GetConfig() *config.Config {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
 	return s.config
 }
 

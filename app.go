@@ -45,7 +45,7 @@ type App struct {
 	config      *config.Config
 	configMu    sync.RWMutex
 	server      *llm.Server
-	serverMu    sync.Mutex
+	serverMu    sync.RWMutex
 	client      *llm.Client
 	db          *sql.DB
 	service     *chat.Service

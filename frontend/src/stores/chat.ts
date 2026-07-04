@@ -4,6 +4,7 @@ import { wails, type Conversation, type Message, type StreamEvent, type Attachme
 import { fixUtf8 } from '../utils/utf8'
 import { logError } from '../utils/logger'
 import { useSettingsStore } from './settings'
+import { useConversations } from './chat/conversations'
 import type { ConvStreamingState, StreamEventType } from '../types/chat'
 
 /** 流式状态创建
@@ -66,7 +67,8 @@ export const useChatStore = defineStore('chat', () => {
     const generationSpeed = ref(0)
     // 消息请求版本号（M-前2）：防止 handleTerminalAsync 的 await 期间用户切换会话，
     // 旧请求返回后覆盖新会话的消息列表（TOCTOU 竞态）。每次发起新请求递增，响应返回后校验。
-    let messagesRequestVersion = 0
+    // 用 ref 包装以便跨 composable 共享（useConversations 也需要递增此值）。
+    const messagesRequestVersion = ref(0)
 
     // ----- 集中 timer 管理（防止泄漏/竞态） -----
     const timers: ReturnType<typeof setTimeout>[] = []
@@ -228,55 +230,26 @@ export const useChatStore = defineStore('chat', () => {
         generationSpeed.value = 0
     }
 
-    // ----- 会话与消息 -----
-    async function loadConversations() {
-        isLoadingConversations.value = true
-        try {
-            const convs = await wails.getConversations()
-            const newConvs = (convs as Conversation[]).map((c) => ({ ...c, title: fixUtf8(c.title) }))
-            const newIdSet = new Set(newConvs.map((c) => c.id))
-            const keptOld = conversations.value.filter((c) => !newIdSet.has(c.id))
-            conversations.value = [...keptOld, ...newConvs]
-
-            for (const key of convStreamingStates.keys()) {
-                if (!newIdSet.has(key) && key !== '') {
-                    convStreamingStates.delete(key)
-                }
-            }
-
-            if (!currentConversationId.value && conversations.value.length > 0) {
-                await selectConversation(conversations.value[0].id)
-            }
-            // 加载成功后清除错误
-            lastError.value = ''
-        } catch (e) {
-            logError('加载会话列表失败', e)
-            lastError.value = e instanceof Error ? e.message : String(e || '加载会话列表失败')
-        } finally {
-            isLoadingConversations.value = false
-        }
-    }
-
-    async function selectConversation(id: string) {
-        if (id === currentConversationId.value) return
-
-        // 递增版本号，使 handleTerminalAsync 中进行中的旧请求失效（M-前2 TOCTOU 防护）
-        messagesRequestVersion++
-        currentConversationId.value = id
-        try {
-            messages.value = await wails.getMessages(id) || []
-        } catch (e) {
-            logError('加载消息失败', e)
-            messages.value = []
-        }
-
-        const state = convStreamingStates.get(id)
-        if (state) {
-            generatingConvId.value = state.isGenerating ? id : ''
-        } else {
-            generatingConvId.value = ''
-        }
-    }
+    // ----- 会话管理（提取到 chat/conversations.ts） -----
+    const {
+        loadConversations,
+        selectConversation,
+        createConversation,
+        renameConversation,
+        deleteConversation,
+        searchMessages,
+        exportConversation,
+        exportConversationWithDialog,
+    } = useConversations({
+        conversations,
+        currentConversationId,
+        messages,
+        generatingConvId,
+        convStreamingStates,
+        isLoadingConversations,
+        lastError,
+        messagesRequestVersion,
+    })
 
     function handleTerminalEvent(convId: string) {
         clearTimers()
@@ -341,12 +314,14 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     // 已迁移：content 类型对齐 ToolCallStartEvent['content']（任务 24）
+    // P1-2 修复：content 现包含 tool_call_id，用于并发 tool call 关联
     function handleToolCallStart(convId: string, content: Extract<StreamEvent, { type: 'tool_call_start' }>['content']) {
         startGeneratingTimeout()
         clearFirstTokenOnResponse()
         const state = getConvState(convId)
         state.isSearching = true
         state.searchQuery = content.query || ''
+        // tool_call_id 用于未来细粒度状态跟踪（当前保持单值兼容，多 tool call 时最后一个覆盖）
     }
 
     // 已迁移：content 类型对齐 SearchStartEvent['content']（任务 24）
@@ -361,7 +336,10 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     // 已迁移：content 类型对齐 SearchResultEvent['content']（任务 24）
-    // 注意：后端实际可能发送 JSON 字符串或数组两种形式，需兼容处理
+    // P1-2 修复：兼容三种 payload 形式
+    // 1. 新格式：{ tool_call_id: string, results: SearchResult[] }（并发 tool call 关联）
+    // 2. 旧格式：SearchResult[]（数组，向后兼容）
+    // 3. 旧格式：string（JSON 字符串，向后兼容）
     function handleSearchResult(convId: string, content: Extract<StreamEvent, { type: 'search_result' }>['content']) {
         startGeneratingTimeout()
         clearFirstTokenOnResponse()
@@ -371,9 +349,12 @@ export const useChatStore = defineStore('chat', () => {
         if (typeof content === 'string') {
             // 字符串形式：直接使用（后端已 JSON.stringify）
             state.searchResults = content
-        } else if (Array.isArray(content) && content.length > 0) {
-            // 数组形式：序列化为 JSON 字符串
-            state.searchResults = JSON.stringify(content)
+        } else if (Array.isArray(content)) {
+            // 旧数组形式：序列化为 JSON 字符串
+            state.searchResults = content.length > 0 ? JSON.stringify(content) : ''
+        } else if (content && Array.isArray(content.results)) {
+            // 新格式：{ tool_call_id, results }
+            state.searchResults = content.results.length > 0 ? JSON.stringify(content.results) : ''
         } else {
             state.searchResults = ''
         }
@@ -468,11 +449,11 @@ export const useChatStore = defineStore('chat', () => {
         const targetConvId = convId || generatingConvId.value
         if (targetConvId) {
             // 记录请求版本号，await 返回后校验，防止旧请求覆盖新会话消息（M-前2 TOCTOU 防护）
-            const requestVersion = ++messagesRequestVersion
+            const requestVersion = ++messagesRequestVersion.value
             try {
                 const msgs = (await wails.getMessages(targetConvId)) as Message[]
                 // 版本号不匹配说明期间用户已切换会话，丢弃本次响应
-                if (requestVersion !== messagesRequestVersion) return
+                if (requestVersion !== messagesRequestVersion.value) return
                 if (targetConvId === currentConversationId.value || targetConvId === generatingConvId.value) {
                     // 修复（M-前6）：原实现 messages.value = msgs || [] 全量替换，
                     // 导致所有 MessageItem 组件重新渲染。改为局部更新：仅替换变化的最后一条。
@@ -480,7 +461,7 @@ export const useChatStore = defineStore('chat', () => {
                 }
                 nextTick(() => handleTerminalEvent(convId))
             } catch {
-                if (requestVersion !== messagesRequestVersion) return
+                if (requestVersion !== messagesRequestVersion.value) return
                 handleTerminalEvent(convId)
             }
         } else {
@@ -792,68 +773,6 @@ export const useChatStore = defineStore('chat', () => {
         }, 2000)
     }
 
-    // 新建对话：懒创建模式，只清空当前会话状态
-    // 实际会话在首条消息发送时由后端自动创建（handleConvCreated 回调处理）
-    function createConversation() {
-        currentConversationId.value = ''
-        messages.value = []
-        convStreamingStates.delete('')
-        generatingConvId.value = ''
-        lastError.value = ''
-    }
-
-    async function renameConversation(id: string, title: string) {
-        try {
-            const fixedTitle = fixUtf8(title)
-            await wails.renameConversation(id, fixedTitle)
-            const conv = conversations.value.find((c: Conversation) => c.id === id)
-            if (conv) conv.title = fixedTitle
-        } catch (e) {
-            logError('重命名会话失败', e)
-        }
-    }
-
-    async function deleteConversation(id: string) {
-        try {
-            await wails.deleteConversation(id)
-            conversations.value = conversations.value.filter((c: Conversation) => c.id !== id)
-            convStreamingStates.delete(id)
-            if (generatingConvId.value === id) generatingConvId.value = ''
-            if (currentConversationId.value === id) {
-                currentConversationId.value = ''
-                messages.value = []
-            }
-        } catch (e) {
-            logError('删除会话失败', e)
-        }
-    }
-
-    async function searchMessages(query: string): Promise<Message[]> {
-        try {
-            return await wails.searchMessages(query)
-        } catch (e) {
-            logError('搜索消息失败', e)
-            return []
-        }
-    }
-
-    async function exportConversation(id: string, format: string): Promise<string> {
-        try {
-            return await wails.exportConversation(id, format)
-        } catch (e) {
-            logError('导出会话失败', e)
-            return ''
-        }
-    }
-
-    async function exportConversationWithDialog(id: string, format: string): Promise<boolean> {
-        try {
-            return await wails.exportConversationWithDialog(id, format)
-        } catch (e) {
-            logError('导出会话失败', e)
-            return false
-        }
-    }
 
     function initStreamListener() {
         wails.onChatStream((event: StreamEvent) => {

@@ -242,8 +242,9 @@ func TestFormatSearchResults_Format(t *testing.T) {
 	if !strings.Contains(out, "AI技术突破") {
 		t.Errorf("should contain 'AI技术突破', got: %s", out)
 	}
-	if !strings.Contains(out, "https://example.com/ai") {
-		t.Errorf("should contain 'https://example.com/ai', got: %s", out)
+	// URL 被有意移除：url 对回答内容无帮助，仅占 token（见 service_messages.go formatSearchResultsWithLang）
+	if strings.Contains(out, "https://example.com/ai") {
+		t.Errorf("should NOT contain URL (removed to save tokens), got: %s", out)
 	}
 	if !strings.Contains(out, "2026年AI技术最新突破") {
 		t.Errorf("should contain '2026年AI技术最新突破', got: %s", out)

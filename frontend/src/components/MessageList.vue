@@ -3,26 +3,22 @@
     <!-- 模型切换 overlay 已移至 App.vue 统一管理，避免重复 -->
     <div v-if="(!messages || messages.length === 0) && !isGenerating" class="message-list-empty">
       <div class="welcome-container">
-        <!-- 背景装饰：旋转光环 + 网格纹理 -->
-        <div class="welcome-aura" aria-hidden="true"></div>
-        <div class="welcome-grid" aria-hidden="true"></div>
+        <!-- 产品 LOGO：唯一视觉锚点，静态居中显示 -->
+        <div class="welcome-logo">
+          <img :src="defaultAiAvatar" alt="豆芽 LOGO" />
+        </div>
 
-        <!-- 品牌主体：带光晕脉冲的"豆芽"二字 -->
+        <!-- 品牌主体：第二视觉锚点（中文字号略小，配合 LOGO 形成图文识别） -->
         <div class="welcome-brand">
           <span class="welcome-dou">豆</span><span class="welcome-ya">芽</span>
         </div>
 
-        <!-- 模型状态胶囊：左侧脉冲圆点表示就绪 -->
-        <div class="welcome-model" v-if="currentModelDisplay">
-          <span class="model-status-dot" aria-hidden="true"></span>
-          <span class="model-name">{{ currentModelDisplay }}</span>
-        </div>
+        <!-- 副标题：一句话说明 -->
+        <div class="welcome-subtitle">本地运行的 AI 助手</div>
 
-        <div class="welcome-hint">输入消息开始对话，或选择一个话题</div>
-
+        <!-- 快捷操作 chips：点击即发送（沿用现有 store 机制） -->
         <div class="quick-actions">
           <button v-for="action in quickActions" :key="action.id" class="action-chip" @click="handleQuickAction(action)">
-            <span class="chip-icon">{{ action.icon }}</span>
             <span class="chip-text">{{ action.title }}</span>
           </button>
         </div>
@@ -117,7 +113,7 @@
         @click="scrollToBottom('smooth'); isAutoScrollEnabled = true"
         title="回到底部"
       >
-        <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+        <svg width="18" height="18" viewBox="0 0 22 22" fill="none">
           <path d="M11 5v10M7 11l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </button>
@@ -140,7 +136,6 @@ import { useMorphRender } from '../composables/useMorphRender'
 import { useScrollToBottom } from '../composables/useScrollToBottom'
 // 任务 38：虚拟滚动 feature flag（默认关闭，纯前端 localStorage 开关）
 import { useVirtualScroll } from '../composables/useVirtualScroll'
-import { formatModelName } from '../utils/model'
 import { setupCodeCopyDelegation } from '../utils/codeCopy'
 import { isSafeUrl } from '../utils/lightSanitize'
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
@@ -161,17 +156,11 @@ interface QuickAction {
 }
 
 const quickActions: QuickAction[] = [
-  { id: 1, icon: '✍️', title: '帮我写代码', prompt: '帮我写一段示例代码' },
-  { id: 2, icon: '💡', title: '头脑风暴', prompt: '帮我做一些头脑风暴，探索新想法' },
-  { id: 3, icon: '📚', title: '知识问答', prompt: '我想了解一些有趣的知识' },
-  { id: 4, icon: '🔧', title: '解决问题', prompt: '我有一个问题需要分析和解决' },
+  { id: 1, icon: '', title: '如何使用豆芽', prompt: '如何使用豆芽？请介绍一下主要功能' },
+  { id: 2, icon: '', title: '写一段代码', prompt: '帮我写一段示例代码' },
+  { id: 3, icon: '', title: '翻译一段文字', prompt: '帮我翻译一段中文为英文' },
+  { id: 4, icon: '', title: '头脑风暴', prompt: '帮我做一些头脑风暴，探索新想法' },
 ]
-
-const currentModelDisplay = computed(() => {
-  const model = settingsStore.currentModel
-  if (!model) return ''
-  return formatModelName(model).display
-})
 
 function handleQuickAction(action: QuickAction) {
   chatStore.sendMessage(action.prompt, settingsStore.searchMode)
@@ -418,9 +407,10 @@ watch(() => chatStore.lastError, (err) => {
 }
 
 .message-bubble {
-  padding: 16px 20px;
-  border-radius: var(--border-radius-xl) var(--border-radius-xl) var(--border-radius-xl) var(--border-radius-sm);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  padding: 14px 20px;
+  /* 与 MessageItem.vue .ai-bubble 一致：对称大圆角，右上角小 */
+  border-radius: var(--border-radius-lg) 4px var(--border-radius-lg) var(--border-radius-lg);
+  box-shadow: none;
   box-sizing: border-box;
   line-height: 1.65;
 }
@@ -431,7 +421,9 @@ watch(() => chatStore.lastError, (err) => {
   width: auto;
   max-width: 100%;
   min-width: 0;
-  border: 1px solid var(--border-color);
+  background: var(--bg-ai-msg);
+  color: var(--text-ai-msg);
+  border: none;
 }
 
 /* 流式内容容器：仅用 contain: style 隔离样式重算
@@ -528,67 +520,42 @@ watch(() => chatStore.lastError, (err) => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 20px;
-  /* 交错入场：子元素按顺序淡入上移，营造层次感 */
-  animation: welcomeFadeIn 0.6s cubic-bezier(0.23, 1, 0.32, 1);
+  gap: 24px;
 }
 
-/* 背景装饰：缓慢旋转的渐变光环，呼应 AI 思考的呼吸感 */
-.welcome-aura {
-  position: absolute;
-  top: -40px;
-  left: 50%;
-  width: 320px;
-  height: 320px;
-  transform: translateX(-50%);
-  background: radial-gradient(circle, var(--accent-primary) 0%, transparent 60%);
-  opacity: 0.08;
-  filter: blur(40px);
+/* 产品 LOGO：唯一视觉锚点，静态居中
+ * 120px 大尺寸圆形，背景透明，仅保留品牌色环 + 柔和外阴影
+ * 双主题自适应，背景图模式下 LOGO 直接穿透显示 */
+.welcome-logo {
+  width: 120px;
+  height: 120px;
   border-radius: 50%;
-  animation: aura-rotate 20s linear infinite;
-  pointer-events: none;
-  z-index: 0;
+  overflow: hidden;
+  background: transparent;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--accent-primary) 18%, transparent),
+    0 12px 32px rgba(0, 0, 0, 0.10);
 }
 
-@keyframes aura-rotate {
-  0% { transform: translateX(-50%) rotate(0deg) scale(1); }
-  50% { transform: translateX(-50%) rotate(180deg) scale(1.08); }
-  100% { transform: translateX(-50%) rotate(360deg) scale(1); }
+.welcome-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
-/* 背景装饰：微妙的点阵网格，增加科技感纹理 */
-.welcome-grid {
-  position: absolute;
-  top: -20px;
-  left: 50%;
-  width: 440px;
-  height: 280px;
-  transform: translateX(-50%);
-  background-image: radial-gradient(circle, var(--border-color) 1px, transparent 1px);
-  background-size: 24px 24px;
-  opacity: 0.4;
-  mask-image: radial-gradient(ellipse at center, black 0%, transparent 70%);
-  -webkit-mask-image: radial-gradient(ellipse at center, black 0%, transparent 70%);
-  pointer-events: none;
-  z-index: 0;
-}
-
-@keyframes welcomeFadeIn {
-  from { opacity: 0; transform: translateY(16px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* 品牌主体：置于装饰层之上，带交错入场延迟 */
+/* 品牌主体：第二视觉锚点（中文字号略小，配合 LOGO 形成图文识别） */
 .welcome-brand {
   position: relative;
   z-index: 1;
-  font-size: 56px;
-  font-weight: 800;
+  font-size: 42px;
+  font-weight: 700;
   letter-spacing: 4px;
   line-height: 1;
   user-select: none;
-  animation: welcomeFadeIn 0.7s cubic-bezier(0.23, 1, 0.32, 1) both;
-  animation-delay: 0.05s;
+  padding-left: 4px;
 }
 
 .welcome-dou {
@@ -597,61 +564,16 @@ watch(() => chatStore.lastError, (err) => {
 
 .welcome-ya {
   color: var(--accent-primary);
-  text-shadow: 0 0 24px color-mix(in srgb, var(--accent-primary) 40%, transparent);
 }
 
-.welcome-model {
+/* 副标题：一句话说明，次要文字色 */
+.welcome-subtitle {
   position: relative;
   z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  font-weight: 500;
-  padding: 6px 14px 6px 10px;
-  border-radius: 20px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  animation: welcomeFadeIn 0.7s cubic-bezier(0.23, 1, 0.32, 1) both;
-  animation-delay: 0.15s;
-}
-
-/* 模型状态点：脉冲呼吸，表示模型已就绪 */
-.model-status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent-primary);
-  box-shadow: 0 0 0 0 var(--accent-primary);
-  animation: status-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  flex-shrink: 0;
-}
-
-@keyframes status-pulse {
-  0%, 100% {
-    opacity: 1;
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-primary) 50%, transparent);
-  }
-  50% {
-    opacity: 0.6;
-    box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent-primary) 0%, transparent);
-  }
-}
-
-.model-name {
-  font-family: 'SF Mono', 'JetBrains Mono', 'Consolas', monospace;
-  letter-spacing: 0.3px;
-}
-
-.welcome-hint {
-  position: relative;
-  z-index: 1;
-  font-size: 15px;
+  font-size: 17px;
   color: var(--text-secondary);
   letter-spacing: 0.2px;
-  animation: welcomeFadeIn 0.7s cubic-bezier(0.23, 1, 0.32, 1) both;
-  animation-delay: 0.25s;
+  margin-top: -10px;
 }
 
 .quick-actions {
@@ -661,9 +583,7 @@ watch(() => chatStore.lastError, (err) => {
   gap: 10px;
   flex-wrap: wrap;
   justify-content: center;
-  margin-top: 8px;
-  animation: welcomeFadeIn 0.7s cubic-bezier(0.23, 1, 0.32, 1) both;
-  animation-delay: 0.35s;
+  margin-top: 4px;
 }
 
 .action-chip {
@@ -694,11 +614,6 @@ watch(() => chatStore.lastError, (err) => {
   transform: translateY(0);
 }
 
-.chip-icon {
-  font-size: 16px;
-  flex-shrink: 0;
-}
-
 .chip-text {
   white-space: nowrap;
 }
@@ -711,14 +626,14 @@ watch(() => chatStore.lastError, (err) => {
 
 /* 模型切换 overlay 样式已移至 App.vue 统一管理 */
 
-/* 回到底部按钮：正圆包裹箭头 */
+/* 回到底部按钮：圆角方形包裹箭头（36x36，密度优化） */
 .scroll-to-bottom-btn {
   position: sticky;
-  bottom: 24px;
+  bottom: 20px;
   align-self: center;
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--border-radius-md);
   border: 1px solid var(--border-color);
   background: var(--bg-primary);
   color: var(--text-secondary);
@@ -726,7 +641,7 @@ watch(() => chatStore.lastError, (err) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
   z-index: 10;
   /* 只过渡颜色和阴影，不过渡 transform，避免 transform 分量时机不同导致椭圆 */
   transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
@@ -737,7 +652,7 @@ watch(() => chatStore.lastError, (err) => {
   border-color: var(--accent-primary);
   color: #ffffff;
   transform: translateY(-2px);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
 }
 
 .scroll-to-bottom-btn:active {
@@ -867,43 +782,6 @@ watch(() => chatStore.lastError, (err) => {
 </style>
 
 <style>
-/* ===== 欢迎界面：背景图模式毛玻璃 ===== */
-
-.has-background .action-chip {
-  background: color-mix(in srgb, var(--bg-primary) 76%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-
-.has-background .action-chip:hover {
-  background: color-mix(in srgb, var(--accent-tertiary) 80%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-
-.has-background .welcome-model {
-  background: color-mix(in srgb, var(--bg-secondary) 74%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-/* 背景图模式下增强光环亮度，弥补背景图遮挡 */
-.has-background .welcome-aura {
-  opacity: 0.14;
-}
-
-/* 暗色模式 + 背景图 */
-.dark .has-background .action-chip {
-  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-}
-
-.dark .has-background .action-chip:hover {
-  background: color-mix(in srgb, var(--accent-tertiary) 72%, transparent);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--accent-primary);
-}
-
 /* ===== 欢迎界面：暗色模式基础适配 ===== */
 
 .dark .action-chip {
@@ -916,32 +794,8 @@ watch(() => chatStore.lastError, (err) => {
   background: var(--accent-tertiary);
 }
 
-.dark .welcome-model {
-  background: var(--bg-tertiary);
-  border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
-}
-
-/* 暗色模式下光环更明显，网格点更亮 */
-.dark .welcome-aura {
-  opacity: 0.16;
-}
-
-.dark .welcome-grid {
-  opacity: 0.5;
-}
-
-/* 尊重用户的动效偏好：关闭装饰动画，保留静态效果 */
-@media (prefers-reduced-motion: reduce) {
-  .welcome-aura,
-  .model-status-dot {
-    animation: none;
-  }
-  .welcome-brand,
-  .welcome-model,
-  .welcome-hint,
-  .quick-actions {
-    animation: none;
-    opacity: 1;
-  }
+/* 背景图模式：流式气泡半透明，与 MessageItem.vue 的气泡层 80% 一致 */
+.has-background .message-bubble.ai-bubble {
+  background: color-mix(in srgb, var(--bg-ai-msg) 80%, transparent);
 }
 </style>

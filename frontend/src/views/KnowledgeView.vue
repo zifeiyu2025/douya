@@ -1,11 +1,11 @@
 <template>
   <div class="knowledge-container">
     <div class="knowledge-header">
-      <n-button quaternary circle @click="$router.push('/')" class="back-btn">
-        <template #icon>
-          <n-icon size="20"><ArrowBackOutline /></n-icon>
-        </template>
-      </n-button>
+      <button class="back-btn" type="button" @click="$router.push('/')" aria-label="返回">
+        <svg width="20" height="20" viewBox="0 0 512 512" fill="none" aria-hidden="true">
+          <path d="M244 400L100 256l144-144M120 256h292" stroke="currentColor" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
       <div class="header-title-group">
         <span class="knowledge-title">知识库管理</span>
         <span class="knowledge-subtitle">管理文档和检索设置</span>
@@ -182,7 +182,7 @@ import {
   NInput, NForm, NFormItem, NSwitch, NSlider, NInputNumber,
   useMessage, useDialog,
 } from 'naive-ui'
-import { ArrowBackOutline, AddOutline, TrashOutline, CloseOutline, CloudUploadOutline, CheckmarkCircleOutline } from '@vicons/ionicons5'
+import { AddOutline, TrashOutline, CloseOutline, CloudUploadOutline, CheckmarkCircleOutline } from '@vicons/ionicons5'
 import { wails, type CollectionInfo, type DocumentMeta, type ModelOption } from '../services/wails'
 import { useSettingsStore } from '../stores/settings'
 import { showError, showSuccess, showWarning } from '../utils/showError'
@@ -499,18 +499,44 @@ onMounted(async () => {
   flex-direction: column;
 }
 
+/* 三段式布局：段落之间用间距分隔，不用 card 边框 */
 .kb-section {
   flex-shrink: 0;
-  padding-bottom: 20px;
+  padding-bottom: 24px;
 }
 
 .kb-section + .kb-section {
-  border-top: 1px solid var(--border-color);
-  padding-top: 20px;
+  margin-top: 8px;
 }
 
+/* 返回按钮：native button，去 chrome，hover 用 --bg-hover（与 SettingsView 风格一致） */
 .back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 0;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
   flex-shrink: 0;
+}
+
+.back-btn:hover {
+  background: var(--bg-hover);
+}
+
+.back-btn:active {
+  background: var(--bg-active);
+}
+
+.back-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
 }
 
 .header-title-group {
@@ -532,25 +558,6 @@ onMounted(async () => {
   font-weight: 400;
 }
 
-.knowledge-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 24px 28px 32px;
-  display: flex;
-  flex-direction: column;
-}
-
-.kb-section {
-  flex-shrink: 0;
-  padding-bottom: 20px;
-}
-
-.kb-section + .kb-section {
-  border-top: 1px solid var(--border-color);
-  padding-top: 20px;
-}
-
 .kb-section-header {
   display: flex;
   align-items: center;
@@ -563,8 +570,9 @@ onMounted(async () => {
   line-height: 1;
 }
 
+/* 强排版标题：每段标题字号 16-18px，字重 600 */
 .section-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -609,16 +617,17 @@ onMounted(async () => {
   transition: background var(--transition-fast);
 }
 
+/* 文档列表项 hover → --bg-hover */
 .doc-item:hover {
   background: var(--bg-hover);
 }
 
+/* 文档图标背景 → --accent-p-soft（紫色系，与附件标签色协调） */
 .doc-icon-box {
   width: 36px;
   height: 36px;
   border-radius: var(--border-radius-md);
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
+  background: var(--accent-p-soft);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -681,6 +690,7 @@ onMounted(async () => {
   opacity: 1;
 }
 
+/* 上传区域（空状态）边框 → --border-color */
 .doc-empty {
   display: flex;
   flex-direction: column;
@@ -762,7 +772,7 @@ onMounted(async () => {
   flex-direction: column;
   gap: 6px;
   padding: 10px 12px;
-  background: var(--bg-tertiary, rgba(0, 0, 0, 0.02));
+  background: var(--bg-tertiary);
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.6;
@@ -774,13 +784,15 @@ onMounted(async () => {
   gap: 4px;
 }
 
+/* RAG 设置状态色：启用 → --accent-g-primary */
 .status-active {
-  color: var(--accent-success, #1f883d);
+  color: var(--accent-g-primary);
   font-weight: 500;
 }
 
+/* RAG 设置状态色：禁用/未配置 → --text-muted */
 .status-fallback {
-  color: var(--warning-color, #f0a020);
+  color: var(--text-muted);
   font-weight: 500;
 }
 
@@ -792,7 +804,7 @@ onMounted(async () => {
 }
 
 .recommend-label {
-  color: var(--text-secondary, #666);
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
@@ -804,8 +816,8 @@ onMounted(async () => {
 
 .recommend-tag {
   padding: 2px 8px;
-  background: var(--bg-primary, #fff);
-  border: 1px solid var(--border-color, #e0e0e0);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s;
@@ -814,13 +826,13 @@ onMounted(async () => {
 }
 
 .recommend-tag:hover {
-  background: var(--accent-color, #2080f0);
+  background: var(--accent-primary);
   color: white;
-  border-color: var(--accent-color, #2080f0);
+  border-color: var(--accent-primary);
 }
 
 .embedding-tip {
-  color: var(--text-tertiary, #999);
+  color: var(--text-tertiary);
   font-size: 11px;
 }
 
@@ -835,5 +847,3 @@ onMounted(async () => {
   font-weight: 600;
 }
 </style>
-
-

@@ -72,10 +72,10 @@ export interface ThinkingEvent extends StreamEventBase {
     content: string
 }
 
-/** 工具调用开始（content 为工具名与查询参数） */
+/** 工具调用开始（content 为工具名与查询参数，含 tool_call_id 用于并发关联） */
 export interface ToolCallStartEvent extends StreamEventBase {
     type: 'tool_call_start'
-    content: { tool: string; query: string }
+    content: { tool_call_id: string; tool: string; query: string }
 }
 
 /** 搜索开始（content 为搜索查询参数字符串） */
@@ -84,10 +84,10 @@ export interface SearchStartEvent extends StreamEventBase {
     content: string
 }
 
-/** 搜索结果（content 为搜索结果数组） */
+/** 搜索结果（content 为含 tool_call_id 的结果对象，用于并发 tool call 关联） */
 export interface SearchResultEvent extends StreamEventBase {
     type: 'search_result'
-    content: SearchResult[]
+    content: { tool_call_id: string; results: SearchResult[] } | SearchResult[]
 }
 
 /** 生成速度（content 为速度统计） */

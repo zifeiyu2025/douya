@@ -380,8 +380,9 @@ func TestFormatSearchResults(t *testing.T) {
 	if !contains(formatted, "Go") {
 		t.Error("formatted results should contain title 'Go'")
 	}
-	if !contains(formatted, "https://golang.org") {
-		t.Error("formatted results should contain URL")
+	// URL 被有意移除：url 对回答内容无帮助，仅占 token（见 service_messages.go formatSearchResultsWithLang）
+	if contains(formatted, "https://golang.org") {
+		t.Error("formatted results should NOT contain URL (removed to save tokens)")
 	}
 	if !contains(formatted, "The Go Programming Language") {
 		t.Error("formatted results should contain snippet")

@@ -54,7 +54,7 @@ func TestEndToEndRAG(t *testing.T) {
 		t.Fatalf("Embed query: %v", err)
 	}
 
-	results, err := vs.Search(collection, queryVecs[0], 3)
+	results, err := vs.Search(context.Background(), collection, queryVecs[0], 3)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestEndToEndRAG(t *testing.T) {
 	}
 	t.Logf("Ingested 2nd doc: %d chunks", result2.StoredChunks)
 
-	results2, err := vs.Search(collection, queryVecs[0], 5)
+	results2, err := vs.Search(context.Background(), collection, queryVecs[0], 5)
 	if err != nil {
 		t.Fatalf("Search 2: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestEndToEndRAG_Persistence(t *testing.T) {
 		t.Fatalf("Embed: %v", err)
 	}
 
-	results, err := vs2.Search(collection, queryVecs[0], 3)
+	results, err := vs2.Search(context.Background(), collection, queryVecs[0], 3)
 	if err != nil {
 		t.Fatalf("Search after reopen: %v", err)
 	}

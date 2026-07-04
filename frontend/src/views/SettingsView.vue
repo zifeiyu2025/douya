@@ -1,11 +1,11 @@
 <template>
   <div class="settings-container">
     <div class="settings-header">
-      <n-button quaternary circle @click="$router.push('/')">
-        <template #icon>
-          <n-icon><ArrowBackOutline /></n-icon>
-        </template>
-      </n-button>
+      <button class="back-btn" type="button" @click="$router.push('/')" aria-label="返回">
+        <svg width="20" height="20" viewBox="0 0 512 512" fill="none" aria-hidden="true">
+          <path d="M244 400L100 256l144-144M120 256h292" stroke="currentColor" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
       <span class="settings-title">设置</span>
     </div>
     <div class="settings-content">
@@ -65,10 +65,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, onUnmounted, provide } from 'vue'
 import {
-  NButton, NIcon, NForm,
+  NForm,
   NCollapse, NCollapseItem, useMessage,
 } from 'naive-ui'
-import { ArrowBackOutline } from '@vicons/ionicons5'
 import { useSettingsStore } from '../stores/settings'
 import { matchModelRef } from '../stores/settings'
 import { MODEL_REFS } from '../utils/modelRefs'
@@ -638,20 +637,51 @@ provide(SETTINGS_CONTEXT_KEY, settingsContext)
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 16px 20px;
+  padding: 16px 24px;
   border-bottom: 1px solid var(--border-color);
 }
 
+/* 返回按钮：native button，去 chrome，hover 用 --bg-hover */
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 0;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.back-btn:hover {
+  background: var(--bg-hover);
+}
+
+.back-btn:active {
+  background: var(--bg-active);
+}
+
+.back-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
 .settings-title {
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 600;
   color: var(--text-primary);
+  letter-spacing: -0.2px;
 }
 
 .settings-content {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 20px 80px;
+  padding: 24px 24px 80px;
   max-width: 640px;
   width: 100%;
   margin: 0 auto;
@@ -675,7 +705,7 @@ provide(SETTINGS_CONTEXT_KEY, settingsContext)
 }
 
 .settings-content::-webkit-scrollbar-thumb:hover {
-  background-color: var(--text-tertiary, rgba(0, 0, 0, 0.3));
+  background-color: var(--text-tertiary);
 }
 
 /* 分隔线间距优化，避免配置区域过于拥挤 */
@@ -691,6 +721,25 @@ provide(SETTINGS_CONTEXT_KEY, settingsContext)
 /* 表单项间距优化 */
 .settings-content :deep(.n-form-item) {
   margin-bottom: 16px;
+}
+
+/* 折叠面板密度优化：项之间间距适中，避免过于拥挤 */
+.settings-content :deep(.n-collapse-item) {
+  margin-bottom: 4px;
+}
+
+.settings-content :deep(.n-collapse-item__header) {
+  padding: 12px 8px;
+  border-radius: var(--border-radius-sm);
+  transition: background-color var(--transition-fast);
+}
+
+.settings-content :deep(.n-collapse-item__header:hover) {
+  background: var(--bg-hover);
+}
+
+.settings-content :deep(.n-collapse-item__content-inner) {
+  padding-top: 8px;
 }
 
 .settings-group-header {

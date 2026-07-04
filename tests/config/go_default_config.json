@@ -26,7 +26,7 @@
   "system_prompt": "",
   "system_prompt_mode": "append",
   "chat_background": "",
-  "chat_background_opacity": 0.8,
+  "chat_background_opacity": 0.9,
   "user_avatar": "",
   "ai_avatar": "",
   "search_mode": "off",

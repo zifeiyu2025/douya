@@ -94,12 +94,17 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* 控制台标题强排版：字号 15px，字重 600 */
+:deep(.n-drawer-header__title) {
+  font-size: 15px;
+  font-weight: 600;
+}
 .console-toolbar {
   display: flex;
   gap: 12px;
   align-items: center;
   padding: 8px 0;
-  border-bottom: 1px solid var(--n-border-color);
+  border-bottom: 1px solid var(--border-color);
   flex-wrap: wrap;
 }
 .mode-tag {
@@ -109,13 +114,15 @@ onUnmounted(() => {
   border-radius: 4px;
   font-weight: 500;
 }
+/* 原生终端：成功语义色（绿） */
 .mode-native {
-  color: #6bcf7f;
-  background: rgba(107, 207, 127, 0.1);
+  color: var(--accent-success);
+  background: var(--accent-g-soft);
 }
+/* 文本日志：警告语义色（黄） */
 .mode-fallback {
-  color: #ffd93d;
-  background: rgba(255, 217, 61, 0.1);
+  color: var(--accent-warning);
+  background: var(--accent-y-soft);
 }
 .terminal-area {
   height: calc(100vh - 180px);

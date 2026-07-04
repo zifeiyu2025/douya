@@ -64,7 +64,7 @@
 
       <!-- 已是最新 -->
       <div v-else-if="updateStatus === 'up-to-date'" class="update-row">
-        <n-icon size="18" color="var(--accent-success, #1f883d)"><CheckmarkCircleOutline /></n-icon>
+        <n-icon size="18" color="var(--accent-success)"><CheckmarkCircleOutline /></n-icon>
         <span class="update-status-text update-success">已是最新版本</span>
       </div>
 
@@ -109,7 +109,7 @@
 
       <!-- 错误 -->
       <div v-else-if="updateStatus === 'error'" class="update-row">
-        <n-icon size="18" color="var(--accent-danger, #cf222e)"><CloseCircleOutline /></n-icon>
+        <n-icon size="18" color="var(--accent-danger)"><CloseCircleOutline /></n-icon>
         <span class="update-status-text update-error">{{ errorMessage }}</span>
         <n-button type="primary" size="small" ghost @click="handleCheckUpdate">重试</n-button>
       </div>
@@ -236,7 +236,7 @@ onUnmounted(() => {
   width: 64px;
   height: 64px;
   border-radius: 14px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-md);
 }
 
 .app-name {
@@ -249,12 +249,12 @@ onUnmounted(() => {
 .app-version {
   font-size: 13px;
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-  color: var(--n-text-color-3);
+  color: var(--text-muted);
 }
 
 .app-tagline {
   font-size: 12px;
-  color: var(--n-text-color-3);
+  color: var(--text-muted);
   opacity: 0.7;
 }
 
@@ -285,7 +285,7 @@ onUnmounted(() => {
 }
 
 .info-card-icon {
-  color: var(--n-text-color-2);
+  color: var(--text-secondary);
   flex-shrink: 0;
 }
 
@@ -298,7 +298,7 @@ onUnmounted(() => {
 
 .info-card-label {
   font-size: 11px;
-  color: var(--n-text-color-3);
+  color: var(--text-muted);
 }
 
 .info-card-value {
@@ -308,7 +308,7 @@ onUnmounted(() => {
 }
 
 .info-card-link {
-  color: var(--n-primary-color);
+  color: var(--accent-primary);
   cursor: pointer;
 }
 
@@ -334,20 +334,20 @@ onUnmounted(() => {
 
 .update-current {
   font-size: 13px;
-  color: var(--n-text-color-2);
+  color: var(--text-secondary);
 }
 
 .update-status-text {
   font-size: 13px;
-  color: var(--n-text-color-2);
+  color: var(--text-secondary);
 }
 
 .update-success {
-  color: var(--accent-success, #1f883d);
+  color: var(--accent-success);
 }
 
 .update-error {
-  color: var(--accent-danger, #cf222e);
+  color: var(--accent-danger);
 }
 
 .update-available {
@@ -358,13 +358,13 @@ onUnmounted(() => {
 
 .update-info {
   font-size: 13px;
-  color: var(--n-text-color-2);
+  color: var(--text-secondary);
 }
 
 .version-highlight {
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
   font-weight: 600;
-  color: var(--n-primary-color);
+  color: var(--accent-primary);
 }
 
 .update-progress {
@@ -376,7 +376,7 @@ onUnmounted(() => {
 .update-percent {
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
   font-size: 13px;
-  color: var(--n-text-color-2);
+  color: var(--text-secondary);
   margin-left: auto;
 }
 
@@ -386,7 +386,7 @@ onUnmounted(() => {
 
 .release-notes-content {
   font-size: 13px;
-  color: var(--n-text-color-2);
+  color: var(--text-secondary);
   white-space: pre-wrap;
   line-height: 1.6;
   max-height: 200px;

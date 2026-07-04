@@ -301,10 +301,10 @@ let activePreviewCleanup: (() => void) | null = null
 
 function previewImage(src: string) {
   const overlay = document.createElement('div')
-  overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out'
+  overlay.className = 'image-preview-overlay'
   const img = document.createElement('img')
   img.src = src
-  img.style.cssText = 'max-width:90%;max-height:90%;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,0.5)'
+  img.className = 'image-preview-img'
   overlay.appendChild(img)
   const close = () => {
     overlay.remove()
@@ -438,39 +438,36 @@ function regenerate() {
 }
 
 .message-bubble {
-  padding: 12px 18px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  /* 共享基础样式 */
   box-sizing: border-box;
   position: relative;
   line-height: 1.65;
-}
-
-.message-bubble:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 .user-bubble {
   width: auto;
   max-width: 100%;
   min-width: 0;
-  /* 内部颜色与 AI 气泡完全一致，仅靠位置（右对齐）和头像区分 */
-  background: var(--bg-ai-msg);
+  padding: 12px 18px;
+  background: var(--bg-user-msg);
   color: var(--text-ai-msg);
-  border-radius: var(--border-radius-xl) var(--border-radius-xl) var(--border-radius-sm) var(--border-radius-xl);
-  border: 1px solid var(--border-color);
+  /* 用户头像在右侧（row-reverse），右上角小贴近头像侧，暗示来源 */
+  border-radius: var(--border-radius-lg) 4px var(--border-radius-lg) var(--border-radius-lg);
+  border: none;
+  box-shadow: none;
 }
 
 .ai-bubble {
-  /* 自适应宽度：短内容窄气泡，长内容撑开至 max-width
-     width: auto 让气泡 shrink-to-fit 内容宽度（配合 wrapper 的 align-items: flex-start） */
-  width: auto;
+  width: 100%;
   max-width: 100%;
   min-width: 0;
+  padding: 14px 20px;
   background: var(--bg-ai-msg);
   color: var(--text-ai-msg);
-  border-radius: var(--border-radius-xl) var(--border-radius-xl) var(--border-radius-xl) var(--border-radius-sm);
-  border: 1px solid var(--border-color);
+  /* AI 头像在左侧（默认 row），左上角小贴近头像侧，暗示来源 */
+  border-radius: 4px var(--border-radius-lg) var(--border-radius-lg) var(--border-radius-lg);
+  border: none;
+  box-shadow: none;
 }
 
 .user-text {
@@ -516,24 +513,27 @@ function regenerate() {
   padding: 6px 12px;
   border: none;
   border-radius: var(--border-radius-sm);
+  /* 统一风格：透明底色 + 字体颜色（与删除按钮一致） */
   background: transparent;
   color: var(--text-muted);
   font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease;
   line-height: 1;
   white-space: nowrap;
 }
 
+/* hover 时所有按钮统一用柔和半透明背景（不用实色 bg-hover，保持透明感） */
 .action-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-primary);
 }
 
+/* 删除按钮保留语义色：hover 时变红，提示危险操作 */
 .action-btn.danger:hover {
   color: var(--accent-danger);
-  background: rgba(250, 81, 81, 0.1);
+  background: var(--accent-r-soft);
 }
 
 .action-icon {
@@ -598,54 +598,42 @@ function regenerate() {
   gap: 8px;
   padding: 10px 16px;
   border-radius: var(--border-radius-md);
-  background: rgba(0, 0, 0, 0.05);
+  /* 默认灰色系（file 附件）—— 语义色变量自动适配亮/暗主题 */
+  background: var(--accent-n-soft);
+  color: var(--accent-n-strong);
   font-size: 13px;
   font-weight: 500;
   line-height: 1;
   max-width: 240px;
   overflow: hidden;
   transition: all 0.2s ease;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  border: 1px solid color-mix(in srgb, var(--accent-n-primary) 25%, transparent);
 }
 
 .attachment-tag:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-md);
 }
 
-:global(.dark) .attachment-tag {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.1);
-}
-
+/* audio 附件 → 紫色系（与 style.css --accent-p-* 设计意图一致） */
 .attachment-tag.att-audio {
-  background: rgba(52, 152, 219, 0.1);
-  border-color: rgba(52, 152, 219, 0.2);
+  background: var(--accent-p-soft);
+  color: var(--accent-p-strong);
+  border-color: color-mix(in srgb, var(--accent-p-primary) 25%, transparent);
 }
 
-:global(.dark) .attachment-tag.att-audio {
-  background: rgba(52, 152, 219, 0.15);
-  border-color: rgba(52, 152, 219, 0.25);
-}
-
+/* video 附件 → 绿色系（与 style.css --accent-g-* 设计意图一致） */
 .attachment-tag.att-video {
-  background: rgba(139, 92, 246, 0.1);
-  border-color: rgba(139, 92, 246, 0.3);
+  background: var(--accent-g-soft);
+  color: var(--accent-g-strong);
+  border-color: color-mix(in srgb, var(--accent-g-primary) 25%, transparent);
 }
 
-:global(.dark) .attachment-tag.att-video {
-  background: rgba(139, 92, 246, 0.15);
-  border-color: rgba(139, 92, 246, 0.25);
-}
-
+/* pdf 附件 → 红色系（与 style.css --accent-r-* 设计意图一致） */
 .attachment-tag.att-pdf {
-  background: rgba(231, 76, 60, 0.08);
-  border-color: rgba(231, 76, 60, 0.18);
-}
-
-:global(.dark) .attachment-tag.att-pdf {
-  background: rgba(231, 76, 60, 0.12);
-  border-color: rgba(231, 76, 60, 0.22);
+  background: var(--accent-r-soft);
+  color: var(--accent-r-strong);
+  border-color: color-mix(in srgb, var(--accent-r-primary) 25%, transparent);
 }
 
 .att-icon {
@@ -668,12 +656,12 @@ function regenerate() {
   object-fit: cover;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   border: 1px solid var(--border-color);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-md);
 }
 
 .message-image:hover {
   transform: scale(1.03);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-lg);
 }
 
 .message-bubble :deep(.markdown-body) blockquote {
@@ -695,7 +683,7 @@ function regenerate() {
   font-size: 14.5px;
   border-radius: var(--border-radius-md);
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--shadow-sm);
 }
 
 .message-bubble :deep(.markdown-body) th,
@@ -725,7 +713,7 @@ function regenerate() {
   max-width: 100%;
   border-radius: var(--border-radius-md);
   margin: 14px 0;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--shadow-sm);
 }
 
 .selection-copy-btn {
@@ -735,6 +723,7 @@ function regenerate() {
   align-items: center;
   gap: 4px;
   padding: 6px 12px;
+  /* 实色浮按钮：双主题下可读 */
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-sm);
@@ -756,19 +745,37 @@ function regenerate() {
   border-color: var(--accent-primary);
   color: var(--accent-primary);
 }
-</style>
 
-<style>
+/* 背景图模式：气泡半透明浮于背景图之上（三层透明度体系 - 气泡层 80%） */
 .has-background .ai-bubble {
-  background: color-mix(in srgb, var(--bg-ai-msg) 88%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: color-mix(in srgb, var(--bg-ai-msg) 80%, transparent);
 }
 
 .has-background .user-bubble {
-  /* 与 AI 气泡一致的毛玻璃背景 */
-  background: color-mix(in srgb, var(--bg-ai-msg) 88%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: color-mix(in srgb, var(--bg-user-msg) 80%, transparent);
+}
+</style>
+
+<style>
+/* 图片预览遮罩（双主题一致的深色遮罩，确保浅色图片可读） */
+.image-preview-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-out;
+}
+
+.image-preview-img {
+  max-width: 90%;
+  max-height: 90%;
+  border-radius: var(--border-radius-md);
+  box-shadow: var(--shadow-lg);
 }
 </style>

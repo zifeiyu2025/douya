@@ -386,8 +386,13 @@ func (c *SearchChain) SearchWithCategory(ctx context.Context, query string, cate
 			return resp
 		}
 
-		// 成功但无结果，视为软失败
-		pw.recordFailure()
+		// HTTP 成功但无结果：视为正常的"无数据"响应，不计入失败（修复空结果误判熔断）
+		// 业务场景：用户搜索冷门关键词，引擎正常响应但无匹配结果，不应熔断引擎
+		// 继续尝试下一个 provider，可能其他引擎有结果
+		pw.recordSuccess()
+		log.Debug().
+			Str("engine", pw.Provider.Name()).
+			Msg("[search] provider returned empty results")
 		errMsgs = append(errMsgs, fmt.Sprintf("%s: empty results", pw.Provider.Name()))
 	}
 

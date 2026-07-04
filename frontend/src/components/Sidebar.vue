@@ -1,27 +1,30 @@
 <template>
   <div class="sidebar" :class="{ collapsed }">
+    <!-- Logo 区：DOUYA 字母 wordmark 居中显示 -->
     <div class="sidebar-header" style="--wails-draggable:drag">
       <div class="sidebar-logo">
-        <div class="logo-text">
-          <span class="logo-dou">Dou</span><span class="logo-ya">Ya</span>
-        </div>
+        <span class="logo-wordmark">DOUYA</span>
       </div>
     </div>
+    <!-- SubTask 10.3/10.4: 新建对话按钮去 chrome + 搜索框密度优化 -->
     <div class="sidebar-search">
-      <div class="create-btn-wrapper">
-        <n-button type="primary" block @click="handleCreate" size="medium" class="create-btn">
-          <template #icon>
-            <n-icon><AddOutline /></n-icon>
-          </template>
-          新建对话
-        </n-button>
-      </div>
-      <n-input v-model:value="searchQuery" placeholder="搜索对话" clearable size="medium" class="search-input">
+      <button class="create-btn" @click="handleCreate">
+        <n-icon class="create-btn-icon" :size="16"><AddOutline /></n-icon>
+        <span class="create-btn-text">新建对话</span>
+      </button>
+      <n-input
+        v-model:value="searchQuery"
+        placeholder="搜索对话"
+        clearable
+        size="small"
+        class="search-input"
+      >
         <template #prefix>
           <n-icon><SearchOutline /></n-icon>
         </template>
       </n-input>
     </div>
+    <!-- SubTask 10.2: 会话列表去卡片化 — row 布局，无边框，hover/active 用 bg 层级 -->
     <div class="conversation-list">
       <div v-if="chatStore.isLoadingConversations" class="loading-container">
         <div class="loading-spinner"></div>
@@ -37,9 +40,6 @@
           @click="handleSelect(conv.id)"
           @contextmenu.prevent="handleContextMenu($event, conv)"
         >
-          <div class="conversation-avatar">
-            {{ getAvatarText(conv.title) }}
-          </div>
           <div class="conversation-item-info">
             <div class="conversation-item-title" :title="fixUtf8(conv.title) || '新对话'">
               {{ fixUtf8(conv.title) || '新对话' }}
@@ -61,20 +61,17 @@
         </div>
       </template>
     </div>
+    <!-- SubTask 10.4: 底部入口 row 布局，hover bg-hover，无边框 -->
     <div class="sidebar-footer">
       <div class="sidebar-footer-actions">
-        <n-button quaternary @click="$router.push('/knowledge')" size="medium" class="footer-btn">
-          <template #icon>
-            <n-icon size="18"><BookOutline /></n-icon>
-          </template>
+        <button class="footer-btn" @click="$router.push('/knowledge')">
+          <n-icon :size="16"><BookOutline /></n-icon>
           <span>知识库</span>
-        </n-button>
-        <n-button quaternary @click="$router.push('/settings')" size="medium" class="footer-btn">
-          <template #icon>
-            <n-icon size="18"><SettingsOutline /></n-icon>
-          </template>
+        </button>
+        <button class="footer-btn" @click="$router.push('/settings')">
+          <n-icon :size="16"><SettingsOutline /></n-icon>
           <span>设置</span>
-        </n-button>
+        </button>
       </div>
     </div>
   </div>
@@ -82,7 +79,7 @@
 
 <script setup lang="ts">
 import { ref, computed, h } from 'vue'
-import { NButton, NIcon, NInput, NDropdown, useDialog, useMessage } from 'naive-ui'
+import { NIcon, NInput, NDropdown, useDialog, useMessage } from 'naive-ui'
 import { AddOutline, SearchOutline, SettingsOutline, BookOutline, PencilOutline, DocumentTextOutline, CodeSlashOutline, TrashOutline, FileTrayFullOutline, GridOutline } from '@vicons/ionicons5'
 import { useChatStore } from '../stores/chat'
 import { fixUtf8 } from '../utils/utf8'
@@ -128,12 +125,6 @@ const filteredConversations = computed(() => {
     c.title.toLowerCase().includes(q)
   )
 })
-
-function getAvatarText(title: string): string {
-  const fixedTitle = fixUtf8(title)
-  if (!fixedTitle || fixedTitle === '新对话') return '新'
-  return fixedTitle.charAt(0).toUpperCase()
-}
 
 function getPreview(conv: Conversation): string {
   return formatTime(conv.updated_at)
@@ -235,14 +226,29 @@ async function handleExport(id: string, format: string) {
 </script>
 
 <style scoped>
+/* ===== Logo 区：DOUYA wordmark 居中 =====
+ * 大写字母 + 加宽字距 → 顶级 SaaS wordmark 气质
+ * 用实色（避免 background-clip:text 在 WebView2 中不可靠）
+ * 单一品牌色，双主题自动跟随 --accent-primary
+ */
 .sidebar-logo {
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  position: relative;
 }
 
+.logo-wordmark {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  line-height: 1;
+  color: var(--accent-primary);
+  user-select: none;
+  padding-left: 4px; /* 视觉补偿 letter-spacing 尾部留白 */
+}
+
+/* ===== 加载状态 ===== */
 .loading-container {
   display: flex;
   flex-direction: column;
@@ -253,72 +259,159 @@ async function handleExport(id: string, format: string) {
 }
 
 .loading-spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid var(--border-color);
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--border-color);
   border-top-color: var(--accent-primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
 
 .loading-text {
-  font-size: 14px;
-  color: var(--text-secondary);
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
-/* ===== Logo：纯文字版（已移除 SVG 图标和 hover 动画）===== */
-.logo-text {
-  font-size: 28px;
-  font-weight: 800;
-  letter-spacing: 2px;
-  line-height: 1;
-  text-transform: uppercase;
-  position: relative;
-  /* 不再设统一 color，由 logo-dou/logo-ya 各自指定 */
-}
-
-/* logo-dou：跟随主题主文本色，亮色深色/暗色近白，保证对比度 */
-.logo-dou {
-  color: var(--text-primary);
-}
-
-/* logo-ya：保持 accent 主色 */
-.logo-ya {
-  color: var(--accent-primary);
-}
-
-/* ===== 会话列表 stagger 入场 =====
- * 每项延迟 calc(var(--stagger-idx) * 30ms)，最多 12 项避免长列表卡顿
- * 仅首次加载时触发（通过 :not(.entered) 控制，这里简化为始终应用）
+/* ===== SubTask 10.2: 会话列表去卡片化 — row 布局 =====
+ * 覆盖 style.css 全局 .conversation-item 的边框、padding、背景
+ * 移除每项 border-bottom、avatar；hover/active 用 bg 层级而非 card 边框
  */
 .conversation-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
   animation: item-slide-in 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
   animation-delay: calc(var(--stagger-idx, 0) * 30ms);
   will-change: opacity, transform;
 }
 
-.create-btn-wrapper {
-  margin-bottom: 12px;
+.conversation-item:hover {
+  background: var(--bg-hover);
 }
 
-.create-btn {
-  border-radius: var(--border-radius-md) !important;
-  height: 44px !important;
-  font-weight: 600;
+.conversation-item.active {
+  background: var(--bg-active);
 }
 
-.search-input {
-  border-radius: var(--border-radius-md) !important;
-}
-
-.footer-btn {
-  border-radius: var(--border-radius-md) !important;
-  display: flex !important;
-  gap: 8px;
-  padding: 10px 12px !important;
-  height: 44px !important;
+.conversation-item-info {
   flex: 1;
-  justify-content: center;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.conversation-item-title {
+  font-size: 14px;
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+  line-height: 1.4;
+  margin-bottom: 2px;
+}
+
+.conversation-item-preview {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+/* ===== SubTask 10.3: 新建对话按钮去 chrome =====
+ * 无边框、无背景（hover 显示 bg-hover）；图标 accent-primary 强调
+ * 强排版 14px/500；宽度填满内容区
+ */
+.create-btn {
+  width: 100%;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  background: transparent;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  margin-bottom: 8px;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.create-btn:hover {
+  background: var(--bg-hover);
+}
+
+.create-btn-icon {
+  color: var(--accent-primary);
+}
+
+.create-btn-text {
+  color: var(--text-primary);
+}
+
+/* ===== SubTask 10.4: 搜索框密度优化（32px 高度，border-radius-sm）===== */
+.search-input {
+  border-radius: var(--border-radius-sm);
+}
+
+.search-input :deep(.n-input) {
+  height: 32px;
+  border-radius: var(--border-radius-sm);
+}
+
+.search-input :deep(.n-input-wrapper) {
+  border-radius: var(--border-radius-sm);
+  height: 32px;
+  min-height: 32px;
+}
+
+.search-input :deep(.n-input__input-el) {
+  height: 32px;
+}
+
+/* ===== SubTask 10.4: 底部入口 row 布局 =====
+ * 无边框；图标用 --text-secondary，hover 时 --text-primary
+ * hover 背景 --bg-hover（背景图模式下由 style.css .has-background 规则覆盖为毛玻璃）
+ */
+.footer-btn {
+  flex: 1;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 12px;
+  background: transparent;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.footer-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 </style>

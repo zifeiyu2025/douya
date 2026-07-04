@@ -69,16 +69,16 @@ describe('GitHub 主题令牌 - 亮色模式 (:root)', () => {
         expect(lightVars['--accent-danger']).toBe('#cf222e')
     })
 
-    it('主背景应为纯白 #ffffff', () => {
-        expect(lightVars['--bg-primary']).toBe('#ffffff')
+    it('主背景应为柔和米白 #fbfbfc', () => {
+        expect(lightVars['--bg-primary']).toBe('#fbfbfc')
     })
 
-    it('次背景应为 GitHub subtle #f6f8fa', () => {
-        expect(lightVars['--bg-secondary']).toBe('#f6f8fa')
+    it('次背景应为柔和米白 #f3f4f7', () => {
+        expect(lightVars['--bg-secondary']).toBe('#f3f4f7')
     })
 
-    it('用户气泡背景应为 GitHub 蓝浅色 #ddf4ff', () => {
-        expect(lightVars['--bg-user-msg']).toBe('#ddf4ff')
+    it('用户气泡背景应为柔和蓝灰 #e3edf7', () => {
+        expect(lightVars['--bg-user-msg']).toBe('#e3edf7')
     })
 
     it('用户气泡文字应为 GitHub 蓝 #0969da', () => {
@@ -97,8 +97,8 @@ describe('GitHub 主题令牌 - 亮色模式 (:root)', () => {
         expect(lightVars['--text-primary']).toBe('#1f2328')
     })
 
-    it('代码块背景应为 #f6f8fa', () => {
-        expect(lightVars['--bg-code']).toBe('#f6f8fa')
+    it('代码块背景应为柔和米白 #e8eaef', () => {
+        expect(lightVars['--bg-code']).toBe('#e8eaef')
     })
 })
 

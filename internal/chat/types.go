@@ -3,7 +3,11 @@
 
 package chat
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"douya/internal/search"
+)
 
 type Conversation struct {
 	ID        string `json:"id"`
@@ -86,8 +90,17 @@ const (
 
 // ToolCallStartContent 工具调用开始事件的内容
 type ToolCallStartContent struct {
-	Tool  string `json:"tool"`  // 工具名称
-	Query string `json:"query"` // 查询参数
+	ToolCallID string `json:"tool_call_id"` // 工具调用 ID（用于并发 tool call 关联）
+	Tool       string `json:"tool"`         // 工具名称
+	Query      string `json:"query"`        // 查询参数
+}
+
+// SearchResultContent 搜索结果事件的内容
+// 修复前 search_result 事件只发射 []search.SearchResult，前端无法区分并发 tool call 的结果
+// 修复后使用 struct 包含 tool_call_id，前端可正确关联结果与开始事件
+type SearchResultContent struct {
+	ToolCallID string                 `json:"tool_call_id"` // 工具调用 ID（用于并发 tool call 关联）
+	Results    []search.SearchResult  `json:"results"`     // 搜索结果数组
 }
 
 // TokenSpeedContent 生成速度事件的内容
