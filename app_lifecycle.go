@@ -2,12 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"douya/internal/chat"
 	"douya/internal/config"
@@ -564,22 +565,37 @@ func (a *App) SelectImageFile() (string, error) {
 		return "", fmt.Errorf("创建图片目录失败: %w", err)
 	}
 
-	// 生成目标文件名：保留原扩展名，用时间戳避免冲突
+	// 保留原扩展名
 	ext := strings.ToLower(filepath.Ext(srcPath))
-	timestamp := time.Now().Format("20060102_150405")
-	dstName := "bg_" + timestamp + ext
-	dstPath := filepath.Join(imagesDir, dstName)
-	// 同一秒内选择了多张图片时，追加序号避免覆盖
-	for i := 1; ; i++ {
-		if _, statErr := os.Stat(dstPath); os.IsNotExist(statErr) {
-			break
-		}
-		dstName = fmt.Sprintf("bg_%s_%d%s", timestamp, i, ext)
-		dstPath = filepath.Join(imagesDir, dstName)
+
+	// 计算源文件内容的 SHA256 哈希，作为去重依据。
+	// 生活类比：给图片盖一个"身份证号"，内容相同则号码相同。
+	// 用哈希前16位作为文件名，相同内容的图片只会保存一份。
+	srcFile, err := os.Open(srcPath)
+	if err != nil {
+		return "", fmt.Errorf("打开源文件失败: %w", err)
 	}
 
-	// 复制源文件到目标文件（保留原文件）
-	srcFile, err := os.Open(srcPath)
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, srcFile); err != nil {
+		srcFile.Close()
+		return "", fmt.Errorf("计算文件哈希失败: %w", err)
+	}
+	srcFile.Close()
+
+	hashHex := hex.EncodeToString(hasher.Sum(nil))[:16]
+	dstName := "bg_" + hashHex + ext
+	dstPath := filepath.Join(imagesDir, dstName)
+
+	// 若目标文件已存在，说明内容相同的图片已保存过，直接复用，不再写入
+	if _, statErr := os.Stat(dstPath); statErr == nil {
+		if rel, relErr := filepath.Rel(appDir(), dstPath); relErr == nil {
+			return filepath.ToSlash(rel), nil
+		}
+	}
+
+	// 目标文件不存在，复制源文件到目标位置（保留原文件）
+	srcFile, err = os.Open(srcPath)
 	if err != nil {
 		return "", fmt.Errorf("打开源文件失败: %w", err)
 	}
