@@ -386,6 +386,44 @@ func TestEstimateKVCostPerToken_KVHeadsFallback(t *testing.T) {
 	}
 }
 
+// TestEstimateKVCostPerToken_NonStandardEmbeddingLength 验证当 EmbeddingLength
+// 不是 128 的倍数且 HeadDimKV 缺失时，KV cache 估算不会被严重高估。
+//
+// Bug 场景：HeadDimKV=0, KVHeadCount>0, EmbeddingLength>256 且不是 128 的倍数时，
+// 旧代码的 headDim 回退逻辑（要求 EmbeddingLength%128==0 才设为 128）会保留
+// EmbeddingLength 作为 headDim，导致 KV cost 被高估 N 倍。
+//
+// 影响：部分模型（如 n_embd=1440）会被推荐过小的上下文长度（如 2048 而非 16384+），
+// 严重损害用户体验。
+//
+// 生活类比：估算停车位需求时，把"整个停车场宽度"误当成"单车位宽度"，
+// 结果算出来只需要几个车位，实际上能停的远不止这些。
+func TestEstimateKVCostPerToken_NonStandardEmbeddingLength(t *testing.T) {
+	// 构造一个 GQA 模型：HeadDimKV 缺失（0），KVHeadCount=8，EmbeddingLength=1440（非 128 倍数）
+	meta := &GGUFMetadata{
+		BlockCount:      28,
+		EmbeddingLength: 1440, // 1440 / 128 = 11.25，不是整数
+		HeadDimKV:       0,    // 缺失，需要回退
+		KVHeadCount:     8,    // GQA：8 个 KV head
+	}
+
+	cost := estimateKVCostPerToken(meta, "q8_0", "q8_0")
+
+	// 正确的估算：headDim 应回退为 128，kvHeads=8
+	// KV cost = 28 * 128 * 8 * 1.0 * 2 = 57344
+	expected := int64(28 * 128 * 8 * 1.0 * 2)
+
+	if cost != expected {
+		t.Errorf("非标准 EmbeddingLength 时 KV cost = %d, 期望 %d (headDim 应回退为 128)", cost, expected)
+	}
+
+	// 验证：旧 bug 会给出 headDim=1440 的结果（高估约 11 倍）
+	buggyCost := int64(28 * 1440 * 8 * 1.0 * 2)
+	if cost == buggyCost {
+		t.Errorf("KV cost = %d，与 buggy 值 %d 相同，说明 headDim 回退逻辑未修复", cost, buggyCost)
+	}
+}
+
 // TestCalculateBatchSize 测试基于 VRAM 的 batch size 计算（回退方案）
 func TestCalculateBatchSize(t *testing.T) {
 	tests := []struct {

@@ -49,6 +49,31 @@ func TestCreateCollection_OK(t *testing.T) {
 	}
 }
 
+// TestDefaultHNSWConfig 验证默认 HNSW 配置参数合理
+//
+// 生活类比：就像工厂的"标准产品规格表"，M=16、EFConstruction=200、EF=100
+// 是经过验证的默认值，保证产品（向量检索）开箱即用且有合理性能。
+func TestDefaultHNSWConfig(t *testing.T) {
+	cfg := DefaultHNSWConfig()
+	if cfg.M <= 0 {
+		t.Errorf("M 应 > 0，实际: %d", cfg.M)
+	}
+	if cfg.EFConstruction <= 0 {
+		t.Errorf("EFConstruction 应 > 0，实际: %d", cfg.EFConstruction)
+	}
+	if cfg.EF <= 0 {
+		t.Errorf("EF 应 > 0，实际: %d", cfg.EF)
+	}
+	// M 通常为 16
+	if cfg.M != 16 {
+		t.Errorf("M 期望 16，实际: %d", cfg.M)
+	}
+	// EFConstruction 通常为 200
+	if cfg.EFConstruction != 200 {
+		t.Errorf("EFConstruction 期望 200，实际: %d", cfg.EFConstruction)
+	}
+}
+
 func TestCreateCollection_Duplicate(t *testing.T) {
 	vs, cleanup := newTestStore(t)
 	defer cleanup()

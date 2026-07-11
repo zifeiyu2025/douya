@@ -81,7 +81,10 @@ func estimateModelTier(blockCount, embeddingLength int) ModelTier {
 func CalculateSmartParams(hw *HardwareInfo, resolvedModelPath string) *SmartParams {
 	p := &SmartParams{}
 
-	if hw.HasGPU {
+	// GPU 层数：有完整 GPU 信息时全部卸载；仅检测到 CUDA 驱动时也尝试全部卸载
+	// 生活类比：即使仪表盘坏了（nvidia-smi 失败），只要发动机还在（nvcuda.dll），
+	// 仍然挂最高档（99层），让引擎自己决定能跑多快
+	if hw.HasGPU || hw.HasCUDABackend {
 		p.GPULayers = 99
 	} else {
 		p.GPULayers = 0
@@ -93,11 +96,12 @@ func CalculateSmartParams(hw *HardwareInfo, resolvedModelPath string) *SmartPara
 	}
 	p.Threads = max(physicalCores-2, 2)
 
-	p.FlashAttn = hw.HasGPU
+	// Flash Attention：有 GPU 或 CUDA 后端时开启
+	p.FlashAttn = hw.HasGPU || hw.HasCUDABackend
 	_, meta := DetectModelTier(resolvedModelPath)
 	p.CacheTypeK, p.CacheTypeV = calculateCacheTypes(hw, meta)
 	p.Mlock = true
-	p.MmprojOffload = hw.HasGPU
+	p.MmprojOffload = hw.HasGPU || hw.HasCUDABackend
 
 	p.ContextSize = calculateContextSize(hw, resolvedModelPath)
 	p.BatchSize = calculateBatchSizeFromRatio(hw, meta)
@@ -149,7 +153,7 @@ func CalculateSmartParams(hw *HardwareInfo, resolvedModelPath string) *SmartPara
 		} else {
 			p.SpecDraftNMax = 3
 		}
-	} else if hw.HasGPU {
+	} else if hw.HasGPU || hw.HasCUDABackend {
 		// 非 MTP 模型：自动启用 ngram_mod 推测解码加速（无需 MTP 头，任何模型可用）
 		// 但需要检查条件：显存太紧张或模型太小则跳过
 		shouldEnableNgram := true
@@ -215,6 +219,10 @@ func calculateContextSize(hw *HardwareInfo, resolvedModelPath string) int {
 	tier, meta := DetectModelTier(resolvedModelPath)
 
 	if !hw.HasGPU || hw.GPUVRAMMB <= 0 {
+		// 有 CUDA 后端但无 VRAM 信息时，使用保守的 8192
+		if hw.HasCUDABackend {
+			return 8192
+		}
 		return 4096
 	}
 
@@ -382,6 +390,10 @@ func calculateBatchSize(hw *HardwareInfo) int {
 // calculateBatchSizeFromRatio 根据模型占用比例计算 batch size
 func calculateBatchSizeFromRatio(hw *HardwareInfo, meta *GGUFMetadata) int {
 	if !hw.HasGPU || hw.GPUVRAMMB <= 0 {
+		// 有 CUDA 后端但无 VRAM 信息时，使用保守的 512
+		if hw.HasCUDABackend {
+			return 512
+		}
 		return 64
 	}
 
@@ -447,15 +459,13 @@ func estimateKVCostPerToken(meta *GGUFMetadata, cacheTypeK, cacheTypeV string) i
 	headDim := meta.HeadDimKV
 	if headDim <= 0 {
 		headDim = meta.EmbeddingLength
-		// 如果有 KV head 信息且不等于 embedding_length，说明是 GQA
-		// head_dim = embedding_length / num_attention_heads
-		// 但我们没有 num_attention_heads，所以用 embedding_length 作为近似
+		// embedding_length 是 n_embd（总嵌入维度），不是 head_dim
 		// 对于 GQA 模型，head_dim 通常为 128 或 256
+		// 当 n_embd > 256 时，几乎可以确定它不是 head_dim，回退为最常见的 128
+		// 注意：不能用 n_embd%128==0 作为判据，非标准维度（如 1440）会导致 headDim
+		// 保持为 n_embd 值，严重高估 KV cache 成本（见 TDD 修复）
 		if headDim > 256 {
-			// 大概率是 n_embd 而非 head_dim，尝试常见值
-			if headDim%128 == 0 {
-				headDim = 128 // 最常见的 head_dim
-			}
+			headDim = 128
 		}
 	}
 
@@ -482,6 +492,11 @@ func estimateKVCostPerToken(meta *GGUFMetadata, cacheTypeK, cacheTypeV string) i
 
 func calculateCacheTypes(hw *HardwareInfo, meta *GGUFMetadata) (string, string) {
 	if !hw.HasGPU || hw.GPUVRAMMB <= 0 {
+		// nvidia-smi 检测失败但有 CUDA 后端时，使用保守的 q8_0/q4_0
+		// 因为不知道 VRAM 大小，不能激进压缩
+		if hw.HasCUDABackend {
+			return "q8_0", "q4_0"
+		}
 		return "q4_0", "q4_0"
 	}
 

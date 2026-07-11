@@ -433,7 +433,7 @@ export namespace llm {
 export namespace main {
 
 	export class SmartParamsInfo {
-	    hardware: { cpu_cores: number; has_gpu: boolean; gpu_name: string; gpu_vram_mb: number; };
+	    hardware: { cpu_cores: number; has_gpu: boolean; has_cuda_backend: boolean; gpu_name: string; gpu_vram_mb: number; };
 	    model: { architecture: string; block_count: number; embedding_length: number; context_length: number; file_size_mb: number; expert_count: number; expert_used: number; has_mtp: boolean; has_reasoning: boolean; n_params: number; size_label: string; };
 	    params: { gpu_layers: number; threads: number; batch_size: number; ubatch_size: number; flash_attn: boolean; cache_type_k: string; cache_type_v: string; mlock: boolean; mmproj_offload: boolean; context_size: number; spec_type: string; spec_draft_n_max: number; spec_draft_n_min: number; ngram_mod_n_min: number; ngram_mod_n_max: number; ngram_mod_n_match: number; };
 	    overrides: { gpu_layers: boolean; flash_attn: boolean; mlock: boolean; threads: boolean; batch_size: boolean; context_size: boolean; cache_type_k: boolean; cache_type_v: boolean; spec_type: boolean; };

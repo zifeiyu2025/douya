@@ -465,7 +465,7 @@ onMounted(async () => {
   // 获取硬件信息以判断是否有 GPU（影响 KV cache 类型可选项）
   try {
     const smartParams = await wails.getSmartParams()
-    hasGPUInfo.value = smartParams.hardware.has_gpu
+    hasGPUInfo.value = smartParams.hardware.has_gpu || smartParams.hardware.has_cuda_backend
   } catch {
     // 获取失败时保持默认值（true），显示全部选项
   }

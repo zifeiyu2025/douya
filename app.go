@@ -243,10 +243,11 @@ func resolvePath(p string) string {
 // SmartParamsInfo 返回当前模型+硬件的智能参数推荐值和模型元数据
 type SmartParamsInfo struct {
 	Hardware struct {
-		CPUCores  int    `json:"cpu_cores"`
-		HasGPU    bool   `json:"has_gpu"`
-		GPUName   string `json:"gpu_name"`
-		GPUVRAMMB int64  `json:"gpu_vram_mb"`
+		CPUCores       int    `json:"cpu_cores"`
+		HasGPU         bool   `json:"has_gpu"`
+		HasCUDABackend bool   `json:"has_cuda_backend"`
+		GPUName        string `json:"gpu_name"`
+		GPUVRAMMB      int64  `json:"gpu_vram_mb"`
 	} `json:"hardware"`
 
 	Model struct {

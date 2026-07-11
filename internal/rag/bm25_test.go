@@ -348,3 +348,99 @@ func TestRemoveByPrefix_SingleFormat(t *testing.T) {
 		t.Error("删除后应仍能检索到 docB")
 	}
 }
+
+// TestRemoveDocument_Success 验证删除已存在的文档
+//
+// 生活类比：就像从通讯录里删除一个联系人，删除后联系人数量减 1，
+// 而且搜索时再也找不到这个人。
+func TestRemoveDocument_Success(t *testing.T) {
+	idx := NewBM25Index()
+	idx.AddDocuments([]BM25DocInput{
+		{ID: "doc1", Text: "苹果是水果"},
+		{ID: "doc2", Text: "香蕉也是水果"},
+		{ID: "doc3", Text: "计算机科学"},
+	})
+
+	// 删除 doc2
+	removed := idx.RemoveDocument("doc2")
+	if !removed {
+		t.Error("删除存在的文档应返回 true")
+	}
+	if len(idx.documents) != 2 {
+		t.Errorf("删除后应有 2 个文档，实际: %d", len(idx.documents))
+	}
+
+	// 验证 doc2 确实被删除
+	for _, d := range idx.documents {
+		if d.id == "doc2" {
+			t.Error("doc2 应已被删除")
+		}
+	}
+}
+
+// TestRemoveDocument_EmptyID 验证空 ID 返回 false
+func TestRemoveDocument_EmptyID(t *testing.T) {
+	idx := NewBM25Index()
+	idx.AddDocuments([]BM25DocInput{{ID: "doc1", Text: "测试"}})
+
+	if idx.RemoveDocument("") {
+		t.Error("空 ID 应返回 false")
+	}
+	if len(idx.documents) != 1 {
+		t.Error("空 ID 不应删除任何文档")
+	}
+}
+
+// TestRemoveDocument_NotFound 验证删除不存在的文档返回 false
+func TestRemoveDocument_NotFound(t *testing.T) {
+	idx := NewBM25Index()
+	idx.AddDocuments([]BM25DocInput{{ID: "doc1", Text: "测试"}})
+
+	if idx.RemoveDocument("不存在的ID") {
+		t.Error("删除不存在的文档应返回 false")
+	}
+	if len(idx.documents) != 1 {
+		t.Error("不存在的文档不应影响文档数量")
+	}
+}
+
+// TestRemoveDocument_EmptyIndex 验证空索引删除返回 false
+func TestRemoveDocument_EmptyIndex(t *testing.T) {
+	idx := NewBM25Index()
+	if idx.RemoveDocument("any") {
+		t.Error("空索引删除应返回 false")
+	}
+}
+
+// TestRemoveDocument_LastDocument 验证删除最后一个文档后 avgDL 归零
+func TestRemoveDocument_LastDocument(t *testing.T) {
+	idx := NewBM25Index()
+	idx.AddDocuments([]BM25DocInput{{ID: "doc1", Text: "测试"}})
+
+	if !idx.RemoveDocument("doc1") {
+		t.Error("删除最后一个文档应返回 true")
+	}
+	if len(idx.documents) != 0 {
+		t.Errorf("删除后应有 0 个文档，实际: %d", len(idx.documents))
+	}
+	if idx.avgDL != 0 {
+		t.Errorf("空索引 avgDL 应为 0，实际: %v", idx.avgDL)
+	}
+}
+
+// TestRemoveDocument_AVGDLOverRecompute 验证删除后 avgDL 重新计算
+func TestRemoveDocument_AVGDLOverRecompute(t *testing.T) {
+	idx := NewBM25Index()
+	idx.AddDocuments([]BM25DocInput{
+		{ID: "doc1", Text: "一二三四五"},
+		{ID: "doc2", Text: "六七八九十"},
+	})
+	// 两文档相同长度，avgDL = doc1.dl = doc2.dl
+	originalAvgDL := idx.avgDL
+
+	// 删除一个文档后 avgDL 应保持不变（因为剩下一个文档长度相同）
+	idx.RemoveDocument("doc1")
+	if idx.avgDL != originalAvgDL {
+		t.Errorf("删除后 avgDL 应为 %v（保持不变），实际: %v", originalAvgDL, idx.avgDL)
+	}
+}

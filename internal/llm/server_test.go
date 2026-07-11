@@ -5,6 +5,8 @@ package llm
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -177,5 +179,125 @@ func TestWatchWithCallback_PermanentFailure(t *testing.T) {
 
 	if !s.IsPermanentFailure() {
 		t.Error("连续启动失败后 permanentFailure 应为 true")
+	}
+}
+
+// TestIsValidCacheType_AllowedTypes 验证所有允许的 cache 类型返回 true
+//
+// 生活类比：就像安检口的"允许携带物品清单"，清单上的东西（f32、q8_0 等）可以放心通过。
+// 这个测试确保清单完整，不会误拦合法物品。
+func TestIsValidCacheType_AllowedTypes(t *testing.T) {
+	allowed := []string{"f32", "f16", "bf16", "q8_0", "q4_0", "q4_1", "iq4_nl", "q5_0", "q5_1"}
+	for _, ct := range allowed {
+		if !isValidCacheType(ct) {
+			t.Errorf("isValidCacheType(%q) 期望 true，实际 false", ct)
+		}
+	}
+}
+
+// TestIsValidCacheType_CaseInsensitive 验证大小写不敏感
+// 用户可能输入大写（如 "Q8_0"），应被接受
+func TestIsValidCacheType_CaseInsensitive(t *testing.T) {
+	cases := []string{"Q8_0", "F32", "BF16", "Q4_0", "IQ4_NL", "Q5_1"}
+	for _, ct := range cases {
+		if !isValidCacheType(ct) {
+			t.Errorf("isValidCacheType(%q) 大小写不敏感应返回 true，实际 false", ct)
+		}
+	}
+}
+
+// TestIsValidCacheType_RemovedTypes 验证已删除的 cache 类型返回 false
+// llama-server 9631 版本删除了 q2_k, q3_k, q4_k, q5_k, q6_k, iq4_xs
+// 如果误接受这些类型，会导致 llama-server 启动失败
+func TestIsValidCacheType_RemovedTypes(t *testing.T) {
+	removed := []string{"q2_k", "q3_k", "q4_k", "q5_k", "q6_k", "iq4_xs"}
+	for _, ct := range removed {
+		if isValidCacheType(ct) {
+			t.Errorf("isValidCacheType(%q) 已删除的类型应返回 false，实际 true", ct)
+		}
+	}
+}
+
+// TestIsValidCacheType_UnknownAndEmpty 验证未知类型和空字符串返回 false
+func TestIsValidCacheType_UnknownAndEmpty(t *testing.T) {
+	cases := []string{"", "unknown", "q9_0", "f64", "int8"}
+	for _, ct := range cases {
+		if isValidCacheType(ct) {
+			t.Errorf("isValidCacheType(%q) 未知/空类型应返回 false，实际 true", ct)
+		}
+	}
+}
+
+// TestEnhanceStartError_Nil 验证 nil 错误返回 nil
+func TestEnhanceStartError_Nil(t *testing.T) {
+	got := enhanceStartError(nil)
+	if got != nil {
+		t.Errorf("enhanceStartError(nil) 期望 nil，实际 %v", got)
+	}
+}
+
+// TestEnhanceStartError_DLLMissing 验证 DLL 缺失错误返回中文提示
+//
+// 生活类比：就像翻译官，把 Windows 的英文报错翻译成用户能懂的中文，
+// 并告诉用户去哪里找问题（runtime/ 目录）。
+func TestEnhanceStartError_DLLMissing(t *testing.T) {
+	cases := []struct {
+		name    string
+		errMsg  string
+		wantSub string
+	}{
+		{"module not found", "The specified module could not be found", "DLL 文件缺失"},
+		{"dll not found", "foo.dll not found", "DLL 文件缺失"},
+		{".dll + not found", "bar.dll: not found in path", "DLL 文件缺失"},
+		{".dll + cannot find", "cannot find baz.dll", "DLL 文件缺失"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			orig := errors.New(c.errMsg)
+			got := enhanceStartError(orig)
+			if got == nil {
+				t.Fatalf("enhanceStartError 不应返回 nil")
+			}
+			if !strings.Contains(got.Error(), c.wantSub) {
+				t.Errorf("应包含 %q，实际 %q", c.wantSub, got.Error())
+			}
+			// 应保留原始错误信息
+			if !strings.Contains(got.Error(), c.errMsg) {
+				t.Errorf("应保留原始错误 %q，实际 %q", c.errMsg, got.Error())
+			}
+		})
+	}
+}
+
+// TestEnhanceStartError_EngineMissing 验证引擎文件不存在错误返回中文提示
+func TestEnhanceStartError_EngineMissing(t *testing.T) {
+	cases := []struct {
+		name    string
+		errMsg  string
+		wantSub string
+	}{
+		{"file not specified", "The system cannot find the file specified", "引擎程序文件不存在"},
+		{"no such file", "no such file or directory", "引擎程序文件不存在"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			orig := errors.New(c.errMsg)
+			got := enhanceStartError(orig)
+			if got == nil {
+				t.Fatalf("enhanceStartError 不应返回 nil")
+			}
+			if !strings.Contains(got.Error(), c.wantSub) {
+				t.Errorf("应包含 %q，实际 %q", c.wantSub, got.Error())
+			}
+		})
+	}
+}
+
+// TestEnhanceStartError_UnknownError 验证未知错误原样返回
+func TestEnhanceStartError_UnknownError(t *testing.T) {
+	orig := fmt.Errorf("some unknown startup error")
+	got := enhanceStartError(orig)
+	if got != orig {
+		t.Errorf("未知错误应原样返回，期望 %v，实际 %v", orig, got)
 	}
 }

@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -163,4 +164,75 @@ func TestExtractKeywords(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestMakeRelativeModelPath_WithModelsDir 验证 dir 包含 "models/" 时生成相对路径
+//
+// 生活类比：就像快递地址，如果收件地址是"北京市朝阳区 models 路 5 号"，
+// 只需要保留 "models 路 5 号" 这个相对部分，再加上门牌号（fileName）。
+func TestMakeRelativeModelPath_WithModelsDir(t *testing.T) {
+	cases := []struct {
+		name     string
+		dir      string
+		fileName string
+		want     string
+	}{
+		{
+			name:     "标准 models 子目录",
+			dir:      "C:/app/models/qwen",
+			fileName: "model.gguf",
+			want:     filepath.Join("models", "qwen", "model.gguf"),
+		},
+		{
+			name:     "models 在路径中间",
+			dir:      "/home/user/models/sub/deepseek",
+			fileName: "ds.gguf",
+			want:     filepath.Join("models", "sub/deepseek", "ds.gguf"),
+		},
+		{
+			name:     "Windows 反斜杠路径",
+			dir:      `D:\app\models\gemma`,
+			fileName: "gemma.gguf",
+			want:     filepath.Join("models", "gemma", "gemma.gguf"),
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := makeRelativeModelPath(c.dir, c.fileName)
+			if got != c.want {
+				t.Errorf("makeRelativeModelPath(%q, %q) = %q, 期望 %q", c.dir, c.fileName, got, c.want)
+			}
+		})
+	}
+}
+
+// TestMakeRelativeModelPath_WithoutModelsDir 验证 dir 不含 "models/" 时回退为 models/fileName
+func TestMakeRelativeModelPath_WithoutModelsDir(t *testing.T) {
+	cases := []struct {
+		name     string
+		dir      string
+		fileName string
+		want     string
+	}{
+		{
+			name:     "普通目录",
+			dir:      "C:/app/other",
+			fileName: "model.gguf",
+			want:     filepath.Join("models", "model.gguf"),
+		},
+		{
+			name:     "空目录",
+			dir:      "",
+			fileName: "model.gguf",
+			want:     filepath.Join("models", "model.gguf"),
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := makeRelativeModelPath(c.dir, c.fileName)
+			if got != c.want {
+				t.Errorf("makeRelativeModelPath(%q, %q) = %q, 期望 %q", c.dir, c.fileName, got, c.want)
+			}
+		})
+	}
 }

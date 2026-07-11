@@ -4,6 +4,8 @@
 package secrets
 
 import (
+	"encoding/base64"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -137,4 +139,112 @@ func TestLoadOrCreateKey_DamagedFile(t *testing.T) {
 	if err == nil {
 		t.Fatal("损坏的密钥文件应返回错误，而非静默覆盖")
 	}
+}
+
+// TestEncryptBatch_Success 验证批量加密成功并能逐个解密还原
+//
+// 生活类比：就像快递站批量打包，每个包裹用独立的锁（nonce），
+// 但都用同一把钥匙（key）。每个包裹都能独立打开。
+func TestEncryptBatch_Success(t *testing.T) {
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i)
+	}
+
+	plaintexts := []string{
+		"第一个秘密",
+		"second secret",
+		"",
+		"带特殊字符 !@#$%^&*()",
+	}
+
+	ciphertexts, err := EncryptBatch(plaintexts, key)
+	if err != nil {
+		t.Fatalf("EncryptBatch 失败: %v", err)
+	}
+	if len(ciphertexts) != len(plaintexts) {
+		t.Fatalf("密文数量 %d 应等于明文数量 %d", len(ciphertexts), len(plaintexts))
+	}
+
+	// 每个密文应能解密回原文
+	cipher := NewCipher(key)
+	for i, ct := range ciphertexts {
+		// EncryptBatch 用 base64 编码，但 NewCipher.Encrypt 也用 base64 + enc: 前缀
+		// 这里直接用底层解密逻辑
+		got, err := cipher.Decrypt(ct)
+		if err != nil {
+			// EncryptBatch 不加 "enc:" 前缀，尝试直接 base64 解码
+			got, err = decryptRaw(ct, key)
+			if err != nil {
+				t.Fatalf("第 %d 个密文解密失败: %v", i, err)
+			}
+		}
+		if got != plaintexts[i] {
+			t.Errorf("第 %d 个密文解密 = %q, 期望 %q", i, got, plaintexts[i])
+		}
+	}
+}
+
+// TestEncryptBatch_UniqueCiphertexts 验证相同明文加密后密文不同（nonce 随机性）
+func TestEncryptBatch_UniqueCiphertexts(t *testing.T) {
+	key := make([]byte, 32)
+	plaintexts := []string{"相同内容", "相同内容", "相同内容"}
+
+	ciphertexts, err := EncryptBatch(plaintexts, key)
+	if err != nil {
+		t.Fatalf("EncryptBatch 失败: %v", err)
+	}
+
+	// 三个相同明文的密文应互不相同（因为 nonce 随机）
+	if ciphertexts[0] == ciphertexts[1] {
+		t.Error("相同明文的密文应不同（nonce 随机性）")
+	}
+	if ciphertexts[0] == ciphertexts[2] {
+		t.Error("相同明文的密文应不同（nonce 随机性）")
+	}
+}
+
+// TestEncryptBatch_InvalidKey 验证无效密钥返回错误
+func TestEncryptBatch_InvalidKey(t *testing.T) {
+	// AES 需要 16/24/32 字节密钥，提供 15 字节应失败
+	invalidKey := make([]byte, 15)
+	_, err := EncryptBatch([]string{"test"}, invalidKey)
+	if err == nil {
+		t.Error("无效密钥应返回错误")
+	}
+}
+
+// TestEncryptBatch_EmptyInput 验证空输入返回空切片（非 nil）
+func TestEncryptBatch_EmptyInput(t *testing.T) {
+	key := make([]byte, 32)
+	ciphertexts, err := EncryptBatch(nil, key)
+	if err != nil {
+		t.Fatalf("空输入不应返回错误: %v", err)
+	}
+	if len(ciphertexts) != 0 {
+		t.Errorf("空输入应返回长度 0 的切片，实际: %d", len(ciphertexts))
+	}
+}
+
+// decryptRaw 直接解密 base64 编码的 AES-GCM 密文（不带 enc: 前缀）
+// 用于测试中验证 EncryptBatch 的输出
+func decryptRaw(b64Ciphertext string, key []byte) (string, error) {
+	aesGCM, err := defaultCipherCache.getAEAD(key)
+	if err != nil {
+		return "", err
+	}
+	data, err := base64.StdEncoding.DecodeString(b64Ciphertext)
+	if err != nil {
+		return "", err
+	}
+	nonceSize := aesGCM.NonceSize()
+	if len(data) < nonceSize {
+		return "", fmt.Errorf("ciphertext too short")
+	}
+	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
+	plaintext, err := aesGCM.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
 }

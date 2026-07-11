@@ -5,7 +5,10 @@ package chat
 
 import (
 	"errors"
+	"strings"
 	"testing"
+
+	"douya/internal/store"
 )
 
 // TestParseExceedContextError_NilError 验证 nil error 返回 nil
@@ -138,5 +141,152 @@ func TestCalcSlidingWindowSize_ZeroOrNegative(t *testing.T) {
 		if got != 6 {
 			t.Errorf("contextSize=%d 应使用默认 4096 返回 6，实际: %d", ctx, got)
 		}
+	}
+}
+
+// TestEstimateAttachmentTokens_KnownTypes 验证已知附件类型返回固定估算值
+//
+// 生活类比：就像快递公司对标准包裹（衣服、书本、电子产品）有固定运费表，
+// 不管具体内容多少都按类型收费。
+func TestEstimateAttachmentTokens_KnownTypes(t *testing.T) {
+	cases := []struct {
+		name    string
+		attType string
+		wantMin int
+		wantMax int
+	}{
+		{"image", "image", 3500, 3500},
+		{"IMAGE 大写", "IMAGE", 3500, 3500},
+		{"video", "video", 5000, 5000},
+		{"audio", "audio", 500, 500},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := EstimateAttachmentTokens(c.attType)
+			if got < c.wantMin || got > c.wantMax {
+				t.Errorf("EstimateAttachmentTokens(%q) = %d, 期望 [%d, %d]", c.attType, got, c.wantMin, c.wantMax)
+			}
+		})
+	}
+}
+
+// TestEstimateAttachmentTokens_UnknownType 验证未知类型返回 0
+// 注意：这是无 data 版本的估算，未知类型无数据时返回 0 是正确的
+func TestEstimateAttachmentTokens_UnknownType(t *testing.T) {
+	cases := []string{"", "unknown", "spreadsheet", "text", "pdf"}
+	for _, ct := range cases {
+		got := EstimateAttachmentTokens(ct)
+		if got != 0 {
+			t.Errorf("EstimateAttachmentTokens(%q) 未知/无数据类型应返回 0，实际 %d", ct, got)
+		}
+	}
+}
+
+// TestSearchResultInstruction_Chinese 验证中文搜索结果指令
+// 指令应禁止使用 [1][2] 编号引用格式
+func TestSearchResultInstruction_Chinese(t *testing.T) {
+	got := SearchResultInstruction("zh")
+	if !strings.Contains(got, "不要使用") {
+		t.Errorf("中文指令应包含 '不要使用'，实际: %q", got)
+	}
+	if !strings.Contains(got, "[1][2]") {
+		t.Errorf("中文指令应提及 '[1][2]'，实际: %q", got)
+	}
+}
+
+// TestSearchResultInstruction_English 验证英文搜索结果指令
+func TestSearchResultInstruction_English(t *testing.T) {
+	got := SearchResultInstruction("en")
+	if !strings.Contains(got, "Do not use") {
+		t.Errorf("英文指令应包含 'Do not use'，实际: %q", got)
+	}
+	if !strings.Contains(got, "[1][2]") {
+		t.Errorf("英文指令应提及 '[1][2]'，实际: %q", got)
+	}
+}
+
+// TestSearchResultInstruction_OtherLang 验证非中文语言返回英文指令
+func TestSearchResultInstruction_OtherLang(t *testing.T) {
+	cases := []string{"", "ja", "fr", "code"}
+	for _, lang := range cases {
+		got := SearchResultInstruction(lang)
+		if !strings.Contains(got, "Answer") {
+			t.Errorf("非中文 %q 应返回英文指令，实际: %q", lang, got)
+		}
+	}
+}
+
+// TestEstimateMessageTokens_NilMessage 验证 nil 消息返回 0
+func TestEstimateMessageTokens_NilMessage(t *testing.T) {
+	got := EstimateMessageTokens(nil)
+	if got != 0 {
+		t.Errorf("nil 消息应返回 0，实际: %d", got)
+	}
+}
+
+// TestEstimateMessageTokens_EmptyMessage 验证空消息返回最小值 11（10 模板开销 + 1）
+func TestEstimateMessageTokens_EmptyMessage(t *testing.T) {
+	m := &store.Message{}
+	got := EstimateMessageTokens(m)
+	if got != 11 {
+		t.Errorf("空消息应返回 11（10 模板开销 + 最小 1），实际: %d", got)
+	}
+}
+
+// TestEstimateMessageTokens_ContentOnly 验证仅文本内容的 token 估算
+func TestEstimateMessageTokens_ContentOnly(t *testing.T) {
+	m := &store.Message{
+		Content: "你好世界", // 4 个中文字符，2 token/字 = 8 token
+	}
+	got := EstimateMessageTokens(m)
+	// 8 (content) + 10 (template) = 18
+	if got < 18 {
+		t.Errorf("中文内容消息 token 估算 %d，期望 >= 18", got)
+	}
+}
+
+// TestEstimateMessageTokens_WithImages 验证带图片消息累加图片 token
+func TestEstimateMessageTokens_WithImages(t *testing.T) {
+	m := &store.Message{
+		Content: "看这张图",
+		Images:  "[\"url1\",\"url2\"]", // 2 张图片
+	}
+	got := EstimateMessageTokens(m)
+	// 应至少包含 2 * imageTokenEstimate (7000) + 10 (template)
+	if got < 7000 {
+		t.Errorf("带 2 张图片的消息 token 估算 %d，期望 >= 7000", got)
+	}
+}
+
+// TestEstimateMessageTokens_WithAttachments 验证带附件消息累加附件 token
+func TestEstimateMessageTokens_WithAttachments(t *testing.T) {
+	// 构造包含 1 张图片和 1 段音频的附件 JSON
+	attachmentsJSON := `[{"type":"image","data":"abc"},{"type":"audio","data":"xyz"}]`
+	m := &store.Message{
+		Content:     "带附件的消息",
+		Attachments: attachmentsJSON,
+	}
+	got := EstimateMessageTokens(m)
+	// image(3500) + audio(500) + content(若干) + 10(template)
+	if got < 4000 {
+		t.Errorf("带图片+音频附件的消息 token 估算 %d，期望 >= 4000", got)
+	}
+}
+
+// TestEstimateMessageTokens_AllFields 验证所有字段都被累加
+func TestEstimateMessageTokens_AllFields(t *testing.T) {
+	m := &store.Message{
+		Content:         "正文内容",
+		ToolCalls:       "工具调用",
+		SearchResults:   "搜索结果",
+		ThinkingContent: "思考过程",
+		Images:          "[\"url1\"]",
+		Attachments:     `[{"type":"image","data":"abc"}]`,
+	}
+	got := EstimateMessageTokens(m)
+	// 所有字段都有值，应比任何单一字段都大
+	// 最小验证：至少包含 1 张图片 (3500) + 10 (template)
+	if got < 3500 {
+		t.Errorf("全字段消息 token 估算 %d，期望 >= 3500", got)
 	}
 }

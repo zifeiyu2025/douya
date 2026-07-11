@@ -147,6 +147,264 @@ func TestDoSearch_SuccessReturnsBody(t *testing.T) {
 	}
 }
 
+// ===== 纯函数测试 =====
+
+// TestIsPrivateOrLoopback_Loopback 验证回环地址被识别为内网
+//
+// 生活类比：就像门卫检查信封地址，"127.0.0.1" 是本机内部地址，不允许外部搜索请求重定向到这里。
+func TestIsPrivateOrLoopback_Loopback(t *testing.T) {
+	cases := []string{
+		"127.0.0.1",
+		"::1",
+		"localhost",
+	}
+	for _, host := range cases {
+		if !isPrivateOrLoopback(host) {
+			t.Errorf("isPrivateOrLoopback(%q) 期望 true（回环地址），实际 false", host)
+		}
+	}
+}
+
+// TestIsPrivateOrLoopback_PrivateIP 验证内网 IP 被识别
+func TestIsPrivateOrLoopback_PrivateIP(t *testing.T) {
+	cases := []string{
+		"10.0.0.1",
+		"172.16.0.1",
+		"192.168.1.1",
+		"169.254.1.1", // 链路本地
+		"0.0.0.0",     // 未指定
+	}
+	for _, host := range cases {
+		if !isPrivateOrLoopback(host) {
+			t.Errorf("isPrivateOrLoopback(%q) 期望 true（内网地址），实际 false", host)
+		}
+	}
+}
+
+// TestIsPrivateOrLoopback_PublicIP 验证公网 IP 不被识别为内网
+func TestIsPrivateOrLoopback_PublicIP(t *testing.T) {
+	cases := []string{
+		"8.8.8.8",
+		"1.1.1.1",
+		"114.114.114.114",
+	}
+	for _, host := range cases {
+		if isPrivateOrLoopback(host) {
+			t.Errorf("isPrivateOrLoopback(%q) 期望 false（公网地址），实际 true", host)
+		}
+	}
+}
+
+// TestIsSearchEngineSelfLink_KnownSelfLinks 验证已知搜索引擎自身链接被识别
+func TestIsSearchEngineSelfLink_KnownSelfLinks(t *testing.T) {
+	cases := []string{
+		"https://www.so.com/s?q=test",
+		"https://www.bing.com/search",
+		"https://www.google.com/search",
+		"https://duckduckgo.com/?q=test",
+		"https://search.yahoo.com/search",
+	}
+	for _, link := range cases {
+		if !isSearchEngineSelfLink(link) {
+			t.Errorf("isSearchEngineSelfLink(%q) 期望 true，实际 false", link)
+		}
+	}
+}
+
+// TestIsSearchEngineSelfLink_NormalLink 验证普通链接不被识别为搜索引擎自身链接
+func TestIsSearchEngineSelfLink_NormalLink(t *testing.T) {
+	cases := []string{
+		"https://example.com/article",
+		"https://github.com/repo",
+		"https://zh.wikipedia.org/wiki/Go",
+		"https://blog.csdn.net/post/123",
+	}
+	for _, link := range cases {
+		if isSearchEngineSelfLink(link) {
+			t.Errorf("isSearchEngineSelfLink(%q) 期望 false，实际 true", link)
+		}
+	}
+}
+
+// TestIsSearchEngineSelfLink_CaseInsensitive 验证大小写不敏感
+func TestIsSearchEngineSelfLink_CaseInsensitive(t *testing.T) {
+	cases := []string{
+		"HTTPS://WWW.BING.COM/search",
+		"https://WWW.So.COM/s",
+	}
+	for _, link := range cases {
+		if !isSearchEngineSelfLink(link) {
+			t.Errorf("isSearchEngineSelfLink(%q) 大小写不敏感应返回 true，实际 false", link)
+		}
+	}
+}
+
+// TestDedupAndFilterResults_RemovesEmptyTitleOrURL 验证空标题或空链接被过滤
+func TestDedupAndFilterResults_RemovesEmptyTitleOrURL(t *testing.T) {
+	results := []SearchResult{
+		{Title: "正常结果", URL: "https://example.com/1"},
+		{Title: "", URL: "https://example.com/2"},   // 空标题
+		{Title: "空链接", URL: ""},                   // 空链接
+		{Title: "都空", URL: ""},                     // 都空
+		{Title: "另一个正常", URL: "https://example.com/3"},
+	}
+	got := dedupAndFilterResults(results)
+	if len(got) != 2 {
+		t.Errorf("过滤后应有 2 个结果，实际: %d", len(got))
+	}
+}
+
+// TestDedupAndFilterResults_RemovesSelfLinks 验证搜索引擎自身链接被过滤
+func TestDedupAndFilterResults_RemovesSelfLinks(t *testing.T) {
+	results := []SearchResult{
+		{Title: "正常", URL: "https://example.com/1"},
+		{Title: "搜索引擎自身", URL: "https://www.bing.com/search"},
+		{Title: "正常2", URL: "https://example.com/2"},
+	}
+	got := dedupAndFilterResults(results)
+	if len(got) != 2 {
+		t.Errorf("过滤后应有 2 个结果（排除搜索引擎自身），实际: %d", len(got))
+	}
+}
+
+// TestDedupAndFilterResults_DeduplicatesByURL 验证按 URL 去重
+func TestDedupAndFilterResults_DeduplicatesByURL(t *testing.T) {
+	results := []SearchResult{
+		{Title: "第一次", URL: "https://example.com/dup"},
+		{Title: "重复", URL: "https://example.com/dup"},
+		{Title: "唯一", URL: "https://example.com/unique"},
+	}
+	got := dedupAndFilterResults(results)
+	if len(got) != 2 {
+		t.Errorf("去重后应有 2 个结果，实际: %d", len(got))
+	}
+}
+
+// TestDedupAndFilterResults_EmptyInput 验证空输入返回 nil
+func TestDedupAndFilterResults_EmptyInput(t *testing.T) {
+	got := dedupAndFilterResults(nil)
+	if got != nil {
+		t.Errorf("空输入应返回 nil，实际: %v", got)
+	}
+}
+
+// TestSanitizeSearchURL_RemovesQuery 验证 URL query 参数被清除
+func TestSanitizeSearchURL_RemovesQuery(t *testing.T) {
+	cases := []struct {
+		name    string
+		rawURL  string
+		wantSub string
+	}{
+		{"带 api_key", "https://api.tavily.com/search?api_key=secret123&q=test", "api_key"},
+		{"带 query", "https://example.com/search?q=hello&page=2", "q=hello"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := sanitizeSearchURL(c.rawURL)
+			if strings.Contains(got, c.wantSub) {
+				t.Errorf("sanitizeSearchURL 应清除 query，%q 仍包含 %q", got, c.wantSub)
+			}
+		})
+	}
+}
+
+// TestSanitizeSearchURL_PreservesPath 验证 URL 路径被保留
+func TestSanitizeSearchURL_PreservesPath(t *testing.T) {
+	got := sanitizeSearchURL("https://api.tavily.com/search?api_key=secret")
+	if !strings.Contains(got, "/search") {
+		t.Errorf("sanitizeSearchURL 应保留路径 /search，实际: %q", got)
+	}
+	if !strings.HasPrefix(got, "https://api.tavily.com") {
+		t.Errorf("sanitizeSearchURL 应保留 scheme 和 host，实际: %q", got)
+	}
+}
+
+// TestSanitizeSearchURL_InvalidURL 验证无效 URL 返回原值
+func TestSanitizeSearchURL_InvalidURL(t *testing.T) {
+	// url.Parse 对大多数字符串都能解析，这里用控制字符测试极端情况
+	invalid := "://no-scheme"
+	got := sanitizeSearchURL(invalid)
+	// 即使解析失败，也应返回原值或合理结果，不应 panic
+	if got == "" {
+		t.Errorf("无效 URL 应返回原值，实际返回空字符串")
+	}
+}
+
+// TestMatchCategory_NoCategories 验证未设置分类的 provider 匹配所有分类
+func TestMatchCategory_NoCategories(t *testing.T) {
+	pw := &ProviderWithCircuit{
+		categories: nil,
+	}
+	if !matchCategory(pw, "general") {
+		t.Error("未设置分类的 provider 应匹配所有分类")
+	}
+	if !matchCategory(pw, "code") {
+		t.Error("未设置分类的 provider 应匹配所有分类")
+	}
+}
+
+// TestMatchCategory_WithCategories 验证设置了分类的 provider 只匹配指定分类
+func TestMatchCategory_WithCategories(t *testing.T) {
+	pw := &ProviderWithCircuit{
+		categories: []string{"general", "news"},
+	}
+	if !matchCategory(pw, "general") {
+		t.Error("应匹配 general 分类")
+	}
+	if !matchCategory(pw, "news") {
+		t.Error("应匹配 news 分类")
+	}
+	if matchCategory(pw, "code") {
+		t.Error("不应匹配 code 分类")
+	}
+}
+
+// TestCircuitState_String 验证熔断状态字符串表示
+func TestCircuitState_String(t *testing.T) {
+	cases := []struct {
+		state CircuitState
+		want  string
+	}{
+		{CircuitClosed, "closed"},
+		{CircuitOpen, "open"},
+		{CircuitHalfOpen, "half-open"},
+		{CircuitState(99), "unknown"},
+	}
+	for _, c := range cases {
+		got := c.state.String()
+		if got != c.want {
+			t.Errorf("CircuitState(%d).String() = %q, 期望 %q", c.state, got, c.want)
+		}
+	}
+}
+
+// TestHeaderKeys_ReturnsAllKeys 验证返回所有 header key
+func TestHeaderKeys_ReturnsAllKeys(t *testing.T) {
+	headers := map[string]string{
+		"Authorization": "Bearer token",
+		"Content-Type":  "application/json",
+		"X-Custom":      "value",
+	}
+	keys := headerKeys(headers)
+	if len(keys) != 3 {
+		t.Errorf("应返回 3 个 key，实际: %d", len(keys))
+	}
+	// 验证每个 key 都在原 headers 中
+	for _, k := range keys {
+		if _, ok := headers[k]; !ok {
+			t.Errorf("返回的 key %q 不在原 headers 中", k)
+		}
+	}
+}
+
+// TestHeaderKeys_EmptyMap 验证空 map 返回 nil
+func TestHeaderKeys_EmptyMap(t *testing.T) {
+	keys := headerKeys(nil)
+	if keys != nil {
+		t.Errorf("空 map 应返回 nil，实际: %v", keys)
+	}
+}
+
 // TestSanitizeSearchURL 验证 URL 脱敏逻辑：清空 RawQuery，保留 scheme/host/path。
 func TestSanitizeSearchURL(t *testing.T) {
 	cases := []struct {

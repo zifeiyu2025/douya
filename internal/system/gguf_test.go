@@ -723,3 +723,45 @@ func TestParseGGUFMetadata_FileSize(t *testing.T) {
 		t.Errorf("FileSize 期望 %d，实际 %d", expectedSize, meta.FileSize)
 	}
 }
+
+// TestFileTypeName_KnownTypes 验证已知 file_type 枚举值映射为正确的量化类型名
+//
+// 生活类比：就像国际电话区号表，+86 是中国、+1 是美国，
+// file_type 枚举值到量化类型名也是一张固定的对照表。
+func TestFileTypeName_KnownTypes(t *testing.T) {
+	cases := []struct {
+		ftype int
+		want  string
+	}{
+		{0, "F32"},
+		{1, "F16"},
+		{2, "Q4_0"},
+		{3, "Q4_1"},
+		{7, "Q8_0"},
+		{8, "Q5_0"},
+		{9, "Q5_1"},
+		{10, "Q2_K"},
+		{14, "Q4_K - Small"},
+		{15, "Q4_K - Medium"},
+		{18, "Q6_K"},
+		{25, "IQ4_NL"},
+		{30, "IQ4_XS"},
+	}
+	for _, c := range cases {
+		got := fileTypeName(c.ftype)
+		if got != c.want {
+			t.Errorf("fileTypeName(%d) = %q, 期望 %q", c.ftype, got, c.want)
+		}
+	}
+}
+
+// TestFileTypeName_UnknownType 验证未知枚举值返回空字符串
+func TestFileTypeName_UnknownType(t *testing.T) {
+	cases := []int{-1, 32, 50, 100}
+	for _, ftype := range cases {
+		got := fileTypeName(ftype)
+		if got != "" {
+			t.Errorf("fileTypeName(%d) 未知类型应返回 ''，实际: %q", ftype, got)
+		}
+	}
+}

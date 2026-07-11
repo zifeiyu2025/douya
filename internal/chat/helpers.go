@@ -139,6 +139,7 @@ func EstimateAttachmentTokens(attType string) int {
 
 // EstimateAttachmentTokensWithData 根据附件类型和实际数据内容估算 token 数。
 // 对于 text/PDF 附件，基于内容长度估算，避免返回 0 导致上下文溢出防御失效。
+// 未知类型且有数据时返回保守默认值（1500），防止上下文溢出防御失效。
 func EstimateAttachmentTokensWithData(attType, data string) int {
 	switch strings.ToLower(attType) {
 	case "image":
@@ -166,7 +167,12 @@ func EstimateAttachmentTokensWithData(attType, data string) int {
 		// 按混合语言估算（中文 2 token/字，英文 1/3 token/byte）
 		return estimatedTextChars*3/2 + 20 // +20 for attachment wrapper
 	default:
-		return 0
+		// 未知类型且有数据：返回保守默认值，防止上下文溢出
+		// 生活类比：安检遇到不认识的包裹，宁可多算重量也不能当作没重量
+		if data == "" {
+			return 0
+		}
+		return 1500
 	}
 }
 

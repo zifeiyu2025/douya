@@ -806,6 +806,7 @@ func (a *App) GetSmartParams() *SmartParamsInfo {
 	// 硬件信息
 	info.Hardware.CPUCores = a.hwInfo.CPUCores
 	info.Hardware.HasGPU = a.hwInfo.HasGPU
+	info.Hardware.HasCUDABackend = a.hwInfo.HasCUDABackend
 	info.Hardware.GPUName = a.hwInfo.GPUName
 	info.Hardware.GPUVRAMMB = a.hwInfo.GPUVRAMMB
 
