@@ -18,6 +18,8 @@ import { useSettingsStore } from '../stores/settings'
 import { wails } from '../services/wails'
 import { formatModelName } from '../utils/model'
 import type { SwitchProgressStage } from '../types/settings'
+// F-1.14：stageMap 抽取为常量，与 useAppLifecycle.ts 共享
+import { STAGE_PERCENT_MAP } from './stageMap'
 
 export function useModelSwitch() {
     const settingsStore = useSettingsStore()
@@ -147,12 +149,8 @@ export function useModelSwitch() {
             return Math.max(5, Math.min(99, Math.round(modelLoadProgress.progress)))
         }
         // 无真实进度时使用粗略阶段映射（仅作为兜底）
-        const stageMap: Record<string, number> = {
-            idle: 0, preparing: 5, loading: 10,
-            waiting: 10, detecting: 90, done: 100,
-            failed: 100, rolling_back: 50,
-        }
-        return stageMap[settingsStore.switchProgress.stage] ?? 0
+        // F-1.14：STAGE_PERCENT_MAP 抽取到 ./stageMap，与 useAppLifecycle 共享
+        return STAGE_PERCENT_MAP[settingsStore.switchProgress.stage] ?? 0
     })
 
     // ----- 切换耗时计时器（每秒更新 switchDuration）-----
@@ -189,19 +187,25 @@ export function useModelSwitch() {
 
     // ----- 事件监听（onMounted 注册，onUnmounted 清理）-----
     // 监听 server:switchProgress 事件（切换进度）与 modelLoadProgress 事件（模型加载进度）
+    // F-1.12：register 函数返回 unsubscribe，收集到 unsubscribers 数组批量清理
+    const unsubscribers: Array<() => void> = []
     onMounted(() => {
-        settingsStore.initSwitchProgressListener()
-        settingsStore.initModelLoadProgressListener()
+        unsubscribers.push(settingsStore.registerSwitchProgressListener())
+        unsubscribers.push(settingsStore.registerModelLoadProgressListener())
     })
 
     onUnmounted(() => {
         // 清理计时器
         stopSwitchDurationTimer()
-        // 清理事件监听
-        settingsStore.cleanupSwitchProgressListener()
-        settingsStore.cleanupModelLoadProgressListener()
-        // 保留原 App.vue 中的直接 off 调用（与 cleanupSwitchProgressListener 等价，原代码保留）
-        wails.offSwitchProgress()
+        // 批量清理事件监听（含 wails.offSwitchProgress 等价逻辑）
+        while (unsubscribers.length > 0) {
+            const unsubscribe = unsubscribers.pop()
+            try {
+                unsubscribe?.()
+            } catch (e) {
+                console.error('[useModelSwitch] unsubscribe failed:', e)
+            }
+        }
     })
 
     return {

@@ -490,57 +490,15 @@ func (s *Server) stopInternal() error {
 		pty := s.pty
 		s.mu.Unlock()
 
-		// 先尝试正常终止进程树
-		terminateCmd := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/T")
-		terminateCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-		if err := terminateCmd.Run(); err != nil {
-			log.Debug().Err(err).Int("pid", pid).Msg("terminate process (may already be dead)")
-		}
-
-		// 等待进程退出（带超时）
-		waitDone := make(chan struct{})
-		go func() {
-			// L-3：确保 waitDone 一定被关闭，否则外层 select 永远阻塞（虽有 3s 兜底但会浪费超时时间）
-			defer func() {
-				if r := recover(); r != nil {
-					log.Debug().Interface("panic", r).Msg("[server] pty wait-done goroutine panic")
-				}
-				close(waitDone)
-			}()
+		// 安全实践（基于 B-1.5）：ConPTY 与 exec.Cmd 路径共用 stopProcessWithTimeout，
+		// 仅 waitFn/cleanupFn 不同，避免维护时改一条路径漏改另一条
+		return s.stopProcessWithTimeout(pid, func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
 			pty.Wait(ctx)
-		}()
-
-		timer := time.NewTimer(3 * time.Second)
-		defer timer.Stop()
-
-		select {
-		case <-waitDone:
+		}, func() {
 			pty.Close()
-			s.mu.Lock()
-			s.status = ServerStatus{Running: false}
-			if s.cancel != nil {
-				s.cancel()
-			}
-			s.mu.Unlock()
-			return nil
-		case <-timer.C:
-			// 超时后强制 kill
-			killCmd := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/F", "/T")
-			killCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-			if err := killCmd.Run(); err != nil {
-				log.Debug().Err(err).Int("pid", pid).Msg("force kill process (may already be dead)")
-			}
-			pty.Close()
-			s.mu.Lock()
-			s.status = ServerStatus{Running: false}
-			if s.cancel != nil {
-				s.cancel()
-			}
-			s.mu.Unlock()
-			return fmt.Errorf("server did not terminate gracefully, force killed")
-		}
+		}, "pty")
 	}
 
 	// exec.Cmd 模式（原有逻辑）
@@ -549,25 +507,43 @@ func (s *Server) stopInternal() error {
 		return nil
 	}
 	pid := s.cmd.Process.Pid
+	cmd := s.cmd
 	s.mu.Unlock()
 
+	return s.stopProcessWithTimeout(pid, func() {
+		cmd.Wait()
+	}, nil, "cmd")
+}
+
+// stopProcessWithTimeout 统一处理"taskkill 正常终止 → 等待 → 超时强制 kill → 更新 status"流程
+// 安全实践（基于 B-1.5）：消除 ConPTY 和 exec.Cmd 两条路径的重复逻辑
+//
+// 参数说明：
+//   - pid：进程 ID，用于 taskkill
+//   - waitFn：等待进程退出的阻塞函数（ConPTY 用 pty.Wait(ctx)，exec.Cmd 用 cmd.Wait()）
+//   - cleanupFn：超时后额外的清理函数（ConPTY 需 pty.Close()，exec.Cmd 无需额外清理传 nil）
+//   - mode：日志标识，"pty" 或 "cmd"
+//
+// 返回值：正常退出返回 nil，超时强制 kill 返回 error
+func (s *Server) stopProcessWithTimeout(pid int, waitFn func(), cleanupFn func(), mode string) error {
+	// 先尝试正常终止进程树
 	terminateCmd := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/T")
 	terminateCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 	if err := terminateCmd.Run(); err != nil {
-		log.Debug().Err(err).Int("pid", pid).Msg("terminate process (may already be dead)")
+		log.Debug().Err(err).Int("pid", pid).Str("mode", mode).Msg("terminate process (may already be dead)")
 	}
 
-	cmd := s.cmd
+	// 等待进程退出（带超时）
 	waitDone := make(chan struct{})
 	go func() {
-		// L-3：确保 waitDone 一定被关闭，防止外层 select 永久阻塞
+		// L-3：确保 waitDone 一定被关闭，否则外层 select 永远阻塞（虽有 3s 兜底但会浪费超时时间）
 		defer func() {
 			if r := recover(); r != nil {
-				log.Debug().Interface("panic", r).Msg("[server] cmd wait-done goroutine panic")
+				log.Debug().Interface("panic", r).Str("mode", mode).Msg("[server] wait-done goroutine panic")
 			}
 			close(waitDone)
 		}()
-		cmd.Wait()
+		waitFn()
 	}()
 
 	timer := time.NewTimer(3 * time.Second)
@@ -575,6 +551,9 @@ func (s *Server) stopInternal() error {
 
 	select {
 	case <-waitDone:
+		if cleanupFn != nil {
+			cleanupFn()
+		}
 		s.mu.Lock()
 		s.status = ServerStatus{Running: false}
 		if s.cancel != nil {
@@ -583,12 +562,20 @@ func (s *Server) stopInternal() error {
 		s.mu.Unlock()
 		return nil
 	case <-timer.C:
+		// 超时后强制 kill
 		killCmd := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/F", "/T")
 		killCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 		if err := killCmd.Run(); err != nil {
-			log.Debug().Err(err).Int("pid", pid).Msg("force kill process (may already be dead)")
+			log.Debug().Err(err).Int("pid", pid).Str("mode", mode).Msg("force kill process (may already be dead)")
 		}
-		<-waitDone
+		if cleanupFn != nil {
+			cleanupFn()
+		}
+		// exec.Cmd 路径需要额外等待 goroutine 结束（cmd.Wait() 会在 kill 后返回）
+		// ConPTY 路径的 pty.Wait(ctx) 已在 3s 超时后返回，无需再次等待
+		if mode == "cmd" {
+			<-waitDone
+		}
 		s.mu.Lock()
 		s.status = ServerStatus{Running: false}
 		if s.cancel != nil {

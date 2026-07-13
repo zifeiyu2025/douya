@@ -81,6 +81,23 @@ func tokenize(text string) []string {
 	return tokens
 }
 
+// recomputeAvgDLAndIDF 重新计算 avgDL 和 IDF
+// 安全实践（基于 B-1.22/B-1.23）：统一 AddDocument/AddDocuments/RemoveByPrefix/RemoveDocument/RemoveDocuments
+// 五处重复的 avgDL 重算逻辑，避免维护时漏改某处导致数据不一致
+// 调用前提：已持有 idx.mu 写锁
+func (idx *BM25Index) recomputeAvgDLAndIDF() {
+	if len(idx.documents) > 0 {
+		var totalDL int
+		for _, d := range idx.documents {
+			totalDL += d.dl
+		}
+		idx.avgDL = float64(totalDL) / float64(len(idx.documents))
+	} else {
+		idx.avgDL = 0
+	}
+	idx.recomputeIDF()
+}
+
 // AddDocument 向 BM25 索引添加文档
 // 注意：每次调用都会重算 avgDL 和 IDF，批量插入时请用 AddDocuments 以避免 O(N²)
 func (idx *BM25Index) AddDocument(id string, text string) {
@@ -100,15 +117,8 @@ func (idx *BM25Index) AddDocument(id string, text string) {
 		dl:     len(tokens),
 	})
 
-	// 重新计算 avgDL
-	var totalDL int
-	for _, d := range idx.documents {
-		totalDL += d.dl
-	}
-	idx.avgDL = float64(totalDL) / float64(len(idx.documents))
-
-	// 重新计算 IDF
-	idx.recomputeIDF()
+	// 重算 avgDL 和 IDF（统一调用 recomputeAvgDLAndIDF）
+	idx.recomputeAvgDLAndIDF()
 }
 
 // BM25DocInput 批量添加文档的输入参数
@@ -141,15 +151,8 @@ func (idx *BM25Index) AddDocuments(docs []BM25DocInput) {
 		})
 	}
 
-	// 单次重算 avgDL
-	var totalDL int
-	for _, d := range idx.documents {
-		totalDL += d.dl
-	}
-	idx.avgDL = float64(totalDL) / float64(len(idx.documents))
-
-	// 单次重算 IDF
-	idx.recomputeIDF()
+	// 单次重算 avgDL 和 IDF（统一调用 recomputeAvgDLAndIDF）
+	idx.recomputeAvgDLAndIDF()
 }
 
 // RemoveByPrefix 按文档 id 前缀批量删除文档（用于 DeleteDocument/DeleteCollection 同步清理 BM25）
@@ -176,17 +179,8 @@ func (idx *BM25Index) RemoveByPrefix(prefix string) int {
 	}
 	idx.documents = kept
 	if removed > 0 {
-		// 重新计算 avgDL 和 IDF
-		if len(idx.documents) > 0 {
-			var totalDL int
-			for _, d := range idx.documents {
-				totalDL += d.dl
-			}
-			idx.avgDL = float64(totalDL) / float64(len(idx.documents))
-		} else {
-			idx.avgDL = 0
-		}
-		idx.recomputeIDF()
+		// 重算 avgDL 和 IDF（统一调用 recomputeAvgDLAndIDF）
+		idx.recomputeAvgDLAndIDF()
 	}
 	return removed
 }
@@ -205,17 +199,8 @@ func (idx *BM25Index) RemoveDocument(id string) bool {
 		if d.id == id {
 			// 删除第 i 个元素
 			idx.documents = append(idx.documents[:i], idx.documents[i+1:]...)
-			// 重新计算 avgDL 和 IDF
-			if len(idx.documents) > 0 {
-				var totalDL int
-				for _, dd := range idx.documents {
-					totalDL += dd.dl
-				}
-				idx.avgDL = float64(totalDL) / float64(len(idx.documents))
-			} else {
-				idx.avgDL = 0
-			}
-			idx.recomputeIDF()
+			// 重算 avgDL 和 IDF（统一调用 recomputeAvgDLAndIDF）
+			idx.recomputeAvgDLAndIDF()
 			return true
 		}
 	}
@@ -244,16 +229,8 @@ func (idx *BM25Index) RemoveDocuments(idSet map[string]bool) int {
 	}
 	idx.documents = kept
 	if removed > 0 {
-		if len(idx.documents) > 0 {
-			var totalDL int
-			for _, d := range idx.documents {
-				totalDL += d.dl
-			}
-			idx.avgDL = float64(totalDL) / float64(len(idx.documents))
-		} else {
-			idx.avgDL = 0
-		}
-		idx.recomputeIDF()
+		// 重算 avgDL 和 IDF（统一调用 recomputeAvgDLAndIDF）
+		idx.recomputeAvgDLAndIDF()
 	}
 	return removed
 }

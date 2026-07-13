@@ -18,7 +18,7 @@ import (
 
 func newTestService() *chat.Service {
 	cfg := &config.Config{
-		ContextSize:  4096,
+		ContextSize:  8192,
 		SystemPrompt: "",
 		Temperature:  0.7,
 	}
@@ -180,7 +180,7 @@ func TestBuildLLMMessages_NoMaxMessagesHardcode_WhenContextAllows(t *testing.T) 
 
 func TestBuildLLMMessages_TokenEstimationRespectsContextSize(t *testing.T) {
 	svc := newTestService()
-	svc.GetConfig().ContextSize = 2000
+	svc.GetConfig().ContextSize = 4000
 
 	dbMsgs := []*store.Message{
 		{ID: "1", Role: "user", Content: strings.Repeat("你好世界", 10)},
@@ -250,7 +250,7 @@ func TestBuildLLMMessages_ZeroContextSize(t *testing.T) {
 
 func TestBuildLLMMessages_LastUserMessageUsesCurrentContent(t *testing.T) {
 	svc := newTestService()
-	svc.GetConfig().ContextSize = 4096
+	svc.GetConfig().ContextSize = 8192
 
 	dbMsgs := []*store.Message{
 		{ID: "1", Role: "user", Content: "original message"},
@@ -269,7 +269,7 @@ func TestBuildLLMMessages_LastUserMessageUsesCurrentContent(t *testing.T) {
 
 func TestBuildLLMMessages_MessagesInCorrectOrder(t *testing.T) {
 	svc := newTestService()
-	svc.GetConfig().ContextSize = 4096
+	svc.GetConfig().ContextSize = 8192
 
 	dbMsgs := []*store.Message{
 		{ID: "1", Role: "user", Content: "first"},
@@ -523,7 +523,7 @@ func TestIsCodeRelated_AllKeywords(t *testing.T) {
 
 func TestBuildLLMMessages_AssistantMessagesIncluded(t *testing.T) {
 	svc := newTestService()
-	svc.GetConfig().ContextSize = 4096
+	svc.GetConfig().ContextSize = 8192
 
 	dbMsgs := []*store.Message{
 		{ID: "1", Role: "user", Content: "question 1"},
@@ -859,7 +859,7 @@ func TestBuildLLMMessages_VeryLongSingleMessage(t *testing.T) {
 
 func TestBuildLLMMessages_MultipleUsersAndAssistants(t *testing.T) {
 	svc := newTestService()
-	svc.GetConfig().ContextSize = 4096
+	svc.GetConfig().ContextSize = 8192
 
 	dbMsgs := []*store.Message{
 		{ID: "1", Role: "user", Content: "q1"},
@@ -894,7 +894,7 @@ func TestGetConfig(t *testing.T) {
 	if cfg == nil {
 		t.Fatal("expected config, got nil")
 	}
-	if cfg.ContextSize != 4096 {
-		t.Errorf("expected ContextSize 4096, got %d", cfg.ContextSize)
+	if cfg.ContextSize != 8192 {
+		t.Errorf("expected ContextSize 8192, got %d", cfg.ContextSize)
 	}
 }

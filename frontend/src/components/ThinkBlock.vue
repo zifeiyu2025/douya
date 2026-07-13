@@ -81,13 +81,7 @@ const formattedDuration = computed(() => {
 </script>
 
 <style scoped>
-.n-icon.rotated {
-  transform: rotate(90deg);
-  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.n-icon {
-  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
+/* .n-icon 和 .n-icon.rotated 已在 style.css 全局定义 */
 
 .think-block {
   margin-bottom: 12px;

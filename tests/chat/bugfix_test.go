@@ -170,10 +170,10 @@ func TestStoreMsgToChat_ThinkingDurationAndImages(t *testing.T) {
 
 func TestCalcMaxTokens_DefaultContextSize(t *testing.T) {
 	svc := newTestService()
-	// 默认 ctxSize=4096, promptTokens=0 → maxTokens=4096 (capped to 16384)
+	// 默认 ctxSize=8192, promptTokens=0 → maxTokens=8192 (capped to 16384)
 	result := chat.CalcMaxTokens(svc, 0)
-	if result != 4096 {
-		t.Errorf("expected 4096 (4096-0), got %d", result)
+	if result != 8192 {
+		t.Errorf("expected 8192 (8192-0), got %d", result)
 	}
 }
 
@@ -1038,7 +1038,7 @@ func TestEstimateAttachmentTokens_TextType(t *testing.T) {
 
 func TestBuildLLMMessages_CurrentAttachmentsTokenEstimate(t *testing.T) {
 	svc := newTestService()
-	svc.GetConfig().ContextSize = 4096
+	svc.GetConfig().ContextSize = 8192
 
 	longContent := strings.Repeat("这是一段很长的中文内容用于填充token。", 100)
 	dbMsgs := []*store.Message{
@@ -1050,7 +1050,7 @@ func TestBuildLLMMessages_CurrentAttachmentsTokenEstimate(t *testing.T) {
 	msgsNoAtt, _ := chat.BuildLLMMessages(svc, dbMsgs, "hello", nil)
 
 	svc2 := newTestService()
-	svc2.GetConfig().ContextSize = 4096
+	svc2.GetConfig().ContextSize = 8192
 	imageAttachments := []chat.Attachment{
 		{Type: "image", Name: "test.png", MimeType: "image/png", Data: "base64data"},
 	}
@@ -1099,7 +1099,7 @@ func TestBuildLLMMessages_SmallContextWithImage_NoOverflow(t *testing.T) {
 
 func TestBuildLLMMessages_CurrentMessageNearLimit_NoHistory(t *testing.T) {
 	svc := newTestService()
-	svc.GetConfig().ContextSize = 4096
+	svc.GetConfig().ContextSize = 8192
 	svc.SetModelCapabilities(llm.ModelCapabilities{TextInput: true, ImageInput: true})
 
 	longContent := strings.Repeat("这是一段很长的中文内容用于填充token。", 200)

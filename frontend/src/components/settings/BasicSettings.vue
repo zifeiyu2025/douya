@@ -222,24 +222,14 @@
 </template>
 
 <script setup lang="ts">
-import { inject, defineComponent, h } from 'vue'
+import { inject } from 'vue'
 import {
-  NButton, NFormItem, NInput, NSlider, NUpload,
-  NInputNumber, NSelect, NTooltip, NCheckbox,
-  NRadioGroup, NRadio,
+  NInputNumber, NSelect, NCheckbox,
 } from 'naive-ui'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
 import { useThemeStore } from '../../stores/theme'
-
-const HelpTip = defineComponent({
-  props: { content: String },
-  setup(props) {
-    return () => h(NTooltip, { trigger: 'hover' }, {
-      trigger: () => h('span', { class: 'help-tip-icon' }, '?'),
-      default: () => props.content
-    })
-  }
-})
+// F-1.1/F-1.2：抽取为公共组件，消除三处重复定义
+import HelpTip from '../ui/HelpTip.vue'
 
 const ctx = inject<SettingsContext>(SETTINGS_CONTEXT_KEY)!
 
@@ -535,22 +525,7 @@ function handleModeChange(value: 'light' | 'dark' | 'auto') {
   color: var(--accent-success);
 }
 
-.help-tip-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--text-muted);
-  background: var(--bg-tertiary);
-  margin-left: 4px;
-  cursor: help;
-  vertical-align: middle;
-  line-height: 1;
-}
+/* F-1.2：.help-tip-icon 样式已抽取到 ui/HelpTip.vue，此处不再重复定义 */
 
 .setting-hint {
   font-size: 12px;

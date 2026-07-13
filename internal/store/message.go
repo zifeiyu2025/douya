@@ -10,8 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"douya/internal/secrets"
-
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 )
@@ -51,42 +49,16 @@ type Message struct {
 }
 
 // encryptField 使用 AES-GCM 加密字段，返回 "enc:" 前缀的密文
-// 如果 encKey 为 nil，则跳过加密直接返回明文
-// 加密失败时返回错误，调用方应决定如何处理而非静默回退为明文
+// 安全实践（基于 B-1.13/B-1.14）：已统一到 crypto.go 的 encryptWithPrefix，此处仅保留薄包装层
+// 保留原函数名是为了不破坏 message.go 内部调用的可读性
 func encryptField(plaintext string, encKey []byte) (string, error) {
-	if encKey == nil || plaintext == "" {
-		return plaintext, nil
-	}
-	encrypted, err := secrets.Encrypt(plaintext, encKey)
-	if err != nil {
-		return "", fmt.Errorf("encrypt field failed: %w", err)
-	}
-	return "enc:" + encrypted, nil
+	return encryptWithPrefix(plaintext, encKey)
 }
 
-// ErrDecryptionFailed 解密失败错误
-// 用于区分"密钥不匹配"与"明文兼容"两种场景，调用方据此决定如何处理
-var ErrDecryptionFailed = fmt.Errorf("decryption failed: key mismatch or corrupted ciphertext")
-
 // decryptField 解密 "enc:" 前缀的密文，兼容旧版明文数据
-// 如果 encKey 为 nil，则跳过解密直接返回原值
-// 如果值没有 "enc:" 前缀，作为旧版明文直接返回
-// 如果值有 "enc:" 前缀但解密失败，返回 ErrDecryptionFailed（密钥不匹配或数据损坏）
+// 安全实践（基于 B-1.13/B-1.14）：已统一到 crypto.go 的 decryptWithPrefix，此处仅保留薄包装层
 func decryptField(ciphertext string, encKey []byte) (string, error) {
-	if encKey == nil || ciphertext == "" {
-		return ciphertext, nil
-	}
-	if len(ciphertext) < 4 || ciphertext[:4] != "enc:" {
-		// 旧版明文数据，直接返回
-		return ciphertext, nil
-	}
-	plaintext, err := secrets.Decrypt(ciphertext[4:], encKey)
-	if err != nil {
-		// 解密失败：密钥不匹配或密文损坏
-		// 不再静默返回密文，而是明确报错，让调用方能够检测到密钥问题
-		return "", ErrDecryptionFailed
-	}
-	return plaintext, nil
+	return decryptWithPrefix(ciphertext, encKey)
 }
 
 // encryptMessage 加密消息中的敏感字段

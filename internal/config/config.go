@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"strings"
 )
@@ -495,92 +496,82 @@ func Save(path string, cfg *Config) error {
 }
 
 func (c *Config) Validate() error {
-	if c.Port <= 0 || c.Port > 65535 {
-		return fmt.Errorf("invalid port: %d (must be 1-65535)", c.Port)
+	// B-3.10: 表驱动化校验，减少重复 if 分支
+	// 生活类比：像安检清单，逐项核对，不合格直接报错
+	// 无上限的字段使用 math.MaxInt32 / math.MaxFloat64 作为哨兵值
+
+	// int 字段范围检查
+	intChecks := []struct {
+		val    int
+		min    int
+		max    int
+		errMsg string // fmt.Sprintf 模板，参数为 val
+	}{
+		{c.Port, 1, 65535, "invalid port: %d (must be 1-65535)"},
+		{c.ContextSize, 1, 131072, "invalid context_size: %d (must be 1-131072)"},
+		{c.TopK, 0, math.MaxInt32, "invalid top_k: %d (必须 >= 0)"},
+		{c.DryAllowedLength, 0, math.MaxInt32, "invalid dry_allowed_length: %d (必须 >= 0)"},
+		{c.RAGTopK, 1, math.MaxInt32, "invalid rag_top_k: %d (必须 > 0)"},
+		{c.Threads, 0, math.MaxInt32, "invalid threads: %d (threads 不能为负数)"},
+		{c.BatchSize, 0, math.MaxInt32, "invalid batch_size: %d (batch_size 不能为负数)"},
+		{c.GPULayers, 0, math.MaxInt32, "invalid gpu_layers: %d (gpu_layers 不能为负数)"},
+		{c.CacheRAM, 0, math.MaxInt32, "invalid cache_ram: %d (cache_ram 不能为负数)"},
+		{c.RerankTopN, 1, math.MaxInt32, "invalid rerank_top_n: %d (rerank_top_n 必须 > 0)"},
 	}
-	if c.ContextSize < 1 || c.ContextSize > 131072 {
-		return fmt.Errorf("invalid context_size: %d (must be 1-131072)", c.ContextSize)
+	for _, chk := range intChecks {
+		if chk.val < chk.min || chk.val > chk.max {
+			return fmt.Errorf(chk.errMsg, chk.val)
+		}
 	}
-	// P1-A1: 验证主动压缩阈值范围
+
+	// float64 字段范围检查
+	floatChecks := []struct {
+		val    float64
+		min    float64
+		max    float64
+		errMsg string
+	}{
+		{c.Temperature, 0, 2, "invalid temperature: %.2f (must be 0-2)"},
+		{c.TopP, 0, 1, "invalid top_p: %.2f (must be 0-1)"},
+		{c.MinP, 0, 1, "invalid min_p: %.2f (必须为 0-1)"},
+		{c.RepeatPenalty, 0, math.MaxFloat64, "invalid repeat_penalty: %.2f (must be >= 0)"},
+		{c.ChatBackgroundOpacity, 0, 1, "invalid chat_background_opacity: %.2f (must be 0-1)"},
+		{c.DryMultiplier, 0, math.MaxFloat64, "invalid dry_multiplier: %.2f (必须 >= 0)"},
+		{c.DryBase, 0, math.MaxFloat64, "invalid dry_base: %.2f (必须 >= 0)"},
+		{c.RAGMinScore, 0, 1, "invalid rag_min_score: %.2f (必须为 0-1)"},
+	}
+	for _, chk := range floatChecks {
+		if chk.val < chk.min || chk.val > chk.max {
+			return fmt.Errorf(chk.errMsg, chk.val)
+		}
+	}
+
+	// 条件范围检查（有额外前置条件，不适合纯表驱动）
+	// P1-A1: 主动压缩阈值，> 0 时才校验 0.5-0.95
 	if c.ProactiveCompressThreshold > 0 && (c.ProactiveCompressThreshold < 0.5 || c.ProactiveCompressThreshold > 0.95) {
 		return fmt.Errorf("invalid proactive_compress_threshold: %.2f (must be 0.5-0.95 or 0 for default)", c.ProactiveCompressThreshold)
 	}
-	if c.Temperature < 0 || c.Temperature > 2 {
-		return fmt.Errorf("invalid temperature: %.2f (must be 0-2)", c.Temperature)
-	}
-	if c.TopP < 0 || c.TopP > 1 {
-		return fmt.Errorf("invalid top_p: %.2f (must be 0-1)", c.TopP)
-	}
-	if c.TopK < 0 {
-		return fmt.Errorf("invalid top_k: %d (必须 >= 0)", c.TopK)
-	}
-	if c.MinP < 0 || c.MinP > 1 {
-		return fmt.Errorf("invalid min_p: %.2f (必须为 0-1)", c.MinP)
-	}
-	if c.RepeatPenalty < 0 {
-		return fmt.Errorf("invalid repeat_penalty: %.2f (must be >= 0)", c.RepeatPenalty)
-	}
-	if c.ChatBackgroundOpacity < 0 || c.ChatBackgroundOpacity > 1 {
-		return fmt.Errorf("invalid chat_background_opacity: %.2f (must be 0-1)", c.ChatBackgroundOpacity)
-	}
-	if c.DryMultiplier < 0 {
-		return fmt.Errorf("invalid dry_multiplier: %.2f (必须 >= 0)", c.DryMultiplier)
-	}
-	if c.DryBase < 0 {
-		return fmt.Errorf("invalid dry_base: %.2f (必须 >= 0)", c.DryBase)
-	}
-	if c.DryAllowedLength < 0 {
-		return fmt.Errorf("invalid dry_allowed_length: %d (必须 >= 0)", c.DryAllowedLength)
-	}
-	if c.RAGTopK <= 0 {
-		return fmt.Errorf("invalid rag_top_k: %d (必须 > 0)", c.RAGTopK)
-	}
-	if c.RAGMinScore < 0 || c.RAGMinScore > 1 {
-		return fmt.Errorf("invalid rag_min_score: %.2f (必须为 0-1)", c.RAGMinScore)
-	}
-	// 当分块大小和重叠大小都 > 0 时，重叠大小必须小于分块大小
+
+	// 依赖/互斥检查（跨字段约束）
 	if c.RAGChunkSize > 0 && c.RAGChunkOverlap > 0 && c.RAGChunkOverlap >= c.RAGChunkSize {
 		return fmt.Errorf("invalid rag_chunk_overlap: %d (必须小于 rag_chunk_size: %d)", c.RAGChunkOverlap, c.RAGChunkSize)
 	}
-	// Threads 线程数必须 >= 0（0 表示自动）
-	if c.Threads < 0 {
-		return fmt.Errorf("invalid threads: %d (threads 不能为负数)", c.Threads)
-	}
-	// BatchSize 批处理大小必须 >= 0（0 表示自动）
-	if c.BatchSize < 0 {
-		return fmt.Errorf("invalid batch_size: %d (batch_size 不能为负数)", c.BatchSize)
-	}
-	// GPULayers GPU 层数必须 >= 0（0 表示自动）
-	if c.GPULayers < 0 {
-		return fmt.Errorf("invalid gpu_layers: %d (gpu_layers 不能为负数)", c.GPULayers)
-	}
-	// CacheRAM KV 缓存 RAM 大小必须 >= 0（0 表示不限制）
-	if c.CacheRAM < 0 {
-		return fmt.Errorf("invalid cache_ram: %d (cache_ram 不能为负数)", c.CacheRAM)
-	}
-	// ImageMinTokens/ImageMaxTokens：两者都 > 0 时，min 必须 <= max
 	if c.ImageMinTokens > 0 && c.ImageMaxTokens > 0 && c.ImageMinTokens > c.ImageMaxTokens {
 		return fmt.Errorf("invalid image_min_tokens: %d (image_min_tokens 不能大于 image_max_tokens: %d)", c.ImageMinTokens, c.ImageMaxTokens)
 	}
-	// GrpAttnN/GrpAttnW：分组注意力需同时非零或同时为零
 	if (c.GrpAttnN == 0) != (c.GrpAttnW == 0) {
 		return fmt.Errorf("invalid grp_attn_n/grp_attn_w: n=%d w=%d (grp_attn_n 和 grp_attn_w 必须同时非零或同时为零)", c.GrpAttnN, c.GrpAttnW)
 	}
-	// 安全实践：后端采样与推理预算互斥，启用后端采样时推理预算需禁用（-1 或 0）
 	if c.BackendSampling && c.ReasoningBudget > 0 {
 		return fmt.Errorf("backend_sampling and reasoning_budget are mutually exclusive (backend_sampling=true requires reasoning_budget <= 0, got %d)", c.ReasoningBudget)
 	}
-	// RerankTopN 重排序返回数必须 > 0
-	if c.RerankTopN <= 0 {
-		return fmt.Errorf("invalid rerank_top_n: %d (rerank_top_n 必须 > 0)", c.RerankTopN)
-	}
-	// SearchMode 必须是 off / auto / on 之一
+
+	// 枚举检查
 	switch c.SearchMode {
 	case "off", "auto", "on":
 	default:
 		return fmt.Errorf("invalid search_mode: %q (必须是 off / auto / on)", c.SearchMode)
 	}
-	// SystemPromptMode 必须是 append / replace / 空字符串（视为 append）之一
 	switch c.SystemPromptMode {
 	case "append", "replace", "":
 	default:

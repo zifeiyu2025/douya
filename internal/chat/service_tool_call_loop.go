@@ -302,51 +302,24 @@ func (s *Service) buildToolCallStreamRequest(llmMessages []llm.ChatMessage, cfg 
 //   - done=false, err=nil: 继续循环（成功或重试成功）
 func (s *Service) executeToolCallStream(cancelCtx context.Context, convID string, client *llm.Client, req *llm.ChatCompletionRequest, acc *StreamAccumulator, round int, cfg *config.Config) (bool, error) {
 	toolCtx, toolCancel := context.WithTimeout(cancelCtx, streamRequestTimeout)
+	defer toolCancel()
 	// tool call 每轮使用独立的 convID，避免 SSE Replay Buffer 冲突
 	toolConvID := fmt.Sprintf("%s::round%d", convID, round)
-	// 包装 callback：在收到 completion ID 时同步到 Service，供 StopThinking 使用
-	toolInner := acc.callback()
-	toolWrapped := func(chunk llm.SSEChunk) error {
-		err := toolInner(chunk)
-		if err != nil {
-			return err
-		}
-		if acc.CompletionID != "" {
-			s.setCurrentCompletionID(acc.CompletionID)
-		}
-		return nil
-	}
-	err := client.StreamChatWithConvID(toolCtx, req, toolConvID, toolWrapped)
-	toolCancel()
-	if err == nil {
-		return false, nil // 继续循环
-	}
 
-	// 用户主动取消
-	if cancelCtx.Err() == context.Canceled {
-		s.savePartialContentIfAny(convID, acc)
-		s.emitForConv(convID, "stopped", nil)
-		return true, nil // 整个循环结束
-	}
-
-	// 流式超时
-	if toolCtx.Err() == context.DeadlineExceeded {
-		s.emitForConv(convID, "error", enhanceErrorWithHint("工具调用生成超时"))
-		return true, fmt.Errorf("tool call stream timeout")
-	}
-
-	// 上下文溢出重试：截断消息后重新请求
-	retryConvID := fmt.Sprintf("%s::round%d::retry", convID, round)
-	handled, retryErr := s.retryStreamAfterContextExceeded(
-		cancelCtx, convID, retryConvID, client, req, cfg.ContextSize, err, acc,
+	// 统一调用 runStreamWithStandardErrors 处理流式请求 + 三类标准错误（取消/超时/重试）
+	// 安全实践（基于 B-1.1+B-1.2+B-1.3）：消除与 executeStreamAndHandleErrors 之间的重复逻辑
+	result, err := s.runStreamWithStandardErrors(
+		toolCtx, cancelCtx, convID, toolConvID, client, req, acc, cfg,
+		"工具调用生成超时",
+		fmt.Errorf("tool call stream timeout"),
 		"[chat] tool call context exceeded, trimming and retrying",
 		"tool call stream (retry after context trim): %w",
 		"stream chat after search: %w",
 	)
-	if handled {
-		return true, retryErr
+	if result == streamStopped {
+		return true, err
 	}
-	return false, nil // 重试成功，继续循环
+	return false, nil
 }
 
 // saveToolCallFinalMessage 保存 tool call 循环结束后的最终 AI 消息。

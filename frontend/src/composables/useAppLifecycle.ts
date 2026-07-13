@@ -24,6 +24,8 @@ import { wails } from '../services/wails'
 import { discreteDialog, discreteMessage } from '../utils/discrete'
 import { classifyError } from '../utils/errorGuidance'
 import { formatModelName } from '../utils/model'
+// F-1.14：stageMap 抽取为常量，与 useModelSwitch.ts 共享
+import { STAGE_PERCENT_MAP } from './stageMap'
 
 export function useAppLifecycle() {
     const chatStore = useChatStore()
@@ -96,25 +98,25 @@ export function useAppLifecycle() {
             return Math.max(5, Math.min(99, Math.round(modelLoadProgress.progress)))
         }
         // 无真实进度时使用粗略阶段映射（仅作为兜底）
-        const stageMap: Record<string, number> = {
-            idle: 0, preparing: 5, loading: 10,
-            waiting: 10, detecting: 90, done: 100,
-            failed: 100, rolling_back: 50,
-        }
-        return stageMap[settingsStore.switchProgress.stage] ?? 0
+        // F-1.14：STAGE_PERCENT_MAP 抽取到 ./stageMap，与 useModelSwitch 共享
+        return STAGE_PERCENT_MAP[settingsStore.switchProgress.stage] ?? 0
     })
 
     // ===== SubTask 8.1: 启动与异常清理事件监听 =====
     // 生活类比：开店前先把对讲机（事件监听）全部打开，再开始营业（await），
     // 这样开门瞬间的任何消息（后端事件）都不会漏接。
+    // F-1.12：所有 register 函数返回 unsubscribe，统一收集到 unsubscribers 数组，
+    // onUnmounted 中批量调用，替代原来的 init/cleanup 配对调用。
+    const unsubscribers: Array<() => void> = []
+
     onMounted(async () => {
         // 1. 最早注册所有事件监听器，确保不遗漏后端推送的早期事件
-        //    注：模型切换相关监听（initSwitchProgressListener / initModelLoadProgressListener）
+        //    注：模型切换相关监听（registerSwitchProgressListener / registerModelLoadProgressListener）
         //    由 useModelSwitch 负责，此处不重复注册。
-        chatStore.initStreamListener()
-        settingsStore.initStatusListener()
-        settingsStore.initMmprojUnavailableListener()
-        settingsStore.initSearchAutoDisabledListener()
+        unsubscribers.push(chatStore.registerStreamListener())
+        unsubscribers.push(settingsStore.registerStatusListener())
+        unsubscribers.push(settingsStore.registerMmprojUnavailableListener())
+        unsubscribers.push(settingsStore.registerSearchAutoDisabledListener())
 
         // 2. 所有 watch 必须在 await 之前注册
         //    原因：await 期间后端可能已推送状态变化，延迟注册会错过首次事件导致无限转圈或会话列表不加载
@@ -176,10 +178,10 @@ export function useAppLifecycle() {
         await settingsStore.loadConfig()
 
         // 异常清理事件监听：后端检测到无有效消息的会话时主动推送
-        wails.onAbnormalCleanup((data) => {
+        unsubscribers.push(wails.subscribeAbnormalCleanup((data) => {
             chatStore.loadConversations()
             discreteMessage.info(`已自动清理 ${data.count} 个异常会话（无有效消息）`, { duration: 5000 })
-        })
+        }))
 
         // 启动时检查是否有清理结果（后端在应用启动前可能已清理过异常会话）
         try {
@@ -193,10 +195,10 @@ export function useAppLifecycle() {
         }
 
         // 退出进度事件监听：后端在优雅退出过程中推送进度，触发退出动效
-        wails.onShutdownProgress((progress: { stage: string, message: string }) => {
+        unsubscribers.push(wails.subscribeShutdownProgress((progress: { stage: string, message: string }) => {
             isExiting.value = true
             exitMessage.value = progress.message
-        })
+        }))
 
         // 注：原 App.vue onMounted 中还有以下逻辑，由其他 composable 负责：
         //   - await Promise.all([loadAvailableModels(), updateMaximizedState()])
@@ -208,18 +210,20 @@ export function useAppLifecycle() {
     // ===== SubTask 8.3: 组件卸载时统一取消监听与计时器 =====
     // 生活类比：店铺打烊时，要把所有对讲机（事件监听）关掉，
     // 避免关店后还有消息进来却没人处理（内存泄漏）。
+    // F-1.12：所有监听器在注册时已返回 unsubscribe，此处批量调用即可。
     onUnmounted(() => {
-        // 清理本 composable 注册的事件监听
-        chatStore.cleanupStreamListener()
-        settingsStore.cleanupStatusListener()
-        settingsStore.cleanupMmprojUnavailableListener()
-        settingsStore.cleanupSearchAutoDisabledListener()
-        wails.offAbnormalCleanup()
-        wails.offShutdownProgress()
+        // 批量清理本 composable 注册的事件监听（含相关定时器）
+        while (unsubscribers.length > 0) {
+            const unsubscribe = unsubscribers.pop()
+            try {
+                unsubscribe?.()
+            } catch (e) {
+                console.error('[useAppLifecycle] unsubscribe failed:', e)
+            }
+        }
 
         // 注：以下清理由其他 composable 负责，此处不重复：
-        //   - stopSwitchDurationTimer() / settingsStore.cleanupSwitchProgressListener()
-        //     / settingsStore.cleanupModelLoadProgressListener() / wails.offSwitchProgress()
+        //   - stopSwitchDurationTimer() / settingsStore.registerSwitchProgressListener()() / settingsStore.registerModelLoadProgressListener()()
         //     → 由 useModelSwitch 负责
         //   - window.removeEventListener('resize', handleResize) / clearTimeout(resizeTimer)
         //     → 由 useWindowControls 负责

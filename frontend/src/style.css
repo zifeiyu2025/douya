@@ -1654,3 +1654,51 @@ html.dark .n-message.n-message--info-type {
     transform: translateY(0) scale(1);
   }
 }
+
+/* ========================================
+ * 公共工具类（F-1.5：折叠图标旋转过渡，三处组件复用）
+ * 用法：<n-icon class="rotated" /> 配合 v-if/v-show 切换
+ * 生活类比：像折叠伞的伞柄按钮——按下旋转 90°，松开回正，
+ * 过渡曲线统一为 ease-in-out（cubic-bezier(0.4, 0, 0.2, 1)），手感一致。
+ * ======================================== */
+.n-icon {
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.n-icon.rotated {
+  transform: rotate(90deg);
+}
+
+/* ========================================
+ * 返回按钮公共样式（F-1.15：KnowledgeView 和 SettingsView 复用）
+ * 生活类比：像公共门牌——两个房间（视图）用同款的"返回"门牌，
+ * 样式统一在物业（style.css）定一次，不用各自定制。
+ * ======================================== */
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 0;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.back-btn:hover {
+  background: var(--bg-hover);
+}
+
+.back-btn:active {
+  background: var(--bg-active);
+}
+
+.back-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}

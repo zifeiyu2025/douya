@@ -691,7 +691,7 @@ func TestSendMessage_CodeRelatedSearch_UsesCodeCategory(t *testing.T) {
 	db, _ := store.Init(dbPath, nil)
 	t.Cleanup(func() { db.Close() })
 
-	cfg := &config.Config{ContextSize: 4096, Temperature: 0.7}
+	cfg := &config.Config{ContextSize: 8192, Temperature: 0.7}
 	llmClient := llm.NewClient(server.URL, "")
 	svc := chat.NewService(llmClient, chain, db, cfg, nil, "")
 
@@ -736,7 +736,7 @@ func TestSendMessage_GeneralQuestion_UsesGeneralCategory(t *testing.T) {
 	db, _ := store.Init(dbPath, nil)
 	t.Cleanup(func() { db.Close() })
 
-	cfg := &config.Config{ContextSize: 4096, Temperature: 0.7}
+	cfg := &config.Config{ContextSize: 8192, Temperature: 0.7}
 	llmClient := llm.NewClient(server.URL, "")
 	svc := chat.NewService(llmClient, chain, db, cfg, nil, "")
 

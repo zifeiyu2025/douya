@@ -75,14 +75,7 @@ const expanded = ref(false)
   flex: 1;
 }
 
-.n-icon.rotated {
-  transform: rotate(90deg);
-}
-
-.n-icon {
-  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  flex-shrink: 0;
-}
+/* .n-icon 和 .n-icon.rotated 已在 style.css 全局定义 */
 
 .trimmed-detail {
   padding: 8px 12px 10px;

@@ -16,6 +16,95 @@ interface ErrorPattern {
 }
 
 /**
+ * F-2.5：共享 ErrorGuidance 常量
+ * errCodeGuidanceMap（错误码精确匹配）和 errorPatterns（字符串模式匹配）
+ * 原各自维护一份相同的 guidance 对象，抽取为独立常量确保两处一致。
+ *
+ * 生活类比：像同一份产品说明书——不管顾客是通过条形码（错误码）
+ * 还是通过外观描述（字符串匹配）查找商品，拿到的说明书都是同一份。
+ */
+const GUIDANCE_DLL_MISSING: ErrorGuidance = {
+  category: 'DLL缺失',
+  title: '运行时 DLL 文件缺失',
+  description: 'llama-server 引擎依赖的 DLL 文件缺失，无法正常启动。',
+  suggestions: [
+    '检查 runtime/ 目录是否包含所有必要的 DLL 文件',
+    '核心 DLL 包括：llama.dll、ggml.dll、ggml-base.dll、ggml-cpu.dll 等',
+    '如果使用 NVIDIA GPU，还需 CUDA 运行时 DLL：cudart64_13.dll、cublas64_13.dll、cublasLt64_13.dll',
+    '重新下载或解压完整的 runtime 压缩包',
+  ],
+}
+
+const GUIDANCE_ENGINE_MISSING: ErrorGuidance = {
+  category: '引擎缺失',
+  title: '引擎程序文件缺失',
+  description: 'llama-server.exe 引擎程序文件不存在，无法启动推理服务。',
+  suggestions: [
+    '检查 runtime/ 目录下是否存在 llama-server.exe',
+    '在设置中检查 llama_server_path 配置路径是否正确',
+    '重新下载或解压完整的 runtime 压缩包',
+  ],
+}
+
+const GUIDANCE_MODEL_MISSING: ErrorGuidance = {
+  category: '模型缺失',
+  title: '未找到模型文件',
+  description: 'models/ 目录下没有找到任何 GGUF 模型文件。',
+  suggestions: [
+    '将 GGUF 模型文件放入 models/ 目录',
+    '确认模型文件扩展名为 .gguf',
+    '从 Hugging Face 或 ModelScope 下载模型文件',
+  ],
+}
+
+const GUIDANCE_CTX_OVERFLOW: ErrorGuidance = {
+  category: '上下文溢出',
+  title: '上下文长度超限',
+  description: '对话内容或附件超过了模型的上下文窗口大小。',
+  suggestions: [
+    '在设置中增大上下文窗口大小（context_size）',
+    '减少对话历史或开启上下文移位',
+    '缩短上传的文件内容',
+    '减少附件数量',
+  ],
+}
+
+const GUIDANCE_OOM: ErrorGuidance = {
+  category: '显存/内存不足',
+  title: '显存或内存不足',
+  description: '模型加载需要的显存或内存超过了系统可用资源。',
+  suggestions: [
+    '在设置中降低 GPU 层数（n-gpu-layers）',
+    '使用更小量化的模型版本（如 Q4_0 代替 Q8_0）',
+    '关闭其他占用 GPU/内存的程序',
+    '减小上下文窗口大小（context_size）',
+  ],
+}
+
+const GUIDANCE_PERMANENT_FAILURE: ErrorGuidance = {
+  category: '永久失败',
+  title: '服务器反复崩溃，已停止自动重启',
+  description: 'llama-server 连续多次启动失败，系统已停止自动重试以避免资源浪费。',
+  suggestions: [
+    '检查模型文件是否完整、量化类型是否受支持',
+    '降低 GPU 层数、上下文大小等参数后重试',
+    '查看日志获取每次崩溃的具体原因',
+    '重启豆芽应用以重置失败计数',
+  ],
+}
+
+const GUIDANCE_TIMEOUT: ErrorGuidance = {
+  category: '请求超时',
+  title: '请求超时',
+  description: '请求在规定时间内未收到响应，可能是网络问题或服务繁忙。',
+  suggestions: [
+    '检查网络连接是否正常',
+    '稍后重试',
+    '查看任务管理器中 llama-server 进程是否正常运行',
+  ],
+}
+
+/**
  * 统一错误码 → 前端指引的映射表
  * 与后端 internal/chat/errorcodes.go 中的常量保持一致。
  * 后端 enhanceErrorWithHint 会在提示信息前加 "[ERR_CODE]" 前缀，
@@ -26,86 +115,19 @@ interface ErrorPattern {
  */
 const errCodeGuidanceMap: Record<string, ErrorGuidance> = {
   // 上下文长度超限
-  ERR_CTX_OVERFLOW: {
-    category: '上下文溢出',
-    title: '上下文长度超限',
-    description: '对话内容或附件超过了模型的上下文窗口大小。',
-    suggestions: [
-      '在设置中增大上下文窗口大小（context_size）',
-      '减少对话历史或开启上下文移位',
-      '缩短上传的文件内容',
-      '减少附件数量',
-    ],
-  },
+  ERR_CTX_OVERFLOW: GUIDANCE_CTX_OVERFLOW,
   // 运行时 DLL 文件缺失
-  ERR_DLL_MISSING: {
-    category: 'DLL缺失',
-    title: '运行时 DLL 文件缺失',
-    description: 'llama-server 引擎依赖的 DLL 文件缺失，无法正常启动。',
-    suggestions: [
-      '检查 runtime/ 目录是否包含所有必要的 DLL 文件',
-      '核心 DLL 包括：llama.dll、ggml.dll、ggml-base.dll、ggml-cpu.dll 等',
-      '如果使用 NVIDIA GPU，还需 CUDA 运行时 DLL：cudart64_13.dll、cublas64_13.dll、cublasLt64_13.dll',
-      '重新下载或解压完整的 runtime 压缩包',
-    ],
-  },
+  ERR_DLL_MISSING: GUIDANCE_DLL_MISSING,
   // 引擎程序文件缺失
-  ERR_ENGINE_MISSING: {
-    category: '引擎缺失',
-    title: '引擎程序文件缺失',
-    description: 'llama-server.exe 引擎程序文件不存在，无法启动推理服务。',
-    suggestions: [
-      '检查 runtime/ 目录下是否存在 llama-server.exe',
-      '在设置中检查 llama_server_path 配置路径是否正确',
-      '重新下载或解压完整的 runtime 压缩包',
-    ],
-  },
+  ERR_ENGINE_MISSING: GUIDANCE_ENGINE_MISSING,
   // 模型文件未找到
-  ERR_MODEL_MISSING: {
-    category: '模型缺失',
-    title: '未找到模型文件',
-    description: 'models/ 目录下没有找到任何 GGUF 模型文件。',
-    suggestions: [
-      '将 GGUF 模型文件放入 models/ 目录',
-      '确认模型文件扩展名为 .gguf',
-      '从 Hugging Face 或 ModelScope 下载模型文件',
-    ],
-  },
+  ERR_MODEL_MISSING: GUIDANCE_MODEL_MISSING,
   // 显存/内存不足
-  ERR_OOM: {
-    category: '显存/内存不足',
-    title: '显存或内存不足',
-    description: '模型加载需要的显存或内存超过了系统可用资源。',
-    suggestions: [
-      '在设置中降低 GPU 层数（n-gpu-layers）',
-      '使用更小量化的模型版本（如 Q4_0 代替 Q8_0）',
-      '关闭其他占用 GPU/内存的程序',
-      '减小上下文窗口大小（context_size）',
-    ],
-  },
+  ERR_OOM: GUIDANCE_OOM,
   // 服务反复崩溃，已停止自动重启
-  ERR_PERMANENT_FAILURE: {
-    category: '永久失败',
-    title: '服务器反复崩溃，已停止自动重启',
-    description: 'llama-server 连续多次启动失败，系统已停止自动重试以避免资源浪费。',
-    suggestions: [
-      '检查模型文件是否完整、量化类型是否受支持',
-      '降低 GPU 层数、上下文大小等参数后重试',
-      '查看日志获取每次崩溃的具体原因',
-      '重启豆芽应用以重置失败计数',
-    ],
-  },
+  ERR_PERMANENT_FAILURE: GUIDANCE_PERMANENT_FAILURE,
   // 请求超时
-  ERR_TIMEOUT: {
-    category: '请求超时',
-    title: '请求超时',
-    description: '请求在规定时间内未收到响应，可能是网络问题或服务繁忙。',
-    suggestions: [
-      '检查网络连接是否正常',
-      '稍后重试',
-      '查看任务管理器中 llama-server 进程是否正常运行',
-    ],
-  },
+  ERR_TIMEOUT: GUIDANCE_TIMEOUT,
 }
 
 // 匹配 "[ERR_CODE] 提示信息" 前缀的错误码
@@ -114,43 +136,15 @@ const errCodePrefixPattern = /^\[([A-Z_]+)\]\s*/
 const errorPatterns: ErrorPattern[] = [
   {
     pattern: /DLL.*缺失|核心DLL|CUDA运行时DLL|dll not found|\.dll.*not found|specified module could not be found/i,
-    guidance: {
-      category: 'DLL缺失',
-      title: '运行时 DLL 文件缺失',
-      description: 'llama-server 引擎依赖的 DLL 文件缺失，无法正常启动。',
-      suggestions: [
-        '检查 runtime/ 目录是否包含所有必要的 DLL 文件',
-        '核心 DLL 包括：llama.dll、ggml.dll、ggml-base.dll、ggml-cpu.dll 等',
-        '如果使用 NVIDIA GPU，还需 CUDA 运行时 DLL：cudart64_13.dll、cublas64_13.dll、cublasLt64_13.dll',
-        '重新下载或解压完整的 runtime 压缩包',
-      ],
-    },
+    guidance: GUIDANCE_DLL_MISSING,
   },
   {
     pattern: /引擎程序.*不存在|引擎程序文件不存在|llama-server.*not found|the system cannot find the file/i,
-    guidance: {
-      category: '引擎缺失',
-      title: '引擎程序文件缺失',
-      description: 'llama-server.exe 引擎程序文件不存在，无法启动推理服务。',
-      suggestions: [
-        '检查 runtime/ 目录下是否存在 llama-server.exe',
-        '在设置中检查 llama_server_path 配置路径是否正确',
-        '重新下载或解压完整的 runtime 压缩包',
-      ],
-    },
+    guidance: GUIDANCE_ENGINE_MISSING,
   },
   {
     pattern: /模型文件.*未找到|未找到任何.*\.gguf|no models found/i,
-    guidance: {
-      category: '模型缺失',
-      title: '未找到模型文件',
-      description: 'models/ 目录下没有找到任何 GGUF 模型文件。',
-      suggestions: [
-        '将 GGUF 模型文件放入 models/ 目录',
-        '确认模型文件扩展名为 .gguf',
-        '从 Hugging Face 或 ModelScope 下载模型文件',
-      ],
-    },
+    guidance: GUIDANCE_MODEL_MISSING,
   },
   {
     pattern: /显存不足|out of memory|OOM|CUDA out of memory|CUDA error|VRAM|gpu.*memory|failed to allocate cuda/i,
@@ -221,17 +215,7 @@ const errorPatterns: ErrorPattern[] = [
   },
   {
     pattern: /context.*size|context.*overflow|exceed.*context|prompt.*too.*long/i,
-    guidance: {
-      category: '上下文溢出',
-      title: '上下文长度超限',
-      description: '对话内容或附件超过了模型的上下文窗口大小。',
-      suggestions: [
-        '在设置中增大上下文窗口大小（context_size）',
-        '减少对话历史或开启上下文移位',
-        '缩短上传的文件内容',
-        '减少附件数量',
-      ],
-    },
+    guidance: GUIDANCE_CTX_OVERFLOW,
   },
   {
     pattern: /crash|segfault|signal|killed|abort/i,
@@ -249,17 +233,7 @@ const errorPatterns: ErrorPattern[] = [
   },
   {
     pattern: /永久失败|permanent.*failure/i,
-    guidance: {
-      category: '永久失败',
-      title: '服务器反复崩溃，已停止自动重启',
-      description: 'llama-server 连续多次启动失败，系统已停止自动重试以避免资源浪费。',
-      suggestions: [
-        '检查模型文件是否完整、量化类型是否受支持',
-        '降低 GPU 层数、上下文大小等参数后重试',
-        '查看日志获取每次崩溃的具体原因',
-        '重启豆芽应用以重置失败计数',
-      ],
-    },
+    guidance: GUIDANCE_PERMANENT_FAILURE,
   },
   {
     pattern: /invalid.*model|corrupt|bad.*magic|unknown.*format/i,

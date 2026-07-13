@@ -414,12 +414,6 @@ function regenerate() {
   display: block;
 }
 
-.user-avatar {
-}
-
-.ai-avatar {
-}
-
 .message-bubble-wrapper {
   flex: 1;
   min-width: 0;

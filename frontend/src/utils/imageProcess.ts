@@ -12,19 +12,15 @@
  * - 合并 canvas pass：尺寸限制和 EXIF 烤入在一次 canvas 绘制中完成
  * - 有界扫描：EXIF 只读前 128KB，避免整文件 atob
  */
+// F-1.16：isHeicMimeType 抽取到 heicToJpeg.ts 统一导出，消除两处重复定义
+// heicFileToJpegDataURL 同为静态 import：heic-to 库的懒加载由 heicToJpeg.ts
+// 内部的 getHeicTo() → import('heic-to/csp') 实现，不依赖本文件的动态 import
+import { isHeicMimeType, heicFileToJpegDataURL } from './heicToJpeg'
 
 // ===== 常量 =====
 
 /** 默认兆像素上限：4MP（约 2680×1496，平衡清晰度与 token 消耗） */
 const DEFAULT_MAX_MEGAPIXELS = 4
-
-/** HEIC/HEIF MIME 类型集合（用于本地判断，避免静态导入 heicToJpeg 触发懒加载模块） */
-const HEIC_MIME_TYPES = new Set(['image/heic', 'image/heif'])
-
-/** 判断 MIME 类型是否为 HEIC/HEIF */
-function isHeicMimeType(mimeType: string): boolean {
-  return HEIC_MIME_TYPES.has(mimeType.trim().toLowerCase())
-}
 
 /** 1 兆像素 = 100 万像素 */
 const MEGAPIXELS_TO_PIXELS = 1_000_000
@@ -277,8 +273,12 @@ export async function capImageSize(
 
 // ===== 文件读取工具 =====
 
-/** 读取 File 为 data URL */
-function readFileAsDataURL(file: File): Promise<string> {
+/**
+ * 读取 File 为 data URL（F-1.17：导出供 SettingsView.vue 复用）
+ * 生活类比：像把纸质文件扫描成电子版——FileReader 是扫描仪，
+ * readAsDataURL 是扫描操作，结果是带 MIME 前缀的 base64 字符串。
+ */
+export function readFileAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(reader.result as string)
@@ -307,8 +307,7 @@ export async function processImagePipeline(
   let dataUrl: string
   let effectiveMime: string
   if (isHeicMimeType(file.type)) {
-    // 动态 import 避免首屏加载 heic-to 重依赖
-    const { heicFileToJpegDataURL } = await import('./heicToJpeg')
+    // heic-to 库的懒加载由 heicToJpeg.ts 内部的 getHeicTo() 实现
     dataUrl = await heicFileToJpegDataURL(file)
     effectiveMime = 'image/jpeg'
   } else {

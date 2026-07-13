@@ -48,6 +48,7 @@ import { wails } from '../services/wails'
 import { useSettingsStore } from '../stores/settings'
 import { useChatStore } from '../stores/chat'
 import { showSuccess, showError } from '../utils/showError'
+import { usePromptProgress } from '../composables/usePromptProgress'
 
 const props = withDefaults(defineProps<{
   text: string
@@ -78,28 +79,10 @@ const speedDisplay = computed(() => {
   return spd.toFixed(1)
 })
 
-// Prompt 处理进度百分比
-const promptPercent = computed(() => {
-  const pp = promptProgress.value
-  if (!pp || pp.total <= 0) return 0
-  const actualTotal = pp.total - pp.cache
-  const actualProcessed = pp.processed - pp.cache
-  if (actualTotal <= 0) return 0
-  return Math.min(100, Math.round((actualProcessed / actualTotal) * 100))
-})
-
-// Prompt 处理 ETA（秒）
-const promptEta = computed(() => {
-  const pp = promptProgress.value
-  if (!pp || pp.processed <= 0 || pp.timeMs <= 0) return null
-  const actualProcessed = pp.processed - pp.cache
-  const actualTotal = pp.total - pp.cache
-  if (actualProcessed <= 0 || actualTotal <= 0) return null
-  const elapsedSec = pp.timeMs / 1000
-  const eta = elapsedSec * (actualTotal / actualProcessed - 1)
-  if (eta < 1) return null
-  return Math.ceil(eta)
-})
+// Prompt 处理进度百分比与 ETA
+// 安全实践（基于 F-1.3+F-3.11）：抽取到 usePromptProgress composable，
+// 与 MessageList.vue 共享同一计算逻辑，避免一处改漏导致两处显示不一致
+const { percent: promptPercent, eta: promptEta } = usePromptProgress(() => promptProgress.value)
 
 // ---- 输入 token 计数逻辑（空闲状态使用） ----
 

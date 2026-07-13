@@ -447,11 +447,9 @@ func (a *App) GetServerLogs() string {
 }
 
 // GetTerminalHistory 获取终端历史日志（纯文本，用于 xterm.js 初始化时回显）
+// B-2.1：与 GetServerLogs 实现完全相同，委托调用避免重复
 func (a *App) GetTerminalHistory() string {
-	if a.server == nil {
-		return ""
-	}
-	return a.server.LastOutput()
+	return a.GetServerLogs()
 }
 
 // ResizeTerminal 调整 ConPTY 终端尺寸（前端 xterm.js 尺寸变化时调用）

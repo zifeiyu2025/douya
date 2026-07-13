@@ -390,6 +390,7 @@ export interface SmartParamsInfo {
     hardware: {
         cpu_cores: number
         has_gpu: boolean
+        has_cuda_backend: boolean
         gpu_name: string
         gpu_vram_mb: number
     }

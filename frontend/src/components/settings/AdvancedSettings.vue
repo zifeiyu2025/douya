@@ -302,33 +302,18 @@
 </template>
 
 <script setup lang="ts">
-import { inject, defineComponent, h, ref, computed, onMounted, watch } from 'vue'
+import { inject, ref, computed, onMounted, watch } from 'vue'
 import {
   NButton, NFormItem, NInput, NDivider,
-  NSwitch, NInputNumber, NSelect, NTooltip, NTag,
+  NSwitch, NInputNumber, NSelect, NTag,
 } from 'naive-ui'
-import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime'
 import LoraManager from '../LoraManager.vue'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
 import { wails } from '../../services/wails'
-
-/**
- * 安全实践（基于 VUE-XSS-004 #4）：外部链接统一走 BrowserOpenURL 用系统默认浏览器打开
- * 防止 Wails WebView 内部导航，与 MessageList.vue 的 handleLinkClick 保持一致
- */
-function openExternal(url: string) {
-  BrowserOpenURL(url)
-}
-
-const HelpTip = defineComponent({
-  props: { content: String },
-  setup(props) {
-    return () => h(NTooltip, { trigger: 'hover' }, {
-      trigger: () => h('span', { class: 'help-tip-icon' }, '?'),
-      default: () => props.content
-    })
-  }
-})
+// F-1.1/F-1.2：抽取为公共组件，消除三处重复定义
+import HelpTip from '../ui/HelpTip.vue'
+// F-1.13：openExternal 抽取到 utils/externalLink.ts（内含 isSafeUrl 校验），消除两处重复定义
+import { openExternal } from '../../utils/externalLink'
 
 const ctx = inject<SettingsContext>(SETTINGS_CONTEXT_KEY)!
 
@@ -452,20 +437,5 @@ watch(() => settingsStore.currentModel, loadModelFtype)
   margin-left: 12px;
 }
 
-.help-tip-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--text-muted);
-  background: var(--bg-tertiary);
-  margin-left: 4px;
-  cursor: help;
-  vertical-align: middle;
-  line-height: 1;
-}
+/* F-1.2：.help-tip-icon 样式已抽取到 ui/HelpTip.vue，此处不再重复定义 */
 </style>

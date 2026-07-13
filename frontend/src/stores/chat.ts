@@ -774,15 +774,14 @@ export const useChatStore = defineStore('chat', () => {
     }
 
 
-    function initStreamListener() {
-        wails.onChatStream((event: StreamEvent) => {
+    function registerStreamListener(): () => void {
+        const unsubscribe = wails.subscribeChatStream((event: StreamEvent) => {
             handleStreamEvent(event)
         })
-    }
-
-    function cleanupStreamListener() {
-        wails.offChatStream()
-        clearTimers()
+        return () => {
+            unsubscribe()
+            clearTimers()
+        }
     }
 
     return {
@@ -820,8 +819,7 @@ export const useChatStore = defineStore('chat', () => {
         exportConversationWithDialog,
         deleteMessage,
         regenerateMessage,
-        initStreamListener,
-        cleanupStreamListener,
+        registerStreamListener,
         handleStreamEvent,
         forceResetGenerating,
     }

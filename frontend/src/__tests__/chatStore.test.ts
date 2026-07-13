@@ -26,15 +26,12 @@ vi.mock('../services/wails', async (importOriginal) => {
             regenerateMessage: vi.fn(),
             getAvailableModels: vi.fn().mockResolvedValue([]),
             switchModel: vi.fn(),
-            onChatStream: vi.fn(),
-            onServerStatus: vi.fn(),
-            onSwitchProgress: vi.fn(),
-            offChatStream: vi.fn(),
-            offServerStatus: vi.fn(),
-            offSwitchProgress: vi.fn(),
+            // F-1.10：subscribe 函数返回 unsubscribe，替代原 onXxx/offXxx 配对
+            subscribeChatStream: vi.fn().mockReturnValue(() => {}),
+            subscribeServerStatus: vi.fn().mockReturnValue(() => {}),
+            subscribeSwitchProgress: vi.fn().mockReturnValue(() => {}),
+            subscribeAbnormalCleanup: vi.fn().mockReturnValue(() => {}),
             prepareShutdown: vi.fn(),
-            onAbnormalCleanup: vi.fn(),
-            offAbnormalCleanup: vi.fn(),
         },
     }
 })

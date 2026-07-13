@@ -152,18 +152,8 @@ func (s *Server) startWithExecCmd(args []string, runtimeDir string, env []string
 			}
 		}()
 		err := s.cmd.Wait()
-		s.mu.Lock()
-		s.status = ServerStatus{Running: false}
-		if err != nil && s.ctx.Err() == nil {
-			errMsg := fmt.Sprintf("server exited with error: %v", err)
-			if s.stderrBuf != nil {
-				if tail := s.stderrBuf.String(); tail != "" {
-					errMsg += "\n" + tail
-				}
-			}
-			s.status.Error = errMsg
-		}
-		s.mu.Unlock()
+		// 安全实践（基于 B-1.6）：统一调用 updateStatusAfterExit 构建 status + 错误信息
+		s.updateStatusAfterExit(err, 0, false)
 	}()
 
 	s.mu.Unlock()
@@ -193,25 +183,51 @@ func (s *Server) startWithConPTYSuccess(pty *conpty.ConPty, args []string, runti
 			}
 		}()
 		exitCode, err := pty.Wait(s.ctx)
-		s.mu.Lock()
-		s.status = ServerStatus{Running: false}
-		if err != nil && s.ctx.Err() == nil {
-			errMsg := fmt.Sprintf("server exited with error: %v (exit code: %d)", err, exitCode)
-			if s.stderrBuf != nil {
-				if tail := s.stderrBuf.String(); tail != "" {
-					errMsg += "\n" + tail
-				}
-			}
-			// 检测 DLL 缺失导致的立即崩溃（进程刚启动就退出且 stderr 包含 DLL 相关信息）
-			if exitCode != 0 && s.lastStartTime.Before(time.Now().Add(-10*time.Second)) {
-				if enhanced := enhanceStartError(fmt.Errorf("%s", errMsg)); enhanced != nil {
-					errMsg = enhanced.Error()
-				}
-			}
-			s.status.Error = errMsg
-		}
-		s.mu.Unlock()
+		// 安全实践（基于 B-1.6）：统一调用 updateStatusAfterExit 构建 status + 错误信息
+		s.updateStatusAfterExit(err, exitCode, true)
 	}()
 
 	s.mu.Unlock()
+}
+
+// updateStatusAfterExit 统一处理进程退出后的 status 更新和错误信息构建
+// 安全实践（基于 B-1.6）：消除 startWithExecCmd 和 startWithConPTYSuccess 中 wait goroutine 的重复逻辑
+//
+// 参数说明：
+//   - err：进程退出的 error（nil 表示正常退出）
+//   - exitCode：进程退出码（仅 ConPTY 路径有意义，exec.Cmd 路径传 0）
+//   - isConPTY：是否为 ConPTY 路径（影响错误信息格式和 DLL 缺失检测）
+//
+// 行为约定：
+//   - 如果 ctx 已取消（s.ctx.Err() != nil），视为正常退出，不记录错误
+//   - 否则构建错误信息（含 stderr 尾部输出），ConPTY 路径额外检测 DLL 缺失
+//   - 更新 s.status 为 Running: false（带 Error 字段）
+func (s *Server) updateStatusAfterExit(err error, exitCode uint32, isConPTY bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.status = ServerStatus{Running: false}
+
+	// ctx 已取消时视为正常退出，不记录错误
+	if err != nil && s.ctx.Err() == nil {
+		var errMsg string
+		if isConPTY {
+			errMsg = fmt.Sprintf("server exited with error: %v (exit code: %d)", err, exitCode)
+		} else {
+			errMsg = fmt.Sprintf("server exited with error: %v", err)
+		}
+		// 附加 stderr 尾部输出
+		if s.stderrBuf != nil {
+			if tail := s.stderrBuf.String(); tail != "" {
+				errMsg += "\n" + tail
+			}
+		}
+		// ConPTY 路径：检测 DLL 缺失导致的立即崩溃
+		if isConPTY && exitCode != 0 && s.lastStartTime.Before(time.Now().Add(-10*time.Second)) {
+			if enhanced := enhanceStartError(fmt.Errorf("%s", errMsg)); enhanced != nil {
+				errMsg = enhanced.Error()
+			}
+		}
+		s.status.Error = errMsg
+	}
 }

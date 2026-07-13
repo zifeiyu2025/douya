@@ -82,6 +82,8 @@ import AdvancedSettings from '../components/settings/AdvancedSettings.vue'
 import ExperimentalSettings from '../components/settings/ExperimentalSettings.vue'
 import AboutSettings from '../components/settings/AboutSettings.vue'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from '../components/settings/settingsContext'
+// F-1.17：readFileAsDataURL 抽取到 imageProcess.ts 统一导出，消除两处重复定义
+import { readFileAsDataURL } from '../utils/imageProcess'
 
 const settingsStore = useSettingsStore()
 const message = useMessage()
@@ -331,14 +333,7 @@ function applyModelRef() {
   showSuccess(message, `已应用 ${ref.name} ${modeLabel}参考参数`)
 }
 
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-}
+/* F-1.17：fileToBase64 已抽取到 utils/imageProcess.ts（readFileAsDataURL） */
 
 async function selectBackgroundImage() {
   try {
@@ -377,7 +372,7 @@ async function handleAvatarUpload(
     return
   }
   try {
-    const base64 = await fileToBase64(file)
+    const base64 = await readFileAsDataURL(file)
     formConfig.value[fieldName] = base64
   } catch {
     message.destroyAll()
@@ -641,35 +636,7 @@ provide(SETTINGS_CONTEXT_KEY, settingsContext)
   border-bottom: 1px solid var(--border-color);
 }
 
-/* 返回按钮：native button，去 chrome，hover 用 --bg-hover */
-.back-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--text-primary);
-  cursor: pointer;
-  padding: 0;
-  transition: background-color var(--transition-fast), color var(--transition-fast);
-  flex-shrink: 0;
-}
-
-.back-btn:hover {
-  background: var(--bg-hover);
-}
-
-.back-btn:active {
-  background: var(--bg-active);
-}
-
-.back-btn:focus-visible {
-  outline: 2px solid var(--accent-primary);
-  outline-offset: 2px;
-}
+/* .back-btn 样式已抽取到 style.css 全局（F-1.15），此处不再重复 */
 
 .settings-title {
   font-size: 22px;

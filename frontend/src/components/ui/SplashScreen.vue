@@ -183,9 +183,7 @@ const stageText = computed(() => {
   filter: drop-shadow(0 0 4px currentColor);
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+/* @keyframes spin 已在 style.css 全局定义，此处不再重复 */
 
 /* 完成圆环：画圆动画 */
 .logo-complete {

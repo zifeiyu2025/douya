@@ -25,7 +25,8 @@ export default defineConfig({
         },
     },
     build: {
-        chunkSizeWarningLimit: 1500,
+        // Wails 本地 WebView 加载，无网络传输；heic-to 库本身 ~3MB 且已懒加载，无法再拆
+        chunkSizeWarningLimit: 3000,
         cssCodeSplit: true,
         sourcemap: false,
         rollupOptions: {
@@ -49,6 +50,8 @@ export default defineConfig({
                         { name: 'lib-vue', test: /node_modules[\\/](@vue[\\/]|pinia|vue-router|vue@|vue[\\/])/ },
                         // 图标库
                         { name: 'lib-icons', test: /node_modules[\\/](@vicons[\\/]|@iconify)/ },
+                        // 终端模拟器（xterm + addons，仅在终端控制台使用）
+                        { name: 'lib-xterm', test: /node_modules[\\/]@xterm/ },
                         // 兜底：其余 node_modules 统一归入 vendor
                         { name: 'lib-vendor', test: /node_modules[\\/]/ },
                     ],

@@ -206,13 +206,19 @@ function onUpdateProgress(data: any) {
   }
 }
 
+// F-1.10：保存 subscribeUpdateProgress 返回的 unsubscribe 函数，替代原 onUpdateProgress/offUpdateProgress 配对
+let unsubscribeUpdateProgress: (() => void) | null = null
+
 onMounted(() => {
   loadVersion()
-  wails.onUpdateProgress(onUpdateProgress)
+  unsubscribeUpdateProgress = wails.subscribeUpdateProgress(onUpdateProgress)
 })
 
 onUnmounted(() => {
-  wails.offUpdateProgress()
+  if (unsubscribeUpdateProgress) {
+    unsubscribeUpdateProgress()
+    unsubscribeUpdateProgress = null
+  }
 })
 </script>
 

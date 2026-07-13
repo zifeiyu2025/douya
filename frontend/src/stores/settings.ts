@@ -313,28 +313,56 @@ export const useSettingsStore = defineStore('settings', () => {
         return run
     }
 
-    async function cycleSearchMode() {
-        const next: Record<string, 'off' | 'auto' | 'on'> = {
-            'off': 'auto',
-            'auto': 'on',
-            'on': 'off',
-        }
-        const oldValue = searchMode.value
-        const nextMode = next[oldValue] || 'off'
-        searchMode.value = nextMode  // 乐观更新 UI
+    /**
+     * createCycleFn 创建一个三态循环切换函数。
+     *
+     * 抽取原因（基于 F-1.11+F-3.7）：cycleSearchMode 和 cycleThinkingMode 结构完全一致，
+     * 仅 getCurrent/setCurrent/nextMap/configField/errorLabel 不同，
+     * 提取为高阶函数消除重复，新增循环切换只需配置参数。
+     *
+     * 行为：
+     *   1. 读取当前值 → 通过 nextMap 查找下一个值
+     *   2. 乐观更新 UI（setCurrent）
+     *   3. 入队写入 config（getConfig → updateConfig）
+     *   4. 失败时回滚（setCurrent(oldValue)）
+     *
+     * 生活类比：像一个"挡位切换器"——不管切换的是搜索模式还是思考模式，
+     * 都是"读当前挡位→推到下一挡→告诉引擎→引擎失败就退回原挡"的统一流程。
+     */
+    function createCycleFn<T extends string>(opts: {
+        getCurrent: () => T              // 获取当前值
+        setCurrent: (v: T) => void       // 设置新值（用于乐观更新和回滚）
+        nextMap: Record<T, T>            // 循环映射（如 { off: 'auto', auto: 'on', on: 'off' }）
+        applyToConfig: (cfg: Config, v: T) => void  // 写入 config 的字段
+        errorLabel: string               // 错误日志文案
+    }) {
+        return async function cycleFn() {
+            const oldValue = opts.getCurrent()
+            const nextMode = opts.nextMap[oldValue]
+            if (!nextMode) return
+            opts.setCurrent(nextMode)  // 乐观更新 UI
 
-        await enqueueConfigWrite(async () => {
-            try {
-                const fullConfig = await wails.getConfig()
-                fullConfig.search_mode = nextMode
-                await wails.updateConfig(fullConfig)
-                config.value = fullConfig
-            } catch (e) {
-                logError('切换搜索模式失败', e)
-                searchMode.value = oldValue  // 回滚
-            }
-        })
+            await enqueueConfigWrite(async () => {
+                try {
+                    const fullConfig = await wails.getConfig()
+                    opts.applyToConfig(fullConfig, nextMode)
+                    await wails.updateConfig(fullConfig)
+                    config.value = fullConfig
+                } catch (e) {
+                    logError(opts.errorLabel, e)
+                    opts.setCurrent(oldValue)  // 回滚
+                }
+            })
+        }
     }
+
+    const cycleSearchMode = createCycleFn<'off' | 'auto' | 'on'>({
+        getCurrent: () => searchMode.value,
+        setCurrent: (v) => { searchMode.value = v },
+        nextMap: { 'off': 'auto', 'auto': 'on', 'on': 'off' },
+        applyToConfig: (cfg, v) => { cfg.search_mode = v },
+        errorLabel: '切换搜索模式失败',
+    })
 
     async function setSearchMode(mode: 'off' | 'auto' | 'on') {
         const oldValue = searchMode.value
@@ -350,30 +378,13 @@ export const useSettingsStore = defineStore('settings', () => {
         }
     }
 
-    async function cycleThinkingMode() {
-        const next: Record<string, 'auto' | 'on' | 'off'> = {
-            'auto': 'on',
-            'on': 'off',
-            'off': 'auto',
-        }
-        const oldValue = config.value?.reasoning ?? 'off'
-        const nextMode = next[oldValue] || 'auto'
-        // 乐观更新 UI
-        if (config.value) config.value.reasoning = nextMode
-
-        await enqueueConfigWrite(async () => {
-            try {
-                const fullConfig = await wails.getConfig()
-                fullConfig.reasoning = nextMode
-                await wails.updateConfig(fullConfig)
-                config.value = fullConfig
-            } catch (e) {
-                logError('切换思考模式失败', e)
-                // 回滚
-                if (config.value) config.value.reasoning = oldValue
-            }
-        })
-    }
+    const cycleThinkingMode = createCycleFn<'auto' | 'on' | 'off'>({
+        getCurrent: () => config.value?.reasoning ?? 'off',
+        setCurrent: (v) => { if (config.value) config.value.reasoning = v },
+        nextMap: { 'auto': 'on', 'on': 'off', 'off': 'auto' },
+        applyToConfig: (cfg, v) => { cfg.reasoning = v },
+        errorLabel: '切换思考模式失败',
+    })
 
     /**
      * 处理后端 switchModel 的结果
@@ -413,8 +424,12 @@ export const useSettingsStore = defineStore('settings', () => {
         }
     }
 
-    function initStatusListener() {
-        wails.onServerStatus((status: ServerStatus) => {
+    // F-1.12：事件监听统一为 registerXxxListener(): () => void 模式
+    // 返回的 unsubscribe 函数用于取消监听并清理副作用，替代原来的 init/cleanup 配对调用
+    // 生活类比：像安装警报器——安装（register）后拿到一个"拆卸凭证"（unsubscribe 函数），
+    // 拆卸时会自动断开电源、清理相关配件，不用自己记住每一步。
+    function registerStatusListener(): () => void {
+        const unsubscribe = wails.subscribeServerStatus((status: ServerStatus) => {
             markStatusEventReceived()
             serverStatus.value = status
             // 后端错误事件触发 failed 状态（仅在 first_load/switching 阶段，避免 idle 时误标记失败）
@@ -450,53 +465,41 @@ export const useSettingsStore = defineStore('settings', () => {
         startStartupPolling()
         // 启动看门狗：60s 兜底保护，防止事件监听完全失效
         startStartupWatchdog()
+        return () => {
+            unsubscribe()
+            // 清理所有相关定时器，避免离开设置页后定时器残留
+            stopStartupPolling()       // 清理 startupPollingTimer 与 startupWatchdogTimer
+            clearAllTimers()           // 清理 pendingTransitions 中所有定时器
+        }
     }
 
-    function cleanupStatusListener() {
-        wails.offServerStatus()
-        // 清理所有相关定时器，避免离开设置页后定时器残留
-        stopStartupPolling()       // 清理 startupPollingTimer 与 startupWatchdogTimer
-        clearAllTimers()           // 清理 pendingTransitions 中所有定时器
-    }
-
-    function initSwitchProgressListener() {
-        wails.onSwitchProgress((progress) => {
+    function registerSwitchProgressListener(): () => void {
+        const unsubscribe = wails.subscribeSwitchProgress((progress) => {
             // 仅在 idle 接受进度事件,首次加载时记录 first_load
             if (switchState.value.phase === 'idle') {
                 beginFirstLoad(progress.targetModel || currentModel.value)
             }
             reportProgress(progress.stage as SwitchProgressStage)
         })
+        return unsubscribe
     }
 
-    function cleanupSwitchProgressListener() {
-        wails.offSwitchProgress()
-    }
-
-    function initMmprojUnavailableListener() {
-        wails.onMmprojUnavailable(() => {
+    function registerMmprojUnavailableListener(): () => void {
+        return wails.subscribeMmprojUnavailable(() => {
             discreteMessage.warning('多模态功能已降级为纯文本模式（mmproj 不兼容）', { duration: 5000 })
         })
     }
 
-    function cleanupMmprojUnavailableListener() {
-        wails.offMmprojUnavailable()
-    }
-
     // 监听后端 RAG 开启时自动关闭搜索的事件，同步前端状态，避免后续 autoSave 用旧值覆盖后端
-    function initSearchAutoDisabledListener() {
-        wails.onSearchAutoDisabled(() => {
+    function registerSearchAutoDisabledListener(): () => void {
+        return wails.subscribeSearchAutoDisabled(() => {
             searchMode.value = 'off'
             if (config.value) config.value.search_mode = 'off'
         })
     }
 
-    function cleanupSearchAutoDisabledListener() {
-        wails.offSearchAutoDisabled()
-    }
-
-    function initModelLoadProgressListener() {
-        wails.onModelLoadProgress((progress: ModelLoadProgressEvent) => {
+    function registerModelLoadProgressListener(): () => void {
+        return wails.subscribeModelLoadProgress((progress: ModelLoadProgressEvent) => {
             if (progress.status === 'running') {
                 // 模型加载完成，清除进度状态
                 modelLoadProgress.value = null
@@ -504,10 +507,6 @@ export const useSettingsStore = defineStore('settings', () => {
                 modelLoadProgress.value = progress
             }
         })
-    }
-
-    function cleanupModelLoadProgressListener() {
-        wails.offModelLoadProgress()
     }
 
     function resetSwitchProgress() {
@@ -550,16 +549,11 @@ export const useSettingsStore = defineStore('settings', () => {
         toggleThinking: cycleThinkingMode,
         switchModel,
         checkServerStatus,
-        initStatusListener,
-        cleanupStatusListener,
-        initSwitchProgressListener,
-        cleanupSwitchProgressListener,
-        initMmprojUnavailableListener,
-        cleanupMmprojUnavailableListener,
-        initSearchAutoDisabledListener,
-        cleanupSearchAutoDisabledListener,
-        initModelLoadProgressListener,
-        cleanupModelLoadProgressListener,
+        registerStatusListener,
+        registerSwitchProgressListener,
+        registerMmprojUnavailableListener,
+        registerSearchAutoDisabledListener,
+        registerModelLoadProgressListener,
         resetSwitchProgress,
         // 状态机内部 API（供测试 / 高级用例使用）
         switchState,

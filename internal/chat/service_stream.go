@@ -12,6 +12,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"douya/internal/config"
 	"douya/internal/llm"
 	"douya/internal/search"
 	"douya/internal/secrets"
@@ -382,6 +383,110 @@ func (s *Service) retryStreamAfterContextExceeded(
 	}
 	s.emitForConv(convID, "error", enhanceErrorWithHint("上下文过长，裁剪后仍无法生成，请尝试缩短对话或新建对话"))
 	return true, fmt.Errorf(retryErrFmt, retryErr)
+}
+
+// streamExecResult 描述流式请求执行后的状态，供 runStreamWithStandardErrors 返回。
+//
+// 生活类比：流水线工人完成任务后，向车间主任汇报"继续生产"、"停线检修"或"停线下班"。
+type streamExecResult int
+
+const (
+	// streamContinue 表示流式请求成功完成，调用方应继续后续流程（如保存消息、tool call 循环等）。
+	streamContinue streamExecResult = iota
+	// streamStopped 表示因用户取消或不可恢复错误而终止，调用方应直接返回（不再执行后续流程）。
+	// 配合返回的 err：err == nil 表示用户主动取消；err != nil 表示不可恢复错误。
+	streamStopped
+)
+
+// wrapCallbackWithCompletionID 包装 accumulator 的 callback，在收到 completion ID 时同步到 Service。
+//
+// 抽取原因（基于 B-1.1）：executeStreamAndHandleErrors 与 executeToolCallStream 中
+// 存在完全相同的 callback 包装代码，提取为公共函数消除重复。
+//
+// 生活类比：就像给快递员配一个对讲机——遇到包裹（completion ID）就立即上报给调度中心（Service），
+// 调度中心记录下来供后续操作（如 StopThinking）使用。
+func (s *Service) wrapCallbackWithCompletionID(acc *StreamAccumulator) func(llm.SSEChunk) error {
+	inner := acc.callback()
+	return func(chunk llm.SSEChunk) error {
+		if err := inner(chunk); err != nil {
+			return err
+		}
+		if acc.CompletionID != "" {
+			s.setCurrentCompletionID(acc.CompletionID)
+		}
+		return nil
+	}
+}
+
+// runStreamWithStandardErrors 执行流式请求并统一处理三类标准错误：
+// 用户取消、流式超时、上下文溢出（自动裁剪重试）。
+//
+// 抽取原因（基于 B-1.1+B-1.2+B-1.3）：executeStreamAndHandleErrors 与 executeToolCallStream
+// 中存在近乎相同的错误处理流程（约 30 行重复代码），提取为公共函数统一维护，
+// 避免一处改漏导致两处行为不一致。
+//
+// 参数说明：
+//   - streamCtx：流式请求的 context（含超时）
+//   - cancelCtx：用户取消 context（用于检测主动取消）
+//   - convID：会话 ID（用于 emit 事件、保存部分内容）
+//   - streamConvID：流式请求实际使用的 convID（tool call 每轮使用独立 convID 避免 SSE Replay Buffer 冲突）
+//   - timeoutMsg：超时时的用户提示文案
+//   - timeoutErr：超时时返回的 error（直接返回，不做格式化）
+//   - logMsg/retryErrFmt/nonExceedErrFmt：透传给 retryStreamAfterContextExceeded
+//
+// 返回值约定：
+//   - streamContinue, nil：流式请求成功，调用方继续后续流程
+//   - streamStopped, nil：用户主动取消，调用方应直接返回 nil
+//   - streamStopped, err：不可恢复错误（超时/重试失败/非溢出错误），调用方应返回 err
+//
+// 生活类比：像一个标准化的快递配送流程——不管哪个站点，遇到"客户取消"、"超时未送达"、
+// "包裹太大需重新打包"这三种情况都按统一规则处理，站点只需填好对应的提示文案和错误信息。
+func (s *Service) runStreamWithStandardErrors(
+	streamCtx context.Context,
+	cancelCtx context.Context,
+	convID string,
+	streamConvID string,
+	client *llm.Client,
+	req *llm.ChatCompletionRequest,
+	acc *StreamAccumulator,
+	cfg *config.Config,
+	timeoutMsg string,
+	timeoutErr error,
+	logMsg string,
+	retryErrFmt string,
+	nonExceedErrFmt string,
+) (streamExecResult, error) {
+	wrapped := s.wrapCallbackWithCompletionID(acc)
+	err := client.StreamChatWithConvID(streamCtx, req, streamConvID, wrapped)
+	if err == nil {
+		return streamContinue, nil
+	}
+
+	// 用户主动取消：保存已生成内容，emit stopped，返回 nil（视为正常结束）
+	if cancelCtx.Err() == context.Canceled {
+		s.savePartialContentIfAny(convID, acc)
+		s.emitForConv(convID, "stopped", nil)
+		return streamStopped, nil
+	}
+
+	// 流式超时：emit error 并返回超时错误
+	if streamCtx.Err() == context.DeadlineExceeded {
+		s.emitForConv(convID, "error", enhanceErrorWithHint(timeoutMsg))
+		return streamStopped, timeoutErr
+	}
+
+	// 上下文溢出：自动裁剪并重试
+	// retryConvID 由 streamConvID 派生，确保与原流式请求使用不同的 SSE Replay Buffer
+	retryConvID := streamConvID + "::retry"
+	handled, retryErr := s.retryStreamAfterContextExceeded(
+		cancelCtx, convID, retryConvID, client, req, cfg.ContextSize, err, acc,
+		logMsg, retryErrFmt, nonExceedErrFmt,
+	)
+	if handled {
+		return streamStopped, retryErr
+	}
+	// 重试成功，调用方继续后续流程
+	return streamContinue, nil
 }
 
 

@@ -509,35 +509,7 @@ onMounted(async () => {
   margin-top: 8px;
 }
 
-/* 返回按钮：native button，去 chrome，hover 用 --bg-hover（与 SettingsView 风格一致） */
-.back-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--text-primary);
-  cursor: pointer;
-  padding: 0;
-  transition: background-color var(--transition-fast), color var(--transition-fast);
-  flex-shrink: 0;
-}
-
-.back-btn:hover {
-  background: var(--bg-hover);
-}
-
-.back-btn:active {
-  background: var(--bg-active);
-}
-
-.back-btn:focus-visible {
-  outline: 2px solid var(--accent-primary);
-  outline-offset: 2px;
-}
+/* .back-btn 样式已抽取到 style.css 全局（F-1.15），此处不再重复 */
 
 .header-title-group {
   display: flex;

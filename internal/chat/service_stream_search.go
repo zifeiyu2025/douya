@@ -139,50 +139,19 @@ func (s *Service) buildChatStreamRequest(llmMessages []llm.ChatMessage, searchMo
 // 处理的错误类型：用户取消、超时、上下文溢出（自动重试）。
 // 返回 nil 表示流式请求已完成（成功或用户取消），返回 error 表示不可恢复的错误。
 func (s *Service) executeStreamAndHandleErrors(streamCtx context.Context, cancelCtx context.Context, convID string, client *llm.Client, req *llm.ChatCompletionRequest, acc *StreamAccumulator, cfg *config.Config) error {
-	// 包装 callback，在收到 completion ID 时同步到 Service（供 StopThinking 使用）
-	innerCallback := acc.callback()
-	wrappedCallback := func(chunk llm.SSEChunk) error {
-		err := innerCallback(chunk)
-		if err != nil {
-			return err
-		}
-		if acc.CompletionID != "" {
-			s.setCurrentCompletionID(acc.CompletionID)
-		}
-		return nil
-	}
-
-	// 启用 SSE Replay Buffer：传入 convID 让 llama-server 缓冲 SSE 字节
-	err := client.StreamChatWithConvID(streamCtx, req, convID, wrappedCallback)
-	if err == nil {
-		return nil
-	}
-
-	// 用户主动取消
-	if cancelCtx.Err() == context.Canceled {
-		s.savePartialContentIfAny(convID, acc)
-		s.emitForConv(convID, "stopped", nil)
-		return nil
-	}
-
-	// 流式超时
-	if streamCtx.Err() == context.DeadlineExceeded {
-		s.emitForConv(convID, "error", enhanceErrorWithHint("生成超时，请重试"))
-		return fmt.Errorf("stream chat timeout")
-	}
-
-	// 上下文溢出：自动裁剪并重试
-	retryConvID := convID + "::retry"
-	handled, retryErr := s.retryStreamAfterContextExceeded(
-		cancelCtx, convID, retryConvID, client, req, cfg.ContextSize, err, acc,
+	// 统一调用 runStreamWithStandardErrors 处理流式请求 + 三类标准错误（取消/超时/重试）
+	// 安全实践（基于 B-1.1+B-1.2+B-1.3）：消除与 executeToolCallStream 之间的重复逻辑
+	result, err := s.runStreamWithStandardErrors(
+		streamCtx, cancelCtx, convID, convID, client, req, acc, cfg,
+		"生成超时，请重试",
+		fmt.Errorf("stream chat timeout"),
 		"[chat] context exceeded, trimming and retrying",
 		"stream chat (retry after context trim): %w",
 		"stream chat: %w",
 	)
-	if handled {
-		return retryErr
+	if result == streamStopped {
+		return err
 	}
-
 	return nil
 }
 

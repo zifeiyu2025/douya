@@ -39,21 +39,13 @@
 </template>
 
 <script setup lang="ts">
-import { inject, defineComponent, h } from 'vue'
-import { NFormItem, NSwitch, NTooltip } from 'naive-ui'
+import { inject } from 'vue'
+import { NFormItem, NSwitch } from 'naive-ui'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
+// F-1.1/F-1.2：抽取为公共组件，消除三处重复定义
+import HelpTip from '../ui/HelpTip.vue'
 // 任务 38：虚拟滚动 feature flag（纯前端，localStorage 持久化）
 import { useVirtualScroll } from '../../composables/useVirtualScroll'
-
-const HelpTip = defineComponent({
-  props: { content: String },
-  setup(props) {
-    return () => h(NTooltip, { trigger: 'hover' }, {
-      trigger: () => h('span', { class: 'help-tip-icon' }, '?'),
-      default: () => props.content
-    })
-  }
-})
 
 const ctx = inject<SettingsContext>(SETTINGS_CONTEXT_KEY)!
 
@@ -67,20 +59,5 @@ const { enableVirtualScroll } = useVirtualScroll()
 </script>
 
 <style scoped>
-.help-tip-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--text-muted);
-  background: var(--bg-tertiary);
-  margin-left: 4px;
-  cursor: help;
-  vertical-align: middle;
-  line-height: 1;
-}
+/* F-1.2：.help-tip-icon 样式已抽取到 ui/HelpTip.vue，此处不再重复定义 */
 </style>

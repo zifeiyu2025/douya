@@ -217,7 +217,7 @@ import { wails } from '../services/wails'
 import type { Attachment } from '../services/wails'
 import TokenCounter from './TokenCounter.vue'
 import { showSuccess } from '../utils/showError'
-import { processImagePipeline } from '../utils/imageProcess'
+import { useAttachments } from '../composables/useAttachments'
 
 interface SpeechRecognitionEvent {
   results: SpeechRecognitionResultList
@@ -259,6 +259,9 @@ const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 // 使用 shallowRef：附件数组整体替换触发响应式，避免深度代理开销（任务 23）
 const attachments = shallowRef<Attachment[]>([])
+// 附件处理逻辑抽取到 composable（基于 F-1.8+F-3.2）：
+// 包含 6 种文件类型的处理函数、文件大小校验、二进制检测、removeAttachment 等
+const { processFileByType, removeAttachment } = useAttachments(attachments, message)
 const showAttachMenu = ref(false)
 const pendingUploadType = ref<string>('image')
 
@@ -535,20 +538,8 @@ function handlePaste(e: ClipboardEvent) {
   }
 }
 
-// 安全实践：检测文本内容是否含大量不可打印字符（可能是伪造的文本文件），见安全审查 #37
-function isLikelyBinaryContent(text: string): boolean {
-  if (text.length === 0) return false
-  let nonPrintable = 0
-  const sample = text.slice(0, 1000)  // 仅检查前 1000 字符
-  for (const ch of sample) {
-    const code = ch.charCodeAt(0)
-    // 允许换行、回车、制表符
-    if (code !== 10 && code !== 13 && code !== 9 && code < 32) {
-      nonPrintable++
-    }
-  }
-  return nonPrintable / sample.length > 0.1  // 不可打印字符超过 10% 判定为二进制
-}
+// isLikelyBinaryContent / checkFileSize / readFileWithErrorHandling /
+// 6 个 process*File 函数 / removeAttachment 已抽取到 useAttachments composable（基于 F-1.8+F-3.2）
 
 function detectFileType(file: File): string | null {
   // 优先按 MIME type 判断
@@ -599,16 +590,7 @@ function checkCapability(type: string): boolean {
   return true
 }
 
-function processFileByType(type: string, file: File) {
-  switch (type) {
-    case 'image': processImageFile(file); break
-    case 'audio': processAudioFile(file); break
-    case 'pdf': processPdfFile(file); break
-    case 'docx': processDocxFile(file); break
-    case 'video': processVideoFile(file); break
-    case 'text': processTextFile(file); break
-  }
-}
+// processFileByType 已抽取到 useAttachments composable（基于 F-1.8+F-3.2）
 
 function toggleAttachMenu() {
   showAttachMenu.value = !showAttachMenu.value
@@ -637,41 +619,8 @@ const PDF_ACCEPT = '.pdf'
 const DOCX_ACCEPT = '.docx'
 const VIDEO_ACCEPT = '.mp4,.webm,.avi,.mov,.mkv,.wmv,.flv'
 
-// 文件大小限制（单位：MB）
-const MAX_IMAGE_SIZE = 20
-const MAX_AUDIO_SIZE = 50
-const MAX_VIDEO_SIZE = 100
-const MAX_PDF_SIZE = 50
-const MAX_DOCX_SIZE = 50
-const MAX_TEXT_SIZE = 10
-
-function checkFileSize(file: File, maxSizeMB: number, label: string): boolean {
-  const sizeMB = file.size / (1024 * 1024)
-  if (sizeMB > maxSizeMB) {
-    message.error(`${label}文件大小不能超过 ${maxSizeMB}MB（当前 ${sizeMB.toFixed(1)}MB）`)
-    return false
-  }
-  return true
-}
-
-function readFileWithErrorHandling(
-  file: File,
-  readFn: (reader: FileReader) => void,
-  onSuccess: (result: string) => void,
-  label: string
-) {
-  const reader = new FileReader()
-  reader.onload = () => {
-    onSuccess(reader.result as string)
-  }
-  reader.onerror = () => {
-    message.error(`${label}文件读取失败，请重试`)
-  }
-  reader.onabort = () => {
-    message.warning(`${label}文件读取已取消`)
-  }
-  readFn(reader)
-}
+// MAX_*_SIZE 常量 / checkFileSize / readFileWithErrorHandling
+// 已抽取到 useAttachments composable（基于 F-1.8+F-3.2）
 
 function getAcceptForType(type: string): string {
   switch (type) {
@@ -706,156 +655,19 @@ function handleFileSelect(e: Event) {
   if (!input.files || input.files.length === 0) return
 
   const type = pendingUploadType.value
+  // 安全实践（基于 F-1.8）：统一调用 composable 的 processFileByType，避免重复 if/else 链
   for (const file of Array.from(input.files)) {
-    if (type === 'image') {
-      processImageFile(file)
-    } else if (type === 'audio') {
-      processAudioFile(file)
-    } else if (type === 'pdf') {
-      processPdfFile(file)
-    } else if (type === 'docx') {
-      processDocxFile(file)
-    } else if (type === 'video') {
-      processVideoFile(file)
-    } else {
-      processTextFile(file)
-    }
+    processFileByType(type, file)
   }
   input.value = ''
 }
 
-async function processImageFile(file: File) {
-  if (!file.type.startsWith('image/')) {
-    message.error('请选择图片文件')
-    return
-  }
-  if (attachments.value.filter(a => a.type === 'image').length >= 4) {
-    message.warning('最多上传 4 张图片')
-    return
-  }
-  if (!checkFileSize(file, MAX_IMAGE_SIZE, '图片')) return
-
-  try {
-    // 图片预处理流水线：格式归一化（SVG/WebP→PNG）+ EXIF 方向修正 + 兆像素限制
-    const { dataUrl, mimeType } = await processImagePipeline(file)
-    // shallowRef 需替换整个数组才能触发响应式（任务 23）
-    attachments.value = [...attachments.value, {
-      type: 'image',
-      name: file.name,
-      mime_type: mimeType,
-      data: dataUrl,
-    }]
-  } catch (err) {
-    console.error('图片预处理失败:', err)
-    message.error('图片处理失败，请重试或更换图片')
-  }
-}
-
-function processAudioFile(file: File) {
-  if (!checkFileSize(file, MAX_AUDIO_SIZE, '音频')) return
-  const ext = file.name.split('.').pop()?.toLowerCase() || 'wav'
-  readFileWithErrorHandling(
-    file,
-    (reader) => reader.readAsDataURL(file),
-    (result) => {
-      const base64 = result.split(',')[1]
-      // shallowRef 需替换整个数组才能触发响应式（任务 23）
-      attachments.value = [...attachments.value, {
-        type: 'audio',
-        name: file.name,
-        mime_type: file.type || `audio/${ext}`,
-        data: base64,
-        format: ext,
-      }]
-    },
-    '音频'
-  )
-}
-
-function processPdfFile(file: File) {
-  if (!checkFileSize(file, MAX_PDF_SIZE, 'PDF')) return
-  readFileWithErrorHandling(
-    file,
-    (reader) => reader.readAsDataURL(file),
-    (result) => {
-      const base64 = result.split(',')[1]
-      // shallowRef 需替换整个数组才能触发响应式（任务 23）
-      attachments.value = [...attachments.value, {
-        type: 'pdf',
-        name: file.name,
-        mime_type: 'application/pdf',
-        data: base64,
-      }]
-    },
-    'PDF'
-  )
-}
-
-function processDocxFile(file: File) {
-  if (!checkFileSize(file, MAX_DOCX_SIZE, 'DOCX')) return
-  readFileWithErrorHandling(
-    file,
-    (reader) => reader.readAsDataURL(file),
-    (result) => {
-      const base64 = result.split(',')[1]
-      // shallowRef 需替换整个数组才能触发响应式（任务 23）
-      attachments.value = [...attachments.value, {
-        type: 'docx',
-        name: file.name,
-        mime_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        data: base64,
-      }]
-    },
-    'DOCX'
-  )
-}
-
-function processVideoFile(file: File) {
-  if (!checkFileSize(file, MAX_VIDEO_SIZE, '视频')) return
-  readFileWithErrorHandling(
-    file,
-    (reader) => reader.readAsDataURL(file),
-    (result) => {
-      const base64 = result.split(',')[1]
-      // shallowRef 需替换整个数组才能触发响应式（任务 23）
-      attachments.value = [...attachments.value, {
-        type: 'video',
-        name: file.name,
-        mime_type: file.type || 'video/mp4',
-        data: base64,
-      }]
-    },
-    '视频'
-  )
-}
-
-function processTextFile(file: File) {
-  if (!checkFileSize(file, MAX_TEXT_SIZE, '文本')) return
-  readFileWithErrorHandling(
-    file,
-    (reader) => reader.readAsText(file),
-    (result) => {
-      // 安全实践：检测文本内容是否含大量不可打印字符（可能是伪造的文本文件），见安全审查 #37
-      if (isLikelyBinaryContent(result)) {
-        message.warning(`文件 ${file.name} 内容似乎不是文本，可能为二进制文件`)
-        return
-      }
-      // shallowRef 需替换整个数组才能触发响应式（任务 23）
-      attachments.value = [...attachments.value, {
-        type: 'text',
-        name: file.name,
-        mime_type: file.type || 'text/plain',
-        data: result,
-      }]
-    },
-    '文本'
-  )
-}
-
-function removeAttachment(idx: number) {
-  // shallowRef 需替换整个数组才能触发响应式（任务 23）
-  attachments.value = attachments.value.filter((_, i) => i !== idx)
-}
+// processImageFile / processAudioFile / processPdfFile / processDocxFile /
+// processVideoFile / processTextFile / removeAttachment
+// 已抽取到 useAttachments composable（基于 F-1.8+F-3.2）：
+//   - processImageFile 保留独立实现（异步流水线）
+//   - 其他 5 个通过 processFileCommon 高阶函数 + FILE_CONFIGS 表驱动统一处理
+//   - 原约 130 行重复代码缩减为 composable 中的 1 个通用函数 + 1 个配置表
 
 function initSpeechRecognition() {
   const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition

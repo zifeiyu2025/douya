@@ -373,48 +373,52 @@ export const wails = {
     reloadModels: async (): Promise<void> => {
         await ReloadModels()
     },
-    onChatStream: (callback: (event: StreamEvent) => void) => {
+    // F-1.10+F-3.5：事件订阅统一为 subscribeXxx(callback): () => void 模式
+    // 返回的 unsubscribe 函数用于取消订阅，替代原来的 onXxx/offXxx 配对调用
+    // 生活类比：像订报纸——订阅（subscribe）后拿到一个"退订凭证"（unsubscribe 函数），
+    // 想不看了就凭它退订，不用记住自己订的是哪份报纸（事件名）。
+    subscribeChatStream: (callback: (event: StreamEvent) => void): (() => void) => {
         EventsOn('chat:stream', callback)
+        return () => EventsOff('chat:stream')
     },
-    onServerStatus: (callback: (status: ServerStatus) => void) => {
+    subscribeServerStatus: (callback: (status: ServerStatus) => void): (() => void) => {
         EventsOn('server:status', callback)
+        return () => EventsOff('server:status')
     },
-    offChatStream: () => EventsOff('chat:stream'),
-    offServerStatus: () => EventsOff('server:status'),
     prepareShutdown: PrepareShutdown,
-    onAbnormalCleanup: (callback: (data: AbnormalCleanupEvent) => void) => {
+    subscribeAbnormalCleanup: (callback: (data: AbnormalCleanupEvent) => void): (() => void) => {
         EventsOn('chat:abnormal_cleanup', callback)
+        return () => EventsOff('chat:abnormal_cleanup')
     },
-    offAbnormalCleanup: () => EventsOff('chat:abnormal_cleanup'),
-    onSwitchProgress: (callback: (progress: SwitchProgressEvent) => void) => {
+    subscribeSwitchProgress: (callback: (progress: SwitchProgressEvent) => void): (() => void) => {
         EventsOn('server:switchProgress', callback)
+        return () => EventsOff('server:switchProgress')
     },
-    offSwitchProgress: () => EventsOff('server:switchProgress'),
-    onMmprojUnavailable: (callback: () => void) => {
+    subscribeMmprojUnavailable: (callback: () => void): (() => void) => {
         EventsOn('server:mmprojUnavailable', callback)
+        return () => EventsOff('server:mmprojUnavailable')
     },
-    offMmprojUnavailable: () => EventsOff('server:mmprojUnavailable'),
-    onSearchAutoDisabled: (callback: () => void) => {
+    subscribeSearchAutoDisabled: (callback: () => void): (() => void) => {
         EventsOn('search:autoDisabled', callback)
+        return () => EventsOff('search:autoDisabled')
     },
-    offSearchAutoDisabled: () => EventsOff('search:autoDisabled'),
-    onShutdownProgress: (callback: (progress: ShutdownProgressEvent) => void) => {
+    subscribeShutdownProgress: (callback: (progress: ShutdownProgressEvent) => void): (() => void) => {
         EventsOn('shutdown:progress', callback)
+        return () => EventsOff('shutdown:progress')
     },
-    offShutdownProgress: () => EventsOff('shutdown:progress'),
-    onModelLoadProgress: (callback: (progress: ModelLoadProgressEvent) => void) => {
+    subscribeModelLoadProgress: (callback: (progress: ModelLoadProgressEvent) => void): (() => void) => {
         EventsOn('modelLoadProgress', callback)
+        return () => EventsOff('modelLoadProgress')
     },
-    offModelLoadProgress: () => EventsOff('modelLoadProgress'),
-    onServerLog: (callback: (line: string) => void) => {
+    subscribeServerLog: (callback: (line: string) => void): (() => void) => {
         EventsOn('server:log', callback)
+        return () => EventsOff('server:log')
     },
-    offServerLog: () => EventsOff('server:log'),
     // ConPTY 终端原始字节流（base64 编码，用于 xterm.js 渲染）
-    onTerminalData: (callback: (data: string) => void) => {
+    subscribeTerminalData: (callback: (data: string) => void): (() => void) => {
         EventsOn('server:terminal', callback)
+        return () => EventsOff('server:terminal')
     },
-    offTerminalData: () => EventsOff('server:terminal'),
     getTerminalHistory: async (): Promise<string> => {
         return await GetTerminalHistory()
     },
@@ -480,10 +484,10 @@ export const wails = {
     performUpdate: async (downloadURL: string, latestVersion: string): Promise<void> => {
         await (window as any)['go']['main']['App']['PerformUpdate'](downloadURL, latestVersion)
     },
-    onUpdateProgress: (callback: (progress: UpdateProgressEvent) => void) => {
+    subscribeUpdateProgress: (callback: (progress: UpdateProgressEvent) => void): (() => void) => {
         EventsOn('update:progress', callback)
+        return () => EventsOff('update:progress')
     },
-    offUpdateProgress: () => EventsOff('update:progress'),
 } as const
 
 export type WailsService = typeof wails

@@ -136,6 +136,7 @@ import { useMorphRender } from '../composables/useMorphRender'
 import { useScrollToBottom } from '../composables/useScrollToBottom'
 // 任务 38：虚拟滚动 feature flag（默认关闭，纯前端 localStorage 开关）
 import { useVirtualScroll } from '../composables/useVirtualScroll'
+import { usePromptProgress } from '../composables/usePromptProgress'
 import { setupCodeCopyDelegation } from '../utils/codeCopy'
 import { isSafeUrl } from '../utils/lightSanitize'
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
@@ -180,25 +181,9 @@ const generationSpeed = computed(() => chatStore.generationSpeed)
 // Prompt 处理进度：搜索完成后到首 token 之间，向用户展示"正在处理提示词 X%"，
 // 避免用户误以为卡死。生活类比：像电梯里的楼层显示屏，看到数字在动心里就不慌。
 const promptProgress = computed(() => chatStore.promptProgress)
-const promptPercent = computed(() => {
-  const pp = promptProgress.value
-  if (!pp || pp.total <= 0) return 0
-  const actualTotal = pp.total - pp.cache
-  const actualProcessed = pp.processed - pp.cache
-  if (actualTotal <= 0) return 0
-  return Math.min(100, Math.round((actualProcessed / actualTotal) * 100))
-})
-const promptEta = computed(() => {
-  const pp = promptProgress.value
-  if (!pp || pp.processed <= 0 || pp.timeMs <= 0) return null
-  const actualProcessed = pp.processed - pp.cache
-  const actualTotal = pp.total - pp.cache
-  if (actualProcessed <= 0 || actualTotal <= 0) return null
-  const elapsedSec = pp.timeMs / 1000
-  const eta = elapsedSec * (actualTotal / actualProcessed - 1)
-  if (eta < 1) return null
-  return Math.ceil(eta)
-})
+// 安全实践（基于 F-1.3+F-3.11）：promptPercent/promptEta 抽取到 usePromptProgress composable，
+// 与 TokenCounter.vue 共享同一计算逻辑，避免一处改漏导致两处显示不一致
+const { percent: promptPercent, eta: promptEta } = usePromptProgress(() => promptProgress.value)
 
 // 当思考完成且正文为空时，将思考内容作为正文展示（纯前端展示优化，不干预引擎输出）
 const thinkingAsContent = computed(() => {

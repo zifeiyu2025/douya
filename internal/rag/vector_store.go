@@ -1222,6 +1222,26 @@ func (vs *VectorStore) loadChunksBatch(collection string, ids []string) (content
 // 安全修复（M-后5）：原实现只删除 vector: 和 collection:/hnsw: 键，
 // 遗漏了 chunk: 和 chunkmeta: 前缀的键，导致 RAG 文本块和元数据残留；
 // 同时未清理 BM25 索引中对应文档，造成关键词检索返回已删除内容。
+
+// deleteByPrefix 在事务内删除所有匹配指定前缀的键
+// 安全实践（基于 B-1.21）：统一 DeleteCollection 中 vector:/chunk:/chunkmeta: 三处重复的前缀键删除逻辑
+// 返回删除的键数量，便于调用方日志记录
+// 调用前提：已持有 txn 写事务
+func deleteByPrefix(txn *badger.Txn, prefix []byte) (int, error) {
+	it := txn.NewIterator(badger.DefaultIteratorOptions)
+	var keys [][]byte
+	for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+		keys = append(keys, it.Item().KeyCopy(nil))
+	}
+	it.Close()
+	for _, k := range keys {
+		if err := txn.Delete(k); err != nil {
+			return 0, fmt.Errorf("delete key with prefix %q: %w", string(prefix), err)
+		}
+	}
+	return len(keys), nil
+}
+
 func (vs *VectorStore) DeleteCollection(name string) error {
 	_, err := vs.getCollectionMeta(name)
 	if err != nil {
@@ -1247,46 +1267,16 @@ func (vs *VectorStore) DeleteCollection(name string) error {
 			return err
 		}
 
-		// 删除 vector: 前缀键
-		vecPrefix := []byte("vector:" + name + ":")
-		it := txn.NewIterator(badger.DefaultIteratorOptions)
-		var keys [][]byte
-		for it.Seek(vecPrefix); it.ValidForPrefix(vecPrefix); it.Next() {
-			keys = append(keys, it.Item().KeyCopy(nil))
+		// 删除 vector:/chunk:/chunkmeta: 前缀键（统一调用 deleteByPrefix）
+		// 安全实践（基于 B-1.21）：消除三处重复的"Seek→收集 keys→删除"代码块
+		if _, err := deleteByPrefix(txn, []byte("vector:"+name+":")); err != nil {
+			return err
 		}
-		it.Close()
-		for _, k := range keys {
-			if err := txn.Delete(k); err != nil {
-				return fmt.Errorf("delete vector key: %w", err)
-			}
+		if _, err := deleteByPrefix(txn, []byte("chunk:"+name+":")); err != nil {
+			return err
 		}
-
-		// 删除 chunk: 前缀键（原实现遗漏，导致 RAG 文本块残留）
-		chunkPrefix := []byte("chunk:" + name + ":")
-		it2 := txn.NewIterator(badger.DefaultIteratorOptions)
-		var chunkKeys [][]byte
-		for it2.Seek(chunkPrefix); it2.ValidForPrefix(chunkPrefix); it2.Next() {
-			chunkKeys = append(chunkKeys, it2.Item().KeyCopy(nil))
-		}
-		it2.Close()
-		for _, k := range chunkKeys {
-			if err := txn.Delete(k); err != nil {
-				return fmt.Errorf("delete chunk key: %w", err)
-			}
-		}
-
-		// 删除 chunkmeta: 前缀键（原实现遗漏，导致 chunk 元数据残留）
-		chunkMetaPrefix := []byte("chunkmeta:" + name + ":")
-		it3 := txn.NewIterator(badger.DefaultIteratorOptions)
-		var metaKeys [][]byte
-		for it3.Seek(chunkMetaPrefix); it3.ValidForPrefix(chunkMetaPrefix); it3.Next() {
-			metaKeys = append(metaKeys, it3.Item().KeyCopy(nil))
-		}
-		it3.Close()
-		for _, k := range metaKeys {
-			if err := txn.Delete(k); err != nil {
-				return fmt.Errorf("delete chunkmeta key: %w", err)
-			}
+		if _, err := deleteByPrefix(txn, []byte("chunkmeta:"+name+":")); err != nil {
+			return err
 		}
 		return nil
 	})

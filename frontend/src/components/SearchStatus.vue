@@ -35,8 +35,9 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { NIcon, NSpin } from 'naive-ui'
 import { ChevronForwardOutline, SearchOutline } from '@vicons/ionicons5'
-import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
 import { isSafeUrl } from '../utils/lightSanitize'
+// F-1.13：openExternal 抽取到 utils/externalLink.ts，消除两处重复定义
+import { openExternal } from '../utils/externalLink'
 
 interface SearchResultItem {
   title: string
@@ -63,15 +64,7 @@ function safeUrl(url: string): string {
   return isSafeUrl(url) ? url : '#'
 }
 
-/**
- * 安全实践（基于 VUE-XSS-004 #3）：拦截链接点击，走系统默认浏览器打开
- * 防止 Wails WebView 内部导航，与 MessageList.vue 的 handleLinkClick 保持一致
- */
-function openExternal(url: string) {
-  if (isSafeUrl(url)) {
-    BrowserOpenURL(url)
-  }
-}
+/* openExternal 已抽取到 utils/externalLink.ts */
 
 const resultItems = computed<SearchResultItem[]>(() => {
   if (!props.results) return []
@@ -170,13 +163,7 @@ onUnmounted(() => {
   color: var(--text-muted);
 }
 
-.n-icon.rotated {
-  transform: rotate(90deg);
-}
-
-.n-icon {
-  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
+/* .n-icon 和 .n-icon.rotated 已在 style.css 全局定义 */
 
 .search-results-content {
   padding: 12px;

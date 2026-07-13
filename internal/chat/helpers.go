@@ -284,6 +284,110 @@ func ParseExceedContextError(err error) *ExceedContextInfo {
 	return info
 }
 
+// errorHintRule 定义错误提示匹配规则。
+// 生活类比：像快递分拣规则表，每条规则说明"包裹上有哪些关键词就归入哪一类"。
+type errorHintRule struct {
+	allKeywords []string // 必须全部包含的关键词（AND）
+	anyKeywords []string // 至少包含其一的关键词（与 allKeywords 为 AND 关系），为空表示不检查
+	errCode     string   // 错误码，空字符串表示不带错误码前缀
+	hint        string   // 设置建议（含 💡），为空表示仅返回 errMsg
+	replaceMsg  string   // 非空时直接返回此消息（优先级最高），用于完全替换场景
+}
+
+// errorHintRules 错误提示匹配规则表（B-3.4 表驱动化）
+// 按顺序匹配，第一个命中的规则生效。复杂 OR 条件已拆为多条规则（返回相同结果）。
+var errorHintRules = []errorHintRule{
+	// 上下文溢出
+	{allKeywords: []string{"exceed"}, anyKeywords: []string{"context", "ctx"}, errCode: ErrCodeContextOverflow, hint: "💡 可尝试：设置 → 增大上下文长度，或缩短对话/新建对话"},
+	{anyKeywords: []string{"context length", "context_size"}, errCode: ErrCodeContextOverflow, hint: "💡 可尝试：设置 → 增大上下文长度，或缩短对话/新建对话"},
+
+	// OOM（显存/内存不足）
+	{anyKeywords: []string{"out of memory", "oom"}, errCode: ErrCodeOOM, hint: "💡 可尝试：设置 → 减少 GPU 层数，或开启 Flash Attention，或使用更小的模型"},
+	{allKeywords: []string{"cuda", "alloc"}, errCode: ErrCodeOOM, hint: "💡 可尝试：设置 → 减少 GPU 层数，或开启 Flash Attention，或使用更小的模型"},
+	{anyKeywords: []string{"not enough memory", "memory allocation"}, errCode: ErrCodeOOM, hint: "💡 可尝试：设置 → 减少 GPU 层数，或使用更小的模型"},
+
+	// mmproj 加载失败（无错误码，保持原行为）
+	{allKeywords: []string{"mmproj"}, anyKeywords: []string{"failed", "error", "load"}, hint: "💡 可尝试：设置 → 关闭「视觉投影卸载到 GPU」，或检查视觉模型文件是否完整"},
+
+	// DLL 缺失
+	{allKeywords: []string{"dll"}, anyKeywords: []string{"not found", "could not be found", "缺失"}, errCode: ErrCodeDLLMissing, hint: "💡 可尝试：检查 runtime/ 目录是否包含所有必要的 DLL 文件"},
+
+	// 引擎程序缺失
+	{allKeywords: []string{"llama-server"}, anyKeywords: []string{"not found", "不存在", "could not find"}, errCode: ErrCodeEngineMissing, hint: "💡 可尝试：检查 runtime/ 目录下是否存在 llama-server.exe"},
+	{allKeywords: []string{"引擎程序"}, anyKeywords: []string{"not found", "不存在", "could not find"}, errCode: ErrCodeEngineMissing, hint: "💡 可尝试：检查 runtime/ 目录下是否存在 llama-server.exe"},
+
+	// 模型文件缺失（原复杂 OR 条件拆为 4 条规则，返回相同结果）
+	{allKeywords: []string{"no models found", "gguf"}, errCode: ErrCodeModelMissing, hint: "💡 可尝试：将 GGUF 模型文件放入 models/ 目录"},
+	{allKeywords: []string{"未找到任何", "gguf"}, errCode: ErrCodeModelMissing, hint: "💡 可尝试：将 GGUF 模型文件放入 models/ 目录"},
+	{allKeywords: []string{"model", "not found", "gguf"}, errCode: ErrCodeModelMissing, hint: "💡 可尝试：将 GGUF 模型文件放入 models/ 目录"},
+	{allKeywords: []string{"模型文件", "未找到"}, errCode: ErrCodeModelMissing, hint: "💡 可尝试：将 GGUF 模型文件放入 models/ 目录"},
+
+	// 永久失败（无 hint，仅加错误码前缀）
+	{allKeywords: []string{"permanent", "failure"}, errCode: ErrCodePermanentFailure},
+
+	// 超时
+	{anyKeywords: []string{"timeout", "timed out"}, errCode: ErrCodeTimeout, hint: "💡 可尝试：检查网络连接或稍后重试"},
+
+	// 连接相关（完全替换为用户友好消息）
+	{anyKeywords: []string{"connection refused"}, replaceMsg: "AI 服务未启动或已停止，请等待服务启动完成"},
+	{anyKeywords: []string{"connection reset", "broken pipe"}, replaceMsg: "与服务器的连接中断，模型可能正在切换或服务已重启"},
+
+	// 模型/参数不兼容
+	{allKeywords: []string{"flash_attn", "not supported"}, hint: "💡 可尝试：设置 → 关闭 Flash Attention"},
+	{allKeywords: []string{"cache_type"}, anyKeywords: []string{"not supported", "unknown"}, hint: "💡 可尝试：设置 → 将 KV 缓存类型改为默认值（q8_0）"},
+	{allKeywords: []string{"grammar", "reasoning"}, hint: "💡 可尝试：设置 → 关闭推理模式，或移除语法约束"},
+	{allKeywords: []string{"backend sampling", "not compatible"}, hint: "💡 可尝试：设置 → 关闭「后端采样」"},
+	{anyKeywords: []string{"speculative"}, hint: "💡 可尝试：设置 → 关闭推测解码（MTP），或检查模型是否支持"},
+	{allKeywords: []string{"draft", "failed"}, hint: "💡 可尝试：设置 → 关闭推测解码（MTP），或检查模型是否支持"},
+
+	// 请求格式相关
+	{allKeywords: []string{"invalid type", "enable_thinking"}, hint: "💡 模型不支持 enable_thinking 参数，可尝试：设置 → 将推理模式设为「关闭」"},
+	{allKeywords: []string{"tool_call", "not supported"}, hint: "💡 当前模型不支持工具调用，联网搜索将使用预搜索模式"},
+
+	// 搜索 API 认证失败
+	{allKeywords: []string{"tavily"}, anyKeywords: []string{"401", "unauthorized", "api key"}, replaceMsg: "Tavily 搜索 API Key 无效或已过期\n💡 可尝试：设置 → 重新填写 Tavily API Key"},
+	{allKeywords: []string{"bing"}, anyKeywords: []string{"401", "403"}, replaceMsg: "Bing 搜索 API 认证失败\n💡 可尝试：设置 → 检查 Bing API Key"},
+}
+
+// matchErrorHintRule 检查小写错误消息是否匹配规则（allKeywords 全包含 且 anyKeywords 至少包含其一）
+func matchErrorHintRule(lower string, rule errorHintRule) bool {
+	for _, kw := range rule.allKeywords {
+		if !strings.Contains(lower, kw) {
+			return false
+		}
+	}
+	if len(rule.anyKeywords) > 0 {
+		matched := false
+		for _, kw := range rule.anyKeywords {
+			if strings.Contains(lower, kw) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
+}
+
+// applyErrorHintRule 根据规则构造返回消息
+func applyErrorHintRule(errMsg string, rule errorHintRule) string {
+	if rule.replaceMsg != "" {
+		return rule.replaceMsg
+	}
+	if rule.errCode != "" {
+		if rule.hint != "" {
+			return formatErrCode(rule.errCode, errMsg+"\n"+rule.hint)
+		}
+		return formatErrCode(rule.errCode, errMsg)
+	}
+	if rule.hint != "" {
+		return errMsg + "\n" + rule.hint
+	}
+	return errMsg
+}
+
 // enhanceErrorWithHint 为运行时错误添加设置调整建议
 // 如果错误可以通过设置界面调整解决，追加提示；否则直接说明原因
 //
@@ -292,88 +396,11 @@ func ParseExceedContextError(err error) *ExceedContextInfo {
 // 原有字符串匹配逻辑，向后兼容。
 func enhanceErrorWithHint(errMsg string) string {
 	lower := strings.ToLower(errMsg)
-
-	// 上下文溢出相关
-	if strings.Contains(lower, "exceed") && (strings.Contains(lower, "context") || strings.Contains(lower, "ctx")) {
-		return formatErrCode(ErrCodeContextOverflow, errMsg+"\n💡 可尝试：设置 → 增大上下文长度，或缩短对话/新建对话")
+	for _, rule := range errorHintRules {
+		if matchErrorHintRule(lower, rule) {
+			return applyErrorHintRule(errMsg, rule)
+		}
 	}
-	if strings.Contains(lower, "context length") || strings.Contains(lower, "context_size") {
-		return formatErrCode(ErrCodeContextOverflow, errMsg+"\n💡 可尝试：设置 → 增大上下文长度，或缩短对话/新建对话")
-	}
-
-	// 模型加载/内存不足相关
-	if strings.Contains(lower, "out of memory") || strings.Contains(lower, "oom") || strings.Contains(lower, "cuda") && strings.Contains(lower, "alloc") {
-		return formatErrCode(ErrCodeOOM, errMsg+"\n💡 可尝试：设置 → 减少 GPU 层数，或开启 Flash Attention，或使用更小的模型")
-	}
-	if strings.Contains(lower, "not enough memory") || strings.Contains(lower, "memory allocation") {
-		return formatErrCode(ErrCodeOOM, errMsg+"\n💡 可尝试：设置 → 减少 GPU 层数，或使用更小的模型")
-	}
-	if strings.Contains(lower, "mmproj") && (strings.Contains(lower, "failed") || strings.Contains(lower, "error") || strings.Contains(lower, "load")) {
-		return errMsg + "\n💡 可尝试：设置 → 关闭「视觉投影卸载到 GPU」，或检查视觉模型文件是否完整"
-	}
-
-	// 引擎/模型/DLL 缺失相关（对应前端 errorGuidance.ts 的几类缺失错误）
-	if strings.Contains(lower, "dll") && (strings.Contains(lower, "not found") || strings.Contains(lower, "could not be found") || strings.Contains(lower, "缺失")) {
-		return formatErrCode(ErrCodeDLLMissing, errMsg+"\n💡 可尝试：检查 runtime/ 目录是否包含所有必要的 DLL 文件")
-	}
-	if (strings.Contains(lower, "llama-server") || strings.Contains(lower, "引擎程序")) && (strings.Contains(lower, "not found") || strings.Contains(lower, "不存在") || strings.Contains(lower, "could not find")) {
-		return formatErrCode(ErrCodeEngineMissing, errMsg+"\n💡 可尝试：检查 runtime/ 目录下是否存在 llama-server.exe")
-	}
-	if (strings.Contains(lower, "no models found") || strings.Contains(lower, "未找到任何") || strings.Contains(lower, "model") && strings.Contains(lower, "not found")) && strings.Contains(lower, "gguf") || (strings.Contains(lower, "模型文件") && strings.Contains(lower, "未找到")) {
-		return formatErrCode(ErrCodeModelMissing, errMsg+"\n💡 可尝试：将 GGUF 模型文件放入 models/ 目录")
-	}
-
-	// 永久失败（服务反复崩溃，已停止自动重启）
-	if strings.Contains(lower, "permanent") && strings.Contains(lower, "failure") {
-		return formatErrCode(ErrCodePermanentFailure, errMsg)
-	}
-
-	// 超时
-	if strings.Contains(lower, "timeout") || strings.Contains(lower, "timed out") {
-		return formatErrCode(ErrCodeTimeout, errMsg+"\n💡 可尝试：检查网络连接或稍后重试")
-	}
-
-	// 连接/服务相关
-	if strings.Contains(lower, "connection refused") || strings.Contains(lower, "connect: connection refused") {
-		return "AI 服务未启动或已停止，请等待服务启动完成"
-	}
-	if strings.Contains(lower, "connection reset") || strings.Contains(lower, "broken pipe") {
-		return "与服务器的连接中断，模型可能正在切换或服务已重启"
-	}
-
-	// 模型/参数不兼容
-	if strings.Contains(lower, "flash_attn") && strings.Contains(lower, "not supported") {
-		return errMsg + "\n💡 可尝试：设置 → 关闭 Flash Attention"
-	}
-	if strings.Contains(lower, "cache_type") && (strings.Contains(lower, "not supported") || strings.Contains(lower, "unknown")) {
-		return errMsg + "\n💡 可尝试：设置 → 将 KV 缓存类型改为默认值（q8_0）"
-	}
-	if strings.Contains(lower, "grammar") && strings.Contains(lower, "reasoning") {
-		return errMsg + "\n💡 可尝试：设置 → 关闭推理模式，或移除语法约束"
-	}
-	if strings.Contains(lower, "backend sampling") && strings.Contains(lower, "not compatible") {
-		return errMsg + "\n💡 可尝试：设置 → 关闭「后端采样」"
-	}
-	if strings.Contains(lower, "speculative") || strings.Contains(lower, "draft") && strings.Contains(lower, "failed") {
-		return errMsg + "\n💡 可尝试：设置 → 关闭推测解码（MTP），或检查模型是否支持"
-	}
-
-	// 请求格式相关
-	if strings.Contains(lower, "invalid type") && strings.Contains(lower, "enable_thinking") {
-		return errMsg + "\n💡 模型不支持 enable_thinking 参数，可尝试：设置 → 将推理模式设为「关闭」"
-	}
-	if strings.Contains(lower, "tool_call") && strings.Contains(lower, "not supported") {
-		return errMsg + "\n💡 当前模型不支持工具调用，联网搜索将使用预搜索模式"
-	}
-
-	// 搜索 API 相关
-	if strings.Contains(lower, "tavily") && (strings.Contains(lower, "401") || strings.Contains(lower, "unauthorized") || strings.Contains(lower, "api key")) {
-		return "Tavily 搜索 API Key 无效或已过期\n💡 可尝试：设置 → 重新填写 Tavily API Key"
-	}
-	if strings.Contains(lower, "bing") && (strings.Contains(lower, "401") || strings.Contains(lower, "403")) {
-		return "Bing 搜索 API 认证失败\n💡 可尝试：设置 → 检查 Bing API Key"
-	}
-
 	return errMsg
 }
 

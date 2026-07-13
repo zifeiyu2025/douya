@@ -182,11 +182,8 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 		// Reasoning 模式：通过 reasoning 参数控制
 		if !meta.HasReasoning {
 			archReasoningKeywords := []string{"deepseek3", "deepseek-v3", "deepseek2", "deepseek32", "deepseek4", "deepseek-v4"}
-			for _, kw := range archReasoningKeywords {
-				if strings.Contains(lowerArch, kw) {
-					meta.HasReasoning = true
-					break
-				}
+			if matchAnyKeyword(lowerArch, archReasoningKeywords) {
+				meta.HasReasoning = true
 			}
 		}
 	}
@@ -204,11 +201,8 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 			"minicpm5", "minicpm-5",
 			"smollm3", "smol-lm3", "hunyuan-moe", "hunyuan-dense", "step3.5", "step3.7", "kimi-linear", "arcee", "dots1", "dream", "smallthinker",
 		}
-		for _, kw := range reasoningKeywords {
-			if strings.Contains(lowerName, kw) {
-				meta.HasReasoning = true
-				break
-			}
+		if matchAnyKeyword(lowerName, reasoningKeywords) {
+			meta.HasReasoning = true
 		}
 	}
 
@@ -216,11 +210,8 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 	if !meta.HasMTP {
 		lowerName := strings.ToLower(path)
 		mtpKeywords := []string{"step3.5", "step3.7"}
-		for _, kw := range mtpKeywords {
-			if strings.Contains(lowerName, kw) {
-				meta.HasMTP = true
-				break
-			}
+		if matchAnyKeyword(lowerName, mtpKeywords) {
+			meta.HasMTP = true
 		}
 	}
 
@@ -233,14 +224,11 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 		// gemma4 的 MTP 层格式与 llama-server 的 spec-decoding 不兼容
 		// 强制关闭 HasMTP，改走 ngram-mod 分支
 		mtpExcludeKeywords := []string{"gemma4", "gemma-4", "gemma_4"}
-		for _, kw := range mtpExcludeKeywords {
-			if strings.Contains(lowerArch, kw) {
-				log.Warn().
-					Str("architecture", meta.Architecture).
-					Msg("[gguf] MTP detected but architecture incompatible with llama-server spec-decoding, disabling HasMTP")
-				meta.HasMTP = false
-				break
-			}
+		if matchAnyKeyword(lowerArch, mtpExcludeKeywords) {
+			log.Warn().
+				Str("architecture", meta.Architecture).
+				Msg("[gguf] MTP detected but architecture incompatible with llama-server spec-decoding, disabling HasMTP")
+			meta.HasMTP = false
 		}
 	}
 
@@ -250,22 +238,16 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 	if meta.Architecture != "" {
 		lowerArch := strings.ToLower(meta.Architecture)
 		eagle3ArchKeywords := []string{"qwen3.5", "qwen3.6", "qwen35", "qwen36"}
-		for _, kw := range eagle3ArchKeywords {
-			if strings.Contains(lowerArch, kw) {
-				meta.SupportsEagle3 = true
-				break
-			}
+		if matchAnyKeyword(lowerArch, eagle3ArchKeywords) {
+			meta.SupportsEagle3 = true
 		}
 	}
 	// 兜底：通过文件名检测 Qwen3.5/3.6
 	if !meta.SupportsEagle3 {
 		lowerName := strings.ToLower(path)
 		eagle3NameKeywords := []string{"qwen3.5", "qwen3.6", "qwen35", "qwen36"}
-		for _, kw := range eagle3NameKeywords {
-			if strings.Contains(lowerName, kw) {
-				meta.SupportsEagle3 = true
-				break
-			}
+		if matchAnyKeyword(lowerName, eagle3NameKeywords) {
+			meta.SupportsEagle3 = true
 		}
 	}
 	if meta.SupportsEagle3 {
@@ -273,6 +255,26 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 	}
 
 	return meta, nil
+}
+
+// matchAnyKeyword 检查 target 是否包含 keywords 中的任意关键词（子串匹配）。
+//
+// 抽取原因（基于 B-1.15+B-3.8）：ParseGGUFMetadata 中 6 处重复的
+// `for _, kw := range keywords { if strings.Contains(...) { ...; break } }` 模式，
+// 提取为公共函数消除重复，便于后续新增关键词集合时无需复制 for 循环模板。
+//
+// 注意：archTemplateKeywords 使用 slices.Contains（精确匹配），与本函数语义不同，
+// 不可混用——精确匹配是为了避免未来新架构误命中旧关键词（见安全审查 #29）。
+//
+// 生活类比：像安检员拿着一份"重点物品清单"，逐项核对旅客行李里是否包含清单上的物品，
+// 命中任意一项就立即放行（返回 true），全部不命中才返回 false。
+func matchAnyKeyword(target string, keywords []string) bool {
+	for _, kw := range keywords {
+		if strings.Contains(target, kw) {
+			return true
+		}
+	}
+	return false
 }
 
 func ParseGGUFKV(path string) (map[string]any, error) {

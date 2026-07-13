@@ -401,9 +401,7 @@ onMounted(() => {
   animation: spin 0.8s linear infinite;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+/* @keyframes spin 已在 style.css 全局定义，此处不再重复 */
 
 /* ===== 空状态 ===== */
 

@@ -89,7 +89,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  // TerminalConsole 内部会清理 wails.offTerminalData()
+  // TerminalConsole 内部会清理终端数据订阅（unsubscribe）
 })
 </script>
 

@@ -78,7 +78,7 @@ export function useConversations(deps: ConversationDeps) {
         messagesRequestVersion.value++
         currentConversationId.value = id
         try {
-            messages.value = await wails.getMessages(id) || []
+            messages.value = await wails.getMessages(id)
         } catch (e) {
             logError('加载消息失败', e)
             messages.value = []
