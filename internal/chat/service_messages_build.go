@@ -6,6 +6,8 @@ package chat
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -14,6 +16,10 @@ import (
 	"douya/internal/llm"
 	"douya/internal/store"
 )
+
+// searchPreCallSeq 弱模型路径预搜索的 tool_call ID 自增序列
+// 用原子计数器保证每次调用生成唯一 ID，避免多轮对话中 ID 重复
+var searchPreCallSeq int64
 
 // buildLLMMessages 构建发送给 LLM 的消息列表。
 //
@@ -55,23 +61,85 @@ func (s *Service) buildLLMMessages(ctx context.Context, convID string, dbMsgs []
 
 	// 降级路径：估算总 token 超限时，直接走压缩
 	currentMsgTokens := estimateCurrentMessageTokens(dbMsgs, currentAttachments)
+	var messages []llm.ChatMessage
+	var overflow bool
 	if estimatedTokens+currentMsgTokens > effectiveMax {
-		messages, err := s.buildOverflowMessages(systemContent, dbMsgs, currentUserContent, currentAttachments, maxContext, convID, effectiveMax)
+		var err error
+		messages, err = s.buildOverflowMessages(systemContent, dbMsgs, currentUserContent, currentAttachments, maxContext, convID, effectiveMax)
 		if err != nil {
 			return nil, false, err
 		}
-		messages = appendAuxiliaryContext(messages, ragContext, searchContext, currentUserContent)
-		return messages, true, nil
-	}
-
-	// 正常路径
-	messages, err := s.buildNormalMessages(systemContent, dbMsgs, currentUserContent, currentAttachments, caps, estimatedTokens, effectiveMax, maxContext, convID)
-	if err != nil {
-		return nil, false, err
+		overflow = true
+	} else {
+		// 正常路径
+		var err error
+		messages, err = s.buildNormalMessages(systemContent, dbMsgs, currentUserContent, currentAttachments, caps, estimatedTokens, effectiveMax, maxContext, convID)
+		if err != nil {
+			return nil, false, err
+		}
 	}
 
 	messages = appendAuxiliaryContext(messages, ragContext, searchContext, currentUserContent)
-	return messages, false, nil
+	// 模型不支持 system role 时（如 Gemma 系列），把 system 消息内容合并到第一条 user 消息前
+	// 避免 llama.cpp 渲染模板时因不认识 system role 而报错
+	if !caps.SupportsSystemRole {
+		messages = mergeSystemIntoUser(messages)
+	}
+	return messages, overflow, nil
+}
+
+// mergeSystemIntoUser 把所有 system 消息的内容合并到第一条 user 消息前面
+// 用于不支持 system role 的模型（如 Gemma 系列）
+//
+// 合并后的 user 消息格式：
+//   <原 system 内容>
+//
+//   <原 user 内容>
+//
+// 若没有 user 消息，则把 system 内容转成一条 user 消息
+func mergeSystemIntoUser(messages []llm.ChatMessage) []llm.ChatMessage {
+	// 收集所有 system 消息内容
+	var systemParts []string
+	var nonSystem []llm.ChatMessage
+	for _, m := range messages {
+		if m.Role == "system" {
+			if s, ok := m.Content.(string); ok && s != "" {
+				systemParts = append(systemParts, s)
+			}
+		} else {
+			nonSystem = append(nonSystem, m)
+		}
+	}
+	if len(systemParts) == 0 {
+		// 没有 system 内容可合并，但可能存在空 system 消息，需要移除
+		if len(nonSystem) == len(messages) {
+			return messages // 没有 system 消息，原样返回
+		}
+		return nonSystem // 移除空 system 消息
+	}
+	systemContent := strings.Join(systemParts, "\n\n")
+
+	// 找第一条 user 消息，把 system 内容合并到前面
+	result := make([]llm.ChatMessage, 0, len(nonSystem))
+	merged := false
+	for _, m := range nonSystem {
+		if !merged && m.Role == "user" {
+			if s, ok := m.Content.(string); ok {
+				m.Content = systemContent + "\n\n" + s
+			} else {
+				// content 不是字符串（可能是 typed content），无法简单合并
+				// 退而求其次：在 user 消息前插入一条 user 消息承载 system 内容
+				result = append(result, llm.ChatMessage{Role: "user", Content: systemContent})
+			}
+			merged = true
+		}
+		result = append(result, m)
+	}
+	// 没有 user 消息，把 system 内容转成 user 消息
+	if !merged {
+		result = append(result, llm.ChatMessage{Role: "user", Content: systemContent})
+	}
+	return result
 }
 
 // validateAttachments 校验附件类型是否被当前模型支持。
@@ -265,11 +333,14 @@ func appendAuxiliaryContext(messages []llm.ChatMessage, ragContext string, searc
 
 	// 搜索结果以 assistant(tool_call) + tool(搜索结果) 格式追加
 	if searchContext != "" {
+		// 使用原子计数器生成唯一 ID，避免多轮对话中 ID 重复
+		// 注：不用 time.Now().UnixNano()，因为 Windows 系统时间精度低，连续调用可能返回相同值
+		toolCallID := fmt.Sprintf("search_pre_%d", atomic.AddInt64(&searchPreCallSeq, 1))
 		messages = append(messages, llm.ChatMessage{
 			Role:    "assistant",
 			Content: "",
 			ToolCalls: []llm.ToolCall{{
-				ID:   "search_pre",
+				ID:   toolCallID,
 				Type: "function",
 				Function: llm.FunctionCall{
 					Name:      "search",
@@ -281,7 +352,7 @@ func appendAuxiliaryContext(messages []llm.ChatMessage, ragContext string, searc
 		messages = append(messages, llm.ChatMessage{
 			Role:       "tool",
 			Content:    searchContext + searchResultInstruction(lang),
-			ToolCallID: "search_pre",
+			ToolCallID: toolCallID,
 		})
 	}
 

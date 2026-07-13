@@ -72,7 +72,8 @@ func (a *App) applyEnvOverrides(keys *SearchAPIKeys) {
 }
 
 // buildSearchChain 根据当前 API Key 配置构建搜索链
-// 搜索源优先级：Tavily（高质量） > Ollama
+// 搜索源优先级：Tavily（高质量） > Ollama > Bing（免 Key 兜底）
+// Bing 作为兜底搜索引擎，即使未配置任何 API Key 也能提供基础搜索能力
 func (a *App) buildSearchChain() *search.SearchChain {
 	var searchProviders []search.CategorizedProvider
 	keys := a.loadSearchAPIKeys()
@@ -83,5 +84,8 @@ func (a *App) buildSearchChain() *search.SearchChain {
 	if keys.OllamaAPIKey != "" {
 		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewOllamaProvider(keys.OllamaAPIKey), Categories: []string{"general", "code"}})
 	}
+	// Bing 作为免 API Key 兜底搜索引擎，始终加入链尾
+	// 覆盖 general 和 code 两个分类，确保任何查询都有搜索引擎可用
+	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewBingProvider(), Categories: []string{"general", "code"}})
 	return search.NewCategorizedSearchChain(searchProviders)
 }

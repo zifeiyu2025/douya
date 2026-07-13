@@ -183,13 +183,14 @@ type ChatCompletionRequest struct {
 	TimingsPerToken         bool             `json:"timings_per_token,omitempty"`          // 每个 token 返回 timings 数据，用于实时速度显示
 	ReturnProgress          bool             `json:"return_progress,omitempty"`            // 在流式响应中返回 prompt 处理进度
 	Tools                   []ToolDefinition `json:"tools,omitempty"`
+	ToolChoice              any              `json:"tool_choice,omitempty"`        // 工具选择策略："auto"（默认）/"none"/"required" 或 {"type":"function","function":{"name":...}}
+	ParallelToolCalls       *bool            `json:"parallel_tool_calls,omitempty"` // 是否允许并发工具调用，nil=服务端默认
 	ChatTemplateKwargs      map[string]any   `json:"chat_template_kwargs,omitempty"`
 	StreamOptions           *StreamOptions   `json:"stream_options,omitempty"`
 	// llama.cpp 新增请求参数
 	NCacheReuse          int              `json:"n_cache_reuse,omitempty"`          // 请求级 KV 缓存复用块大小
 	TMaxPredictMs        int              `json:"t_max_predict_ms,omitempty"`       // 预测时间限制（毫秒）
 	Echo                 bool             `json:"echo,omitempty"`                   // 是否回显输入
-	ParseToolCalls       bool             `json:"parse_tool_calls,omitempty"`       // 是否解析工具调用
 	GrammarLazy          bool             `json:"grammar_lazy,omitempty"`           // 懒惰语法（仅在需要时应用 grammar）
 	GrammarTriggers      []GrammarTrigger `json:"grammar_triggers,omitempty"`       // 语法触发器
 	ContinueFinalMessage bool             `json:"continue_final_message,omitempty"` // 继续最终消息
@@ -306,6 +307,8 @@ type ModelCapabilities struct {
 	NParams                   float64 `json:"n_params"`
 	ToolCallSupport           bool    `json:"tool_call_support"`           // 模型是否支持 tool call
 	SupportsPreserveReasoning bool    `json:"supports_preserve_reasoning"` // 模型是否支持 --reasoning-preserve
+	SupportsParallelToolCalls bool    `json:"supports_parallel_tool_calls"` // 模型是否支持并发工具调用
+	SupportsSystemRole        bool    `json:"supports_system_role"`         // 模型是否支持 system role（Gemma 等不支持，需合并到 user）
 }
 
 // EmbeddingRequest represents a request to /v1/embeddings

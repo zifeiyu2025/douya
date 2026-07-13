@@ -332,10 +332,11 @@ async function handleSearchClick() {
     if (prevMode !== 'on') {
         await settingsStore.loadSearchAPIKeys()
         const keys = settingsStore.searchAPIKeys
+        // 未配置 API Key 时，不再拦截，改为提示将使用 Bing 兜底搜索
+        // Bing 是免 Key 兜底引擎，确保用户始终有搜索能力
         if (!keys.tavily_api_key_set && !keys.ollama_api_key_set) {
             message.destroyAll()
-            message.warning('请先在设置中配置搜索 API Key（Tavily 或 Ollama）', { duration: 3000 })
-            return
+            message.info('未配置搜索 API Key，将使用 Bing 免费搜索（可在设置中配置 Tavily/Ollama 获得更佳体验）', { duration: 3500 })
         }
     }
     await settingsStore.cycleSearchMode()

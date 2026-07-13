@@ -173,9 +173,20 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 			// /props 未返回原生模板，回退到 GGUF 元数据判断
 			caps.ToolCallSupport = s.detectToolCallFromGGUF()
 		}
+		// 并发 tool call 支持：直接从 /props 能力声明获取
+		caps.SupportsParallelToolCalls = props.ChatTemplateCaps.SupportsParallelToolCalls
+		// system role 支持：默认 true（兼容旧版 llama-server 未返回该字段的情况）
+		// 仅当 /props 明确返回 false 时才设为 false（如 Gemma 系列）
+		caps.SupportsSystemRole = true
+		if !props.ChatTemplateCaps.SupportsSystemRole {
+			caps.SupportsSystemRole = false
+		}
 	} else {
 		log.Warn().Err(propsErr).Msg("[model] /props failed, using GGUF metadata as fallback")
 		caps.ToolCallSupport = s.detectToolCallFromGGUF()
+		// /props 不可用时，保守假设不支持并发 tool call，但支持 system role（多数模型支持）
+		caps.SupportsParallelToolCalls = false
+		caps.SupportsSystemRole = true
 	}
 
 	if thinkingMode == llm.ThinkingModeNone {
@@ -231,6 +242,8 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 		NParams:                   s.resolveNParams(info.Meta.NParams),
 		ToolCallSupport:           caps.ToolCallSupport,
 		SupportsPreserveReasoning: supportsPreserveReasoning,
+		SupportsParallelToolCalls: caps.SupportsParallelToolCalls,
+		SupportsSystemRole:        caps.SupportsSystemRole,
 	}
 	s.modelCapsMu.Unlock()
 	// FIX: Only set detectedModelName when it's empty (called from DetectModelArchitecture without model name).

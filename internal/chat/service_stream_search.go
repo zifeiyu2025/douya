@@ -127,6 +127,16 @@ func (s *Service) buildChatStreamRequest(llmMessages []llm.ChatMessage, searchMo
 		req.Tools = []llm.ToolDefinition{searchToolDef}
 		// tool schema 定义约占 250 tokens，需计入上下文估算
 		req.MaxTokens = s.calcMaxTokens(estimateMessagesTokens(llmMessages) + 250)
+		// searchMode="on" 为强制搜索，用 tool_choice="required" 确保模型一定调用工具
+		// searchMode="auto" 不设置（默认 "auto"），让模型自主决定
+		if searchMode == "on" {
+			req.ToolChoice = "required"
+		}
+		// 显式声明是否允许并发 tool call
+		// SupportsParallelToolCalls=true 时允许（提升多查询场景效率）
+		// SupportsParallelToolCalls=false 时禁用（避免不支持并发的模型出错）
+		parallel := caps.SupportsParallelToolCalls
+		req.ParallelToolCalls = &parallel
 	}
 
 	req.Messages = llmMessages

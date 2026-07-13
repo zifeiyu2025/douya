@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"douya/internal/llm"
 )
 
 // TestMergeSearchJSON_BothEmpty 验证两个空输入返回空数组 "[]"
@@ -126,6 +128,97 @@ func TestTruncateAttachmentText_Boundary(t *testing.T) {
 	got = truncateAttachmentText(text, "over.txt")
 	if got == text {
 		t.Errorf("超过阈值的文本应被截断")
+	}
+}
+
+// TestAppendAuxiliaryContext_ToolCallIDUnique 验证弱模型路径模拟的 tool_call ID 唯一
+//
+// 业务场景：多轮对话中每次预搜索都会调用 appendAuxiliaryContext，
+// 之前使用固定 ID "search_pre" 会导致历史消息中 ID 重复。
+// 修复后使用时间戳生成唯一 ID，避免 llama.cpp 解析历史消息时出现 ID 冲突。
+//
+// 生活类比：就像快递单号，每张单号必须唯一，否则仓库归档时会搞混。
+// 之前所有预搜索都用同一个单号 "search_pre"，现在改成带时间戳的唯一单号。
+func TestAppendAuxiliaryContext_ToolCallIDUnique(t *testing.T) {
+	baseMessages := []llm.ChatMessage{
+		{Role: "user", Content: "你好"},
+		{Role: "assistant", Content: "你好！"},
+	}
+
+	// 连续调用两次 appendAuxiliaryContext（模拟多轮对话中的预搜索）
+	msgs1 := appendAuxiliaryContext(baseMessages, "", "搜索结果1", "查询1")
+	msgs2 := appendAuxiliaryContext(baseMessages, "", "搜索结果2", "查询2")
+
+	// 提取两次调用生成的 tool_call_id
+	var id1, id2 string
+	for _, m := range msgs1 {
+		if m.Role == "tool" {
+			id1 = m.ToolCallID
+			break
+		}
+	}
+	for _, m := range msgs2 {
+		if m.Role == "tool" {
+			id2 = m.ToolCallID
+			break
+		}
+	}
+
+	if id1 == "" {
+		t.Fatal("第一次调用未生成 tool_call_id")
+	}
+	if id2 == "" {
+		t.Fatal("第二次调用未生成 tool_call_id")
+	}
+	if id1 == id2 {
+		t.Errorf("两次调用的 tool_call_id 不应相同（应唯一），id1=%q id2=%q", id1, id2)
+	}
+
+	// ID 应有 "search_pre_" 前缀（便于调试识别）
+	if !strings.HasPrefix(id1, "search_pre_") {
+		t.Errorf("tool_call_id 应有 'search_pre_' 前缀，实际: %q", id1)
+	}
+	if !strings.HasPrefix(id2, "search_pre_") {
+		t.Errorf("tool_call_id 应有 'search_pre_' 前缀，实际: %q", id2)
+	}
+}
+
+// TestAppendAuxiliaryContext_ToolCallIDPaired 验证 assistant(tool_calls) 和 tool 消息的 ID 配对
+//
+// 业务场景：llama.cpp 要求 tool 消息的 tool_call_id 必须与前面 assistant 消息中的
+// tool_calls[].id 严格配对，否则 API 报错。
+func TestAppendAuxiliaryContext_ToolCallIDPaired(t *testing.T) {
+	baseMessages := []llm.ChatMessage{
+		{Role: "user", Content: "你好"},
+	}
+	msgs := appendAuxiliaryContext(baseMessages, "", "搜索结果", "查询")
+
+	// 应新增 2 条消息：assistant(tool_calls) + tool
+	if len(msgs) != 3 {
+		t.Fatalf("期望 3 条消息，实际 %d", len(msgs))
+	}
+
+	assistantMsg := msgs[1]
+	toolMsg := msgs[2]
+
+	if assistantMsg.Role != "assistant" {
+		t.Errorf("第2条消息应为 assistant，实际 %s", assistantMsg.Role)
+	}
+	if toolMsg.Role != "tool" {
+		t.Errorf("第3条消息应为 tool，实际 %s", toolMsg.Role)
+	}
+	if len(assistantMsg.ToolCalls) != 1 {
+		t.Fatalf("assistant 消息应有 1 个 tool_call，实际 %d", len(assistantMsg.ToolCalls))
+	}
+
+	// ID 必须配对
+	assistantID := assistantMsg.ToolCalls[0].ID
+	toolID := toolMsg.ToolCallID
+	if assistantID == "" {
+		t.Fatal("assistant 消息的 tool_call.id 为空")
+	}
+	if assistantID != toolID {
+		t.Errorf("ID 不配对: assistant.id=%q tool.tool_call_id=%q", assistantID, toolID)
 	}
 }
 
