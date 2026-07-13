@@ -20,6 +20,10 @@ import (
 // TestBingProvider_RealNetwork 真实网络测试
 // 验证：NewBingProvider → SearchWithOpts → 拿到干净结果（标题无域名污染）
 func TestBingProvider_RealNetwork(t *testing.T) {
+	// CI 环境下跳过真实网络测试
+	if os.Getenv("CI") != "" {
+		t.Skip("跳过真实网络测试（CI 环境）")
+	}
 	// 跳过短测试模式，只在正常 go test 时运行
 	if testing.Short() {
 		t.Skip("跳过真实网络测试（-short 模式）")
@@ -117,6 +121,9 @@ func TestBingProvider_RealNetwork(t *testing.T) {
 
 // TestBingProvider_RealNetwork_EnglishOnly 单独跑英文查询，验证英文场景
 func TestBingProvider_RealNetwork_EnglishOnly(t *testing.T) {
+	if os.Getenv("CI") != "" {
+		t.Skip("跳过真实网络测试（CI 环境）")
+	}
 	if testing.Short() {
 		t.Skip("跳过真实网络测试（-short 模式）")
 	}

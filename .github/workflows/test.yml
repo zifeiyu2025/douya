@@ -27,4 +27,6 @@ jobs:
         run: mkdir -p frontend/dist && echo '<html></html>' > frontend/dist/index.html
 
       - name: Run tests with race detector
+        env:
+          CI: true
         run: go test -race -timeout 600s ./...
