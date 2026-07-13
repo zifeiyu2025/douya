@@ -1267,6 +1267,10 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 		cfg := &newCfg
 		a.config = cfg
 		a.configMu.Unlock()
+		// 保存前校验，失败记录日志但不阻塞保存（避免阻塞模型切换功能）
+		if err := cfg.Validate(); err != nil {
+			zlog.Warn().Err(err).Msg("[switchFinalize] 配置校验失败，仍保存")
+		}
 		if err := config.Save(filepath.Join(appDir(), "config.json"), cfg); err != nil {
 			zlog.Error().Err(err).Msg("[router] save config after model switch failed")
 			runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{

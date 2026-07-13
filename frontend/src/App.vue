@@ -20,7 +20,7 @@
                 <div class="main-header-right" style="--wails-draggable:no-drag">
                   <n-select
                     :value="selectedModel"
-                    :options="modelOptions"
+                    :options="displayModelOptions"
                     size="small"
                     placeholder="选择模型"
                     class="model-selector"
@@ -259,6 +259,18 @@ const loadProgressModelName = computed(() => {
 const modelOptions = ref<{ label: string; value: string; fullName: string; quantSuffix: string; isLoaded: boolean; mmprojVision: boolean; mmprojAudio: boolean; mmprojVideo: boolean; status: string }[]>([])
 const availableModels = ref<ModelOption[]>([])
 const selectedModel = ref('')
+
+// 模型下拉为空时显示引导提示：用一个不可选的提示项占位，引导用户放置 .gguf 文件
+const displayModelOptions = computed(() => {
+  if (modelOptions.value.length === 0) {
+    return [{
+      label: '未找到模型，请将 .gguf 文件放入 models/ 目录',
+      value: '__no_models__',
+      disabled: true,
+    }]
+  }
+  return modelOptions.value
+})
 
 const modelName = computed(() => {
   if (selectedModel.value) {
@@ -509,6 +521,31 @@ const consoleRef = ref()
 const toggleConsole = () => {
   consoleRef.value?.toggle()
 }
+
+// ----- 服务器就绪后自动刷新模型列表（带防抖保护）-----
+// 防抖计时器：避免短时间内重复调用 loadAvailableModels（如 running 和 model_ready 几乎同时变化）
+let refreshModelsTimer: ReturnType<typeof setTimeout> | null = null
+function debouncedRefreshModels() {
+  if (refreshModelsTimer) clearTimeout(refreshModelsTimer)
+  refreshModelsTimer = setTimeout(() => {
+    loadAvailableModels()
+    refreshModelsTimer = null
+  }, 500)
+}
+
+// 当服务器从停止变为运行时，刷新模型列表
+watch(() => serverStatus.value.running, (running, prev) => {
+  if (running && !prev) {
+    debouncedRefreshModels()
+  }
+})
+
+// 当模型准备就绪时，刷新模型列表以更新各模型的 is_loaded 状态
+watch(() => serverStatus.value.model_ready, (ready) => {
+  if (ready) {
+    debouncedRefreshModels()
+  }
+})
 
 // ----- 启动时加载可用模型列表 -----
 // 注：其他生命周期事件（监听器注册、loadConfig、异常清理、退出进度）由 useAppLifecycle 负责；

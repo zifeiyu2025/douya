@@ -238,6 +238,7 @@ export const useSettingsStore = defineStore('settings', () => {
             await loadConfig()
         } catch (e) {
             logError('更新配置失败', e)
+            throw e  // rethrow 让调用方能捕获并处理
         }
     }
 

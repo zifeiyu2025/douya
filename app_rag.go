@@ -210,6 +210,10 @@ func (a *App) SetActiveKnowledgeBase(kbName string) error {
 	a.config = cfg
 	a.configMu.Unlock()
 	a.service.SetRAGCollection(kbName)
+	// 保存前校验，失败记录日志但不阻塞保存（避免阻塞切换知识库功能）
+	if err := cfg.Validate(); err != nil {
+		zlog.Warn().Err(err).Msg("[SetActiveKnowledgeBase] 配置校验失败，仍保存")
+	}
 	return config.Save(filepath.Join(appDir(), "config.json"), cfg)
 }
 
@@ -234,6 +238,10 @@ func (a *App) SetRAGEnabled(enabled bool) {
 	a.config = cfg
 	a.configMu.Unlock()
 	a.service.SetRAGEnabled(enabled)
+	// 保存前校验，失败记录日志但不阻塞保存（避免阻塞 RAG 开关功能）
+	if err := cfg.Validate(); err != nil {
+		zlog.Warn().Err(err).Msg("[SetRAGEnabled] 配置校验失败，仍保存")
+	}
 	if err := config.Save(filepath.Join(appDir(), "config.json"), cfg); err != nil {
 		zlog.Error().Err(err).Msg("[rag] save config failed")
 	}

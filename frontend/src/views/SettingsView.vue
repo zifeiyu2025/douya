@@ -533,7 +533,7 @@ const ALL_CONFIG_KEYS: (keyof Config)[] = [
   // RAG 重排序配置
   'reranker_model_path', 'rerank_top_n',
   // KV 缓存持久化配置
-  'slot_save_path', 'slot_save_enabled',
+  'slot_save_path', 'slot_save_enabled', 'lora_paths',
   // Draft 模型 GPU 配置
   'spec_draft_ngl', 'spec_draft_device',
   // 请求级采样配置

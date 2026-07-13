@@ -355,12 +355,23 @@ func Load(path string) (*Config, error) {
 
 	cfg.migrate(data)
 
-	// 校验配置，若失败则回退到默认配置并写盘，避免每次启动都告警
+	// 校验配置，若失败则逐字段修复无效值，保留用户其他设置
 	if validateErr := cfg.Validate(); validateErr != nil {
-		log.Printf("警告: 配置校验失败: %v，回退到默认配置并写盘", validateErr)
-		fallback := DefaultConfig()
-		_ = Save(path, fallback)
-		return fallback, nil
+		log.Printf("警告: 配置校验失败: %v，开始逐字段修复", validateErr)
+		repairedFields := cfg.repairInvalidFields()
+		if len(repairedFields) > 0 {
+			log.Printf("[配置修复] 已修复以下字段: %v", repairedFields)
+		}
+		// 修复后重新校验
+		if reValidateErr := cfg.Validate(); reValidateErr != nil {
+			// 修复后仍校验失败（理论上不应发生），回退到默认配置保底
+			log.Printf("错误: 配置修复后仍校验失败: %v，回退到默认配置", reValidateErr)
+			fallback := DefaultConfig()
+			_ = Save(path, fallback)
+			return fallback, nil
+		}
+		// 修复后校验通过，保存修复后的配置
+		_ = Save(path, cfg)
 	}
 	// 补全缺失的配置项（新增字段），值用 cfg 当前值（含迁移结果），保留用户已有值
 	ensureConfigFields(path, data, cfg)
@@ -493,6 +504,107 @@ func Save(path string, cfg *Config) error {
 	// 注：配置文件不收紧 ACL（icacls），本地单用户应用收益有限且可能导致运行时权限问题。
 	// 敏感数据（API Key）已用 AES-GCM 加密存储。见安全审查 #6（已评估，风险可接受）。
 	return os.WriteFile(path, data, 0644)
+}
+
+// repairInvalidFields 逐字段修复无效值为默认值，保留有效字段的用户设置
+// 生活类比：像体检复查，只治疗异常指标，不把健康人送进ICU
+// 返回已修复字段的描述列表，便于日志记录
+func (c *Config) repairInvalidFields() []string {
+	repaired := []string{}
+	defaults := DefaultConfig()
+
+	// int 字段范围检查与修复
+	intFields := []struct {
+		name    string
+		val     int
+		min     int
+		max     int
+		defVal  int
+		setFunc func(int)
+	}{
+		{"port", c.Port, 1, 65535, defaults.Port, func(v int) { c.Port = v }},
+		{"context_size", c.ContextSize, 1, 131072, defaults.ContextSize, func(v int) { c.ContextSize = v }},
+		{"top_k", c.TopK, 0, math.MaxInt32, defaults.TopK, func(v int) { c.TopK = v }},
+		{"dry_allowed_length", c.DryAllowedLength, 0, math.MaxInt32, defaults.DryAllowedLength, func(v int) { c.DryAllowedLength = v }},
+		{"rag_top_k", c.RAGTopK, 1, math.MaxInt32, defaults.RAGTopK, func(v int) { c.RAGTopK = v }},
+		{"threads", c.Threads, 0, math.MaxInt32, defaults.Threads, func(v int) { c.Threads = v }},
+		{"batch_size", c.BatchSize, 0, math.MaxInt32, defaults.BatchSize, func(v int) { c.BatchSize = v }},
+		{"gpu_layers", c.GPULayers, 0, math.MaxInt32, defaults.GPULayers, func(v int) { c.GPULayers = v }},
+		{"cache_ram", c.CacheRAM, 0, math.MaxInt32, defaults.CacheRAM, func(v int) { c.CacheRAM = v }},
+		{"rerank_top_n", c.RerankTopN, 1, math.MaxInt32, defaults.RerankTopN, func(v int) { c.RerankTopN = v }},
+	}
+	for _, f := range intFields {
+		if f.val < f.min || f.val > f.max {
+			repaired = append(repaired, fmt.Sprintf("%s: %d -> %d", f.name, f.val, f.defVal))
+			f.setFunc(f.defVal)
+		}
+	}
+
+	// float64 字段范围检查与修复
+	floatFields := []struct {
+		name    string
+		val     float64
+		min     float64
+		max     float64
+		defVal  float64
+		setFunc func(float64)
+	}{
+		{"temperature", c.Temperature, 0, 2, defaults.Temperature, func(v float64) { c.Temperature = v }},
+		{"top_p", c.TopP, 0, 1, defaults.TopP, func(v float64) { c.TopP = v }},
+		{"min_p", c.MinP, 0, 1, defaults.MinP, func(v float64) { c.MinP = v }},
+		{"repeat_penalty", c.RepeatPenalty, 0, math.MaxFloat64, defaults.RepeatPenalty, func(v float64) { c.RepeatPenalty = v }},
+		{"chat_background_opacity", c.ChatBackgroundOpacity, 0, 1, defaults.ChatBackgroundOpacity, func(v float64) { c.ChatBackgroundOpacity = v }},
+		{"dry_multiplier", c.DryMultiplier, 0, math.MaxFloat64, defaults.DryMultiplier, func(v float64) { c.DryMultiplier = v }},
+		{"dry_base", c.DryBase, 0, math.MaxFloat64, defaults.DryBase, func(v float64) { c.DryBase = v }},
+		{"rag_min_score", c.RAGMinScore, 0, 1, defaults.RAGMinScore, func(v float64) { c.RAGMinScore = v }},
+	}
+	for _, f := range floatFields {
+		if f.val < f.min || f.val > f.max {
+			repaired = append(repaired, fmt.Sprintf("%s: %.2f -> %.2f", f.name, f.val, f.defVal))
+			f.setFunc(f.defVal)
+		}
+	}
+
+	// 条件范围检查：仅当 > 0 时才校验 0.5-0.95
+	if c.ProactiveCompressThreshold > 0 && (c.ProactiveCompressThreshold < 0.5 || c.ProactiveCompressThreshold > 0.95) {
+		repaired = append(repaired, fmt.Sprintf("proactive_compress_threshold: %.2f -> %.2f", c.ProactiveCompressThreshold, defaults.ProactiveCompressThreshold))
+		c.ProactiveCompressThreshold = defaults.ProactiveCompressThreshold
+	}
+
+	// 跨字段约束修复
+	if c.RAGChunkSize > 0 && c.RAGChunkOverlap > 0 && c.RAGChunkOverlap >= c.RAGChunkSize {
+		repaired = append(repaired, fmt.Sprintf("rag_chunk_overlap: %d -> %d", c.RAGChunkOverlap, defaults.RAGChunkOverlap))
+		c.RAGChunkOverlap = defaults.RAGChunkOverlap
+	}
+	if c.ImageMinTokens > 0 && c.ImageMaxTokens > 0 && c.ImageMinTokens > c.ImageMaxTokens {
+		repaired = append(repaired, fmt.Sprintf("image_min_tokens: %d -> %d", c.ImageMinTokens, defaults.ImageMinTokens))
+		c.ImageMinTokens = defaults.ImageMinTokens
+	}
+	if (c.GrpAttnN == 0) != (c.GrpAttnW == 0) {
+		repaired = append(repaired, fmt.Sprintf("grp_attn_n/w: %d/%d -> %d/%d", c.GrpAttnN, c.GrpAttnW, defaults.GrpAttnN, defaults.GrpAttnW))
+		c.GrpAttnN = defaults.GrpAttnN
+		c.GrpAttnW = defaults.GrpAttnW
+	}
+	if c.BackendSampling && c.ReasoningBudget > 0 {
+		repaired = append(repaired, fmt.Sprintf("reasoning_budget: %d -> %d (backend_sampling 互斥)", c.ReasoningBudget, defaults.ReasoningBudget))
+		c.ReasoningBudget = defaults.ReasoningBudget
+	}
+
+	// 枚举检查
+	switch c.SearchMode {
+	case "off", "auto", "on":
+	default:
+		repaired = append(repaired, fmt.Sprintf("search_mode: %q -> %q", c.SearchMode, defaults.SearchMode))
+		c.SearchMode = defaults.SearchMode
+	}
+	switch c.SystemPromptMode {
+	case "append", "replace", "":
+	default:
+		repaired = append(repaired, fmt.Sprintf("system_prompt_mode: %q -> %q", c.SystemPromptMode, defaults.SystemPromptMode))
+		c.SystemPromptMode = defaults.SystemPromptMode
+	}
+
+	return repaired
 }
 
 func (c *Config) Validate() error {

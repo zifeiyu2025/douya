@@ -134,6 +134,10 @@ func (a *App) startup(ctx context.Context) {
 				}
 				if migrated {
 					zlog.Info().Msg("[startup] migrated search API keys from config.json to database")
+					// 保存前校验，失败记录日志但不阻塞保存（避免阻塞搜索引擎迁移功能）
+					if err := a.getConfig().Validate(); err != nil {
+						zlog.Warn().Err(err).Msg("[startup] 配置校验失败（搜索引擎迁移），仍保存")
+					}
 					config.Save(cfgPath, a.getConfig())
 				}
 			}
@@ -408,6 +412,10 @@ func (a *App) SetCloseAction(action string) {
 	newCfg := *old
 	newCfg.CloseAction = action
 	a.setConfig(&newCfg)
+	// 保存前校验，失败记录日志但不阻塞保存（避免阻塞关闭动作设置功能）
+	if err := newCfg.Validate(); err != nil {
+		zlog.Warn().Err(err).Msg("[SetCloseAction] 配置校验失败，仍保存")
+	}
 	_ = config.Save(filepath.Join(appDir(), "config.json"), &newCfg)
 }
 

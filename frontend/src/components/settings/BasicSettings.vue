@@ -71,7 +71,7 @@
   <!-- 系统提示词 -->
   <n-form-item>
     <template #label>系统提示词 <HelpTip content="追加在豆芽默认提示词后面的自定义指令，用于补充角色设定和行为约束。留空则仅使用默认提示词" /></template>
-    <n-input v-model:value="formConfig.system_prompt" type="textarea" placeholder="自定义提示词将追加在豆芽默认提示词后面，用于补充角色设定和行为指令..." :autosize="{ minRows: 6, maxRows: 20 }" class="rounded-textarea" style="width: 100%;" />
+    <n-input v-model:value="formConfig.system_prompt" type="textarea" placeholder="自定义提示词将追加在豆芽默认提示词后面，用于补充角色设定和行为指令..." :autosize="{ minRows: 6, maxRows: 20 }" class="rounded-textarea" style="width: 100%;" @blur="autoSave" />
   </n-form-item>
 
   <!-- 推理配置 -->

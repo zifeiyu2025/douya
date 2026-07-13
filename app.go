@@ -148,16 +148,15 @@ func appDir() string {
 	}
 
 	// 优先查找 config.json。
-	// 当 config.json 存在时，额外检查它是否值得信任：
-	// - 如果 model_path 为空，且上层目录存在资源（runtime/ 或 models/），
-	//   说明该 config.json 是上版本自动生成的默认配置，应该跳过。
+	// 只要 config.json 能正常 JSON 解析就信任，不基于字段内容判断有效性。
+	// 之前基于 model_path 空值判断"默认配置"的逻辑已移除（DefaultConfig 的 ModelPath 本就是空字符串）。
 	isValidConfig := func(d string) bool {
 		cfgPath := filepath.Join(d, "config.json")
 		data, err := os.ReadFile(cfgPath)
 		if err != nil {
 			return false
 		}
-		// 解析为通用 map 检测 model_path 字段
+		// 解析为通用 map，验证是否为有效 JSON
 		var raw map[string]any
 		if err := json.Unmarshal(data, &raw); err != nil {
 			// 尝试双重序列化容错
@@ -174,16 +173,7 @@ func appDir() string {
 				return true // 解析失败时保守信任
 			}
 		}
-		// model_path 为空字符串说明是默认配置
-		if mp, ok := raw["model_path"].(string); ok && mp == "" {
-			// 检查上层目录（filepath.Dir(d)）是否有资源
-			parent := filepath.Dir(d)
-			for _, p := range []string{"runtime", "models"} {
-				if info, err := os.Stat(filepath.Join(parent, p)); err == nil && info.IsDir() {
-					return false // 是默认配置 + 上层有资源 = 跳过
-				}
-			}
-		}
+		// 只要 config.json 能正常解析就信任，不基于 model_path 判断
 		return true
 	}
 
