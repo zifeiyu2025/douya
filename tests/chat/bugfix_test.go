@@ -1068,7 +1068,7 @@ func TestBuildLLMMessages_CurrentAttachmentsTokenEstimate(t *testing.T) {
 func TestBuildLLMMessages_SmallContextWithImage_NoOverflow(t *testing.T) {
 	svc := newTestService()
 	svc.GetConfig().ContextSize = 8192
-	svc.SetModelCapabilities(llm.ModelCapabilities{TextInput: true, ImageInput: true})
+	svc.SetModelCapabilities(llm.ModelCapabilities{TextInput: true, ImageInput: true, SupportsSystemRole: true})
 
 	longContent := strings.Repeat("这是一段很长的中文内容用于填充token。", 50)
 	dbMsgs := []*store.Message{
@@ -1100,7 +1100,7 @@ func TestBuildLLMMessages_SmallContextWithImage_NoOverflow(t *testing.T) {
 func TestBuildLLMMessages_CurrentMessageNearLimit_NoHistory(t *testing.T) {
 	svc := newTestService()
 	svc.GetConfig().ContextSize = 8192
-	svc.SetModelCapabilities(llm.ModelCapabilities{TextInput: true, ImageInput: true})
+	svc.SetModelCapabilities(llm.ModelCapabilities{TextInput: true, ImageInput: true, SupportsSystemRole: true})
 
 	longContent := strings.Repeat("这是一段很长的中文内容用于填充token。", 200)
 	dbMsgs := []*store.Message{
@@ -1283,7 +1283,7 @@ func TestTrimMessagesToFit_TwoMessagesNoTrim(t *testing.T) {
 func TestBuildLLMMessages_WithSearchContext(t *testing.T) {
 	svc := newTestService()
 	svc.GetConfig().ContextSize = 8192
-	svc.SetModelCapabilities(llm.ModelCapabilities{TextInput: true, ImageInput: true})
+	svc.SetModelCapabilities(llm.ModelCapabilities{TextInput: true, ImageInput: true, SupportsSystemRole: true})
 
 	dbMsgs := []*store.Message{
 		{ID: "1", Role: "user", Content: "你好"},

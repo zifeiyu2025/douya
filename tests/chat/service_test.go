@@ -13,6 +13,7 @@ import (
 
 	"douya/internal/chat"
 	"douya/internal/config"
+	"douya/internal/llm"
 	"douya/internal/store"
 )
 
@@ -22,7 +23,10 @@ func newTestService() *chat.Service {
 		SystemPrompt: "",
 		Temperature:  0.7,
 	}
-	return chat.NewService(nil, nil, nil, cfg, nil, "")
+	svc := chat.NewService(nil, nil, nil, cfg, nil, "")
+	// 设置默认模型能力（NewService 默认 SupportsSystemRole=false，大多数模型支持 system role）
+	svc.SetModelCapabilities(llm.ModelCapabilities{TextInput: true, SupportsSystemRole: true})
+	return svc
 }
 
 func TestBuildLLMMessages_SystemPromptContainsCurrentDate(t *testing.T) {

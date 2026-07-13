@@ -115,12 +115,12 @@ func TestFunctional_ForcedSearch_InjectsContext(t *testing.T) {
 	for _, m := range receivedMessages {
 		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
 			for _, tc := range m.ToolCalls {
-				if tc.ID == "search_pre" {
+				if strings.HasPrefix(tc.ID, "search_pre_") {
 					hasSimulatedToolCall = true
 				}
 			}
 		}
-		if m.Role == "tool" && m.ToolCallID == "search_pre" {
+		if m.Role == "tool" && strings.HasPrefix(m.ToolCallID, "search_pre_") {
 			hasToolMsg = true
 		}
 	}
@@ -616,12 +616,12 @@ func TestFunctional_SearchI18n_ChineseQuery(t *testing.T) {
 	for _, m := range receivedMessages {
 		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
 			for _, tc := range m.ToolCalls {
-				if tc.ID == "search_pre" {
+				if strings.HasPrefix(tc.ID, "search_pre_") {
 					hasSimulatedToolCall = true
 				}
 			}
 		}
-		if m.Role == "tool" && m.ToolCallID == "search_pre" {
+		if m.Role == "tool" && strings.HasPrefix(m.ToolCallID, "search_pre_") {
 			hasToolMsg = true
 		}
 	}
@@ -672,12 +672,12 @@ func TestFunctional_SearchI18n_EnglishQuery(t *testing.T) {
 	for _, m := range receivedMessages {
 		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
 			for _, tc := range m.ToolCalls {
-				if tc.ID == "search_pre" {
+				if strings.HasPrefix(tc.ID, "search_pre_") {
 					hasSimulatedToolCall = true
 				}
 			}
 		}
-		if m.Role == "tool" && m.ToolCallID == "search_pre" {
+		if m.Role == "tool" && strings.HasPrefix(m.ToolCallID, "search_pre_") {
 			hasToolMsg = true
 		}
 	}

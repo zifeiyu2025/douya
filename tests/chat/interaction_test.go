@@ -75,7 +75,10 @@ func newInteractionTestService(t *testing.T, llmServer *httptest.Server, searchP
 		chain = search.NewSearchChain()
 	}
 
-	return chat.NewService(llmClient, chain, db, cfg, nil, "")
+	svc := chat.NewService(llmClient, chain, db, cfg, nil, "")
+	// 设置默认模型能力（NewService 默认 SupportsSystemRole=false，大多数模型支持 system role）
+	svc.SetModelCapabilities(llm.ModelCapabilities{TextInput: true, SupportsSystemRole: true})
+	return svc
 }
 
 func makeSSEData(chunks []string) string {
@@ -265,7 +268,7 @@ func TestSendMessage_ModelAutonomousToolCallSearch(t *testing.T) {
 
 	svc := newInteractionTestService(t, server, searchProvider)
 	// 设置模型支持工具调用，使搜索工具能被包含在请求中
-	svc.SetModelCapabilities(llm.ModelCapabilities{TextInput: true, ToolCallSupport: true})
+	svc.SetModelCapabilities(llm.ModelCapabilities{TextInput: true, ToolCallSupport: true, SupportsSystemRole: true})
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
 		Content:    "2026年最新的AI技术趋势是什么？",
@@ -368,12 +371,12 @@ func TestSendMessage_SearchEnabled_UpfrontSearch(t *testing.T) {
 		if receivedMessages[i].Role == "user" {
 			originalUserMsg = &receivedMessages[i]
 		}
-		if receivedMessages[i].Role == "tool" && receivedMessages[i].ToolCallID == "search_pre" {
+		if receivedMessages[i].Role == "tool" && strings.HasPrefix(receivedMessages[i].ToolCallID, "search_pre_") {
 			toolMsg = &receivedMessages[i]
 		}
 		if receivedMessages[i].Role == "assistant" && len(receivedMessages[i].ToolCalls) > 0 {
 			for _, tc := range receivedMessages[i].ToolCalls {
-				if tc.ID == "search_pre" {
+				if strings.HasPrefix(tc.ID, "search_pre_") {
 					hasSimulatedToolCall = true
 				}
 			}
@@ -961,12 +964,12 @@ func TestSendMessage_SearchResultFormat(t *testing.T) {
 	var toolMsg *llm.ChatMessage
 	var hasSimulatedToolCall bool
 	for i := range receivedMessages {
-		if receivedMessages[i].Role == "tool" && receivedMessages[i].ToolCallID == "search_pre" {
+		if receivedMessages[i].Role == "tool" && strings.HasPrefix(receivedMessages[i].ToolCallID, "search_pre_") {
 			toolMsg = &receivedMessages[i]
 		}
 		if receivedMessages[i].Role == "assistant" && len(receivedMessages[i].ToolCalls) > 0 {
 			for _, tc := range receivedMessages[i].ToolCalls {
-				if tc.ID == "search_pre" {
+				if strings.HasPrefix(tc.ID, "search_pre_") {
 					hasSimulatedToolCall = true
 				}
 			}
@@ -1834,7 +1837,7 @@ func TestSendMessage_SystemPromptContainsSearchGuidance(t *testing.T) {
 
 	svc := newInteractionTestService(t, server, nil)
 	// 设置模型支持工具调用，使搜索工具说明能被添加到系统提示词
-	svc.SetModelCapabilities(llm.ModelCapabilities{TextInput: true, ToolCallSupport: true})
+	svc.SetModelCapabilities(llm.ModelCapabilities{TextInput: true, ToolCallSupport: true, SupportsSystemRole: true})
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
 		Content:    "测试",
@@ -1905,12 +1908,12 @@ func TestSendMessage_SearchEnabled_UsesSeparateContextBlock(t *testing.T) {
 		if m.Role == "user" {
 			originalUserContent = m.ContentString()
 		}
-		if m.Role == "tool" && m.ToolCallID == "search_pre" {
+		if m.Role == "tool" && strings.HasPrefix(m.ToolCallID, "search_pre_") {
 			toolMsgContent = m.ContentString()
 		}
 		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
 			for _, tc := range m.ToolCalls {
-				if tc.ID == "search_pre" {
+				if strings.HasPrefix(tc.ID, "search_pre_") {
 					hasSimulatedToolCall = true
 				}
 			}
