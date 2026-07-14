@@ -11,6 +11,7 @@ import (
 	zlog "github.com/rs/zerolog/log"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"douya/internal/chat"
 	"douya/internal/llm"
 )
 
@@ -40,6 +41,12 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 
 	// 2. 选择默认模型并检测架构
 	modelForDetect := a.selectAndDetectDefaultModel(ctx)
+
+	// 根据用户配置的 --image-max-tokens 设置图片 token 估算值（首次启动）
+	// 后续切换模型时由 switchFinalize 更新
+	if cfg := a.getConfig(); cfg != nil {
+		chat.SetImageTokenEstimate(cfg.ImageMaxTokens)
+	}
 
 	// 3. 自动加载默认模型
 	a.autoLoadDefaultModel(ctx, modelForDetect)

@@ -814,31 +814,6 @@ func (c *Client) CountTokens(ctx context.Context, messages []ChatMessage) (int, 
 	return result.InputTokens, nil
 }
 
-// CountTokensViaInputTokens 通过 /v1/chat/completions/input_tokens 端点获取精确 token 计数
-// 比 /tokenize 更精确，因为会经过完整的 chat template 处理
-func (c *Client) CountTokensViaInputTokens(ctx context.Context, messages []ChatMessage) (int, error) {
-	body, err := json.Marshal(map[string]any{
-		"messages": messages,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("failed to marshal input tokens request: %w", err)
-	}
-
-	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions/input_tokens", body, "input tokens", true)
-	if err != nil {
-		return 0, err
-	}
-
-	var result struct {
-		Object      string `json:"object"`
-		InputTokens int    `json:"input_tokens"`
-	}
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return 0, fmt.Errorf("failed to parse input tokens response: %w", err)
-	}
-
-	return result.InputTokens, nil
-}
 
 // GetLoraAdapters 调用 GET /lora-adapters 获取 LoRA 适配器列表
 func (c *Client) GetLoraAdapters(ctx context.Context) ([]LoraAdapter, error) {
@@ -893,6 +868,28 @@ func (c *Client) GetSlots(ctx context.Context) ([]SlotInfo, error) {
 	}
 
 	return slots, nil
+}
+
+// OperateSlot 调用 POST /slots/{id}?action=save|restore|erase 执行 slot 操作。
+// 生活类比：像图书馆的"存包/取包/丢弃"三个按钮，背后是同一个储物柜系统，只是动作不同。
+//
+// 参数：
+//   - slotID: slot 编号（默认单 slot 模式下为 0）
+//   - action: "save"（保存 KV 缓存到磁盘）、"restore"（从磁盘恢复）、"erase"（删除磁盘文件）
+//
+// 失败时返回错误，调用方自行决定是否记录日志或忽略。
+func (c *Client) OperateSlot(ctx context.Context, slotID int, action string) error {
+	// 白名单校验，避免 action 参数被注入到 URL 查询串
+	switch action {
+	case "save", "restore", "erase":
+	default:
+		return fmt.Errorf("invalid slot action: %s (only save/restore/erase)", action)
+	}
+	query := url.Values{"action": {action}}.Encode()
+	reqURL := fmt.Sprintf("%s/slots/%d?%s", c.baseURL, slotID, query)
+	// slot 操作无响应体需求，wantBody=false 节省一次 Body 读取
+	_, err := c.doSimpleJSONRequest(ctx, http.MethodPost, reqURL, nil, "slot "+action, false)
+	return err
 }
 
 // Tokenize 调用 /tokenize 对文本进行分词，返回 token ID 列表

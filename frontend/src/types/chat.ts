@@ -453,7 +453,7 @@ export const DEFAULT_CONFIG: Config = {
     repeat_penalty: 1,
     kv_unified: false,
     cache_idle_slots: true,
-    cache_reuse: 0,
+    cache_reuse: 256,
     cache_ram: 0, // 与 Go DefaultConfig 对齐
     image_min_tokens: 0,
     image_max_tokens: 0,
@@ -479,7 +479,7 @@ export const DEFAULT_CONFIG: Config = {
     embedding_model: '',
     mmap: true,
     kv_offload: true,
-    context_shift: false,
+    context_shift: true,
     min_p: 0.05,
     dry_multiplier: 0,
     dry_base: 1.75,

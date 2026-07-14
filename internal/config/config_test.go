@@ -331,9 +331,9 @@ func TestLoad_LegacyVersionMigratesToV1(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load 返回了非预期的错误: %v", err)
 	}
-	// 旧版本（Version=0）应迁移到 Version=1
-	if cfg.Version != 1 {
-		t.Errorf("期望迁移后 Version=1，实际得到: %d", cfg.Version)
+	// 旧版本（Version=0）应迁移到最新版本
+	if cfg.Version != 2 {
+		t.Errorf("期望迁移后 Version=2，实际得到: %d", cfg.Version)
 	}
 	// 旧版 thinking_soft_switch="think" 应迁移为 reasoning="on"
 	if cfg.Reasoning != "on" {
@@ -353,8 +353,8 @@ func TestMigrate_LegacyVersion(t *testing.T) {
 	rawData := []byte(`{"thinking_enabled":true,"thinking_soft_switch":"no_think"}`)
 	cfg.migrate(rawData)
 
-	if cfg.Version != 1 {
-		t.Errorf("期望迁移后 Version=1，实际得到: %d", cfg.Version)
+	if cfg.Version != 2 {
+		t.Errorf("期望迁移后 Version=2，实际得到: %d", cfg.Version)
 	}
 	// thinking_soft_switch="no_think" 应迁移为 reasoning="off"
 	if cfg.Reasoning != "off" {
@@ -365,14 +365,14 @@ func TestMigrate_LegacyVersion(t *testing.T) {
 // TestMigrate_AlreadyCurrentVersion 验证已是当前版本的配置不触发迁移
 func TestMigrate_AlreadyCurrentVersion(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.Version = 1
+	cfg.Version = 2
 	cfg.Reasoning = "auto"
-	// 原始数据包含 version 字段（值为当前版本），不应触发 v0->v1 迁移，reasoning 不被覆盖
-	rawData := []byte(`{"version":1,"thinking_enabled":true,"thinking_soft_switch":"think"}`)
+	// 原始数据包含 version 字段（值为当前版本），不应触发迁移，reasoning 不被覆盖
+	rawData := []byte(`{"version":2,"thinking_enabled":true,"thinking_soft_switch":"think"}`)
 	cfg.migrate(rawData)
 
-	if cfg.Version != 1 {
-		t.Errorf("期望 Version 保持 1，实际得到: %d", cfg.Version)
+	if cfg.Version != 2 {
+		t.Errorf("期望 Version 保持 2，实际得到: %d", cfg.Version)
 	}
 	if cfg.Reasoning != "auto" {
 		t.Errorf("期望 Reasoning 不被覆盖（仍为 auto），实际得到: %q", cfg.Reasoning)

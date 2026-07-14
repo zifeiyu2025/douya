@@ -123,7 +123,7 @@
     <n-switch v-model:value="formConfig.kv_offload" />
   </n-form-item>
   <n-form-item>
-    <template #label>上下文移位 <HelpTip content="当对话超出上下文长度时，自动移除最早的内容腾出空间，而非直接报错。开启可支持更长的连续对话" /></template>
+    <template #label>上下文移位 <HelpTip content="当对话超出上下文长度时，自动移除最早的内容腾出空间，而非直接报错。作为应用层压缩的兜底，建议保持开启" /></template>
     <n-switch v-model:value="formConfig.context_shift" />
   </n-form-item>
   <n-form-item>
@@ -150,8 +150,8 @@
     分组注意力需要同时设置 N 和 W 才能生效
   </n-text>
   <n-form-item>
-    <template #label>缓存复用块大小 <HelpTip content="KV 缓存复用的块大小。0=禁用，设置后启用 KV shifting 复用缓存块，可减少重复计算" /></template>
-    <n-input-number v-model:value="formConfig.cache_reuse" :min="0" :step="1" placeholder="0" style="width: 100%" @blur="autoSave" />
+    <template #label>缓存复用块大小 <HelpTip content="KV 缓存复用的块大小。0=禁用，256=推荐值。启用后对重复的 system prompt 前缀加速，减少重复计算" /></template>
+    <n-input-number v-model:value="formConfig.cache_reuse" :min="0" :step="1" placeholder="256" style="width: 100%" @blur="autoSave" />
   </n-form-item>
   <n-form-item>
     <template #label>空闲休眠(秒) <HelpTip content="服务器空闲指定秒数后自动休眠以节省资源。-1=禁用休眠，0=立即休眠" /></template>

@@ -56,6 +56,10 @@ type Service struct {
 	// 当前流式聊天的 completion ID，用于 /v1/chat/completions/control 实时控制
 	currentCompletionID string
 	completionIDMu      sync.RWMutex
+	// slot 自动持久化：记录最后保存 KV 缓存的对话 ID
+	// 仅在 SlotSaveEnabled=true 时启用，用于对话切换时跳过重复 prefill
+	lastSavedConvID string
+	lastSavedSlotMu sync.RWMutex
 }
 
 func NewService(llmClient *llm.Client, searchChain *search.SearchChain, db *sql.DB, cfg *config.Config, cipher secrets.Cipher, appDir string) *Service {

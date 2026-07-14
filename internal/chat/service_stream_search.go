@@ -38,6 +38,14 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 
 	req := s.buildChatStreamRequest(llmMessages, searchMode, caps, cfg)
 
+	// 自动 restore：若上次保存的 KV 缓存属于同一对话，先恢复以跳过重复 prefill
+	// 必须在构建请求之后、发送请求之前执行，否则 restore 来的 KV 不会被本次请求复用
+	s.tryRestoreSlot(cancelCtx, convID)
+
+	// 估算值接近上下文上限时，用 /tokenize 准确校准 MaxTokens，避免生成时溢出
+	// 生活类比：行李目测接近限重时才上精准秤，避免每次托运都浪费时间称重
+	s.tryRefineMaxTokens(cancelCtx, req, client, cfg)
+
 	streamCtx, streamCancel := context.WithTimeout(cancelCtx, streamRequestTimeout)
 	defer streamCancel()
 	defer s.setCurrentCompletionID("") // 流结束后清除 completion ID
@@ -52,11 +60,74 @@ func (s *Service) streamWithSearch(cancelCtx context.Context, convID string, llm
 		return err
 	}
 
+	// 自动 save：生成成功完成后保存 KV 缓存，下次同对话的请求可跳过 prefill
+	// 必须放在 executeStreamAndHandleErrors + finalizeStreamResult 之后，
+	// 否则可能在 tool call 中途或生成失败时保存半截 KV
+	s.trySaveSlot(cancelCtx, convID)
+
 	// 更新会话标题
 	s.updateConversationTitleIfNeeded(convID, titleContent)
 
 	s.emitForConv(convID, "done", nil)
 	return nil
+}
+
+// tryRefineMaxTokens 在估算 prompt token 数接近上下文上限时，用 /tokenize 准确校准。
+//
+// 触发条件：估算值 > contextSize * 75%
+// 失败时保留估算值，不阻塞主流程（context-shift 兜底会处理溢出）
+//
+// 生活类比：像行李托运前先目测重量（估算），如果目测接近限重（75%+），
+// 才放上精准秤称一次（/tokenize），避免超重被拒。大多数情况不需要称重。
+func (s *Service) tryRefineMaxTokens(ctx context.Context, req *llm.ChatCompletionRequest, client *llm.Client, cfg *config.Config) {
+	if client == nil || cfg == nil || len(req.Messages) == 0 {
+		return
+	}
+
+	ctxSize := cfg.ContextSize
+	if ctxSize <= 0 {
+		ctxSize = 4096
+	}
+
+	// 估算 prompt token 数（含 tool schema 开销）
+	estimated := estimateMessagesTokens(req.Messages)
+	if len(req.Tools) > 0 {
+		estimated += 250
+	}
+
+	// 估算值远低于上限，跳过校准（大多数情况走这条路径，零额外开销）
+	// 阈值 75%：ctxSize * 3 / 4，用整数运算避免浮点
+	if estimated < ctxSize*3/4 {
+		return
+	}
+
+	// 估算值接近上限，用 /tokenize 准确计算
+	// 先用 ApplyTemplate 把 messages 转成 prompt 文本
+	tokenizeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	text, err := client.ApplyTemplate(tokenizeCtx, req.Messages)
+	if err != nil {
+		log.Debug().Err(err).Msg("[tokenize] apply template failed, skip refinement")
+		return
+	}
+
+	tokens, err := client.Tokenize(tokenizeCtx, text)
+	if err != nil {
+		log.Debug().Err(err).Msg("[tokenize] tokenize failed, skip refinement")
+		return
+	}
+
+	accurateTokens := len(tokens)
+	log.Info().
+		Int("estimated", estimated).
+		Int("accurate", accurateTokens).
+		Int("context_size", ctxSize).
+		Float64("deviation_pct", (float64(accurateTokens-estimated)/float64(max(estimated, 1)))*100).
+		Msg("[tokenize] refined prompt token count")
+
+	// 用准确值重新计算 MaxTokens
+	req.MaxTokens = s.calcMaxTokens(accurateTokens)
 }
 
 // newStreamAccumulatorWithCallbacks 创建流式累加器并设置降频回调。

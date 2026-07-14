@@ -25,15 +25,33 @@ var (
 	reAvailCtxSize  = regexp.MustCompile(`available context size \((\d+) tokens\)`)
 )
 
-// 附件 token 估算常量。
-// 历史变更记录：图片估算值曾从 1500→2500→3500 多次调整，
-// 提取为常量后调整只需改一处。
-// 生活类比：像尺子上的刻度，统一标定后所有测量都用同一标准。
+// 附件 token 估算值。图片用变量（可通过 SetImageTokenEstimate 根据 --image-max-tokens 动态调整），
+// 视频/音频保持常量（llama-server 无对应参数，估算值固定）。
+// 生活类比：像尺子上的刻度，统一标定后所有测量都用同一标准。图片刻度可按需调整。
 const (
-	imageTokenEstimate = 3500 // 图片附件 token 估算值
 	videoTokenEstimate = 5000 // 视频附件 token 估算值
-	audioTokenEstimate = 500  // 音频附件 token 估算值
+	audioTokenEstimate = 500 // 音频附件 token 估算值
 )
+
+// imageTokenEstimate 图片附件 token 估算值，默认 3500（覆盖多数模型默认值）。
+// 通过 SetImageTokenEstimate 在模型加载后根据 --image-max-tokens 动态调整，
+// 让估算值与 llama-server 实际行为一致，避免 MaxTokens 计算偏差。
+// 并发安全：写入在模型切换时（单线程），读取在请求构建时（单线程），无竞争。
+var imageTokenEstimate = 3500
+
+// defaultImageTokenEstimate 是未设置 --image-max-tokens 时的保守估算值
+const defaultImageTokenEstimate = 3500
+
+// SetImageTokenEstimate 根据用户配置的 --image-max-tokens 更新图片 token 估算值。
+// imageMaxTokens <= 0 时恢复默认值（llama-server 默认行为，token 数取决于图片分辨率）。
+// 在模型加载后调用，确保估算值与 llama-server 实际行为一致。
+func SetImageTokenEstimate(imageMaxTokens int) {
+	if imageMaxTokens > 0 {
+		imageTokenEstimate = imageMaxTokens
+	} else {
+		imageTokenEstimate = defaultImageTokenEstimate
+	}
+}
 
 // isCodeRelated returns true if the query looks like a code-related question.
 func isCodeRelated(query string) bool {

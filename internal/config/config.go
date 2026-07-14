@@ -223,7 +223,9 @@ func DefaultConfig() *Config {
 		ReasoningBudgetEndTag:      "",
 		Mmap:                       true,
 		KVOffload:                  true,
-		ContextShift:               false,
+		// 默认启用 context-shift 作为兜底：应用层压缩失败时由 llama-server 自动移位，
+		// 避免请求直接报错。--keep 512 保护 system prompt 不被移位
+		ContextShift:               true,
 		MinP:                       0.05,
 		DryMultiplier:              0,
 		DryBase:                    1.75,
@@ -300,7 +302,9 @@ func DefaultConfig() *Config {
 		LookupCacheStatic:          "",
 		LookupCacheDynamic:         "",
 		SpecDraftModel:             "",
-		CacheReuse:                 0,
+		// 默认 256：启用 KV 缓存块复用，对重复的 system prompt 前缀加速
+		// 256 是合理块大小，覆盖豆芽 system prompt（约 200-400 token）
+		CacheReuse:                 256,
 		Agent:                      false,
 		UIMcpProxy:                 false,
 		BackendSampling:            false,
@@ -450,8 +454,19 @@ func (c *Config) migrate(data []byte) {
 		c.migrateLegacyThinking(data)
 		c.Version = 1
 	}
+	// v1 -> v2：默认启用 context-shift 作为上下文溢出兜底 + 启用 cache-reuse 加速
+	// 老版本默认 false/0 且会被写入 config.json，此处一次性迁移为推荐值，
+	// 让老用户也能享受到应用层压缩失败时的自动兜底和 KV 缓存复用加速。
+	// 用户如需关闭，可在设置中手动切换（下次启动 Version 已是 2，不会再迁移）
+	if c.Version < 2 {
+		c.ContextShift = true
+		if c.CacheReuse == 0 {
+			c.CacheReuse = 256
+		}
+		c.Version = 2
+	}
 	// 未来版本迁移在此追加，例如：
-	// if c.Version < 2 { /* v1 -> v2 迁移逻辑 */; c.Version = 2 }
+	// if c.Version < 3 { /* v2 -> v3 迁移逻辑 */; c.Version = 3 }
 }
 
 // migrateLegacyThinking 将旧版 thinking 配置迁移到 Reasoning 字段。

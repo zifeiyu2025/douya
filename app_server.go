@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"douya/internal/chat"
 	"douya/internal/config"
 	"douya/internal/httputil"
 	"douya/internal/llm"
@@ -1248,6 +1249,20 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 	// 同步更新 client 的当前模型（v9744+ API 需要）
 	if a.client != nil {
 		a.client.SetCurrentModel(modelName)
+	}
+
+	// 清除旧模型的 slot 缓存：模型切换后旧 KV 缓存对新模型毫无价值，
+	// 磁盘上的旧缓存文件必须清除，否则下次 restore 会把错误模型的 KV 塞回去
+	if a.service != nil {
+		clearCtx, clearCancel := context.WithTimeout(a.ctx, 35*time.Second)
+		a.service.ClearSavedSlot(clearCtx)
+		clearCancel()
+	}
+
+	// 根据用户配置的 --image-max-tokens 更新图片 token 估算值，
+	// 让 MaxTokens 计算与 llama-server 实际图片 token 消耗一致
+	if cfg := a.getConfig(); cfg != nil {
+		chat.SetImageTokenEstimate(cfg.ImageMaxTokens)
 	}
 
 	// 更新嵌入模型名（仅在未配置专用嵌入模型时跟随聊天模型切换）
