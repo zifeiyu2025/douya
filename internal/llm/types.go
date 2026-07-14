@@ -173,7 +173,7 @@ type ChatCompletionRequest struct {
 	TopK             int           `json:"top_k,omitempty"`
 	RepeatPenalty    float64       `json:"repeat_penalty,omitempty"`
 	Reasoning        string        `json:"reasoning,omitempty"`
-	ReasoningBudget  int           `json:"reasoning_budget,omitempty"`
+	ReasoningBudget  int           `json:"reasoning_budget_tokens,omitempty"`
 	ReasoningControl bool          `json:"reasoning_control,omitempty"`
 	// 请求级 reasoning 扩展字段（v9744+）
 	ReasoningFormat         string           `json:"reasoning_format,omitempty"`           // 请求级覆盖思考格式：none/deepseek/deepseek-legacy
