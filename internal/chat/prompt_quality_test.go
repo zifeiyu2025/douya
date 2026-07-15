@@ -325,6 +325,45 @@ func TestSystemPrompt_ThinkingStageNoLeak(t *testing.T) {
 	}
 }
 
+// TestSystemPrompt_SearchModeNoProcessMention 验证当 searchMode 为 "auto" 或 "on" 时，
+// 系统提示词包含"不要提及搜索过程"指令，避免模型在回答中说"根据搜索结果..."等过程性表述。
+// 这是针对"模型回答暴露搜索过程"问题的防回归测试。
+func TestSystemPrompt_SearchModeNoProcessMention(t *testing.T) {
+	base := buildBaseSystemPrompt("本地模型", "", "append")
+	now := time.Now()
+
+	// 强模型路径（支持工具调用）
+	capsStrong := llm.ModelCapabilities{TextInput: true, ToolCallSupport: true}
+	// 弱模型路径（不支持工具调用）
+	capsWeak := llm.ModelCapabilities{TextInput: true, ToolCallSupport: false}
+
+	for _, mode := range []string{"auto", "on"} {
+		// 强模型路径
+		contentStrong := applyDynamicSystemPrompt(base, mode, capsStrong, now)
+		if !strings.Contains(contentStrong, "不要在回答中提及搜索过程") {
+			t.Errorf("强模型路径 searchMode=%q 时，提示词应包含'不要在回答中提及搜索过程'，实际输出:\n%s", mode, contentStrong)
+		}
+		if !strings.Contains(contentStrong, "直接以事实回答") {
+			t.Errorf("强模型路径 searchMode=%q 时，提示词应包含'直接以事实回答'，实际输出:\n%s", mode, contentStrong)
+		}
+
+		// 弱模型路径
+		contentWeak := applyDynamicSystemPrompt(base, mode, capsWeak, now)
+		if !strings.Contains(contentWeak, "不要在回答中提及搜索过程") {
+			t.Errorf("弱模型路径 searchMode=%q 时，提示词应包含'不要在回答中提及搜索过程'，实际输出:\n%s", mode, contentWeak)
+		}
+		if !strings.Contains(contentWeak, "直接以事实回答") {
+			t.Errorf("弱模型路径 searchMode=%q 时，提示词应包含'直接以事实回答'，实际输出:\n%s", mode, contentWeak)
+		}
+	}
+
+	// 搜索关闭时不应包含此指令
+	contentOff := applyDynamicSystemPrompt(base, "off", capsStrong, now)
+	if strings.Contains(contentOff, "不要在回答中提及搜索过程") {
+		t.Errorf("searchMode=off 时，提示词不应包含'不要在回答中提及搜索过程'，实际输出:\n%s", contentOff)
+	}
+}
+
 // min 返回两个整数中的较小值（Go 1.21+ 内置 min，此处兼容老版本）
 func min(a, b int) int {
 	if a < b {

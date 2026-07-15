@@ -296,21 +296,6 @@ func CleanupAbnormalConversations(db *sql.DB, encKey []byte) ([]*AbnormalConvers
 	return abnormal, nil
 }
 
-// UpdateConversationSummary 只更新对话的短期摘要字段（向后兼容旧调用）
-func UpdateConversationSummary(db *sql.DB, id string, summary string) error {
-	err := withDBTimeout(func(ctx context.Context) error {
-		_, err := db.ExecContext(ctx,
-			"UPDATE conversations SET summary = ?, compress_count = compress_count + 1 WHERE id = ?",
-			summary, id,
-		)
-		return err
-	})
-	if err != nil {
-		return fmt.Errorf("update conversation summary: %w", err)
-	}
-	return nil
-}
-
 // UpdateConversationLayeredSummary P1-C1: 同时更新短期摘要、长期摘要和压缩计数。
 // 每次压缩都会调用：shortSummary 更新为最新摘要，compress_count + 1。
 // longSummary 仅在触发合并时（由调用方判断 compress_count % 5 == 0）传入新值，否则传空串保持不变。
@@ -356,43 +341,6 @@ func GetConversationLayeredSummary(db *sql.DB, id string) (shortSummary, longSum
 		longSummary = long.String
 	}
 	return shortSummary, longSummary, compressCount, nil
-}
-
-// ResetConversationSummary P2-C4: 重置会话摘要（清空短期+长期+计数归零）。
-// 用户在摘要面板点击"重置"按钮时调用。
-// 与 UpdateConversationLayeredSummary 的区别：
-//   - Update 会 compress_count+1（增量）
-//   - Reset 把 compress_count 归零（完全清除）
-func ResetConversationSummary(db *sql.DB, id string) error {
-	err := withDBTimeout(func(ctx context.Context) error {
-		_, err := db.ExecContext(ctx,
-			"UPDATE conversations SET summary = '', long_summary = '', compress_count = 0 WHERE id = ?",
-			id,
-		)
-		return err
-	})
-	if err != nil {
-		return fmt.Errorf("reset conversation summary: %w", err)
-	}
-	return nil
-}
-
-// SetConversationSummaryManual P2-C4: 手动设置会话摘要（用户编辑后保存）。
-// 与 UpdateConversationLayeredSummary 的区别：
-//   - Update 会 compress_count+1（自动/手动压缩时调用）
-//   - Set 不改 compress_count（用户编辑视为修正，不触发压缩计数）
-func SetConversationSummaryManual(db *sql.DB, id string, shortSummary, longSummary string) error {
-	err := withDBTimeout(func(ctx context.Context) error {
-		_, err := db.ExecContext(ctx,
-			"UPDATE conversations SET summary = ?, long_summary = ? WHERE id = ?",
-			shortSummary, longSummary, id,
-		)
-		return err
-	})
-	if err != nil {
-		return fmt.Errorf("set conversation summary manual: %w", err)
-	}
-	return nil
 }
 
 // GetConversationSummary 只获取对话的短期摘要字段（向后兼容旧调用）

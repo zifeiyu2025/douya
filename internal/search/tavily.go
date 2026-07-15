@@ -20,9 +20,10 @@ type TavilyProvider struct {
 func NewTavilyProvider(apiKey string) *TavilyProvider {
 	return &TavilyProvider{
 		BaseProvider: BaseProvider{
-			// 超时从 30s 收紧到 15s：Tavily 异常时空等 30s 才降级到 Ollama 是"搜索转圈很久"的原因之一。
-			// 15s 足够正常请求返回；超时说明网络有问题，应尽快降级而非死等。
-			httpClient: newSearchHTTPClient(15 * time.Second),
+			// 超时 30s：符合项目记忆规则，支持 advanced search 深度检索。
+			// Tavily 异常时由全局 DefaultSearchTimeout（50s）和熔断器统一降级，
+			// 不在单端过早放弃，避免丢失可用结果。
+			httpClient: newSearchHTTPClient(30 * time.Second),
 		},
 		apiKey: apiKey,
 	}

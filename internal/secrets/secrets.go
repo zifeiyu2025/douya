@@ -207,22 +207,4 @@ func Decrypt(encoded string, key []byte) (string, error) {
 	return string(plaintext), nil
 }
 
-// EncryptBatch 批量加密多个明文，复用同一 AEAD 实例，避免重复创建 cipher 的开销。
-// 适用于一次性加密多个字段（如消息的多个加密字段）的场景。
-func EncryptBatch(plaintexts []string, key []byte) ([]string, error) {
-	aesGCM, err := defaultCipherCache.getAEAD(key)
-	if err != nil {
-		return nil, err
-	}
-	results := make([]string, len(plaintexts))
-	for i, pt := range plaintexts {
-		nonce := make([]byte, aesGCM.NonceSize())
-		if _, err := rand.Read(nonce); err != nil {
-			return nil, fmt.Errorf("generate nonce: %w", err)
-		}
-		// nonce 附加在密文前面
-		ciphertext := aesGCM.Seal(nonce, nonce, []byte(pt), nil)
-		results[i] = base64.StdEncoding.EncodeToString(ciphertext)
-	}
-	return results, nil
-}
+

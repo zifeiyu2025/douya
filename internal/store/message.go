@@ -243,18 +243,9 @@ func GetMessage(db *sql.DB, id string, encKey []byte) (*Message, error) {
 	return &msg, nil
 }
 
-func DeleteMessage(db *sql.DB, id string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), dbOpTimeout)
-	defer cancel()
-	_, err := db.ExecContext(ctx, "DELETE FROM messages WHERE id = ?", id)
-	if err != nil {
-		return fmt.Errorf("delete message: %w", err)
-	}
-	return nil
-}
 
 // DeleteMessagesBatch 批量删除消息，修复 N+1 问题。
-// 单事务内执行 DELETE WHERE id IN (...)，比循环调用 DeleteMessage 性能提升 N 倍。
+// 单事务内执行 DELETE WHERE id IN (...)，比逐条删除性能提升 N 倍。
 // 部分ID不存在时不影响其他ID的删除（SQL DELETE 对不存在的行静默忽略）。
 // 安全限制：单批最多 500 个 ID，防止 SQL 占位符过多。
 func DeleteMessagesBatch(db *sql.DB, ids []string) error {

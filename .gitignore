@@ -38,6 +38,9 @@ Thumbs.db
 # Test
 *.test
 *.out
+coverage
+*_cov
+cover.txt
 
 # Misc
 *.md5
@@ -55,3 +58,4 @@ patch-*.ps1
 # Release artifacts
 *.zip
 security_best_practices_report.md
+code_review_report.md

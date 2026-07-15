@@ -74,19 +74,4 @@ func RestrictACLWindows(path string) error {
 	return nil
 }
 
-// SecureWriteFile 写入文件并收紧权限：Windows 调用 icacls，Unix 使用 0600 权限位。
-// dirMode 用于指定目录创建权限（若需创建目录），Windows 同样收紧。
-func SecureWriteFile(path string, data []byte, dirMode os.FileMode) error {
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		return err
-	}
-	return RestrictACLWindows(path)
-}
 
-// SecureMkdirAll 创建目录并收紧权限：Windows 调用 icacls，Unix 使用 dirMode。
-func SecureMkdirAll(path string, dirMode os.FileMode) error {
-	if err := os.MkdirAll(path, dirMode); err != nil {
-		return err
-	}
-	return RestrictACLWindows(path)
-}
