@@ -111,6 +111,7 @@ type Config struct {
 	SpecDraftModel          string  `json:"spec_draft_model"`
 	ServerAPIKeyEnabled     bool    `json:"server_api_key_enabled"`
 	ExposeServer            bool    `json:"expose_server"` // 暴露服务器地址，允许局域网访问
+	EnableWebUI             bool    `json:"enable_web_ui"` // 启用 llama-server 自带的原生 Web UI（默认关闭）
 	SwaFull                 bool    `json:"swa_full"`
 	CtxCheckpoints          int     `json:"ctx_checkpoints"`
 	CheckpointMinStep       int     `json:"checkpoint_min_step"`
@@ -252,6 +253,7 @@ func DefaultConfig() *Config {
 		CacheTypeVDraft:            "",
 		ServerAPIKeyEnabled:        true,
 		ExposeServer:               false,
+		EnableWebUI:                false,
 		SwaFull:                    false,
 		CtxCheckpoints:             32,  // 与 llama.cpp 默认值对齐，长上下文检查点回滚
 		CheckpointMinStep:          256, // 与 llama.cpp 默认值对齐，检查点最小步长

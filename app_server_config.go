@@ -277,6 +277,7 @@ func buildServerConfigFromFields(
 		Embedding:                true,   // 启用 embedding API（RAG 知识库需要）
 		Pooling:                  "mean", // 聊天模型 pooling=none 不兼容 OAI embedding API
 		ExposeServer:             cfg.ExposeServer,
+		EnableWebUI:              cfg.EnableWebUI,
 		ServerAPIKeyEnabled:      cfg.ServerAPIKeyEnabled,
 		SwaFull:                  cfg.SwaFull,
 		CtxCheckpoints:           cfg.CtxCheckpoints,

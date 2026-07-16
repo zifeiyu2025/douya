@@ -314,6 +314,7 @@ export interface Config {
     cache_type_v_draft: string
     server_api_key_enabled: boolean
     expose_server: boolean
+    enable_web_ui: boolean
     swa_full: boolean
     ctx_checkpoints: number
     checkpoint_min_step: number
@@ -521,6 +522,7 @@ export const DEFAULT_CONFIG: Config = {
     cache_type_v_draft: '',
     server_api_key_enabled: true,
     expose_server: false,
+    enable_web_ui: false,
     swa_full: false,
     ctx_checkpoints: 32,
     checkpoint_min_step: 256,

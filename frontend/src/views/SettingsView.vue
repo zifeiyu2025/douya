@@ -306,6 +306,16 @@ async function onExposeServerToggle() {
     }
 }
 
+async function onEnableWebUIToggle() {
+    await autoSave()
+    message.destroyAll()
+    if (formConfig.value.enable_web_ui) {
+        message.warning('已启用原生 Web UI，重启服务后可通过浏览器访问 http://127.0.0.1:' + formConfig.value.port + ' 。该 UI 与豆芽前端独立，仅供高级用户调试。', { duration: 5000 })
+    } else {
+        message.info('已关闭原生 Web UI，重启服务后生效。', { duration: 3000 })
+    }
+}
+
 const currentModelRef = computed(() => {
   return matchModelRef(settingsStore.currentModel, MODEL_REFS)
 })
@@ -523,7 +533,7 @@ const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'spec_ngram_map_k4v_size_n', 'spec_ngram_map_k4v_size_m', 'spec_ngram_map_k4v_min_hits',
   'lookup_cache_static', 'lookup_cache_dynamic', 'spec_draft_model',
   'cache_type_k_draft', 'cache_type_v_draft',
-  'server_api_key_enabled', 'expose_server', 'swa_full',
+  'server_api_key_enabled', 'expose_server', 'enable_web_ui', 'swa_full',
   'ctx_checkpoints', 'checkpoint_min_step', 'tools', 'prefill_assistant',
   'slot_prompt_similarity', 'skip_chat_parsing', 'api_prefix', 'simple_io',
   'agent', 'ui_mcp_proxy', 'backend_sampling',
@@ -608,6 +618,7 @@ const settingsContext: SettingsContext = {
   savingServerApiKey,
   onServerAPIKeyToggle,
   onExposeServerToggle,
+  onEnableWebUIToggle,
   cacheTypeKOptions,
   cacheTypeVOptions,
   specTypeOptions,

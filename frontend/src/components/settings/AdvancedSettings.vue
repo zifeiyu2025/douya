@@ -58,6 +58,11 @@
     <n-switch v-model:value="formConfig.expose_server" @update:value="onExposeServerToggle" class="expose-switch" />
     <span class="setting-hint">开启后局域网设备可通过本机 IP 访问（需重启服务生效）。开启后必须配置 API Key，否则服务将拒绝启动</span>
   </n-form-item>
+  <!-- 启用原生 Web UI：放开 llama-server 自带的 Svelte Web UI（默认关闭，与豆芽前端独立） -->
+  <n-form-item label-width="140" label-placement="left">
+    <template #label>启用原生 Web UI <HelpTip content="开启后可通过浏览器访问 llama-server 自带的 Web UI（地址为本机服务地址）。与豆芽前端独立，仅供高级用户调试。需重启服务生效" /></template>
+    <n-switch v-model:value="formConfig.enable_web_ui" @update:value="onEnableWebUIToggle" />
+  </n-form-item>
   <n-form-item label-width="140" label-placement="left">
     <template #label>启用 API Key 验证 <HelpTip content="开启后所有 API 请求需携带 API Key，防止未授权访问。暴露到局域网时强烈建议开启" /></template>
     <n-switch v-model:value="formConfig.server_api_key_enabled" @update:value="onServerAPIKeyToggle" />
@@ -321,7 +326,7 @@ const {
   formConfig, autoSave,
   newOllamaApiKey, newTavilyApiKey, searchKeys, saveSearchKeys, savingSearchKeys,
   serverApiKey, hasServerApiKey, saveServerApiKey, savingServerApiKey,
-  onServerAPIKeyToggle, onExposeServerToggle,
+  onServerAPIKeyToggle, onExposeServerToggle, onEnableWebUIToggle,
   cacheTypeKOptions, cacheTypeVOptions, specTypeOptions,
   settingsStore,
 } = ctx

@@ -46,6 +46,7 @@ export interface SettingsContext {
   savingServerApiKey: Ref<boolean>
   onServerAPIKeyToggle: () => Promise<void>
   onExposeServerToggle: () => Promise<void>
+  onEnableWebUIToggle: () => Promise<void>
 
   // 高级设置选项
   cacheTypeKOptions: ComputedRef<{ label: string; value: string }[]>

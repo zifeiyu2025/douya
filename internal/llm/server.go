@@ -120,6 +120,7 @@ type ServerConfig struct {
 	Embedding              bool   // 启用 /v1/embeddings API（RAG 知识库需要）
 	Pooling                string // 嵌入池化类型（mean/cls），解决聊天模型 pooling=none 不兼容 OAI embedding API
 	ExposeServer           bool   // 暴露服务器地址，允许局域网访问
+	EnableWebUI            bool   // 启用 llama-server 自带的原生 Web UI（false=加 --no-webui）
 	SwaFull                bool
 	CtxCheckpoints         int
 	CheckpointMinStep      int
