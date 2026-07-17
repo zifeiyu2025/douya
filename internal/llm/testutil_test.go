@@ -156,16 +156,8 @@ func (b *mockServerBuilder) Build(t *testing.T) (*MockServer, *Client) {
 		}
 	}))
 
-	client := NewClient(ms.Server.URL, "")
+	client := NewClient(ms.URL, "")
 	return ms, client
-}
-
-// newMockServer 创建默认配置的 mock server 和 client
-// 所有端点返回默认的成功响应
-// 这是快速创建 mock server 的便捷函数，如需自定义响应请使用 newMockServerBuilder()
-func newMockServer(t *testing.T) (*MockServer, *Client) {
-	t.Helper()
-	return newMockServerBuilder().Build(t)
 }
 
 // RequestsFor 返回某个端点收到的所有请求

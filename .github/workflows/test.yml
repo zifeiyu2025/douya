@@ -1,6 +1,9 @@
 # 基于 GO-CONC-001 安全实践：运行 go test -race 持续监控数据竞争。
 # -race 会在运行时检测并发访问冲突，是发现数据竞争的最有效手段。
 # 对应 Server 结构体单一粗粒度锁等并发设计的持续验证（见安全审查 #9）。
+#
+# 覆盖率基线（GO-TEST-001）：测试后检查关键包覆盖率不低于基线值，
+# 防止重构时无声地降低测试覆盖。基线值随覆盖率提升逐步上调。
 name: test
 
 on:
@@ -30,3 +33,75 @@ jobs:
         env:
           CI: true
         run: go test -race -timeout 600s ./...
+
+  coverage-check:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          check-latest: true
+
+      - name: Create frontend/dist placeholder for embed
+        shell: bash
+        run: mkdir -p frontend/dist && echo '<html></html>' > frontend/dist/index.html
+
+      - name: Run tests with coverage
+        env:
+          CI: true
+        shell: bash
+        run: |
+          # 生成覆盖率文件
+          go test -timeout 600s -coverprofile=coverage.out ./internal/...
+
+          # 覆盖率基线表（包名:最低百分比）
+          # 基线值 = 当前覆盖率 - 5% 的缓冲（允许小幅波动）
+          # 当某包覆盖率提升后，应相应上调基线
+          declare -A baselines=(
+            ["apperror"]=95
+            ["chat"]=25
+            ["config"]=50
+            ["httputil"]=90
+            ["llm"]=30
+            ["logger"]=90
+            ["pathutil"]=85
+            ["pdfutil"]=35
+            ["rag"]=75
+            ["search"]=65
+            ["secrets"]=55
+            ["store"]=50
+            ["system"]=45
+            ["version"]=95
+          )
+
+          failed=0
+          for pkg in "${!baselines[@]}"; do
+            baseline=${baselines[$pkg]}
+            # 从 go test 输出提取该包的覆盖率百分比
+            actual=$(go test -cover ./internal/$pkg/ 2>/dev/null | grep -oP 'coverage: \K[0-9.]+')
+            if [ -z "$actual" ]; then
+              echo "⚠️  包 internal/$pkg 无覆盖率数据（可能无测试文件）"
+              continue
+            fi
+            # 取整比较
+            actual_int=$(echo "$actual" | cut -d. -f1)
+            if [ "$actual_int" -lt "$baseline" ]; then
+              echo "❌ internal/$pkg 覆盖率 $actual% 低于基线 ${baseline}%"
+              failed=1
+            else
+              echo "✅ internal/$pkg 覆盖率 $actual% ≥ 基线 ${baseline}%"
+            fi
+          done
+
+          if [ "$failed" -eq 1 ]; then
+            echo ""
+            echo "🚨 覆盖率检查未通过：有包低于基线值"
+            echo "修复方式：为该包补充测试，或在有正当理由时下调基线"
+            exit 1
+          fi
+          echo ""
+          echo "🎉 所有包覆盖率均达标"

@@ -1,7 +1,7 @@
 <template>
   <div class="sidebar" :class="{ collapsed }">
     <!-- Logo 区：appicon + 品牌名横向排列，左对齐作为窗口左上角视觉锚点 -->
-    <div class="sidebar-header" style="--wails-draggable:drag">
+    <div class="sidebar-header" style="--wails-draggable: drag">
       <div class="sidebar-logo">
         <img :src="appLogo" alt="豆芽" class="logo-image" draggable="false" />
         <span class="logo-wordmark">DOUYA</span>
@@ -81,14 +81,25 @@
 <script setup lang="ts">
 import { ref, computed, h } from 'vue'
 import { NIcon, NInput, NDropdown, useDialog, useMessage } from 'naive-ui'
-import { AddOutline, SearchOutline, SettingsOutline, BookOutline, PencilOutline, DocumentTextOutline, CodeSlashOutline, TrashOutline, FileTrayFullOutline, GridOutline } from '@vicons/ionicons5'
+import {
+  AddOutline,
+  SearchOutline,
+  SettingsOutline,
+  BookOutline,
+  PencilOutline,
+  DocumentTextOutline,
+  CodeSlashOutline,
+  TrashOutline,
+  FileTrayFullOutline,
+  GridOutline
+} from '@vicons/ionicons5'
 import { useChatStore } from '../stores/chat'
 import { fixUtf8 } from '../utils/utf8'
 import { showSuccess } from '../utils/showError'
 import type { Conversation } from '../services/wails'
 import appLogo from '../assets/images/appicon.png'
 
-const props = defineProps<{ collapsed: boolean }>()
+defineProps<{ collapsed: boolean }>()
 
 const chatStore = useChatStore()
 const dialog = useDialog()
@@ -103,10 +114,11 @@ function createMenuItem(key: string, icon: any, text: string, danger = false) {
   return {
     key,
     props: danger ? { style: { color: 'var(--accent-danger)' } } : undefined,
-    label: () => h('div', { class: `context-menu-item${danger ? ' danger' : ''}` }, [
-      h(NIcon, { size: 16, class: 'menu-icon' }, { default: () => h(icon) }),
-      h('span', { class: 'menu-text' }, text)
-    ])
+    label: () =>
+      h('div', { class: `context-menu-item${danger ? ' danger' : ''}` }, [
+        h(NIcon, { size: 16, class: 'menu-icon' }, { default: () => h(icon) }),
+        h('span', { class: 'menu-text' }, text)
+      ])
   }
 }
 
@@ -117,15 +129,13 @@ const contextMenuOptions = [
   createMenuItem('export-txt', FileTrayFullOutline, '导出纯文本'),
   createMenuItem('export-csv', GridOutline, '导出 CSV'),
   { type: 'divider', key: 'divider' },
-  createMenuItem('delete', TrashOutline, '删除', true),
+  createMenuItem('delete', TrashOutline, '删除', true)
 ]
 
 const filteredConversations = computed(() => {
   if (!searchQuery.value) return chatStore.conversations
   const q = searchQuery.value.toLowerCase()
-  return chatStore.conversations.filter(c =>
-    c.title.toLowerCase().includes(q)
-  )
+  return chatStore.conversations.filter(c => c.title.toLowerCase().includes(q))
 })
 
 function getPreview(conv: Conversation): string {
@@ -180,50 +190,58 @@ async function handleContextAction(key: string, conv: Conversation) {
     return
   }
   switch (key) {
-    case 'rename':
+    case 'rename': {
       const input = ref(conv.title)
       dialog.create({
         title: '重命名对话',
         content: () => {
           return h(NInput, {
             value: input.value,
-            'onUpdate:value': (v: string) => { input.value = v },
-            placeholder: '请输入新标题',
+            'onUpdate:value': (v: string) => {
+              input.value = v
+            },
+            placeholder: '请输入新标题'
           })
         },
         positiveText: '确定',
         negativeText: '取消',
         onPositiveClick: async () => {
           await chatStore.renameConversation(conv.id, input.value)
-        },
+        }
       })
       break
+    }
     case 'delete':
       dialog.warning({
         title: '删除对话',
-        content: () => h('div', { class: 'delete-confirm-content' }, [
-          h('div', { class: 'delete-confirm-row' }, [
-            h(NIcon, { size: 18, class: 'delete-confirm-icon' }, { default: () => h(TrashOutline) }),
-            h('span', { class: 'delete-confirm-text' }, '确定要删除这个对话吗？'),
+        content: () =>
+          h('div', { class: 'delete-confirm-content' }, [
+            h('div', { class: 'delete-confirm-row' }, [
+              h(
+                NIcon,
+                { size: 18, class: 'delete-confirm-icon' },
+                { default: () => h(TrashOutline) }
+              ),
+              h('span', { class: 'delete-confirm-text' }, '确定要删除这个对话吗？')
+            ]),
+            h('div', { class: 'delete-confirm-hint' }, '此操作不可撤销，对话将永久消失')
           ]),
-          h('div', { class: 'delete-confirm-hint' }, '此操作不可撤销，对话将永久消失'),
-        ]),
         positiveText: '删除',
         negativeText: '取消',
         onPositiveClick: async () => {
           await chatStore.deleteConversation(conv.id)
           showSuccess(message, '已删除')
-        },
+        }
       })
       break
   }
 }
 
 async function handleExport(id: string, format: string) {
-    const success = await chatStore.exportConversationWithDialog(id, format)
-    if (success) {
-        showSuccess(message, '导出成功')
-    }
+  const success = await chatStore.exportConversationWithDialog(id, format)
+  if (success) {
+    showSuccess(message, '导出成功')
+  }
 }
 </script>
 
@@ -432,7 +450,9 @@ async function handleExport(id: string, format: string) {
   font-family: inherit;
   line-height: 1;
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
   appearance: none;
   -webkit-appearance: none;
 }

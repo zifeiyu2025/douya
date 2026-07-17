@@ -6,11 +6,14 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
+
+	"douya/internal/apperror"
 )
 
 type Conversation struct {
@@ -74,6 +77,10 @@ func GetConversation(db *sql.DB, id string, encKey []byte) (*Conversation, error
 		).Scan(&conv.ID, &conv.Title, &summary, &longSummary, &conv.CompressCount, &conv.CreatedAt, &conv.UpdatedAt)
 	})
 	if err != nil {
+		// sql.ErrNoRows 转为统一的 NotFound 错误，上层可用 errors.Is(err, apperror.ErrNotFound) 精准判断
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, apperror.Wrap(apperror.KindNotFound, "会话不存在: "+id, err)
+		}
 		return nil, fmt.Errorf("get conversation: %w", err)
 	}
 	// 解密标题：失败时降级为占位符，保证会话仍可列出
@@ -156,12 +163,12 @@ func DeleteConversation(db *sql.DB, id string) error {
 		}
 		_, err = tx.ExecContext(ctx, "DELETE FROM messages WHERE conversation_id = ?", id)
 		if err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("delete messages: %w", err)
 		}
 		_, err = tx.ExecContext(ctx, "DELETE FROM conversations WHERE id = ?", id)
 		if err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("delete conversation: %w", err)
 		}
 		if err := tx.Commit(); err != nil {
@@ -190,7 +197,7 @@ func DeleteConversationsBatch(db *sql.DB, ids []string) error {
 		success := false
 		defer func() {
 			if !success {
-				tx.Rollback()
+				_ = tx.Rollback()
 			}
 		}()
 		for _, id := range ids {
@@ -332,6 +339,9 @@ func GetConversationLayeredSummary(db *sql.DB, id string) (shortSummary, longSum
 		).Scan(&short, &long, &compressCount)
 	})
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", "", 0, apperror.Wrap(apperror.KindNotFound, "会话不存在: "+id, err)
+		}
 		return "", "", 0, fmt.Errorf("get conversation layered summary: %w", err)
 	}
 	if short.Valid {
@@ -350,6 +360,9 @@ func GetConversationSummary(db *sql.DB, id string) (string, error) {
 		return db.QueryRowContext(ctx, "SELECT summary FROM conversations WHERE id = ?", id).Scan(&summary)
 	})
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", apperror.Wrap(apperror.KindNotFound, "会话不存在: "+id, err)
+		}
 		return "", fmt.Errorf("get conversation summary: %w", err)
 	}
 	if summary.Valid {

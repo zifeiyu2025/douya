@@ -243,9 +243,9 @@ func TestIsSearchEngineSelfLink_CaseInsensitive(t *testing.T) {
 func TestDedupAndFilterResults_RemovesEmptyTitleOrURL(t *testing.T) {
 	results := []SearchResult{
 		{Title: "正常结果", URL: "https://example.com/1"},
-		{Title: "", URL: "https://example.com/2"},   // 空标题
+		{Title: "", URL: "https://example.com/2"}, // 空标题
 		{Title: "空链接", URL: ""},                   // 空链接
-		{Title: "都空", URL: ""},                     // 都空
+		{Title: "都空", URL: ""},                    // 都空
 		{Title: "另一个正常", URL: "https://example.com/3"},
 	}
 	got := dedupAndFilterResults(results)

@@ -5,8 +5,17 @@
         <ChevronForwardOutline />
       </n-icon>
       <n-icon size="16" class="think-icon"><BulbOutline /></n-icon>
-      <span v-if="isThinking" class="think-status thinking">正在思考<span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span></span>
-      <span v-else-if="safeDuration > 0" class="think-status done">已思考(用时{{ formattedDuration }})</span>
+      <span v-if="isThinking" class="think-status thinking">
+        正在思考
+        <span class="thinking-dots">
+          <span>.</span>
+          <span>.</span>
+          <span>.</span>
+        </span>
+      </span>
+      <span v-else-if="safeDuration > 0" class="think-status done">
+        已思考(用时{{ formattedDuration }})
+      </span>
       <span v-else>思考过程</span>
     </div>
     <div v-if="expanded" class="think-block-content">
@@ -18,10 +27,7 @@
         - 流式结束（isThinking=false）：finalizeRender 全量渲染确保完整
         - 历史消息：bind 后自动渲染一次
       -->
-      <div
-        ref="containerRef"
-        class="think-block-content-inner markdown-body"
-      ></div>
+      <div ref="containerRef" class="think-block-content-inner markdown-body"></div>
     </div>
   </div>
 </template>
@@ -62,11 +68,14 @@ const { containerRef, bind, finalizeRender } = useMorphRender()
 bind(() => cleanedContent.value)
 
 // isThinking 从 true 切到 false 时触发最终渲染（全量渲染确保完整）
-watch(() => props.isThinking, (thinking) => {
-  if (!thinking) {
-    finalizeRender()
+watch(
+  () => props.isThinking,
+  thinking => {
+    if (!thinking) {
+      finalizeRender()
+    }
   }
-})
+)
 
 const safeDuration = computed(() => props.duration ?? 0)
 
@@ -130,7 +139,10 @@ const formattedDuration = computed(() => {
   line-height: 1.65;
   position: relative;
   overflow: hidden;
-  transition: border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+  transition:
+    border-color 0.3s ease,
+    box-shadow 0.3s ease,
+    background 0.3s ease;
 }
 
 /* 内容层提升至伪元素之上，确保文字始终可读 */
@@ -145,12 +157,11 @@ const formattedDuration = computed(() => {
  */
 .think-block.is-thinking .think-block-content {
   border-color: color-mix(in srgb, var(--accent-think) 38%, var(--border-color));
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--accent-think) 7%, var(--bg-tertiary)) 0%,
-      var(--bg-tertiary) 55%
-    );
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent-think) 7%, var(--bg-tertiary)) 0%,
+    var(--bg-tertiary) 55%
+  );
   box-shadow:
     inset 1px 0 0 color-mix(in srgb, var(--accent-think) 55%, transparent),
     0 0 0 1px color-mix(in srgb, var(--accent-think) 10%, transparent),
@@ -203,11 +214,11 @@ const formattedDuration = computed(() => {
     linear-gradient(#fff 0 0) content-box,
     linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
-          mask-composite: exclude;
+  mask-composite: exclude;
   border-radius: inherit;
   opacity: 1;
   filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent-think-glow) 45%, transparent))
-          drop-shadow(0 0 7px color-mix(in srgb, var(--accent-think-glow) 20%, transparent));
+    drop-shadow(0 0 7px color-mix(in srgb, var(--accent-think-glow) 20%, transparent));
   animation: think-rotate 5s linear infinite;
   will-change: --think-angle;
 }
@@ -232,12 +243,19 @@ const formattedDuration = computed(() => {
 }
 
 @keyframes think-rotate {
-  to { --think-angle: 360deg; }
+  to {
+    --think-angle: 360deg;
+  }
 }
 
 @keyframes vein-breathe {
-  0%, 100% { opacity: 0.55; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -248,7 +266,7 @@ const formattedDuration = computed(() => {
   .think-block.is-thinking .think-vein {
     background: var(--accent-think);
     -webkit-mask: none;
-            mask: none;
+    mask: none;
     filter: none;
   }
   .think-block.is-thinking .think-block-content::before {
@@ -271,8 +289,16 @@ const formattedDuration = computed(() => {
 }
 
 @keyframes thinkingDot {
-  0%, 20% { opacity: 0; }
-  50% { opacity: 1; }
-  80%, 100% { opacity: 0; }
+  0%,
+  20% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  80%,
+  100% {
+    opacity: 0;
+  }
 }
 </style>

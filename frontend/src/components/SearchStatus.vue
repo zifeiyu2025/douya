@@ -77,7 +77,7 @@ const resultItems = computed<SearchResultItem[]>(() => {
     }
     if (Array.isArray(parsed)) return parsed
     if (parsed.results && Array.isArray(parsed.results)) return parsed.results
-  } catch (e) {
+  } catch {
     return []
   }
   return []
@@ -110,11 +110,14 @@ function clearAutoCollapseTimer() {
   }
 }
 
-watch(() => props.searching, (searching) => {
-  if (!searching && expanded.value && !userExpanded.value) {
-    scheduleAutoCollapse()
+watch(
+  () => props.searching,
+  searching => {
+    if (!searching && expanded.value && !userExpanded.value) {
+      scheduleAutoCollapse()
+    }
   }
-})
+)
 
 onMounted(() => {
   if (props.defaultExpanded) {

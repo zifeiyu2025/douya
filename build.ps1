@@ -1,4 +1,4 @@
-﻿[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::InputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 # 兼容 PowerShell 5.1：不依赖 >$null 2>&1 重定向语法
@@ -38,7 +38,11 @@ $wailsExe = $env:WAILS_EXE
 if (-not $wailsExe -or -not (Test-Path $wailsExe)) { $wailsExe = "D:\Program Files\GoTools\bin\wails.exe" }
 if (-not (Test-Path $wailsExe)) { $wailsExe = Join-Path (go env GOPATH) "bin\wails.exe" }
 if (-not (Test-Path $wailsExe)) { $wailsExe = "wails" }
-& $wailsExe build
+# -ldflags "-s -w"：去掉符号表和 DWARF 调试信息，减小发布版二进制体积约 20-30%
+# 生活类比：像发货前拆掉商品的精美包装——运输时不需要展示用的包装（调试信息），
+# 只保留核心商品（可执行代码），既省空间又不影响使用。
+# 注意：去掉后 panic 不显示函数名/行号，仅显示地址，适合发布版；开发版用 wails dev 不受影响。
+& $wailsExe build -ldflags "-s -w"
 if ($LASTEXITCODE -ne 0) { throw "Wails 构建失败" }
 
 Write-Host "[3/5] 同步发布目录（增量模式）..." -ForegroundColor Yellow

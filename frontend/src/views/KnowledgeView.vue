@@ -1,9 +1,15 @@
 <template>
   <div class="knowledge-container">
     <div class="knowledge-header">
-      <button class="back-btn" type="button" @click="$router.push('/')" aria-label="返回">
+      <button class="back-btn" type="button" aria-label="返回" @click="$router.push('/')">
         <svg width="20" height="20" viewBox="0 0 512 512" fill="none" aria-hidden="true">
-          <path d="M244 400L100 256l144-144M120 256h292" stroke="currentColor" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
+          <path
+            d="M244 400L100 256l144-144M120 256h292"
+            stroke="currentColor"
+            stroke-width="48"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
         </svg>
       </button>
       <div class="header-title-group">
@@ -17,7 +23,9 @@
         <div class="kb-section-header">
           <span class="section-icon">📚</span>
           <span class="section-title">知识库</span>
-          <span class="kb-count" v-if="knowledgeBases.length > 0">{{ knowledgeBases.length }} 个知识库</span>
+          <span v-if="knowledgeBases.length > 0" class="kb-count">
+            {{ knowledgeBases.length }} 个知识库
+          </span>
         </div>
 
         <div class="kb-selector-row">
@@ -28,17 +36,35 @@
             class="kb-select"
             @update:value="handleKBChange"
           />
-          <n-button quaternary size="small" @click="showCreateKB = true" class="action-btn">
-            <template #icon><n-icon size="16"><AddOutline /></n-icon></template>
+          <n-button quaternary size="small" class="action-btn" @click="showCreateKB = true">
+            <template #icon>
+              <n-icon size="16"><AddOutline /></n-icon>
+            </template>
             新建
           </n-button>
-          <n-button quaternary type="error" size="small" @click="handleDeleteKB" :disabled="activeKB === 'default'" class="action-btn">
-            <template #icon><n-icon size="16"><TrashOutline /></n-icon></template>
+          <n-button
+            quaternary
+            type="error"
+            size="small"
+            :disabled="activeKB === 'default'"
+            class="action-btn"
+            @click="handleDeleteKB"
+          >
+            <template #icon>
+              <n-icon size="16"><TrashOutline /></n-icon>
+            </template>
             删除
           </n-button>
         </div>
 
-        <n-modal v-model:show="showCreateKB" preset="dialog" title="新建知识库" positive-text="创建" negative-text="取消" @positive-click="handleCreateKB">
+        <n-modal
+          v-model:show="showCreateKB"
+          preset="dialog"
+          title="新建知识库"
+          positive-text="创建"
+          negative-text="取消"
+          @positive-click="handleCreateKB"
+        >
           <n-input v-model:value="newKBName" placeholder="输入知识库名称" />
         </n-modal>
       </div>
@@ -47,11 +73,11 @@
         <div class="kb-section-header">
           <span class="section-icon">📄</span>
           <span class="section-title">文档列表</span>
-          <span class="kb-count" v-if="documents.length > 0">{{ documents.length }} 个文档</span>
+          <span v-if="documents.length > 0" class="kb-count">{{ documents.length }} 个文档</span>
         </div>
 
-        <div class="doc-list" v-if="documents.length > 0">
-          <div class="doc-item" v-for="doc in documents" :key="doc.id">
+        <div v-if="documents.length > 0" class="doc-list">
+          <div v-for="doc in documents" :key="doc.id" class="doc-item">
             <div class="doc-icon-box">
               <span class="doc-icon-text">{{ getFileIcon(doc.file_name) }}</span>
             </div>
@@ -67,12 +93,20 @@
                 </span>
               </div>
             </div>
-            <n-button quaternary type="error" size="tiny" @click="handleDeleteDoc(doc.id)" class="doc-delete-btn">
-              <template #icon><n-icon size="15"><CloseOutline /></n-icon></template>
+            <n-button
+              quaternary
+              type="error"
+              size="tiny"
+              class="doc-delete-btn"
+              @click="handleDeleteDoc(doc.id)"
+            >
+              <template #icon>
+                <n-icon size="15"><CloseOutline /></n-icon>
+              </template>
             </n-button>
           </div>
         </div>
-        <div class="doc-empty" v-else>
+        <div v-else class="doc-empty">
           <div class="empty-icon">📁</div>
           <p class="empty-text">暂无文档</p>
           <p class="empty-hint">上传文档以构建知识库索引</p>
@@ -86,7 +120,9 @@
             accept=".txt,.md,.csv,.json,.xml,.html,.pdf,.docx,.yaml,.yml,.toml,.go,.py,.js,.ts,.java,.c,.cpp,.h,.rs,.sh,.rb,.php,.swift,.kt,.sql,.log,.ini,.cfg"
           >
             <n-button type="primary" size="small" :loading="uploading" ghost>
-              <template #icon><n-icon size="16"><CloudUploadOutline /></n-icon></template>
+              <template #icon>
+                <n-icon size="16"><CloudUploadOutline /></n-icon>
+              </template>
               上传文档
             </n-button>
           </n-upload>
@@ -116,10 +152,24 @@
             </div>
           </n-form-item>
           <n-form-item label="分块大小">
-            <n-input-number v-model:value="ragConfig.chunkSize" :min="128" :max="4096" :step="64" size="small" class="rag-input" />
+            <n-input-number
+              v-model:value="ragConfig.chunkSize"
+              :min="128"
+              :max="4096"
+              :step="64"
+              size="small"
+              class="rag-input"
+            />
           </n-form-item>
           <n-form-item label="分块重叠">
-            <n-input-number v-model:value="ragConfig.chunkOverlap" :min="0" :max="512" :step="16" size="small" class="rag-input" />
+            <n-input-number
+              v-model:value="ragConfig.chunkOverlap"
+              :min="0"
+              :max="512"
+              :step="16"
+              size="small"
+              class="rag-input"
+            />
           </n-form-item>
           <n-form-item label="嵌入模型">
             <div class="embedding-config">
@@ -151,9 +201,18 @@
                 <div class="embedding-recommend">
                   <span class="recommend-label">推荐模型：</span>
                   <span class="recommend-tags">
-                    <span class="recommend-tag" @click="selectRecommendedModel('nomic-embed-text')">nomic-embed-text</span>
-                    <span class="recommend-tag" @click="selectRecommendedModel('bge-base-en-v1.5')">bge-base-en-v1.5</span>
-                    <span class="recommend-tag" @click="selectRecommendedModel('bge-large-zh-v1.5')">bge-large-zh-v1.5</span>
+                    <span class="recommend-tag" @click="selectRecommendedModel('nomic-embed-text')">
+                      nomic-embed-text
+                    </span>
+                    <span class="recommend-tag" @click="selectRecommendedModel('bge-base-en-v1.5')">
+                      bge-base-en-v1.5
+                    </span>
+                    <span
+                      class="recommend-tag"
+                      @click="selectRecommendedModel('bge-large-zh-v1.5')"
+                    >
+                      bge-large-zh-v1.5
+                    </span>
                   </span>
                 </div>
                 <div class="embedding-tip">
@@ -165,8 +224,16 @@
         </n-form>
 
         <div class="rag-save-row">
-          <n-button type="primary" size="small" @click="handleSaveRAGConfig" :loading="savingRAG" class="save-btn">
-            <template #icon><n-icon size="16"><CheckmarkCircleOutline /></n-icon></template>
+          <n-button
+            type="primary"
+            size="small"
+            :loading="savingRAG"
+            class="save-btn"
+            @click="handleSaveRAGConfig"
+          >
+            <template #icon>
+              <n-icon size="16"><CheckmarkCircleOutline /></n-icon>
+            </template>
             保存设置
           </n-button>
         </div>
@@ -178,11 +245,27 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import {
-  NButton, NIcon, NSelect, NUpload, NModal,
-  NInput, NForm, NFormItem, NSwitch, NSlider, NInputNumber,
-  useMessage, useDialog,
+  NButton,
+  NIcon,
+  NSelect,
+  NUpload,
+  NModal,
+  NInput,
+  NForm,
+  NFormItem,
+  NSwitch,
+  NSlider,
+  NInputNumber,
+  useMessage,
+  useDialog
 } from 'naive-ui'
-import { AddOutline, TrashOutline, CloseOutline, CloudUploadOutline, CheckmarkCircleOutline } from '@vicons/ionicons5'
+import {
+  AddOutline,
+  TrashOutline,
+  CloseOutline,
+  CloudUploadOutline,
+  CheckmarkCircleOutline
+} from '@vicons/ionicons5'
 import { wails, type CollectionInfo, type DocumentMeta, type ModelOption } from '../services/wails'
 import { useSettingsStore } from '../stores/settings'
 import { showError, showSuccess, showWarning } from '../utils/showError'
@@ -210,13 +293,13 @@ const ragConfig = ref({
   minScore: 0.3,
   chunkSize: 512,
   chunkOverlap: 64,
-  embeddingModel: '',
+  embeddingModel: ''
 })
 
 const kbOptions = computed(() =>
   knowledgeBases.value.map(kb => ({
     label: `${kb.name} (${kb.vector_count} 向量)`,
-    value: kb.name,
+    value: kb.name
   }))
 )
 
@@ -224,7 +307,7 @@ const kbOptions = computed(() =>
 const embeddingModelOptions = computed(() =>
   availableModels.value.map(m => ({
     label: m.name,
-    value: m.name,
+    value: m.name
   }))
 )
 
@@ -274,7 +357,7 @@ async function loadData() {
       wails.listKnowledgeBases(),
       wails.getActiveKnowledgeBase(),
       wails.isRAGEnabled(),
-      wails.getConfig(),
+      wails.getConfig()
     ])
     knowledgeBases.value = kbs
     activeKB.value = active || 'default'
@@ -285,7 +368,7 @@ async function loadData() {
       ragConfig.value.chunkSize = config.rag_chunk_size ?? 512
       ragConfig.value.chunkOverlap = config.rag_chunk_overlap ?? 64
       ragConfig.value.embeddingModel = config.embedding_model ?? ''
-      
+
       // 初始化嵌入模型状态
       const embeddingModel = config.embedding_model ?? ''
       if (embeddingModel) {
@@ -312,7 +395,7 @@ async function loadData() {
 async function loadDocuments() {
   try {
     documents.value = await wails.listDocuments(activeKB.value)
-  } catch (e: any) {
+  } catch {
     documents.value = []
   }
 }
@@ -357,7 +440,7 @@ async function handleDeleteKB() {
       } catch (e: any) {
         showError(message, '删除失败', e)
       }
-    },
+    }
   })
 }
 
@@ -420,7 +503,7 @@ async function handleRAGToggle(enabled: boolean) {
 async function handleSaveRAGConfig() {
   savingRAG.value = true
   try {
-    const config = await wails.getConfig() as any
+    const config = (await wails.getConfig()) as any
     config.rag_top_k = ragConfig.value.topK
     config.rag_min_score = ragConfig.value.minScore
     config.rag_chunk_size = ragConfig.value.chunkSize
@@ -444,11 +527,36 @@ function formatFileSize(bytes: number): string {
 function getFileIcon(fileName: string): string {
   const ext = fileName.split('.').pop()?.toLowerCase() || ''
   const iconMap: Record<string, string> = {
-    pdf: '📕', doc: '📘', docx: '📘', md: '📝', txt: '📃',
-    csv: '📊', json: '⚙️', xml: '📋', html: '🌐', yaml: '📑', yml: '📑', toml: '📑',
-    go: '🔷', py: '🐍', js: '💛', ts: '💙', java: '☕', c: '🔧', cpp: '🔧',
-    h: '📌', rs: '🦀', sh: '💻', rb: '💎', php: '🐘', swift: '🍎', kt: '🟣',
-    sql: '🗄️', log: '📜', ini: '📑', cfg: '📑',
+    pdf: '📕',
+    doc: '📘',
+    docx: '📘',
+    md: '📝',
+    txt: '📃',
+    csv: '📊',
+    json: '⚙️',
+    xml: '📋',
+    html: '🌐',
+    yaml: '📑',
+    yml: '📑',
+    toml: '📑',
+    go: '🔷',
+    py: '🐍',
+    js: '💛',
+    ts: '💙',
+    java: '☕',
+    c: '🔧',
+    cpp: '🔧',
+    h: '📌',
+    rs: '🦀',
+    sh: '💻',
+    rb: '💎',
+    php: '🐘',
+    swift: '🍎',
+    kt: '🟣',
+    sql: '🗄️',
+    log: '📜',
+    ini: '📑',
+    cfg: '📑'
   }
   return iconMap[ext] || '📄'
 }

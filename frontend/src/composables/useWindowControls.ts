@@ -24,84 +24,89 @@
 import { onMounted, onUnmounted, readonly, ref } from 'vue'
 import { wails } from '../services/wails'
 import { discreteDialog } from '../utils/discrete'
-import { WindowMinimise, WindowToggleMaximise, WindowIsMaximised, WindowHide } from '../../wailsjs/runtime/runtime'
+import {
+  WindowMinimise,
+  WindowToggleMaximise,
+  WindowIsMaximised,
+  WindowHide
+} from '../../wailsjs/runtime/runtime'
 
 export function useWindowControls() {
-    // ----- 窗口状态 -----
-    const isMaximized = ref(false)
+  // ----- 窗口状态 -----
+  const isMaximized = ref(false)
 
-    // ----- resize 防抖定时器（任务 24）-----
-    let resizeTimer: ReturnType<typeof setTimeout> | null = null
+  // ----- resize 防抖定时器（任务 24）-----
+  let resizeTimer: ReturnType<typeof setTimeout> | null = null
 
-    function handleMinimize() {
-        WindowMinimise()
+  function handleMinimize() {
+    WindowMinimise()
+  }
+
+  function handleToggleMaximize() {
+    WindowToggleMaximise()
+    updateMaximizedState()
+  }
+
+  async function handleClose() {
+    const action = await wails.handleCloseRequest()
+    if (action === 'exit') {
+      wails.gracefulExit()
+      return
     }
-
-    function handleToggleMaximize() {
-        WindowToggleMaximise()
-        updateMaximizedState()
+    if (action === 'tray') {
+      WindowHide()
+      return
     }
-
-    async function handleClose() {
-        const action = await wails.handleCloseRequest()
-        if (action === 'exit') {
-            wails.gracefulExit()
-            return
-        }
-        if (action === 'tray') {
-            WindowHide()
-            return
-        }
-        // action === 'ask'：首次关闭时询问
-        discreteDialog.warning({
-            title: '关闭窗口',
-            content: '你希望将豆芽最小化到系统托盘后台运行，还是直接退出程序？',
-            positiveText: '最小化到托盘',
-            negativeText: '直接退出',
-            onPositiveClick: async () => {
-                await wails.setCloseAction('tray')
-                WindowHide()
-            },
-            onNegativeClick: async () => {
-                await wails.setCloseAction('exit')
-                wails.gracefulExit()
-            },
-        })
-    }
-
-    async function updateMaximizedState() {
-        try {
-            isMaximized.value = await WindowIsMaximised()
-        } catch {
-            isMaximized.value = false
-        }
-    }
-
-    // 防抖处理 resize 事件：200ms 内多次触发只执行最后一次，避免频繁查询窗口状态
-    function handleResize() {
-        if (resizeTimer) clearTimeout(resizeTimer)
-        resizeTimer = setTimeout(updateMaximizedState, 200)
-    }
-
-    onMounted(() => {
-        // 初始化最大化状态（与原 App.vue 在 onMounted 内通过 Promise.all 调用一致）
-        updateMaximizedState()
-        window.addEventListener('resize', handleResize)
+    // action === 'ask'：首次关闭时询问
+    discreteDialog.warning({
+      title: '关闭窗口',
+      content: '你希望将豆芽最小化到系统托盘后台运行，还是直接退出程序？',
+      positiveText: '最小化到托盘',
+      negativeText: '直接退出',
+      onPositiveClick: async () => {
+        await wails.setCloseAction('tray')
+        WindowHide()
+      },
+      onNegativeClick: async () => {
+        await wails.setCloseAction('exit')
+        wails.gracefulExit()
+      }
     })
+  }
 
-    onUnmounted(() => {
-        window.removeEventListener('resize', handleResize)
-        // 清理 resize 防抖定时器（任务 24）
-        if (resizeTimer) {
-            clearTimeout(resizeTimer)
-            resizeTimer = null
-        }
-    })
-
-    return {
-        isMaximized: readonly(isMaximized), // Readonly<Ref<boolean>>：外部只读，内部可变
-        handleMinimize,       // () => void
-        handleToggleMaximize, // () => void
-        handleClose,          // () => void
+  async function updateMaximizedState() {
+    try {
+      isMaximized.value = await WindowIsMaximised()
+    } catch {
+      isMaximized.value = false
     }
+  }
+
+  // 防抖处理 resize 事件：200ms 内多次触发只执行最后一次，避免频繁查询窗口状态
+  function handleResize() {
+    if (resizeTimer) clearTimeout(resizeTimer)
+    resizeTimer = setTimeout(updateMaximizedState, 200)
+  }
+
+  onMounted(() => {
+    // 初始化最大化状态（与原 App.vue 在 onMounted 内通过 Promise.all 调用一致）
+    updateMaximizedState()
+    window.addEventListener('resize', handleResize)
+  })
+
+  onUnmounted(() => {
+    window.removeEventListener('resize', handleResize)
+    // 清理 resize 防抖定时器（任务 24）
+    if (resizeTimer) {
+      clearTimeout(resizeTimer)
+      resizeTimer = null
+    }
+  })
+
+  return {
+    isMaximized: readonly(isMaximized), // Readonly<Ref<boolean>>：外部只读，内部可变
+    handleMinimize, // () => void
+    handleToggleMaximize, // () => void
+    handleClose // () => void
+  }
 }

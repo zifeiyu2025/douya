@@ -2,23 +2,28 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
+	"douya/internal/apperror"
 	"douya/internal/chat"
 	"douya/internal/config"
 	"douya/internal/httputil"
 	"douya/internal/llm"
+	"douya/internal/logger"
 	"douya/internal/system"
+	"douya/internal/version"
 
 	zlog "github.com/rs/zerolog/log"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const (
@@ -43,7 +48,6 @@ func (a *App) resolveMediaPath(mediaPath string) string {
 	}
 	return resolved
 }
-
 
 // watchServerHealth 监控服务器健康状态，崩溃时自动重启。
 // 从 startServerAndWatch() 抽出以降低单函数复杂度。
@@ -137,7 +141,7 @@ func (a *App) watchServerHealth(ctx context.Context, watchCtx context.Context) {
 				// 自动重新加载模型
 				zlog.Info().Str("model", modelName).Msg("[router-monitor] attempting to reload crashed model")
 				a.serverReady.Store(false)
-				runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+				wailsruntime.EventsEmit(ctx, "server:status", llm.ServerStatus{
 					Running:     false,
 					ModelReady:  false,
 					Switching:   true,
@@ -153,7 +157,14 @@ func (a *App) watchServerHealth(ctx context.Context, watchCtx context.Context) {
 
 				if err := a.client.WaitForModelLoaded(watchCtx, modelName, 120*time.Second); err != nil {
 					zlog.Error().Err(err).Str("model", modelName).Msg("[router-monitor] reload wait failed")
-					a.emitErrorStatus(ctx, fmt.Sprintf("模型重新加载超时: %v", err))
+					// 用 errors.Is 精准区分错误类型，给用户更准确的提示
+					errMsg := fmt.Sprintf("模型重新加载失败: %v", err)
+					if errors.Is(err, apperror.ErrTimeout) {
+						errMsg = fmt.Sprintf("模型重新加载超时: %v", err)
+					} else if errors.Is(err, apperror.ErrUnavailable) {
+						errMsg = fmt.Sprintf("模型重新加载时服务崩溃: %v", err)
+					}
+					a.emitErrorStatus(ctx, errMsg)
 				} else {
 					zlog.Info().Str("model", modelName).Msg("[router-monitor] model reloaded successfully")
 					a.serverReady.Store(true)
@@ -275,7 +286,7 @@ func (a *App) operateSlot(slotID int, action string) error {
 	// （即便白名单已拦截非法值，转义仍是纵深防御，防止未来扩展 action 时遗漏）
 	query := url.Values{"action": {action}}.Encode()
 	reqURL := fmt.Sprintf("%s/slots/%d?%s", a.client.BaseURL(), slotID, query)
-	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, http.NoBody)
 	if err != nil {
 		return fmt.Errorf("创建%s slot 请求失败: %w", slotActionDesc[action], err)
 	}
@@ -507,7 +518,7 @@ func (a *App) GetAvailableModels() ([]llm.ModelOption, error) {
 }
 
 // tryWatchModelLoadProgress 尝试通过 /models/sse 端点实时监听模型加载进度
-// 将进度通过 runtime.EventsEmit 推送到前端（事件名 modelLoadProgress）
+// 将进度通过 wailsruntime.EventsEmit 推送到前端（事件名 modelLoadProgress）
 // 如果 SSE 连接失败，静默回退到轮询方式，不影响主流程
 // 返回一个 cancel 函数，调用方可提前终止 SSE 监听
 func (a *App) tryWatchModelLoadProgress(ctx context.Context, modelName string) context.CancelFunc {
@@ -532,7 +543,7 @@ func (a *App) tryWatchModelLoadProgress(ctx context.Context, modelName string) c
 
 		err := a.client.WatchModelLoadProgress(sseCtx, modelName, func(event llm.ModelLoadEvent) {
 			// 推送实时加载进度到前端
-			runtime.EventsEmit(ctx, "modelLoadProgress", map[string]any{
+			wailsruntime.EventsEmit(ctx, "modelLoadProgress", map[string]any{
 				"model":    event.Model,
 				"status":   event.Status,
 				"progress": event.ProgressPercent,
@@ -550,7 +561,7 @@ func (a *App) tryWatchModelLoadProgress(ctx context.Context, modelName string) c
 
 // emitSwitchingStatus emits a server status event indicating a model switch is in progress.
 func (a *App) emitSwitchingStatus(modelName string) {
-	runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
+	wailsruntime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
 		Running:     false,
 		ModelReady:  false,
 		Switching:   true,
@@ -569,7 +580,7 @@ func (a *App) emitErrorStatus(ctx context.Context, errMsg string) {
 	a.lastServerError = errMsg
 	a.lastServerErrMu.Unlock()
 	a.serverLoadFailed.Store(true)
-	runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+	wailsruntime.EventsEmit(ctx, "server:status", llm.ServerStatus{
 		Running:    false,
 		ModelReady: false,
 		Error:      errMsg,
@@ -579,7 +590,7 @@ func (a *App) emitErrorStatus(ctx context.Context, errMsg string) {
 // emitSwitchSuccess emits a server status event indicating the model switch succeeded.
 func (a *App) emitSwitchSuccess(modelName string) {
 	caps := a.service.GetModelCapabilities()
-	runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
+	wailsruntime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
 		Running:      true,
 		ModelReady:   true,
 		CurrentModel: modelName,
@@ -606,7 +617,7 @@ func (a *App) emitSwitchProgressCtx(ctx context.Context, stage, targetModel stri
 		"targetModel": targetModel,
 	}
 	maps.Copy(payload, extras)
-	runtime.EventsEmit(ctx, "server:switchProgress", payload)
+	wailsruntime.EventsEmit(ctx, "server:switchProgress", payload)
 }
 
 // tryReloadWithoutMmproj 尝试去掉 mmproj 后重新加载模型
@@ -646,7 +657,7 @@ func (a *App) tryReloadWithoutMmproj(ctx context.Context, modelName string, prog
 	a.emitSwitchSuccess(modelName)
 
 	// 通知前端多模态不可用
-	runtime.EventsEmit(ctx, "server:mmprojUnavailable", map[string]string{
+	wailsruntime.EventsEmit(ctx, "server:mmprojUnavailable", map[string]string{
 		"model": modelName,
 		"hint":  "多模态投影器不兼容，已切换为纯文本模式",
 	})
@@ -663,20 +674,21 @@ func (a *App) regeneratePresetWithoutMmproj(modelName string) bool {
 
 	found := false
 	for i := range a.presets {
-		if a.presets[i].Name == modelName {
-			if a.presets[i].MmprojPath == "" {
-				// 该模型本来就没有 mmproj，不需要重试
-				return false
-			}
-			zlog.Info().Str("model", modelName).Str("mmproj", a.presets[i].MmprojPath).
-				Msg("[preset] removing mmproj from preset due to loading failure, will retry in text-only mode")
-			a.presets[i].MmprojPath = ""
-			a.presets[i].MmprojVision = false
-			a.presets[i].MmprojAudio = false
-			a.presets[i].MmprojVideo = false
-			found = true
-			break
+		if a.presets[i].Name != modelName {
+			continue
 		}
+		if a.presets[i].MmprojPath == "" {
+			// 该模型本来就没有 mmproj，不需要重试
+			return false
+		}
+		zlog.Info().Str("model", modelName).Str("mmproj", a.presets[i].MmprojPath).
+			Msg("[preset] removing mmproj from preset due to loading failure, will retry in text-only mode")
+		a.presets[i].MmprojPath = ""
+		a.presets[i].MmprojVision = false
+		a.presets[i].MmprojAudio = false
+		a.presets[i].MmprojVideo = false
+		found = true
+		break
 	}
 
 	if !found {
@@ -1288,7 +1300,7 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 		}
 		if err := config.Save(filepath.Join(appDir(), "config.json"), cfg); err != nil {
 			zlog.Error().Err(err).Msg("[router] save config after model switch failed")
-			runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
+			wailsruntime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
 				Running:      true,
 				ModelReady:   true,
 				CurrentModel: modelName,
@@ -1301,7 +1313,7 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 	a.service.SetDetectedModelName(modelName)
 	if err := a.service.DetectModelArchitectureForModel(modelName); err != nil {
 		zlog.Error().Err(err).Msg("[router] detect model architecture after switch failed")
-		runtime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
+		wailsruntime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
 			Running:      true,
 			ModelReady:   true,
 			CurrentModel: modelName,
@@ -1433,7 +1445,235 @@ func isAlreadyRunningError(err error) bool {
 	if err == nil {
 		return false
 	}
+	// 优先用 errors.Is 精准判断（llm.LoadModel 已类型化为 KindConflict）
+	if errors.Is(err, apperror.ErrConflict) {
+		return true
+	}
+	// 兜底：字符串匹配，兼容未类型化的错误路径
 	errMsg := strings.ToLower(err.Error())
 	return strings.Contains(errMsg, "already running") ||
 		strings.Contains(errMsg, "already loaded")
+}
+
+// ===== D2: 健康检查端点 =====
+//
+// 生活类比：Health() 就像汽车的仪表盘——一眼看到发动机是否启动（llm_server）、
+// 油箱是否充足（database）、当前挂的什么挡（current_model）、已经跑了多久（uptime）。
+// 前端或外部调试工具可以通过 Wails IPC 调用 App.Health() 获取完整运行时状态快照。
+//
+// 设计原则：
+// 1. 只读快照，不修改任何状态
+// 2. 并发安全：所有受 mutex 保护的字段都用 RLock/RUnlock
+// 3. 数据库健康检查带 1 秒超时，避免阻塞
+// 4. status 字段：ok=全部正常，degraded=部分组件异常，down=核心组件不可用
+
+// HealthStatus 是健康检查端点返回的完整运行时状态
+type HealthStatus struct {
+	Status        string         `json:"status"`         // "ok" | "degraded" | "down"
+	Timestamp     string         `json:"timestamp"`      // RFC3339 格式
+	UptimeSeconds float64        `json:"uptime_seconds"` // 应用运行时长（秒）
+	AppReady      bool           `json:"app_ready"`      // 应用是否完成启动
+	ConfigLoaded  bool           `json:"config_loaded"`  // 配置是否已加载
+	Version       HealthVersion  `json:"version"`
+	Components    HealthComponents `json:"components"`
+	Runtime       HealthRuntime  `json:"runtime"`
+}
+
+// HealthVersion 版本信息
+type HealthVersion struct {
+	App string `json:"app"` // 应用版本号（如 "0.10.7"）
+	Go  string `json:"go"`  // Go 编译器版本（如 "go1.23.5"）
+}
+
+// HealthComponents 各组件健康状态
+type HealthComponents struct {
+	LLM       HealthLLM       `json:"llm_server"`
+	Database  HealthDatabase  `json:"database"`
+	Chat      HealthChat      `json:"chat_service"`
+	RAG       HealthRAG       `json:"rag"`
+	Hardware  HealthHardware  `json:"hardware"`
+}
+
+// HealthLLM llama-server 子进程状态
+type HealthLLM struct {
+	Running           bool   `json:"running"`             // 进程是否在运行
+	ModelReady        bool   `json:"model_ready"`          // 模型是否就绪
+	PermanentFailure  bool   `json:"permanent_failure"`    // 是否永久失败（不再自动重启）
+	LoadFailed        bool   `json:"load_failed"`          // 模型加载是否彻底失败
+	CurrentModel      string `json:"current_model"`        // 当前加载的模型名
+	Switching         bool   `json:"switching"`            // 是否正在切换模型
+	SwitchingTo       string `json:"switching_to"`         // 切换目标模型名
+	Port              int    `json:"port"`                 // llama-server 监听端口
+	APIBase           string `json:"api_base"`             // API 基础 URL
+	LastError         string `json:"last_error"`           // 最后一次错误信息
+}
+
+// HealthDatabase 数据库状态
+type HealthDatabase struct {
+	Available bool   `json:"available"` // 数据库是否可用（Ping 成功）
+	Error     string `json:"error"`     // 不可用时的错误信息
+}
+
+// HealthChat 聊天服务状态
+type HealthChat struct {
+	Available  bool `json:"available"`  // 聊天服务是否已初始化
+	Generating bool `json:"generating"` // 是否正在生成回复
+}
+
+// HealthRAG RAG 向量库状态
+type HealthRAG struct {
+	Available             bool `json:"available"`               // RAG 是否已初始化
+	VectorStoreInitialized bool `json:"vector_store_initialized"` // 向量库是否已就绪
+}
+
+// HealthHardware 硬件信息
+type HealthHardware struct {
+	CPUCores       int    `json:"cpu_cores"`
+	HasGPU         bool   `json:"has_gpu"`
+	GPUName        string `json:"gpu_name"`
+	GPUVRAMMB      int64  `json:"gpu_vram_mb"`
+	HasCUDABackend bool   `json:"has_cuda_backend"`
+}
+
+// HealthRuntime Go 运行时状态
+type HealthRuntime struct {
+	Goroutines    int    `json:"goroutines"`       // goroutine 数量
+	MemAllocBytes uint64 `json:"mem_alloc_bytes"`  // 已分配内存（字节）
+	MemSysBytes   uint64 `json:"mem_sys_bytes"`    // 系统分配内存（字节）
+}
+
+// Health 返回应用完整运行时状态快照，用于健康检查和调试。
+//
+// 生活类比：就像去医院体检，医生一次性给你出一份全身检查报告——
+// 心跳（llm_server 是否运行）、血压（database 是否正常）、体温（model 是否就绪）等。
+//
+// 前端可通过 Wails IPC 调用：await window.go.main.App.Health()
+// 返回的 status 字段：
+//   - "ok"：所有核心组件正常
+//   - "degraded"：部分组件异常，但应用仍可运行
+//   - "down"：核心组件（数据库或配置）不可用
+func (a *App) Health() HealthStatus {
+	// 1. 收集 LLM 状态
+	llmStatus := HealthLLM{
+		Port:    8080,
+		APIBase: "http://127.0.0.1:8080",
+	}
+	if cfg := a.getConfig(); cfg != nil {
+		llmStatus.Port = cfg.Port
+		llmStatus.APIBase = cfg.APIBase
+	}
+	a.serverMu.RLock()
+	srv := a.server
+	a.serverMu.RUnlock()
+	if srv != nil {
+		llmStatus.Running = srv.IsRunning()
+		llmStatus.PermanentFailure = srv.IsPermanentFailure()
+	}
+	llmStatus.ModelReady = a.serverReady.Load()
+	llmStatus.LoadFailed = a.serverLoadFailed.Load()
+	a.currentModelMu.RLock()
+	llmStatus.CurrentModel = a.currentModelName
+	a.currentModelMu.RUnlock()
+	llmStatus.Switching = a.isSwitching.Load()
+	if llmStatus.Switching {
+		a.switchingToMu.RLock()
+		llmStatus.SwitchingTo = a.switchingTo
+		a.switchingToMu.RUnlock()
+	}
+	a.lastServerErrMu.RLock()
+	llmStatus.LastError = a.lastServerError
+	a.lastServerErrMu.RUnlock()
+
+	// 2. 收集数据库状态（带 1 秒超时，避免阻塞）
+	dbStatus := HealthDatabase{Available: a.db != nil}
+	if a.db != nil {
+		pingCtx, pingCancel := context.WithTimeout(context.Background(), time.Second)
+		defer pingCancel()
+		if err := a.db.PingContext(pingCtx); err != nil {
+			dbStatus.Available = false
+			dbStatus.Error = err.Error()
+		}
+	} else {
+		dbStatus.Error = "database not initialized"
+	}
+
+	// 3. 收集聊天服务状态
+	chatStatus := HealthChat{Available: a.service != nil}
+	if a.service != nil {
+		chatStatus.Generating = a.service.IsGenerating()
+	}
+
+	// 4. 收集 RAG 状态
+	ragStatus := HealthRAG{
+		Available:              a.ragVS != nil,
+		VectorStoreInitialized: a.ragVS != nil,
+	}
+
+	// 5. 收集硬件信息
+	hwStatus := HealthHardware{}
+	if a.hwInfo != nil {
+		hwStatus.CPUCores = a.hwInfo.CPUCores
+		hwStatus.HasGPU = a.hwInfo.HasGPU
+		hwStatus.GPUName = a.hwInfo.GPUName
+		hwStatus.GPUVRAMMB = a.hwInfo.GPUVRAMMB
+		hwStatus.HasCUDABackend = a.hwInfo.HasCUDABackend
+	}
+
+	// 6. 收集 Go 运行时状态
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	rtStatus := HealthRuntime{
+		Goroutines:    runtime.NumGoroutine(),
+		MemAllocBytes: memStats.Alloc,
+		MemSysBytes:   memStats.Sys,
+	}
+
+	// 7. 计算整体状态
+	// 核心组件：数据库 + 配置。任一不可用 → "down"
+	// 重要组件：LLM 服务。异常但应用仍可运行 → "degraded"
+	configLoaded := a.getConfig() != nil
+	status := "ok"
+	if !dbStatus.Available || !configLoaded {
+		status = "down"
+	} else if !llmStatus.Running || llmStatus.LoadFailed || llmStatus.PermanentFailure {
+		status = "degraded"
+	}
+
+	return HealthStatus{
+		Status:        status,
+		Timestamp:     time.Now().Format(time.RFC3339),
+		UptimeSeconds: time.Since(appStartTime).Seconds(),
+		AppReady:      a.ready.Load(),
+		ConfigLoaded:  configLoaded,
+		Version: HealthVersion{
+			App: version.Version,
+			Go:  runtime.Version(),
+		},
+		Components: HealthComponents{
+			LLM:      llmStatus,
+			Database: dbStatus,
+			Chat:     chatStatus,
+			RAG:      ragStatus,
+			Hardware: hwStatus,
+		},
+		Runtime: rtStatus,
+	}
+}
+
+// ===== D3: 日志级别动态调整 =====
+//
+// 生活类比：像电视机的音量按钮——不用关机重启，运行中随时可以调大调小。
+// 排查问题时调成 "debug" 看详细信息，日常使用调成 "warn" 减少噪音。
+
+// SetLogLevel 动态调整全局日志级别。
+// 前端可通过 Wails IPC 调用：await window.go.main.App.SetLogLevel("debug")
+// 支持的级别（不区分大小写）：trace / debug / info / warn / error / fatal / panic / disabled
+func (a *App) SetLogLevel(level string) error {
+	return logger.SetLevel(level)
+}
+
+// GetLogLevel 返回当前全局日志级别字符串
+// 前端可通过 Wails IPC 调用：const level = await window.go.main.App.GetLogLevel()
+func (a *App) GetLogLevel() string {
+	return logger.GetLevel()
 }

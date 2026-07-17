@@ -4,11 +4,12 @@
 package config_test
 
 import (
-	"douya/internal/config"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"douya/internal/config"
 )
 
 func TestDefaultConfig(t *testing.T) {

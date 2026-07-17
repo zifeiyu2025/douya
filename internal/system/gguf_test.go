@@ -42,18 +42,6 @@ func (b *ggufBuilder) addUint32(key string, value uint32) *ggufBuilder {
 	return b
 }
 
-// addInt32 添加一个 int32 类型的键值对
-func (b *ggufBuilder) addInt32(key string, value int32) *ggufBuilder {
-	b.kvs = append(b.kvs, ggufKV{key: key, valueType: ggufTypeINT32, value: value})
-	return b
-}
-
-// addUint64 添加一个 uint64 类型的键值对
-func (b *ggufBuilder) addUint64(key string, value uint64) *ggufBuilder {
-	b.kvs = append(b.kvs, ggufKV{key: key, valueType: ggufTypeUINT64, value: value})
-	return b
-}
-
 // addFloat32 添加一个 float32 类型的键值对
 func (b *ggufBuilder) addFloat32(key string, value float32) *ggufBuilder {
 	b.kvs = append(b.kvs, ggufKV{key: key, valueType: ggufTypeFLOAT32, value: value})

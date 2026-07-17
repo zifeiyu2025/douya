@@ -1,27 +1,50 @@
 <template>
   <Transition name="splash" @after-leave="$emit('complete')">
-    <div v-if="visible" class="splash-screen" style="--wails-draggable:drag">
+    <div v-if="visible" class="splash-screen" style="--wails-draggable: drag">
       <!-- 背景氛围层：单一径向渐变，营造空间感（非装饰覆盖层，避免堆叠问题） -->
       <div class="splash-ambient" aria-hidden="true"></div>
 
       <div class="splash-content">
         <!-- LOGO 区域：appicon.png 作为唯一视觉锚点 -->
-        <div class="splash-logo-wrap" :class="{ 'is-done': stage === 'done', 'is-failed': stage === 'failed' }">
+        <div
+          class="splash-logo-wrap"
+          :class="{ 'is-done': stage === 'done', 'is-failed': stage === 'failed' }"
+        >
           <!-- 外层发光环：加载中旋转弧线，完成时画圆 -->
-          <svg class="logo-ring" width="112" height="112" viewBox="0 0 112 112" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <svg
+            class="logo-ring"
+            width="112"
+            height="112"
+            viewBox="0 0 112 112"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
             <!-- 底层静态淡圈（轨道） -->
             <circle cx="56" cy="56" r="52" stroke="currentColor" stroke-width="1" opacity="0.1" />
             <!-- 旋转弧线（加载中） -->
-            <circle v-if="stage !== 'done' && stage !== 'failed'" cx="56" cy="56" r="52"
-              stroke="currentColor" stroke-width="2"
+            <circle
+              v-if="stage !== 'done' && stage !== 'failed'"
+              cx="56"
+              cy="56"
+              r="52"
+              stroke="currentColor"
+              stroke-width="2"
               stroke-linecap="round"
               stroke-dasharray="80 246"
-              class="logo-spinner" />
+              class="logo-spinner"
+            />
             <!-- 完成圆环（画圆动画） -->
-            <circle v-else cx="56" cy="56" r="52"
-              stroke="currentColor" stroke-width="2"
+            <circle
+              v-else
+              cx="56"
+              cy="56"
+              r="52"
+              stroke="currentColor"
+              stroke-width="2"
               stroke-linecap="round"
-              class="logo-complete" />
+              class="logo-complete"
+            />
           </svg>
 
           <!-- LOGO 图像：appicon.png -->
@@ -37,8 +60,15 @@
         <!-- 状态指示器：底部安静展示 -->
         <div class="splash-status">
           <span class="status-dot" :class="'dot-' + stage" aria-hidden="true"></span>
-          <span class="status-text" :class="{ 'status-done': stage === 'done', 'status-failed': stage === 'failed' }">{{ stageText }}</span>
-          <span v-if="modelName && stage !== 'done' && stage !== 'failed'" class="status-model">{{ modelName }}</span>
+          <span
+            class="status-text"
+            :class="{ 'status-done': stage === 'done', 'status-failed': stage === 'failed' }"
+          >
+            {{ stageText }}
+          </span>
+          <span v-if="modelName && stage !== 'done' && stage !== 'failed'" class="status-model">
+            {{ modelName }}
+          </span>
         </div>
       </div>
     </div>
@@ -49,17 +79,20 @@
 import { computed } from 'vue'
 import appLogo from '../../assets/images/appicon.png'
 
-const props = withDefaults(defineProps<{
-  visible: boolean
-  stage: string
-  modelName: string
-  progress: number
-}>(), {
-  visible: false,
-  stage: 'idle',
-  modelName: '',
-  progress: 0,
-})
+const props = withDefaults(
+  defineProps<{
+    visible?: boolean
+    stage?: string
+    modelName?: string
+    progress?: number
+  }>(),
+  {
+    visible: false,
+    stage: 'idle',
+    modelName: '',
+    progress: 0
+  }
+)
 
 defineEmits<{
   complete: []
@@ -76,7 +109,7 @@ const stageText = computed(() => {
     failed: '加载失败',
     rolling_back: '回滚中',
     'vram-warning': 'VRAM 不足警告',
-    'spec-warning': '推测解码兼容性警告',
+    'spec-warning': '推测解码兼容性警告'
   }
   return map[props.stage] || '加载中'
 })
@@ -104,21 +137,13 @@ const stageText = computed(() => {
 .splash-ambient {
   position: absolute;
   inset: 0;
-  background: radial-gradient(
-    circle at 50% 45%,
-    rgba(9, 105, 218, 0.06) 0%,
-    transparent 60%
-  );
+  background: radial-gradient(circle at 50% 45%, rgba(9, 105, 218, 0.06) 0%, transparent 60%);
   pointer-events: none;
 }
 
 /* 暗色主题下的氛围层调整 */
 :global(body.theme-dark) .splash-ambient {
-  background: radial-gradient(
-    circle at 50% 45%,
-    rgba(68, 147, 248, 0.08) 0%,
-    transparent 60%
-  );
+  background: radial-gradient(circle at 50% 45%, rgba(68, 147, 248, 0.08) 0%, transparent 60%);
 }
 
 /* ===== 内容区域 ===== */
@@ -260,7 +285,8 @@ const stageText = computed(() => {
 }
 
 @keyframes title-glow {
-  0%, 100% {
+  0%,
+  100% {
     text-shadow: 0 0 16px rgba(9, 105, 218, 0.25);
   }
   50% {
@@ -273,7 +299,8 @@ const stageText = computed(() => {
 }
 
 @keyframes title-glow-dark {
-  0%, 100% {
+  0%,
+  100% {
     text-shadow: 0 0 16px rgba(68, 147, 248, 0.35);
   }
   50% {
@@ -332,7 +359,8 @@ const stageText = computed(() => {
 }
 
 @keyframes dot-pulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0.4;
     transform: scale(0.85);
   }
@@ -343,7 +371,8 @@ const stageText = computed(() => {
 }
 
 @keyframes dot-blink {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
   }
   50% {
@@ -385,7 +414,9 @@ const stageText = computed(() => {
 }
 
 .splash-leave-active {
-  transition: opacity 0.6s ease, transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    opacity 0.6s ease,
+    transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .splash-enter-from {

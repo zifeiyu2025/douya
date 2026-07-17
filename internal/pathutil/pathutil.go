@@ -73,5 +73,3 @@ func RestrictACLWindows(path string) error {
 	}
 	return nil
 }
-
-

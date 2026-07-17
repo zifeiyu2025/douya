@@ -21,7 +21,7 @@ describe('setupCodeCopyDelegation', () => {
     writeTextSpy = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText: writeTextSpy },
-      configurable: true,
+      configurable: true
     })
   })
 
@@ -49,7 +49,7 @@ describe('setupCodeCopyDelegation', () => {
 
     // 点击按钮
     btn.click()
-    await new Promise((r) => setTimeout(r, 0))
+    await new Promise(r => setTimeout(r, 0))
 
     expect(writeTextSpy).toHaveBeenCalledWith('console.log("hello")')
   })
@@ -65,7 +65,7 @@ describe('setupCodeCopyDelegation', () => {
 
     // 点击 code 元素（非按钮）
     code.click()
-    await new Promise((r) => setTimeout(r, 0))
+    await new Promise(r => setTimeout(r, 0))
 
     expect(writeTextSpy).not.toHaveBeenCalled()
   })
@@ -85,7 +85,7 @@ describe('setupCodeCopyDelegation', () => {
     container.appendChild(pre)
 
     btn.click()
-    await new Promise((r) => setTimeout(r, 0))
+    await new Promise(r => setTimeout(r, 0))
 
     expect(writeTextSpy).not.toHaveBeenCalled()
   })
@@ -107,7 +107,7 @@ describe('setupCodeCopyDelegation', () => {
     const btns = container.querySelectorAll('.code-copy-btn')
     ;(btns[0] as HTMLElement).click()
     ;(btns[2] as HTMLElement).click()
-    await new Promise((r) => setTimeout(r, 0))
+    await new Promise(r => setTimeout(r, 0))
 
     expect(writeTextSpy).toHaveBeenCalledTimes(2)
     expect(writeTextSpy).toHaveBeenNthCalledWith(1, 'code0')

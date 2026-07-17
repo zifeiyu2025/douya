@@ -18,11 +18,7 @@ const HEIC_JPEG_QUALITY = 0.85
 const HEIC_DECODE_TIMEOUT = 60_000
 
 interface HeicToModule {
-  heicTo: (args: {
-    blob: Blob
-    type: string
-    quality?: number
-  }) => Promise<Blob>
+  heicTo: (args: { blob: Blob; type: string; quality?: number }) => Promise<Blob>
 }
 
 let modulePromise: Promise<HeicToModule> | null = null
@@ -68,7 +64,7 @@ export async function heicFileToJpegDataURL(file: File | Blob): Promise<string> 
   const decodePromise = heicTo({
     blob: file,
     type: 'image/jpeg',
-    quality: HEIC_JPEG_QUALITY,
+    quality: HEIC_JPEG_QUALITY
   })
 
   const timeoutPromise = new Promise<never>((_, reject) => {

@@ -5,8 +5,9 @@ package search_test
 
 import (
 	"context"
-	"douya/internal/search"
 	"testing"
+
+	"douya/internal/search"
 )
 
 func TestOllamaProvider_EmptyAPIKey(t *testing.T) {

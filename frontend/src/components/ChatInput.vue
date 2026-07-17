@@ -14,17 +14,84 @@
             <img :src="att.data" alt="" />
           </div>
           <div v-else class="att-thumb file-thumb">
-            <svg v-if="att.type === 'audio'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-            <svg v-else-if="att.type === 'video'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-            <svg v-else-if="att.type === 'pdf'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-            <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            <svg
+              v-if="att.type === 'audio'"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M9 18V5l12-2v13" />
+              <circle cx="6" cy="18" r="3" />
+              <circle cx="18" cy="16" r="3" />
+            </svg>
+            <svg
+              v-else-if="att.type === 'video'"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polygon points="23 7 16 12 23 17 23 7" />
+              <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+            </svg>
+            <svg
+              v-else-if="att.type === 'pdf'"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
+              <polyline points="10 9 9 9 8 9" />
+            </svg>
+            <svg
+              v-else
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
+            </svg>
           </div>
           <div class="att-info">
             <span class="att-name" :title="att.name">{{ att.name }}</span>
             <span class="att-type-label">{{ typeLabel(att.type) }}</span>
           </div>
           <button class="remove-att-btn" @click="removeAttachment(idx)">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="3"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
@@ -34,40 +101,101 @@
       <div v-if="isListening" class="voice-indicator-bar">
         <div class="voice-pulse">
           <div class="pulse-ring"></div>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="19" x2="12" y2="23" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="8" y1="23" x2="16" y2="23" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+            <path
+              d="M19 10v2a7 7 0 0 1-14 0v-2"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <line
+              x1="12"
+              y1="19"
+              x2="12"
+              y2="23"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <line
+              x1="8"
+              y1="23"
+              x2="16"
+              y2="23"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
         </div>
         <span class="voice-text">{{ voiceInterimText || '正在聆听...' }}</span>
         <button class="voice-stop-btn" @click="stopListening">停止</button>
       </div>
       <div class="chat-input-container">
         <div class="left-buttons">
-                <button class="think-btn" :class="thinkBtnClass" :disabled="!supportsThinking" @click="handleThinkClick" :title="thinkingTitle">
-                  <n-icon size="22" class="think-icon"><BulbOutline /></n-icon>
-                  <span v-if="thinkingMode === 'no_think'" class="think-slash"></span>
-                </button>
-                <button
-                  v-if="supportsDeepReasoning"
-                  class="deep-reason-btn"
-                  :class="{ active: deepReasoningOn }"
-                  @click="handleDeepReasonClick"
-                  :title="deepReasoningTitle"
-                >
-                  <n-icon size="20" class="deep-reason-icon"><LayersOutline /></n-icon>
-                </button>
-                <button class="search-btn" :class="searchBtnClass" @click="handleSearchClick" :title="searchTitle">
-                  <n-icon size="22"><GlobeOutline /></n-icon>
-                </button>
-                <div class="attach-wrapper">
-                  <button class="attach-btn" @click="toggleAttachMenu" :disabled="isSwitching" title="添加附件">
-                    <n-icon size="22"><AttachOutline /></n-icon>
-                  </button>
+          <button
+            class="think-btn"
+            :class="thinkBtnClass"
+            :disabled="!supportsThinking"
+            :title="thinkingTitle"
+            @click="handleThinkClick"
+          >
+            <n-icon size="22" class="think-icon"><BulbOutline /></n-icon>
+            <span v-if="thinkingMode === 'no_think'" class="think-slash"></span>
+          </button>
+          <button
+            v-if="supportsDeepReasoning"
+            class="deep-reason-btn"
+            :class="{ active: deepReasoningOn }"
+            :title="deepReasoningTitle"
+            @click="handleDeepReasonClick"
+          >
+            <n-icon size="20" class="deep-reason-icon"><LayersOutline /></n-icon>
+          </button>
+          <button
+            class="search-btn"
+            :class="searchBtnClass"
+            :title="searchTitle"
+            @click="handleSearchClick"
+          >
+            <n-icon size="22"><GlobeOutline /></n-icon>
+          </button>
+          <div class="attach-wrapper">
+            <button
+              class="attach-btn"
+              :disabled="isSwitching"
+              title="添加附件"
+              @click="toggleAttachMenu"
+            >
+              <n-icon size="22"><AttachOutline /></n-icon>
+            </button>
             <div v-if="showAttachMenu" class="attach-menu">
               <button
                 class="attach-menu-item"
                 :class="{ disabled: !capabilities.mmproj_loaded || !capabilities.image_input }"
                 @click="triggerFileUpload('image')"
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                  <circle cx="8.5" cy="8.5" r="1.5" />
+                  <polyline points="21 15 16 10 5 21" />
+                </svg>
                 <span>图片</span>
                 <span v-if="!capabilities.mmproj_loaded" class="unsupported-tag">未加载mmproj</span>
                 <span v-else-if="!capabilities.image_input" class="unsupported-tag">不支持</span>
@@ -77,7 +205,20 @@
                 :class="{ disabled: !capabilities.mmproj_loaded || !capabilities.audio_input }"
                 @click="triggerFileUpload('audio')"
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M9 18V5l12-2v13" />
+                  <circle cx="6" cy="18" r="3" />
+                  <circle cx="18" cy="16" r="3" />
+                </svg>
                 <span>音频</span>
                 <span v-if="!capabilities.mmproj_loaded" class="unsupported-tag">未加载mmproj</span>
                 <span v-else-if="!capabilities.audio_input" class="unsupported-tag">不支持</span>
@@ -87,7 +228,19 @@
                 :class="{ disabled: !capabilities.mmproj_loaded || !capabilities.video_input }"
                 @click="triggerFileUpload('video')"
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polygon points="23 7 16 12 23 17 23 7" />
+                  <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                </svg>
                 <span>视频</span>
                 <span v-if="!capabilities.mmproj_loaded" class="unsupported-tag">未加载mmproj</span>
                 <span v-else-if="!capabilities.video_input" class="unsupported-tag">不支持</span>
@@ -97,7 +250,21 @@
                 :class="{ disabled: !capabilities.text_input }"
                 @click="triggerFileUpload('text')"
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="16" y1="13" x2="8" y2="13" />
+                  <line x1="16" y1="17" x2="8" y2="17" />
+                </svg>
                 <span>文本</span>
                 <span v-if="!capabilities.text_input" class="unsupported-tag">不支持</span>
               </button>
@@ -106,7 +273,22 @@
                 :class="{ disabled: !capabilities.text_input }"
                 @click="triggerFileUpload('pdf')"
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="16" y1="13" x2="8" y2="13" />
+                  <line x1="16" y1="17" x2="8" y2="17" />
+                  <polyline points="10 9 9 9 8 9" />
+                </svg>
                 <span>PDF</span>
                 <span v-if="!capabilities.text_input" class="unsupported-tag">不支持</span>
               </button>
@@ -115,21 +297,53 @@
                 :class="{ disabled: !capabilities.text_input }"
                 @click="triggerFileUpload('docx')"
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 15v-3"/><path d="M12 15v-3"/><path d="M15 15v-3"/><path d="M9 18h6"/></svg>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <path d="M9 15v-3" />
+                  <path d="M12 15v-3" />
+                  <path d="M15 15v-3" />
+                  <path d="M9 18h6" />
+                </svg>
                 <span>Word</span>
                 <span v-if="!capabilities.text_input" class="unsupported-tag">不支持</span>
               </button>
             </div>
           </div>
-          <input ref="fileInputRef" type="file" class="hidden-file-input" @change="handleFileSelect" />
+          <input
+            ref="fileInputRef"
+            type="file"
+            class="hidden-file-input"
+            @change="handleFileSelect"
+          />
           <button
             class="voice-btn"
             :class="{ active: isListening, unsupported: !speechSupported }"
             :disabled="!speechSupported"
+            :title="
+              speechSupported ? (isListening ? '停止语音输入' : '语音输入') : '浏览器不支持语音识别'
+            "
             @click="toggleListening"
-            :title="speechSupported ? (isListening ? '停止语音输入' : '语音输入') : '浏览器不支持语音识别'"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
               <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
               <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
               <line x1="12" y1="19" x2="12" y2="23"></line>
@@ -140,16 +354,16 @@
             v-if="settingsStore.config.slot_save_enabled"
             class="kv-btn kv-save-btn"
             :disabled="chatStore.isGenerating"
-            @click="handleSaveKV"
             title="保存 KV 缓存"
+            @click="handleSaveKV"
           >
             <n-icon size="22"><CloudUploadOutline /></n-icon>
           </button>
           <button
             v-if="settingsStore.config.slot_save_enabled"
             class="kv-btn kv-restore-btn"
-            @click="handleRestoreKV"
             title="恢复 KV 缓存"
+            @click="handleRestoreKV"
           >
             <n-icon size="22"><CloudDownloadOutline /></n-icon>
           </button>
@@ -160,22 +374,44 @@
             ref="textareaRef"
             v-model="inputText"
             placeholder="给DouYa发送消息....."
+            rows="1"
+            class="chat-textarea"
             @keydown="handleKeydown"
             @paste="handlePaste"
             @contextmenu="handleContextMenu"
-            rows="1"
-            class="chat-textarea"
           />
         </div>
 
         <div class="right-buttons">
-          <button v-if="chatStore.isGenerating" class="stop-btn" @click="chatStore.stopGeneration()">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <button
+            v-if="chatStore.isGenerating"
+            class="stop-btn"
+            @click="chatStore.stopGeneration()"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
               <rect x="6" y="6" width="12" height="12" rx="2"></rect>
             </svg>
           </button>
           <button v-else class="send-btn" :disabled="!canSend" @click="handleSend()">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
               <line x1="22" y1="2" x2="11" y2="13"></line>
               <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
             </svg>
@@ -184,7 +420,12 @@
       </div>
       <div class="input-footer-reminder">AI也会犯错，请仔细甄别</div>
     </div>
-    <div v-if="contextMenuVisible" class="ctx-menu" :style="{ left: contextMenuX + 'px', top: contextMenuY + 'px' }" @click.stop>
+    <div
+      v-if="contextMenuVisible"
+      class="ctx-menu"
+      :style="{ left: contextMenuX + 'px', top: contextMenuY + 'px' }"
+      @click.stop
+    >
       <button class="ctx-menu-item" :class="{ disabled: !canCut }" @click="ctxCut">
         <n-icon size="14"><CutOutline /></n-icon>
         <span>剪切</span>
@@ -209,7 +450,14 @@
 <script setup lang="ts">
 import { ref, shallowRef, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { NIcon, useMessage } from 'naive-ui'
-import { GlobeOutline, AttachOutline, BulbOutline, CloudUploadOutline, CloudDownloadOutline, LayersOutline } from '@vicons/ionicons5'
+import {
+  GlobeOutline,
+  AttachOutline,
+  BulbOutline,
+  CloudUploadOutline,
+  CloudDownloadOutline,
+  LayersOutline
+} from '@vicons/ionicons5'
 import { CutOutline, CopyOutline, ClipboardOutline, TextOutline } from '@vicons/ionicons5'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
@@ -250,7 +498,9 @@ declare global {
   }
 }
 
-const emit = defineEmits<{ send: [content: string, images?: string[], attachments?: Attachment[]] }>()
+const emit = defineEmits<{
+  send: [content: string, images?: string[], attachments?: Attachment[]]
+}>()
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
 const message = useMessage()
@@ -280,121 +530,132 @@ const capabilities = computed(() => settingsStore.modelCapabilities)
 const isSwitching = computed(() => settingsStore.isModelSwitching)
 const supportsThinking = computed(() => settingsStore.modelCapabilities.thinking_mode !== 'none')
 const thinkingTitle = computed(() => {
-    if (!supportsThinking.value) return '当前模型不支持思考'
-    switch (thinkingMode.value) {
-        case 'think': return '强制深度思考'
-        case 'no_think': return '快速回答（不思考）'
-        default: return '自动思考'
-    }
+  if (!supportsThinking.value) return '当前模型不支持思考'
+  switch (thinkingMode.value) {
+    case 'think':
+      return '强制深度思考'
+    case 'no_think':
+      return '快速回答（不思考）'
+    default:
+      return '自动思考'
+  }
 })
 const thinkBtnClass = computed(() => ({
-    active: thinkingMode.value === 'think',
-    'auto-mode': thinkingMode.value === 'auto',
-    'no-think-mode': thinkingMode.value === 'no_think',
-    unsupported: !supportsThinking.value,
+  active: thinkingMode.value === 'think',
+  'auto-mode': thinkingMode.value === 'auto',
+  'no-think-mode': thinkingMode.value === 'no_think',
+  unsupported: !supportsThinking.value
 }))
 const supportsDeepReasoning = computed(() => capabilities.value.supports_preserve_reasoning)
 const deepReasoningOn = computed(() => !!settingsStore.config.reasoning_preserve)
 const deepReasoningTitle = computed(() =>
-    deepReasoningOn.value
-        ? '深度推理：保留完整思考历史（每条消息都保留推理过程）'
-        : '深度推理：仅保留最近一次思考（点击开启完整历史保留）'
+  deepReasoningOn.value
+    ? '深度推理：保留完整思考历史（每条消息都保留推理过程）'
+    : '深度推理：仅保留最近一次思考（点击开启完整历史保留）'
 )
 async function handleDeepReasonClick() {
-    const newVal = !deepReasoningOn.value
-    // 先拉取后端最新配置，避免用过期的 settingsStore.config 覆盖其他路径的修改
-    const cfg = await wails.getConfig()
-    cfg.reasoning_preserve = newVal
-    await settingsStore.updateConfig(cfg)
-    message.destroyAll()
-    if (newVal) {
-        message.success('已开启深度推理，将保留完整思考历史', { duration: 2000 })
-    } else {
-        message.info('已关闭深度推理，仅保留最近一次思考', { duration: 2000 })
-    }
+  const newVal = !deepReasoningOn.value
+  // 先拉取后端最新配置，避免用过期的 settingsStore.config 覆盖其他路径的修改
+  const cfg = await wails.getConfig()
+  cfg.reasoning_preserve = newVal
+  await settingsStore.updateConfig(cfg)
+  message.destroyAll()
+  if (newVal) {
+    message.success('已开启深度推理，将保留完整思考历史', { duration: 2000 })
+  } else {
+    message.info('已关闭深度推理，仅保留最近一次思考', { duration: 2000 })
+  }
 }
 const searchTitle = computed(() => {
-    switch (searchMode.value) {
-        case 'on': return '强制搜索（所有消息都搜索）'
-        case 'auto': return '智能搜索（按需自动搜索）'
-        default: return '联网搜索已关闭'
-    }
+  switch (searchMode.value) {
+    case 'on':
+      return '强制搜索（所有消息都搜索）'
+    case 'auto':
+      return '智能搜索（按需自动搜索）'
+    default:
+      return '联网搜索已关闭'
+  }
 })
 const searchBtnClass = computed(() => ({
-    active: searchMode.value === 'on',
-    'auto-mode': searchMode.value === 'auto',
+  active: searchMode.value === 'on',
+  'auto-mode': searchMode.value === 'auto'
 }))
-const canSend = computed(() => !isSwitching.value && (inputText.value.trim() || attachments.value.length > 0))
+const canSend = computed(
+  () => !isSwitching.value && (inputText.value.trim() || attachments.value.length > 0)
+)
 
 async function handleSearchClick() {
-    const prevMode = searchMode.value
-    // 即将开启搜索（当前不是 on），检查是否配置了搜索 API Key
-    if (prevMode !== 'on') {
-        await settingsStore.loadSearchAPIKeys()
-        const keys = settingsStore.searchAPIKeys
-        // 未配置 API Key 时，不再拦截，改为提示将使用 Bing 兜底搜索
-        // Bing 是免 Key 兜底引擎，确保用户始终有搜索能力
-        if (!keys.tavily_api_key_set && !keys.ollama_api_key_set) {
-            message.destroyAll()
-            message.info('未配置搜索 API Key，将使用 Bing 免费搜索（可在设置中配置 Tavily/Ollama 获得更佳体验）', { duration: 3500 })
-        }
+  const prevMode = searchMode.value
+  // 即将开启搜索（当前不是 on），检查是否配置了搜索 API Key
+  if (prevMode !== 'on') {
+    await settingsStore.loadSearchAPIKeys()
+    const keys = settingsStore.searchAPIKeys
+    // 未配置 API Key 时，不再拦截，改为提示将使用 Bing 兜底搜索
+    // Bing 是免 Key 兜底引擎，确保用户始终有搜索能力
+    if (!keys.tavily_api_key_set && !keys.ollama_api_key_set) {
+      message.destroyAll()
+      message.info(
+        '未配置搜索 API Key，将使用 Bing 免费搜索（可在设置中配置 Tavily/Ollama 获得更佳体验）',
+        { duration: 3500 }
+      )
     }
-    await settingsStore.cycleSearchMode()
-    const curMode = searchMode.value
-    if (curMode === prevMode) return
-    message.destroyAll()
-    switch (curMode) {
-        case 'off':
-            message.info('联网搜索已关闭', { duration: 2000 })
-            break
-        case 'auto':
-            message.success('智能搜索已开启，按需自动搜索', { duration: 2500 })
-            break
-        case 'on':
-            message.success('强制搜索已开启，所有消息都将搜索', { duration: 2500 })
-            break
-    }
+  }
+  await settingsStore.cycleSearchMode()
+  const curMode = searchMode.value
+  if (curMode === prevMode) return
+  message.destroyAll()
+  switch (curMode) {
+    case 'off':
+      message.info('联网搜索已关闭', { duration: 2000 })
+      break
+    case 'auto':
+      message.success('智能搜索已开启，按需自动搜索', { duration: 2500 })
+      break
+    case 'on':
+      message.success('强制搜索已开启，所有消息都将搜索', { duration: 2500 })
+      break
+  }
 }
 
 async function handleThinkClick() {
-    if (!supportsThinking.value) return
-    const prevMode = thinkingMode.value
-    await settingsStore.cycleThinkingMode()
-    const curMode = thinkingMode.value
-    if (curMode === prevMode) return
-    message.destroyAll()
-    switch (curMode) {
-        case 'auto':
-            message.info('已切换为自动思考', { duration: 2000 })
-            break
-        case 'think':
-            message.success('已开启强制深度思考', { duration: 2000 })
-            break
-        case 'no_think':
-            message.info('已切换为快速回答（不思考）', { duration: 2000 })
-            break
-    }
+  if (!supportsThinking.value) return
+  const prevMode = thinkingMode.value
+  await settingsStore.cycleThinkingMode()
+  const curMode = thinkingMode.value
+  if (curMode === prevMode) return
+  message.destroyAll()
+  switch (curMode) {
+    case 'auto':
+      message.info('已切换为自动思考', { duration: 2000 })
+      break
+    case 'think':
+      message.success('已开启强制深度思考', { duration: 2000 })
+      break
+    case 'no_think':
+      message.info('已切换为快速回答（不思考）', { duration: 2000 })
+      break
+  }
 }
 
 async function handleSaveKV() {
-    if (chatStore.isGenerating) return
-    try {
-        await wails.saveSlot(0)
-        showSuccess(message, 'KV 缓存已保存')
-    } catch (e) {
-        message.destroyAll()
-        message.error(`保存 KV 缓存失败: ${e}`, { duration: 3000 })
-    }
+  if (chatStore.isGenerating) return
+  try {
+    await wails.saveSlot(0)
+    showSuccess(message, 'KV 缓存已保存')
+  } catch (e) {
+    message.destroyAll()
+    message.error(`保存 KV 缓存失败: ${e}`, { duration: 3000 })
+  }
 }
 
 async function handleRestoreKV() {
-    try {
-        await wails.restoreSlot(0)
-        showSuccess(message, 'KV 缓存已恢复')
-    } catch (e) {
-        message.destroyAll()
-        message.error(`恢复 KV 缓存失败: ${e}`, { duration: 3000 })
-    }
+  try {
+    await wails.restoreSlot(0)
+    showSuccess(message, 'KV 缓存已恢复')
+  } catch (e) {
+    message.destroyAll()
+    message.error(`恢复 KV 缓存失败: ${e}`, { duration: 3000 })
+  }
 }
 
 function adjustHeight() {
@@ -465,7 +726,12 @@ async function ctxPaste() {
     const clipboardItems = await navigator.clipboard.read()
     for (const item of clipboardItems) {
       for (const type of item.types) {
-        if (type.startsWith('image/') || type.startsWith('audio/') || type.startsWith('video/') || type === 'application/pdf') {
+        if (
+          type.startsWith('image/') ||
+          type.startsWith('audio/') ||
+          type.startsWith('video/') ||
+          type === 'application/pdf'
+        ) {
           const blob = await item.getType(type)
           const file = new File([blob], `pasted-${Date.now()}.${type.split('/')[1]}`, { type })
           // 模拟 paste 事件处理
@@ -549,10 +815,20 @@ function detectFileType(file: File): string | null {
   if (file.type.startsWith('video/')) return 'video'
   if (file.type === 'application/pdf') return 'pdf'
   // Word 文档 MIME（Officedocument.wordprocessingml.document）
-  if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'docx'
+  if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    return 'docx'
 
   // 文本类型：按 MIME type 判断
-  const textMimes = ['text/plain', 'text/markdown', 'text/csv', 'application/json', 'text/html', 'text/css', 'text/javascript', 'application/xml']
+  const textMimes = [
+    'text/plain',
+    'text/markdown',
+    'text/csv',
+    'application/json',
+    'text/html',
+    'text/css',
+    'text/javascript',
+    'application/xml'
+  ]
   if (textMimes.includes(file.type)) return 'text'
 
   // 按扩展名兜底
@@ -568,7 +844,10 @@ function detectFileType(file: File): string | null {
 }
 
 function checkCapability(type: string): boolean {
-  if ((type === 'image' || type === 'audio' || type === 'video') && !capabilities.value.mmproj_loaded) {
+  if (
+    (type === 'image' || type === 'audio' || type === 'video') &&
+    !capabilities.value.mmproj_loaded
+  ) {
     message.warning('多模态投影未加载，无法处理此类型文件')
     return false
   }
@@ -603,19 +882,27 @@ function closeAttachMenu() {
 
 function typeLabel(type: string): string {
   switch (type) {
-    case 'image': return '图片'
-    case 'audio': return '音频'
-    case 'text': return '文本'
-    case 'video': return '视频'
-    case 'pdf': return 'PDF'
-    case 'docx': return 'DOCX'
-    default: return type
+    case 'image':
+      return '图片'
+    case 'audio':
+      return '音频'
+    case 'text':
+      return '文本'
+    case 'video':
+      return '视频'
+    case 'pdf':
+      return 'PDF'
+    case 'docx':
+      return 'DOCX'
+    default:
+      return type
   }
 }
 
 const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.gif,.webp,.bmp,.svg,.heic,.heif'
 const AUDIO_ACCEPT = '.wav,.mp3,.ogg,.flac,.aac,.m4a,.wma'
-const TEXT_ACCEPT = '.txt,.md,.csv,.json,.xml,.html,.htm,.css,.js,.jsx,.ts,.tsx,.vue,.svelte,.py,.go,.java,.c,.cpp,.h,.hpp,.rs,.sh,.bat,.yaml,.yml,.toml,.ini,.cfg,.log,.sql,.adoc,.tex,.bib,.cs,.kt,.swift,.dart,.r,.scala,.hs,.cu,.cuh,.comp,.properties'
+const TEXT_ACCEPT =
+  '.txt,.md,.csv,.json,.xml,.html,.htm,.css,.js,.jsx,.ts,.tsx,.vue,.svelte,.py,.go,.java,.c,.cpp,.h,.hpp,.rs,.sh,.bat,.yaml,.yml,.toml,.ini,.cfg,.log,.sql,.adoc,.tex,.bib,.cs,.kt,.swift,.dart,.r,.scala,.hs,.cu,.cuh,.comp,.properties'
 const PDF_ACCEPT = '.pdf'
 const DOCX_ACCEPT = '.docx'
 const VIDEO_ACCEPT = '.mp4,.webm,.avi,.mov,.mkv,.wmv,.flv'
@@ -625,13 +912,20 @@ const VIDEO_ACCEPT = '.mp4,.webm,.avi,.mov,.mkv,.wmv,.flv'
 
 function getAcceptForType(type: string): string {
   switch (type) {
-    case 'image': return IMAGE_ACCEPT
-    case 'audio': return AUDIO_ACCEPT
-    case 'text': return TEXT_ACCEPT
-    case 'pdf': return PDF_ACCEPT
-    case 'docx': return DOCX_ACCEPT
-    case 'video': return VIDEO_ACCEPT
-    default: return ''
+    case 'image':
+      return IMAGE_ACCEPT
+    case 'audio':
+      return AUDIO_ACCEPT
+    case 'text':
+      return TEXT_ACCEPT
+    case 'pdf':
+      return PDF_ACCEPT
+    case 'docx':
+      return DOCX_ACCEPT
+    case 'video':
+      return VIDEO_ACCEPT
+    default:
+      return ''
   }
 }
 
@@ -783,13 +1077,10 @@ function handleSend() {
   }
 
   const imageAttachments = attachments.value.filter(a => a.type === 'image')
-  const images = imageAttachments.length > 0
-    ? imageAttachments.map(a => a.data)
-    : undefined
+  const images = imageAttachments.length > 0 ? imageAttachments.map(a => a.data) : undefined
 
-  const allAttachments = attachments.value.length > 0
-    ? attachments.value.map(a => ({ ...a }))
-    : undefined
+  const allAttachments =
+    attachments.value.length > 0 ? attachments.value.map(a => ({ ...a })) : undefined
 
   emit('send', text, images, allAttachments)
   inputText.value = ''
@@ -950,7 +1241,9 @@ onUnmounted(() => {
   padding: 0;
   line-height: 1;
   opacity: 0;
-  transition: opacity 0.2s, transform 0.2s;
+  transition:
+    opacity 0.2s,
+    transform 0.2s;
 }
 
 .attachment-preview-item:hover .remove-att-btn {
@@ -974,8 +1267,14 @@ onUnmounted(() => {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .voice-pulse {
@@ -997,9 +1296,18 @@ onUnmounted(() => {
 }
 
 @keyframes pulse {
-  0% { transform: scale(1); opacity: 0.6; }
-  50% { transform: scale(1.4); opacity: 0; }
-  100% { transform: scale(1); opacity: 0; }
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
 }
 
 .voice-text {
@@ -1040,7 +1348,9 @@ onUnmounted(() => {
   padding: 12px 14px;
   width: 100%;
   box-sizing: border-box;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
   position: relative;
 }
 
@@ -1055,7 +1365,11 @@ onUnmounted(() => {
   gap: 4px;
 }
 
-.search-btn, .think-btn, .attach-btn, .voice-btn, .kv-btn {
+.search-btn,
+.think-btn,
+.attach-btn,
+.voice-btn,
+.kv-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1090,7 +1404,9 @@ onUnmounted(() => {
 }
 
 .deep-reason-btn .deep-reason-icon {
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+  transition:
+    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.3s ease;
   will-change: transform;
 }
 
@@ -1109,13 +1425,25 @@ onUnmounted(() => {
 }
 
 @keyframes deep-reason-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-primary) 0%, transparent); }
-  50% { box-shadow: 0 0 8px 1px color-mix(in srgb, var(--accent-primary) 22%, transparent); }
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-primary) 0%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 8px 1px color-mix(in srgb, var(--accent-primary) 22%, transparent);
+  }
 }
 
 @keyframes deep-reason-shimmer {
-  0%, 100% { filter: drop-shadow(0 0 0 transparent); transform: scale(1); }
-  50% { filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent-primary) 40%, transparent)); transform: scale(1.05); }
+  0%,
+  100% {
+    filter: drop-shadow(0 0 0 transparent);
+    transform: scale(1);
+  }
+  50% {
+    filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent-primary) 40%, transparent));
+    transform: scale(1.05);
+  }
 }
 
 .attach-btn:disabled {
@@ -1123,7 +1451,11 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 
-.search-btn:hover, .think-btn:hover, .attach-btn:hover:not(:disabled), .voice-btn:hover, .kv-btn:hover:not(:disabled) {
+.search-btn:hover,
+.think-btn:hover,
+.attach-btn:hover:not(:disabled),
+.voice-btn:hover,
+.kv-btn:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
@@ -1156,62 +1488,69 @@ onUnmounted(() => {
 }
 
 .think-btn.active {
-    color: var(--accent-primary);
-    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
-    animation: think-pulse 3s ease-in-out infinite;
+  color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  animation: think-pulse 3s ease-in-out infinite;
 }
 
 @keyframes think-pulse {
-    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-primary) 0%, transparent); }
-    50% { box-shadow: 0 0 6px 1px color-mix(in srgb, var(--accent-primary) 18%, transparent); }
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-primary) 0%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 6px 1px color-mix(in srgb, var(--accent-primary) 18%, transparent);
+  }
 }
 
 .think-btn.unsupported {
-    opacity: 0.3;
-    cursor: not-allowed;
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
 .think-btn:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
 .think-btn {
-    position: relative;
+  position: relative;
 }
 
 .think-btn .think-icon {
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
-    will-change: transform;
+  transition:
+    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.3s ease;
+  will-change: transform;
 }
 
 .think-btn.auto-mode {
-    color: var(--text-secondary);
+  color: var(--text-secondary);
 }
 
 .think-btn.auto-mode:hover .think-icon {
-    transform: scale(1.08);
+  transform: scale(1.08);
 }
 
 .think-btn.no-think-mode {
-    color: var(--text-muted);
+  color: var(--text-muted);
 }
 
 .think-btn .think-slash {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%) rotate(-45deg);
-    width: 24px;
-    height: 3px;
-    background: var(--accent-danger);
-    border-radius: 2px;
-    pointer-events: none;
-    opacity: 0.9;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-45deg);
+  width: 24px;
+  height: 3px;
+  background: var(--accent-danger);
+  border-radius: 2px;
+  pointer-events: none;
+  opacity: 0.9;
 }
 
 .think-btn.active .think-icon {
-    transform: scale(1.05);
+  transform: scale(1.05);
 }
 
 .voice-btn.active {
@@ -1241,8 +1580,14 @@ onUnmounted(() => {
 }
 
 @keyframes ctxMenuIn {
-  from { opacity: 0; transform: scale(0.96); }
-  to { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .ctx-menu-item {
@@ -1364,7 +1709,9 @@ onUnmounted(() => {
   background: var(--accent-primary);
   color: white;
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
   flex-shrink: 0;
   position: relative;
   overflow: hidden;
@@ -1418,7 +1765,9 @@ onUnmounted(() => {
   background: var(--accent-r-primary);
   color: white;
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
   flex-shrink: 0;
   position: relative;
   overflow: hidden;

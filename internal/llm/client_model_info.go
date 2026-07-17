@@ -64,7 +64,7 @@ func (c *Client) GetModelInfoByName(ctx context.Context, modelName string) (*Mod
 //   - err: 权限错误等不可降级的错误
 func (c *Client) tryDirectModelEndpoint(ctx context.Context, modelName string) (info *ModelInfo, found bool, err error) {
 	directURL := c.baseURL + "/v1/models/" + url.PathEscape(modelName)
-	httpReq, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, directURL, nil)
+	httpReq, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, directURL, http.NoBody)
 	if reqErr != nil {
 		return nil, false, reqErr
 	}
@@ -122,7 +122,7 @@ func (c *Client) tryDirectModelEndpoint(ctx context.Context, modelName string) (
 // fetchModelInfoFromList 通过 /v1/models 列表端点获取模型信息。
 // 当 modelName 非空时，在列表中查找指定模型；为空时返回第一个模型。
 func (c *Client) fetchModelInfoFromList(ctx context.Context, modelName string) (*ModelInfo, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/models", nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/models", http.NoBody)
 	if err != nil {
 		return nil, err
 	}

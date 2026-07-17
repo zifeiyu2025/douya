@@ -6,12 +6,15 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
+
+	"douya/internal/apperror"
 )
 
 // searchMaxScanRows 限制 SearchMessages 最多扫描的消息数量，避免全表扫描导致性能问题。
@@ -234,6 +237,10 @@ func GetMessage(db *sql.DB, id string, encKey []byte) (*Message, error) {
 		id,
 	).Scan(&msg.ID, &msg.ConversationID, &msg.Role, &msg.Content, &msg.ThinkingContent, &msg.ThinkingDuration, &msg.SearchResults, &msg.Images, &msg.Attachments, &msg.ToolCalls, &msg.ToolCallID, &msg.CreatedAt)
 	if err != nil {
+		// sql.ErrNoRows 转为统一的 NotFound 错误
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, apperror.Wrap(apperror.KindNotFound, "消息不存在: "+id, err)
+		}
 		return nil, fmt.Errorf("get message: %w", err)
 	}
 	// 解密敏感字段
@@ -242,7 +249,6 @@ func GetMessage(db *sql.DB, id string, encKey []byte) (*Message, error) {
 	}
 	return &msg, nil
 }
-
 
 // DeleteMessagesBatch 批量删除消息，修复 N+1 问题。
 // 单事务内执行 DELETE WHERE id IN (...)，比逐条删除性能提升 N 倍。

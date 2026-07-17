@@ -271,7 +271,7 @@ func TestIngestDocumentWithMeta_ManyChunksBatchWrite(t *testing.T) {
 		if i > 0 {
 			sb.WriteString("\n\n")
 		}
-		sb.WriteString(fmt.Sprintf("这是第%d个独立的段落内容。", i))
+		fmt.Fprintf(&sb, "这是第%d个独立的段落内容。", i)
 	}
 	cfg := DefaultChunkConfig()
 	cfg.ChunkSize = 15
@@ -362,7 +362,7 @@ func TestIngestDocumentWithMeta_PartialFailureWithinThreshold(t *testing.T) {
 		if i > 0 {
 			sb.WriteString("\n\n")
 		}
-		sb.WriteString(fmt.Sprintf("段落%d的独特内容。", i))
+		fmt.Fprintf(&sb, "段落%d的独特内容。", i)
 	}
 	cfg := DefaultChunkConfig()
 	cfg.ChunkSize = 10
@@ -502,7 +502,7 @@ func TestIngestDocumentWithMeta_ExceedsMaxChunks(t *testing.T) {
 		if i > 0 {
 			sb.WriteString("\n\n")
 		}
-		sb.WriteString(fmt.Sprintf("word%d", i))
+		fmt.Fprintf(&sb, "word%d", i)
 	}
 	cfg := ChunkConfig{
 		ChunkSize:    2,

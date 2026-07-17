@@ -45,7 +45,7 @@ func TestSystemPrompt_ContainsCorePrinciples(t *testing.T) {
 		"豆芽",
 		"准确",
 		"精炼",
-		"编造", // 防编造（正面表述"而非编造"包含此词）
+		"编造",   // 防编造（正面表述"而非编造"包含此词）
 		"温和纠正", // 事实一致性采用温和纠正而非强硬拒绝
 	}
 

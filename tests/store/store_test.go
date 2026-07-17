@@ -5,10 +5,11 @@ package store_test
 
 import (
 	"database/sql"
-	"douya/internal/store"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"douya/internal/store"
 )
 
 func openTestDB(t *testing.T) *sql.DB {

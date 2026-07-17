@@ -2,11 +2,12 @@ package chat
 
 import (
 	"context"
-	"douya/internal/config"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
+
+	"douya/internal/config"
 
 	"douya/internal/secrets"
 	"douya/internal/store"

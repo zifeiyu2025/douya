@@ -1,0 +1,32 @@
+# EditorConfig: https://editorconfig.org
+# 跨编辑器/IDE 统一基础代码风格（缩进、行尾、文件末尾换行等）
+# 详细规则由各自语言的 formatter（gofmt/goimports/Prettier）负责，此处仅做基础约束
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# Go: 使用 tab 缩进（与 gofmt 一致）
+[*.go]
+indent_style = tab
+indent_size = 4
+
+# 前端：Vue/TS/JS/CSS/HTML/JSON/Markdown 使用 2 空格
+[*.{vue,ts,tsx,js,jsx,css,scss,html,json,jsonc,md,yml,yaml}]
+indent_style = space
+indent_size = 2
+
+# Makefile 必须用 tab
+[Makefile]
+indent_style = tab
+
+# PowerShell 脚本
+[*.{ps1,psm1}]
+indent_style = space
+indent_size = 4

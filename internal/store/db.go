@@ -13,15 +13,17 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/mattn/go-sqlite3" // 注册 SQLite3 驱动（database/sql 需要）
 )
 
 func Init(dbPath string, encKey []byte) (*sql.DB, error) {
+	log.Info().Str("path", dbPath).Msg("[store] 初始化数据库")
 	dir := filepath.Dir(dbPath)
 	// 注：数据库目录不收紧 ACL（icacls），SQLite WAL 模式需要目录写权限创建 -wal/-shm 文件。
 	// 数据本身已用 AES-GCM 加密，目录权限收紧收益有限且可能导致 SQLite 功能异常。
 	// 见安全审查 #22（已评估，风险可接受）。
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		log.Error().Err(err).Str("dir", dir).Msg("[store] 创建数据库目录失败")
 		return nil, err
 	}
 	// PRAGMA 优化说明：
@@ -31,6 +33,7 @@ func Init(dbPath string, encKey []byte) (*sql.DB, error) {
 	// - _wal_autocheckpoint=1000：显式控制 WAL checkpoint（默认值，避免 -wal 文件膨胀）
 	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_foreign_keys=on&_busy_timeout=5000&_synchronous=NORMAL&_cache_size=-65536&_wal_autocheckpoint=1000&_mmap_size=268435456")
 	if err != nil {
+		log.Error().Err(err).Msg("[store] 打开数据库失败")
 		return nil, err
 	}
 	db.SetMaxOpenConns(4)
@@ -38,9 +41,11 @@ func Init(dbPath string, encKey []byte) (*sql.DB, error) {
 	// 设置连接最大生命周期，避免长时间运行时连接老化
 	db.SetConnMaxLifetime(time.Hour)
 	if err := Migrate(db, encKey); err != nil {
+		log.Error().Err(err).Msg("[store] 数据库迁移失败")
 		db.Close()
 		return nil, err
 	}
+	log.Info().Msg("[store] 数据库初始化完成")
 	return db, nil
 }
 

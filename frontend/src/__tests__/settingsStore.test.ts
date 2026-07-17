@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import {
-  shouldReloadConfigOnModelChange,
-  matchModelRef,
-} from '../stores/settings'
+import { shouldReloadConfigOnModelChange, matchModelRef } from '../stores/settings'
 
 describe('shouldReloadConfigOnModelChange', () => {
   it('returns true when model changes', () => {
@@ -27,7 +24,7 @@ describe('matchModelRef', () => {
     'qwen3.5-9b': { name: 'Qwen3.5U-9B' },
     'gemma-4-e4b': { name: 'Gemma4-E4B' },
     'qwen3.5-9b-deepseek': { name: 'DeepSeek-V4-Flash' },
-    'qwen3.5-9b-glm': { name: 'GLM5.1-Distill' },
+    'qwen3.5-9b-glm': { name: 'GLM5.1-Distill' }
   }
 
   it('matches Qwen3.5U-9B model name', () => {

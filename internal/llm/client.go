@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"douya/internal/apperror"
 	"douya/internal/httputil"
 
 	"github.com/rs/zerolog/log"
@@ -102,7 +103,7 @@ func (c *Client) SetAuthHeader(req *http.Request) {
 //
 // 参数：
 //   - method: HTTP 方法（GET/POST/DELETE 等）
-//   - url: 完整 URL
+//   - reqURL: 完整 URL
 //   - body: 请求体（nil 表示无请求体，GET 请求通常传 nil）
 //   - actionDesc: 操作描述（如 "load model"），用于错误信息
 //   - wantBody: 是否读取成功响应体（L-16 修复：false 时跳过读取，减少无谓 IO）
@@ -110,12 +111,12 @@ func (c *Client) SetAuthHeader(req *http.Request) {
 // 返回：
 //   - 成功：wantBody=true 时返回响应体字节，wantBody=false 时返回 nil
 //   - 失败：nil 和错误（错误信息包含状态码和错误响应体，限制 1MB）
-func (c *Client) doSimpleJSONRequest(ctx context.Context, method, url string, body []byte, actionDesc string, wantBody bool) ([]byte, error) {
+func (c *Client) doSimpleJSONRequest(ctx context.Context, method, reqURL string, body []byte, actionDesc string, wantBody bool) ([]byte, error) {
 	var bodyReader io.Reader
 	if body != nil {
 		bodyReader = bytes.NewReader(body)
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
+	httpReq, err := http.NewRequestWithContext(ctx, method, reqURL, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create %s request: %w", actionDesc, err)
 	}
@@ -248,7 +249,7 @@ func FixUTF8(s string) string {
 }
 
 func TruncateIncompleteUTF8(s string) (valid string, pending string) {
-	if len(s) == 0 {
+	if s == "" {
 		return "", ""
 	}
 	for i := len(s) - 1; i >= 0 && i >= len(s)-4; i-- {
@@ -439,26 +440,26 @@ func DetectCapabilities(info ModelInfo) ModelCapabilities {
 
 	for _, c := range info.Capabilities {
 		lc := strings.ToLower(c)
-		switch {
-		case lc == "vision":
+		switch lc {
+		case "vision":
 			caps.ImageInput = true
-		case lc == "audio", lc == "speech":
+		case "audio", "speech":
 			caps.AudioInput = true
-		case lc == "video":
+		case "video":
 			caps.VideoInput = true
-		case lc == "multimodal":
+		case "multimodal":
 			caps.ImageInput = true
 		}
 	}
 
 	for _, m := range info.InputModalities {
 		lm := strings.ToLower(m)
-		switch {
-		case lm == "image":
+		switch lm {
+		case "image":
 			caps.ImageInput = true
-		case lm == "audio":
+		case "audio":
 			caps.AudioInput = true
-		case lm == "video":
+		case "video":
 			caps.VideoInput = true
 		}
 	}
@@ -550,7 +551,7 @@ func (c *Client) GetServerProps(ctx context.Context, modelName string) (*ServerP
 		propsURL += "?model=" + url.QueryEscape(modelName)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, propsURL, nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, propsURL, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -593,6 +594,12 @@ func (c *Client) LoadModel(ctx context.Context, modelName string) error {
 
 	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/models/load", body, "load model", true)
 	if err != nil {
+		// llama-server 在模型已加载/正在加载时返回包含 "already running" 或 "already loaded" 的错误
+		// 这里集中识别并类型化为 Conflict，上层可用 errors.Is(err, apperror.ErrConflict) 精准判断
+		errMsg := strings.ToLower(err.Error())
+		if strings.Contains(errMsg, "already running") || strings.Contains(errMsg, "already loaded") {
+			return apperror.Wrap(apperror.KindConflict, "模型已正在运行: "+modelName, err)
+		}
 		return err
 	}
 
@@ -611,8 +618,8 @@ func (c *Client) LoadModel(ctx context.Context, modelName string) error {
 // llama.cpp 最新版本将事件名统一为 "model_status"（之前为 "status_change"/"download_finished"）
 // 本方法兼容新旧两种事件名，确保跨版本稳定性
 func (c *Client) WatchModelLoadProgress(ctx context.Context, modelName string, onProgress func(event ModelLoadEvent)) error {
-	url := fmt.Sprintf("%s/models/sse", c.baseURL)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	reqURL := fmt.Sprintf("%s/models/sse", c.baseURL)
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, http.NoBody)
 	if err != nil {
 		return fmt.Errorf("create request failed: %w", err)
 	}
@@ -708,7 +715,7 @@ func (c *Client) UnloadModel(ctx context.Context, modelName string) error {
 }
 
 func (c *Client) GetModelsList(ctx context.Context) ([]ListedModel, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/models", nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/models", http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -813,7 +820,6 @@ func (c *Client) CountTokens(ctx context.Context, messages []ChatMessage) (int, 
 
 	return result.InputTokens, nil
 }
-
 
 // GetLoraAdapters 调用 GET /lora-adapters 获取 LoRA 适配器列表
 func (c *Client) GetLoraAdapters(ctx context.Context) ([]LoraAdapter, error) {
@@ -954,7 +960,7 @@ type ModelStatus struct {
 }
 
 func (c *Client) GetModelStatus(ctx context.Context, modelName string) (*ModelStatus, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/models", nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/models", http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -1001,7 +1007,7 @@ func (c *Client) GetModelStatus(ctx context.Context, modelName string) (*ModelSt
 		}
 	}
 
-	return nil, fmt.Errorf("model %s not found in models list", modelName)
+	return nil, apperror.Newf(apperror.KindNotFound, "model %s not found in models list", modelName)
 }
 
 // FuzzyMatchModelID 模糊匹配模型 ID
@@ -1029,7 +1035,7 @@ func (c *Client) DeleteStream(ctx context.Context, convID string) error {
 		return nil
 	}
 	reqURL := c.baseURL + "/v1/stream/" + url.PathEscape(convID)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, reqURL, nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, reqURL, http.NoBody)
 	if err != nil {
 		return fmt.Errorf("failed to create delete stream request: %w", err)
 	}

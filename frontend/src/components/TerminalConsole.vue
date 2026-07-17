@@ -32,16 +32,19 @@ function readCssVar(name: string): string {
 function buildTerminalTheme() {
   return {
     background: readCssVar('--bg-secondary'),
-    foreground: readCssVar('--text-primary'),
+    foreground: readCssVar('--text-primary')
   }
 }
 
 // 主题切换时同步终端配色，避免亮/暗模式下背景与文字对比度失效
-watch(() => themeStore.isDark, () => {
-  if (terminal) {
-    terminal.options.theme = buildTerminalTheme()
+watch(
+  () => themeStore.isDark,
+  () => {
+    if (terminal) {
+      terminal.options.theme = buildTerminalTheme()
+    }
   }
-})
+)
 
 // base64 字符串解码为 Uint8Array（Wails 传递 []byte 时自动编码为 base64）
 function base64ToUint8Array(base64: string): Uint8Array {
@@ -66,7 +69,7 @@ async function initTerminal() {
     disableStdin: true, // 禁止用户输入（llama-server 不需要 stdin）
     allowProposedApi: true,
     // 终端配色跟随全局主题变量（背景 --bg-secondary，文字 --text-primary）
-    theme: buildTerminalTheme(),
+    theme: buildTerminalTheme()
   })
 
   fitAddon = new FitAddon()
@@ -153,7 +156,7 @@ defineExpose({
         // 忽略
       }
     }
-  },
+  }
 })
 
 onMounted(async () => {

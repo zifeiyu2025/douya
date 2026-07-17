@@ -150,7 +150,7 @@ func (a *App) ExportConversationWithDialog(id string, format string) (bool, erro
 		return false, nil
 	}
 
-	err = os.WriteFile(savePath, []byte(content), 0644)
+	err = os.WriteFile(savePath, []byte(content), 0o644)
 	if err != nil {
 		return false, fmt.Errorf("写入文件失败: %w", err)
 	}

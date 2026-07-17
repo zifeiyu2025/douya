@@ -1,5 +1,9 @@
 <template>
-  <div ref="messageListRef" class="message-list" :class="{ 'message-list--virtual': enableVirtualScroll }">
+  <div
+    ref="messageListRef"
+    class="message-list"
+    :class="{ 'message-list--virtual': enableVirtualScroll }"
+  >
     <!-- 模型切换 overlay 已移至 App.vue 统一管理，避免重复 -->
     <div v-if="(!messages || messages.length === 0) && !isGenerating" class="message-list-empty">
       <div class="welcome-container">
@@ -10,7 +14,8 @@
 
         <!-- 品牌主体：第二视觉锚点（中文字号略小，配合 LOGO 形成图文识别） -->
         <div class="welcome-brand">
-          <span class="welcome-dou">豆</span><span class="welcome-ya">芽</span>
+          <span class="welcome-dou">豆</span>
+          <span class="welcome-ya">芽</span>
         </div>
 
         <!-- 副标题：一句话说明 -->
@@ -18,7 +23,12 @@
 
         <!-- 快捷操作 chips：点击即发送（沿用现有 store 机制） -->
         <div class="quick-actions">
-          <button v-for="action in quickActions" :key="action.id" class="action-chip" @click="handleQuickAction(action)">
+          <button
+            v-for="action in quickActions"
+            :key="action.id"
+            class="action-chip"
+            @click="handleQuickAction(action)"
+          >
             <span class="chip-text">{{ action.title }}</span>
           </button>
         </div>
@@ -35,11 +45,7 @@
           :buffer="400"
         >
           <template #default="{ item, index, active }">
-            <DynamicScrollerItem
-              :item="item"
-              :active="active"
-              :data-index="index"
-            >
+            <DynamicScrollerItem :item="item" :active="active" :data-index="index">
               <MessageItem :message="item" />
             </DynamicScrollerItem>
           </template>
@@ -47,18 +53,18 @@
       </div>
       <!-- 原 v-for 渲染分支（默认，回滚兜底） -->
       <template v-else>
-        <MessageItem
-          v-for="msg in messages"
-          :key="msg.id"
-          :message="msg"
-        />
+        <MessageItem v-for="msg in messages" :key="msg.id" :message="msg" />
       </template>
       <!-- isGenerating 占位：虚拟/非虚拟两种模式共用，作为列表末尾的兄弟元素。
            非虚拟模式下随内容滚动；虚拟模式下位于 DynamicScroller 下方常驻显示，
            生成结束自动消失，新消息进入上方列表。 -->
       <div v-if="isGenerating" class="message-item">
         <div class="message-avatar ai-avatar">
-          <img v-if="settingsStore.config.ai_avatar" :src="settingsStore.config.ai_avatar" alt="AI" />
+          <img
+            v-if="settingsStore.config.ai_avatar"
+            :src="settingsStore.config.ai_avatar"
+            alt="AI"
+          />
           <img v-else :src="defaultAiAvatar" alt="AI" class="default-avatar" />
         </div>
         <div class="message-bubble-wrapper">
@@ -67,30 +73,58 @@
               <div class="markdown-body" v-html="renderedThinkingAsContent" />
             </template>
             <template v-else>
-              <ThinkBlock v-if="thinkingContent" :content="thinkingContent" :default-expanded="true" :is-thinking="isThinking" :duration="thinkingDuration" />
+              <ThinkBlock
+                v-if="thinkingContent"
+                :content="thinkingContent"
+                :default-expanded="true"
+                :is-thinking="isThinking"
+                :duration="thinkingDuration"
+              />
               <div v-if="canStopThinking" class="stop-thinking-wrapper">
                 <button
                   class="stop-thinking-btn"
                   :class="{ loading: isStoppingThinking }"
-                  @click="handleStopThinking"
                   :disabled="isStoppingThinking"
+                  @click="handleStopThinking"
                 >
-                  <svg v-if="!isStoppingThinking" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <svg
+                    v-if="!isStoppingThinking"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
                     <path d="M5 12h14" />
                     <path d="M12 5l7 7-7 7" />
                   </svg>
-                  <span class="stop-thinking-spinner" v-else></span>
+                  <span v-else class="stop-thinking-spinner"></span>
                   直接回答
                 </button>
               </div>
-              <div v-if="streamingContent" ref="streamingContainerRef" class="markdown-body streaming" />
+              <div
+                v-if="streamingContent"
+                ref="streamingContainerRef"
+                class="markdown-body streaming"
+              />
               <!-- 等待首个 token 的指示器：三点脉冲 + prompt 处理进度，比 spinner 更安静、更现代 -->
-              <div v-else-if="!thinkingContent && !isSearching" class="thinking-dots" aria-label="正在思考" role="status">
+              <div
+                v-else-if="!thinkingContent && !isSearching"
+                class="thinking-dots"
+                aria-label="正在思考"
+                role="status"
+              >
                 <span class="thinking-dot"></span>
                 <span class="thinking-dot"></span>
                 <span class="thinking-dot"></span>
                 <span v-if="promptPercent > 0" class="thinking-progress-text">
-                  正在处理提示词 {{ promptPercent }}%<span v-if="promptEta" class="thinking-progress-eta">（约 {{ promptEta }}s）</span>
+                  正在处理提示词 {{ promptPercent }}%
+                  <span v-if="promptEta" class="thinking-progress-eta">
+                    （约 {{ promptEta }}s）
+                  </span>
                 </span>
               </div>
               <!-- 生成速度：仅在流式生成且有速度数据时显示，低调不抢焦点 -->
@@ -99,7 +133,12 @@
               </div>
             </template>
             <SearchStatus v-if="isSearching" :searching="true" :results="''" :query="searchQuery" />
-            <SearchStatus v-else-if="searchResults" :searching="false" :results="searchResults" :default-expanded="true" />
+            <SearchStatus
+              v-else-if="searchResults"
+              :searching="false"
+              :results="searchResults"
+              :default-expanded="true"
+            />
             <ContextTrimmed :data="contextTrimmed" />
           </div>
         </div>
@@ -110,11 +149,20 @@
       <button
         v-if="!isAutoScrollEnabled && messages && messages.length > 0"
         class="scroll-to-bottom-btn"
-        @click="scrollToBottom('smooth'); isAutoScrollEnabled = true"
         title="回到底部"
+        @click="
+          scrollToBottom('smooth');
+          isAutoScrollEnabled = true
+        "
       >
         <svg width="18" height="18" viewBox="0 0 22 22" fill="none">
-          <path d="M11 5v10M7 11l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path
+            d="M11 5v10M7 11l4 4 4-4"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
         </svg>
       </button>
     </Transition>
@@ -160,7 +208,7 @@ const quickActions: QuickAction[] = [
   { id: 1, icon: '', title: '如何使用豆芽', prompt: '如何使用豆芽？请介绍一下主要功能' },
   { id: 2, icon: '', title: '写一段代码', prompt: '帮我写一段示例代码' },
   { id: 3, icon: '', title: '翻译一段文字', prompt: '帮我翻译一段中文为英文' },
-  { id: 4, icon: '', title: '头脑风暴', prompt: '帮我做一些头脑风暴，探索新想法' },
+  { id: 4, icon: '', title: '头脑风暴', prompt: '帮我做一些头脑风暴，探索新想法' }
 ]
 
 function handleQuickAction(action: QuickAction) {
@@ -194,18 +242,22 @@ const thinkingAsContent = computed(() => {
 // renderMarkdown 是 async 函数返回 Promise<string>，不能用 computed（v-html 会渲染成 [object Promise]），
 // 改用 ref + watch 异步模式，与 MessageItem.vue 的 renderedContent 写法一致。
 const renderedThinkingAsContent = ref('')
-watch([thinkingAsContent, thinkingContent], async () => {
-  if (!thinkingAsContent.value || !thinkingContent.value) {
-    renderedThinkingAsContent.value = ''
-    return
-  }
-  try {
-    renderedThinkingAsContent.value = await renderMarkdown(thinkingContent.value)
-  } catch (_) {
-    // 渲染失败时转义后作为纯文本显示，避免直接赋值原始未消毒内容到 v-html（XSS 防护）
-    renderedThinkingAsContent.value = escapeHtml(thinkingContent.value)
-  }
-}, { immediate: true })
+watch(
+  [thinkingAsContent, thinkingContent],
+  async () => {
+    if (!thinkingAsContent.value || !thinkingContent.value) {
+      renderedThinkingAsContent.value = ''
+      return
+    }
+    try {
+      renderedThinkingAsContent.value = await renderMarkdown(thinkingContent.value)
+    } catch (_) {
+      // 渲染失败时转义后作为纯文本显示，避免直接赋值原始未消毒内容到 v-html（XSS 防护）
+      renderedThinkingAsContent.value = escapeHtml(thinkingContent.value)
+    }
+  },
+  { immediate: true }
+)
 
 // ===== 停止思考功能 =====
 // isThinking 由 chat store 自动管理：
@@ -216,8 +268,8 @@ watch([thinkingAsContent, thinkingContent], async () => {
 const isStoppingThinking = ref(false)
 
 // 仅当模型支持推理（capabilities.reasoning）且当前正在思考时，才显示"停止思考"按钮
-const canStopThinking = computed(() =>
-  isThinking.value && settingsStore.modelCapabilities.reasoning
+const canStopThinking = computed(
+  () => isThinking.value && settingsStore.modelCapabilities.reasoning
 )
 
 // 点击"停止思考"：调用后端 StopThinking，成功后 isThinking 会被 store 自动置 false，按钮随之隐藏
@@ -248,13 +300,13 @@ bindMarkdown(() => streamingContent.value)
 
 // 滚动控制：统一每帧绝对滚动 + 用户滚动检测 + 回到底部按钮
 const {
-    containerRef,
-    isAutoScrollEnabled,
-    isNearBottom,
-    scrollToBottom,
-    watchContentChange,
-    watchMessagesLength,
-    startObserver,
+  containerRef,
+  isAutoScrollEnabled,
+  isNearBottom,
+  scrollToBottom,
+  watchContentChange,
+  watchMessagesLength,
+  startObserver
 } = useScrollToBottom()
 
 // 任务 38：虚拟滚动 feature flag（默认关闭）
@@ -271,51 +323,51 @@ const scrollerRef = ref<InstanceType<typeof DynamicScroller> | null>(null)
 // - 开启：DynamicScroller 根元素（.vue-recycle-scroller，$el）作为滚动容器
 // useScrollToBottom 内部 watch(containerRef, { flush: 'sync' }) 会自动重绑 scroll 监听器
 watch(
-    [() => enableVirtualScroll.value, messageListRef, scrollerRef],
-    () => {
-        if (enableVirtualScroll.value && scrollerRef.value) {
-            // DynamicScroller 的 $el 即其内部 RecycleScroller 的滚动根节点
-            // 注：DynamicScroller 的 $el 类型未在 vue-virtual-scroller 类型声明中导出，
-            // 此处用 as any 绕过，见安全审查 #39。后续可扩展 shims-vue-virtual-scroller.d.ts。
-            const el = (scrollerRef.value as any)?.$el as HTMLElement | undefined
-            containerRef.value = el ?? messageListRef.value
-        } else {
-            containerRef.value = messageListRef.value
-        }
-    },
-    { flush: 'sync', immediate: true }
+  [() => enableVirtualScroll.value, messageListRef, scrollerRef],
+  () => {
+    if (enableVirtualScroll.value && scrollerRef.value) {
+      // DynamicScroller 的 $el 即其内部 RecycleScroller 的滚动根节点
+      // 注：DynamicScroller 的 $el 类型未在 vue-virtual-scroller 类型声明中导出，
+      // 此处用 as any 绕过，见安全审查 #39。后续可扩展 shims-vue-virtual-scroller.d.ts。
+      const el = (scrollerRef.value as any)?.$el as HTMLElement | undefined
+      containerRef.value = el ?? messageListRef.value
+    } else {
+      containerRef.value = messageListRef.value
+    }
+  },
+  { flush: 'sync', immediate: true }
 )
 
 // 安全实践（#17）：拦截 Markdown 正文中的链接点击，走系统默认浏览器，防止 webview 内部导航
 const handleLinkClick = (e: MouseEvent) => {
-    const target = e.target as HTMLElement
-    const anchor = target.closest('a[target="_blank"]') as HTMLAnchorElement | null
-    if (anchor && anchor.href) {
-        e.preventDefault()
-        // 校验协议安全后再打开
-        if (isSafeUrl(anchor.href)) {
-            BrowserOpenURL(anchor.href)
-        }
+  const target = e.target as HTMLElement
+  const anchor = target.closest('a[target="_blank"]') as HTMLAnchorElement | null
+  if (anchor && anchor.href) {
+    e.preventDefault()
+    // 校验协议安全后再打开
+    if (isSafeUrl(anchor.href)) {
+      BrowserOpenURL(anchor.href)
     }
+  }
 }
 
 onMounted(() => {
-    const el = messageListRef.value
-    if (el) {
-        // 事件委托：只在容器绑定一次，动态新增按钮自动响应
-        // 虚拟模式下 DynamicScroller 的子项也在 .message-list 内，事件仍可冒泡到此
-        setupCodeCopyDelegation(el)
-        // 安全实践（#17）：委托 markdown-body 中的链接点击，走系统默认浏览器
-        el.addEventListener('click', handleLinkClick)
-    }
-    startObserver()
+  const el = messageListRef.value
+  if (el) {
+    // 事件委托：只在容器绑定一次，动态新增按钮自动响应
+    // 虚拟模式下 DynamicScroller 的子项也在 .message-list 内，事件仍可冒泡到此
+    setupCodeCopyDelegation(el)
+    // 安全实践（#17）：委托 markdown-body 中的链接点击，走系统默认浏览器
+    el.addEventListener('click', handleLinkClick)
+  }
+  startObserver()
 })
 
 onUnmounted(() => {
-    const el = messageListRef.value
-    if (el) {
-        el.removeEventListener('click', handleLinkClick)
-    }
+  const el = messageListRef.value
+  if (el) {
+    el.removeEventListener('click', handleLinkClick)
+  }
 })
 
 // 新消息时滚动到底部
@@ -329,25 +381,34 @@ watchContentChange(() => chatStore.thinkingContent)
 
 // 流式生成结束：触发 Markdown 全量重渲染（Worker + DOMPurify）
 // 豆芽始终流式，仅在生成结束时调用 finalizeRender
-watch(() => chatStore.isGenerating, (generating) => {
+watch(
+  () => chatStore.isGenerating,
+  generating => {
     if (!generating) {
-        finalizeRender()
+      finalizeRender()
     }
-})
+  }
+)
 
 // done 事件更新消息后重新滚动
-watch(() => chatStore.messages.length, () => {
-  if (isNearBottom()) {
-    nextTick(scrollToBottom)
-  }
-})
-
-watch(() => chatStore.lastError, (err) => {
-    if (err) {
-        message.destroyAll()
-        message.error(err)
+watch(
+  () => chatStore.messages.length,
+  () => {
+    if (isNearBottom()) {
+      nextTick(scrollToBottom)
     }
-})
+  }
+)
+
+watch(
+  () => chatStore.lastError,
+  err => {
+    if (err) {
+      message.destroyAll()
+      message.error(err)
+    }
+  }
+)
 </script>
 
 <style scoped>
@@ -485,7 +546,9 @@ watch(() => chatStore.lastError, (err) => {
 }
 
 @keyframes stopThinkingSpin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .message-list-empty {
@@ -519,7 +582,7 @@ watch(() => chatStore.lastError, (err) => {
   background: transparent;
   box-shadow:
     0 0 0 2px color-mix(in srgb, var(--accent-primary) 18%, transparent),
-    0 12px 32px rgba(0, 0, 0, 0.10);
+    0 12px 32px rgba(0, 0, 0, 0.1);
 }
 
 .welcome-logo img {
@@ -629,7 +692,11 @@ watch(() => chatStore.lastError, (err) => {
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
   z-index: 10;
   /* 只过渡颜色和阴影，不过渡 transform，避免 transform 分量时机不同导致椭圆 */
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .scroll-to-bottom-btn:hover {
@@ -645,7 +712,9 @@ watch(() => chatStore.lastError, (err) => {
 }
 
 .scroll-bottom-fade-enter-active {
-  transition: opacity 0.25s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition:
+    opacity 0.25s ease,
+    transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .scroll-bottom-fade-leave-active {
@@ -707,7 +776,8 @@ watch(() => chatStore.lastError, (err) => {
 }
 
 @keyframes thinking-pulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0.35;
     transform: scale(0.8);
   }

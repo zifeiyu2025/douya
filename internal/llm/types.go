@@ -183,7 +183,7 @@ type ChatCompletionRequest struct {
 	TimingsPerToken         bool             `json:"timings_per_token,omitempty"`          // 每个 token 返回 timings 数据，用于实时速度显示
 	ReturnProgress          bool             `json:"return_progress,omitempty"`            // 在流式响应中返回 prompt 处理进度
 	Tools                   []ToolDefinition `json:"tools,omitempty"`
-	ToolChoice              any              `json:"tool_choice,omitempty"`        // 工具选择策略："auto"（默认）/"none"/"required" 或 {"type":"function","function":{"name":...}}
+	ToolChoice              any              `json:"tool_choice,omitempty"`         // 工具选择策略："auto"（默认）/"none"/"required" 或 {"type":"function","function":{"name":...}}
 	ParallelToolCalls       *bool            `json:"parallel_tool_calls,omitempty"` // 是否允许并发工具调用，nil=服务端默认
 	ChatTemplateKwargs      map[string]any   `json:"chat_template_kwargs,omitempty"`
 	StreamOptions           *StreamOptions   `json:"stream_options,omitempty"`
@@ -305,8 +305,8 @@ type ModelCapabilities struct {
 	ThinkingMode              string  `json:"thinking_mode"`
 	SoftSwitchSupport         bool    `json:"soft_switch_support"` // 是否支持 /think /no_think 软开关（目前仅 Qwen3）
 	NParams                   float64 `json:"n_params"`
-	ToolCallSupport           bool    `json:"tool_call_support"`           // 模型是否支持 tool call
-	SupportsPreserveReasoning bool    `json:"supports_preserve_reasoning"` // 模型是否支持 --reasoning-preserve
+	ToolCallSupport           bool    `json:"tool_call_support"`            // 模型是否支持 tool call
+	SupportsPreserveReasoning bool    `json:"supports_preserve_reasoning"`  // 模型是否支持 --reasoning-preserve
 	SupportsParallelToolCalls bool    `json:"supports_parallel_tool_calls"` // 模型是否支持并发工具调用
 	SupportsSystemRole        bool    `json:"supports_system_role"`         // 模型是否支持 system role（Gemma 等不支持，需合并到 user）
 }

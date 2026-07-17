@@ -1,11 +1,12 @@
 package llm_test
 
 import (
-	"douya/internal/llm"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"douya/internal/llm"
 )
 
 func TestSetDefaultAlias_ClearsPreviousAliases(t *testing.T) {

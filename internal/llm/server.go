@@ -6,8 +6,6 @@ package llm
 import (
 	"context"
 	"fmt"
-	"github.com/UserExistsError/conpty"
-	"github.com/rs/zerolog/log"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -15,6 +13,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/UserExistsError/conpty"
+	"github.com/rs/zerolog/log"
+
+	"douya/internal/apperror"
 	"douya/internal/pathutil"
 )
 
@@ -180,12 +182,12 @@ type ServerConfig struct {
 }
 
 type Server struct {
-	cmd                 *exec.Cmd
-	pty                 *conpty.ConPty // ConPTY 伪控制台（非 nil 表示使用 ConPTY 模式）
-	config              *ServerConfig
-	status              ServerStatus
-	ctx                 context.Context
-	cancel              context.CancelFunc
+	cmd    *exec.Cmd
+	pty    *conpty.ConPty // ConPTY 伪控制台（非 nil 表示使用 ConPTY 模式）
+	config *ServerConfig
+	status ServerStatus
+	ctx    context.Context
+	cancel context.CancelFunc
 	// mu 保护下方所有字段（cmd/pty/config/status/job/stderrBuf/mtpFallbackDisabled/...）。
 	// 安全说明（基于 GO-CONC-001 #9）：当前使用单一粗粒度 RWMutex 保护所有字段，
 	// 读写访问通过 s.mu.RLock()/s.mu.Lock() 统一加锁。当前所有访问路径已审计无数据竞争。
@@ -295,23 +297,6 @@ func (s *Server) resolvePath(p string) string {
 	return pathutil.ResolveInBase(s.config.AppDir, p)
 }
 
-// resolveCommaPaths 解析逗号分隔的路径列表，逐个转换为绝对路径。
-// 用于 LoraPaths 等多路径字段。
-func (s *Server) resolveCommaPaths(paths string) string {
-	if paths == "" {
-		return ""
-	}
-	parts := strings.Split(paths, ",")
-	resolved := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			resolved = append(resolved, s.resolvePath(p))
-		}
-	}
-	return strings.Join(resolved, ",")
-}
-
 // enhanceStartError 增强启动错误信息，检测 DLL 缺失等常见问题
 // 生活类比：就像翻译官把晦涩的英文报错翻译成通俗易懂的中文提示
 func enhanceStartError(err error) error {
@@ -353,7 +338,7 @@ func (s *Server) readConPTYOutput() {
 			pending = append(pending, data...)
 			// 同时写入 RingBuffer（用于错误诊断，按行切分存储）
 			if s.stderrBuf != nil {
-				s.stderrBuf.Write(buf[:n])
+				_, _ = s.stderrBuf.Write(buf[:n])
 			}
 		}
 
@@ -435,12 +420,12 @@ func (s *Server) WaitForReady(timeout time.Duration) error {
 				}
 			}
 			s.mu.RUnlock()
-			return fmt.Errorf("%s", errMsg)
+			return apperror.Newf(apperror.KindUnavailable, "%s", errMsg)
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	return fmt.Errorf("server did not become ready within %v", timeout)
+	return apperror.Newf(apperror.KindTimeout, "server did not become ready within %v", timeout)
 }
 
 func (s *Server) GracefulStop(timeout time.Duration) error {
@@ -496,7 +481,7 @@ func (s *Server) stopInternal() error {
 		return s.stopProcessWithTimeout(pid, func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
-			pty.Wait(ctx)
+			_, _ = pty.Wait(ctx)
 		}, func() {
 			pty.Close()
 		}, "pty")
@@ -512,7 +497,7 @@ func (s *Server) stopInternal() error {
 	s.mu.Unlock()
 
 	return s.stopProcessWithTimeout(pid, func() {
-		cmd.Wait()
+		_ = cmd.Wait()
 	}, nil, "cmd")
 }
 

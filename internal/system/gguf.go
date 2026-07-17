@@ -102,7 +102,7 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 	}
 
 	if n, ok := toInt(kvMap["general.file_type"]); ok {
-		meta.FileType = fileTypeName(int(n))
+		meta.FileType = fileTypeName(n)
 	}
 
 	if v, ok := kvMap["tokenizer.chat_template"].(string); ok {

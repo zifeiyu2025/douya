@@ -68,10 +68,8 @@ func ExtractTextWithLib(data []byte) (string, error) {
 		go func(pageNum int) {
 			defer wg.Done()
 			defer func() {
-				// 防御性 recover：单页 panic 不影响其他页
-				if r := recover(); r != nil {
-					// 页面解析异常，保留空字符串
-				}
+				// 防御性 recover：单页 panic 不影响其他页，页面解析异常时保留空字符串
+				_ = recover()
 			}()
 			page := reader.Page(pageNum)
 			if page.V.IsNull() {
@@ -106,8 +104,8 @@ func ExtractTextWithLib(data []byte) (string, error) {
 
 // extractWithRegex 使用正则提取 PDF 文本（fallback 方案）。
 var (
-	streamRe   = regexp.MustCompile(`(?s)stream\r?\n.*?\r?\nendstream`)
-	binaryRe   = regexp.MustCompile(`[\x00-\x08\x0b\x0c\x0e-\x1f]`)
+	streamRe    = regexp.MustCompile(`(?s)stream\r?\n.*?\r?\nendstream`)
+	binaryRe    = regexp.MustCompile(`[\x00-\x08\x0b\x0c\x0e-\x1f]`)
 	parenTextRe = regexp.MustCompile(`\(([^)]*)\)`)
 	arrayTextRe = regexp.MustCompile(`\[(.*?)\]`)
 )

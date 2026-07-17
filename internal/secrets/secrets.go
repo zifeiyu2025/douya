@@ -136,12 +136,12 @@ func LoadOrCreateKey(keyPath string) ([]byte, error) {
 
 	// 确保目录存在
 	dir := filepath.Dir(keyPath)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create key dir: %w", err)
 	}
 
 	// 写入密钥文件，权限仅限当前用户
-	if err := os.WriteFile(keyPath, key, 0600); err != nil {
+	if err := os.WriteFile(keyPath, key, 0o600); err != nil {
 		return nil, fmt.Errorf("写入密钥文件 %s 失败: %w", keyPath, err)
 	}
 
@@ -206,5 +206,3 @@ func Decrypt(encoded string, key []byte) (string, error) {
 
 	return string(plaintext), nil
 }
-
-

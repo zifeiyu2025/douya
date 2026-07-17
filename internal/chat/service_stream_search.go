@@ -292,7 +292,7 @@ func (s *Service) updateConversationTitleIfNeeded(convID string, titleContent st
 	if conv == nil {
 		return
 	}
-	if (conv.Title == "新对话" || conv.Title == "新的对话") && len(titleContent) > 0 {
+	if (conv.Title == "新对话" || conv.Title == "新的对话") && titleContent != "" {
 		title := generateConversationTitle(titleContent)
 		conv.Title = title
 		if err := store.UpdateConversation(s.db, conv, secrets.CipherKey(s.cipher)); err != nil {

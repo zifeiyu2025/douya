@@ -23,12 +23,12 @@ import 'highlight.js/styles/github.css'
 
 /** HTML 转义（导出供组件 catch 回退分支使用，避免直接赋值原始未消毒内容到 v-html） */
 export function escapeHtml(str: string): string {
-    return str
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;')
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
 // ===== DOMPurify 兼容处理 =====
@@ -36,16 +36,16 @@ export function escapeHtml(str: string): string {
 // - 浏览器中：default 是工厂函数，需要调用 createDOMPurify(window) 或直接 .sanitize
 // - Node.js 测试中：可能被 mock
 const purify = (() => {
-    const d = DOMPurify as any
-    if (d && typeof d.sanitize === 'function') return d
-    if (typeof d === 'function' && typeof window !== 'undefined') {
-        return d(window)
-    }
-    // 安全降级：无 window 环境（如测试）中用 escapeHtml 转义并保留换行
-    console.error('[security] DOMPurify unavailable, fallback to escapeHtml')
-    return {
-        sanitize: (html: string) => escapeHtml(html).replace(/\n/g, '<br>'),
-    }
+  const d = DOMPurify as any
+  if (d && typeof d.sanitize === 'function') return d
+  if (typeof d === 'function' && typeof window !== 'undefined') {
+    return d(window)
+  }
+  // 安全降级：无 window 环境（如测试）中用 escapeHtml 转义并保留换行
+  console.error('[security] DOMPurify unavailable, fallback to escapeHtml')
+  return {
+    sanitize: (html: string) => escapeHtml(html).replace(/\n/g, '<br>')
+  }
 })()
 
 // ===== 深色代码主题动态加载与切换 =====
@@ -67,22 +67,22 @@ let darkCodeThemePromise: Promise<void> | null = null
  * 通过查询 textContent 包含该色的 <style> 标签精准定位
  */
 export async function loadDarkCodeTheme(): Promise<void> {
-    if (darkCodeThemeEl) return
-    if (darkCodeThemePromise) return darkCodeThemePromise
-    darkCodeThemePromise = import('highlight.js/styles/github-dark.css').then(() => {
-        // 测试环境（happy-dom）下 document.head 可能未初始化，跳过 DOM 操作
-        if (typeof document === 'undefined' || !document.head) return
-        // 通过特征色 #ff7b72 精准定位 github-dark.css 注入的 <style>
-        const allStyles = Array.from(document.head.querySelectorAll('style'))
-        darkCodeThemeEl = allStyles.find(
-            s => s.textContent?.includes('#ff7b72')
-        ) as HTMLStyleElement | null
-        // 默认禁用，等 applyCodeTheme 根据当前主题决定是否启用
-        if (darkCodeThemeEl) {
-            darkCodeThemeEl.disabled = true
-        }
-    })
-    return darkCodeThemePromise
+  if (darkCodeThemeEl) return
+  if (darkCodeThemePromise) return darkCodeThemePromise
+  darkCodeThemePromise = import('highlight.js/styles/github-dark.css').then(() => {
+    // 测试环境（happy-dom）下 document.head 可能未初始化，跳过 DOM 操作
+    if (typeof document === 'undefined' || !document.head) return
+    // 通过特征色 #ff7b72 精准定位 github-dark.css 注入的 <style>
+    const allStyles = Array.from(document.head.querySelectorAll('style'))
+    darkCodeThemeEl = allStyles.find(s =>
+      s.textContent?.includes('#ff7b72')
+    ) as HTMLStyleElement | null
+    // 默认禁用，等 applyCodeTheme 根据当前主题决定是否启用
+    if (darkCodeThemeEl) {
+      darkCodeThemeEl.disabled = true
+    }
+  })
+  return darkCodeThemePromise
 }
 
 /**
@@ -90,21 +90,21 @@ export async function loadDarkCodeTheme(): Promise<void> {
  * @param isDark 是否为深色模式
  */
 export function applyCodeTheme(isDark: boolean): void {
-    if (isDark) {
-        if (darkCodeThemeEl) {
-            darkCodeThemeEl.disabled = false
-        } else {
-            // 首次切换到深色：加载并自动启用
-            loadDarkCodeTheme().then(() => {
-                if (darkCodeThemeEl) darkCodeThemeEl.disabled = false
-            })
-        }
+  if (isDark) {
+    if (darkCodeThemeEl) {
+      darkCodeThemeEl.disabled = false
     } else {
-        // 亮色：禁用深色主题，让静态导入的 github.css 生效
-        if (darkCodeThemeEl) {
-            darkCodeThemeEl.disabled = true
-        }
+      // 首次切换到深色：加载并自动启用
+      loadDarkCodeTheme().then(() => {
+        if (darkCodeThemeEl) darkCodeThemeEl.disabled = false
+      })
     }
+  } else {
+    // 亮色：禁用深色主题，让静态导入的 github.css 生效
+    if (darkCodeThemeEl) {
+      darkCodeThemeEl.disabled = true
+    }
+  }
 }
 
 // ===== 配置 marked =====
@@ -138,14 +138,12 @@ const renderer = new marked.Renderer()
  * - escaped: 是否已转义
  */
 renderer.code = function ({ text, lang }: Tokens.Code): string {
-    const language = lang && hljs.getLanguage(lang) ? lang : ''
-    // 调用 highlight.js 进行语法高亮
-    const highlighted = language
-        ? hljs.highlight(text, { language }).value
-        : escapeHtml(text)
-    const langLabel = lang || ''
-    const escapedLang = escapeHtml(langLabel)
-    return `<pre class="hljs"><div class="code-header"><span class="code-lang">${escapedLang}</span><button class="code-copy-btn">复制</button></div><code class="hljs language-${escapedLang}">${highlighted}</code></pre>`
+  const language = lang && hljs.getLanguage(lang) ? lang : ''
+  // 调用 highlight.js 进行语法高亮
+  const highlighted = language ? hljs.highlight(text, { language }).value : escapeHtml(text)
+  const langLabel = lang || ''
+  const escapedLang = escapeHtml(langLabel)
+  return `<pre class="hljs"><div class="code-header"><span class="code-lang">${escapedLang}</span><button class="code-copy-btn">复制</button></div><code class="hljs language-${escapedLang}">${highlighted}</code></pre>`
 }
 
 /**
@@ -160,19 +158,19 @@ renderer.code = function ({ text, lang }: Tokens.Code): string {
  * - tokens: 链接文本的子 token 数组，需用 this.parser.parseInline 渲染为 HTML
  */
 renderer.link = function ({ href, title, tokens }: Tokens.Link): string {
-    const text = this.parser.parseInline(tokens)
-    const titleAttr = title ? ` title="${escapeHtml(title)}"` : ''
-    // 安全实践（#15）：校验协议白名单（http(s) / mailto / tel / #），
-    // 不安全链接（如 javascript: / vbscript: / data:text/html）降级为 #
-    const safeHref = isSafeUrl(href) ? href : '#'
-    return `<a href="${escapeHtml(safeHref)}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`
+  const text = this.parser.parseInline(tokens)
+  const titleAttr = title ? ` title="${escapeHtml(title)}"` : ''
+  // 安全实践（#15）：校验协议白名单（http(s) / mailto / tel / #），
+  // 不安全链接（如 javascript: / vbscript: / data:text/html）降级为 #
+  const safeHref = isSafeUrl(href) ? href : '#'
+  return `<a href="${escapeHtml(safeHref)}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`
 }
 
 // 初始化 marked 配置（全局一次）
 marked.use({
-    gfm: true,
-    breaks: true,
-    renderer,
+  gfm: true,
+  breaks: true,
+  renderer
 })
 
 // ===== 核心渲染函数 =====
@@ -185,15 +183,15 @@ marked.use({
  * 然后用 DOMPurify "消毒"一遍，确保没有恶意代码。
  */
 export async function renderMarkdown(content: string): Promise<string> {
-    if (!content) return ''
-    try {
-        // marked.parse 默认同步，返回 string
-        const html = marked.parse(content, { async: false }) as string
-        return sanitizeHtml(html)
-    } catch (_) {
-        // 降级：转义 HTML 并返回
-        return sanitizeHtml(escapeHtml(content))
-    }
+  if (!content) return ''
+  try {
+    // marked.parse 默认同步，返回 string
+    const html = marked.parse(content, { async: false }) as string
+    return sanitizeHtml(html)
+  } catch (_) {
+    // 降级：转义 HTML 并返回
+    return sanitizeHtml(escapeHtml(content))
+  }
 }
 
 // ===== 安全过滤 =====
@@ -207,9 +205,9 @@ export async function renderMarkdown(content: string): Promise<string> {
  * - FORBID_ATTR：禁用 style 与常见危险事件属性
  */
 export function sanitizeHtml(html: string): string {
-    return purify.sanitize(html, {
-        // 安全实践（#14）：显式 URI 协议白名单 + 禁用危险事件属性
-        ALLOWED_URI_REGEXP: /^(?:https?|mailto|ftp|tel|data:image\/(?:png|jpeg|gif|webp|bmp)|#)/i,
-        FORBID_ATTR: ['style', 'onerror', 'onload', 'onclick', 'onmouseover'],
-    })
+  return purify.sanitize(html, {
+    // 安全实践（#14）：显式 URI 协议白名单 + 禁用危险事件属性
+    ALLOWED_URI_REGEXP: /^(?:https?|mailto|ftp|tel|data:image\/(?:png|jpeg|gif|webp|bmp)|#)/i,
+    FORBID_ATTR: ['style', 'onerror', 'onload', 'onclick', 'onmouseover']
+  })
 }

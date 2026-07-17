@@ -77,7 +77,7 @@ func summarizeMessages(ctx context.Context, client *llm.Client, existingSummary 
 		content := m.Content
 		// 截断过长的单条消息，避免摘要请求本身过大（L-11：按字符截断，避免切断中文）
 		content = truncateRunes(content, 800)
-		sb.WriteString(fmt.Sprintf("%s: %s\n", role, content))
+		fmt.Fprintf(&sb, "%s: %s\n", role, content)
 	}
 
 	dialogText := sb.String()

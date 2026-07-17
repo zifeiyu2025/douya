@@ -17,267 +17,267 @@ import { useMorphRender } from '../composables/useMorphRender'
 
 // mock marked：简单地将文本按 \n\n 分段为 <p>
 vi.mock('marked', () => ({
-    marked: {
-        parse: vi.fn((text: string) => {
-            if (!text) return ''
-            const paragraphs = text.split(/\n{2,}/)
-            return paragraphs
-                .filter(p => p.trim())
-                .map(p => `<p>${p}</p>`)
-                .join('')
-        }),
-        use: vi.fn(),
-        Renderer: vi.fn(() => ({})),
-    },
+  marked: {
+    parse: vi.fn((text: string) => {
+      if (!text) return ''
+      const paragraphs = text.split(/\n{2,}/)
+      return paragraphs
+        .filter(p => p.trim())
+        .map(p => `<p>${p}</p>`)
+        .join('')
+    }),
+    use: vi.fn(),
+    Renderer: vi.fn(() => ({}))
+  }
 }))
 
 // mock lightSanitize：直接返回原 HTML（测试环境无 XSS 风险）
 vi.mock('../utils/lightSanitize', () => ({
-    lightSanitize: vi.fn((html: string) => html),
-    isSafeUrl: vi.fn((url: string) => true),
+  lightSanitize: vi.fn((html: string) => html),
+  isSafeUrl: vi.fn((_url: string) => true)
 }))
 
 vi.mock('../utils/markdown', () => ({
-    renderMarkdown: vi.fn(async (text: string) => `<article>${text}</article>`),
-    escapeHtml: vi.fn((text: string) => text),
+  renderMarkdown: vi.fn(async (text: string) => `<article>${text}</article>`),
+  escapeHtml: vi.fn((text: string) => text)
 }))
 
 describe('useMorphRender', () => {
-    let scope: ReturnType<typeof effectScope>
-    let rafCallbacks: Map<number, () => void>
-    let rafIdCounter: number
-    let container: HTMLElement
+  let scope: ReturnType<typeof effectScope>
+  let rafCallbacks: Map<number, () => void>
+  let rafIdCounter: number
+  let container: HTMLElement
 
-    beforeEach(() => {
-        rafCallbacks = new Map()
-        rafIdCounter = 1
-        vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
-            const id = rafIdCounter++
-            rafCallbacks.set(id, () => cb(performance.now()))
-            return id
-        })
-        vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation((id: number) => {
-            rafCallbacks.delete(id)
-        })
-        vi.clearAllMocks()
-        scope = effectScope()
-        container = document.createElement('div')
-        document.body.appendChild(container)
+  beforeEach(() => {
+    rafCallbacks = new Map()
+    rafIdCounter = 1
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
+      const id = rafIdCounter++
+      rafCallbacks.set(id, () => cb(performance.now()))
+      return id
     })
-
-    afterEach(() => {
-        scope.stop()
-        vi.restoreAllMocks()
-        if (container.parentNode) {
-            container.parentNode.removeChild(container)
-        }
+    vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation((id: number) => {
+      rafCallbacks.delete(id)
     })
+    vi.clearAllMocks()
+    scope = effectScope()
+    container = document.createElement('div')
+    document.body.appendChild(container)
+  })
 
-    function flushRaf() {
-        const cbs = Array.from(rafCallbacks.values())
-        rafCallbacks.clear()
-        cbs.forEach((cb) => cb())
+  afterEach(() => {
+    scope.stop()
+    vi.restoreAllMocks()
+    if (container.parentNode) {
+      container.parentNode.removeChild(container)
     }
+  })
 
-    it('首次渲染：HTML 写入容器', async () => {
-        const { containerRef, bind } = scope.run(() => useMorphRender())!
-        containerRef.value = container
-        const source = ref('Hello')
-        bind(() => source.value)
+  function flushRaf() {
+    const cbs = Array.from(rafCallbacks.values())
+    rafCallbacks.clear()
+    cbs.forEach(cb => cb())
+  }
 
-        await nextTick()
-        flushRaf()
+  it('首次渲染：HTML 写入容器', async () => {
+    const { containerRef, bind } = scope.run(() => useMorphRender())!
+    containerRef.value = container
+    const source = ref('Hello')
+    bind(() => source.value)
 
-        const p = container.querySelector('p')
-        expect(p).not.toBeNull()
-        expect(p?.textContent).toBe('Hello')
-    })
+    await nextTick()
+    flushRaf()
 
-    it('内容更新：HTML 更新为新内容', async () => {
-        const { containerRef, bind } = scope.run(() => useMorphRender())!
-        containerRef.value = container
-        const source = ref('A')
-        bind(() => source.value)
+    const p = container.querySelector('p')
+    expect(p).not.toBeNull()
+    expect(p?.textContent).toBe('Hello')
+  })
 
-        await nextTick()
-        flushRaf()
+  it('内容更新：HTML 更新为新内容', async () => {
+    const { containerRef, bind } = scope.run(() => useMorphRender())!
+    containerRef.value = container
+    const source = ref('A')
+    bind(() => source.value)
 
-        expect(container.querySelector('p')?.textContent).toBe('A')
+    await nextTick()
+    flushRaf()
 
-        // 更新内容
-        source.value = 'A\n\nB'
-        await nextTick()
-        flushRaf()
+    expect(container.querySelector('p')?.textContent).toBe('A')
 
-        const paragraphs = container.querySelectorAll('p')
-        expect(paragraphs.length).toBe(2)
-        expect(paragraphs[0].textContent).toBe('A')
-        expect(paragraphs[1].textContent).toBe('B')
-    })
+    // 更新内容
+    source.value = 'A\n\nB'
+    await nextTick()
+    flushRaf()
 
-    it('RAF 合帧：多次快速更新只调度一次 RAF', async () => {
-        const { containerRef, bind } = scope.run(() => useMorphRender())!
-        containerRef.value = container
-        const source = ref('')
-        bind(() => source.value)
+    const paragraphs = container.querySelectorAll('p')
+    expect(paragraphs.length).toBe(2)
+    expect(paragraphs[0].textContent).toBe('A')
+    expect(paragraphs[1].textContent).toBe('B')
+  })
 
-        source.value = 'A'
-        await nextTick()
-        source.value = 'AB'
-        await nextTick()
-        source.value = 'ABC'
-        await nextTick()
+  it('RAF 合帧：多次快速更新只调度一次 RAF', async () => {
+    const { containerRef, bind } = scope.run(() => useMorphRender())!
+    containerRef.value = container
+    const source = ref('')
+    bind(() => source.value)
 
-        // 三次更新只应有一次 RAF 调度（合帧）
-        expect(rafCallbacks.size).toBe(1)
+    source.value = 'A'
+    await nextTick()
+    source.value = 'AB'
+    await nextTick()
+    source.value = 'ABC'
+    await nextTick()
 
-        flushRaf()
+    // 三次更新只应有一次 RAF 调度（合帧）
+    expect(rafCallbacks.size).toBe(1)
 
-        // 最终内容是最后一次更新
-        expect(container.querySelector('p')?.textContent).toBe('ABC')
-    })
+    flushRaf()
 
-    it('clear() 清空容器内容', async () => {
-        const { containerRef, bind, clear } = scope.run(() => useMorphRender())!
-        containerRef.value = container
-        const source = ref('Hello')
-        bind(() => source.value)
+    // 最终内容是最后一次更新
+    expect(container.querySelector('p')?.textContent).toBe('ABC')
+  })
 
-        await nextTick()
-        flushRaf()
-        expect(container.innerHTML).not.toBe('')
+  it('clear() 清空容器内容', async () => {
+    const { containerRef, bind, clear } = scope.run(() => useMorphRender())!
+    containerRef.value = container
+    const source = ref('Hello')
+    bind(() => source.value)
 
-        clear()
-        expect(container.innerHTML).toBe('')
-        expect(container.childNodes.length).toBe(0)
-    })
+    await nextTick()
+    flushRaf()
+    expect(container.innerHTML).not.toBe('')
 
-    it('finalizeRender 用完整 renderMarkdown 做最终渲染', async () => {
-        const { containerRef, bind, finalizeRender } = scope.run(() => useMorphRender())!
-        containerRef.value = container
-        const source = ref('Final content.')
-        bind(() => source.value)
+    clear()
+    expect(container.innerHTML).toBe('')
+    expect(container.childNodes.length).toBe(0)
+  })
 
-        await nextTick()
-        flushRaf()
-        expect(container.innerHTML).toContain('Final content')
+  it('finalizeRender 用完整 renderMarkdown 做最终渲染', async () => {
+    const { containerRef, bind, finalizeRender } = scope.run(() => useMorphRender())!
+    containerRef.value = container
+    const source = ref('Final content.')
+    bind(() => source.value)
 
-        await finalizeRender()
-        const { renderMarkdown } = await import('../utils/markdown')
-        expect(renderMarkdown).toHaveBeenCalledWith('Final content.')
-        expect(container.innerHTML).toBe('<article>Final content.</article>')
-    })
+    await nextTick()
+    flushRaf()
+    expect(container.innerHTML).toContain('Final content')
 
-    it('空内容触发 clear 而非渲染', async () => {
-        const { containerRef, bind } = scope.run(() => useMorphRender())!
-        containerRef.value = container
-        const source = ref('Hello')
-        bind(() => source.value)
+    await finalizeRender()
+    const { renderMarkdown } = await import('../utils/markdown')
+    expect(renderMarkdown).toHaveBeenCalledWith('Final content.')
+    expect(container.innerHTML).toBe('<article>Final content.</article>')
+  })
 
-        await nextTick()
-        flushRaf()
-        expect(container.innerHTML).not.toBe('')
+  it('空内容触发 clear 而非渲染', async () => {
+    const { containerRef, bind } = scope.run(() => useMorphRender())!
+    containerRef.value = container
+    const source = ref('Hello')
+    bind(() => source.value)
 
-        source.value = ''
-        await nextTick()
+    await nextTick()
+    flushRaf()
+    expect(container.innerHTML).not.toBe('')
 
-        expect(container.innerHTML).toBe('')
-    })
+    source.value = ''
+    await nextTick()
 
-    it('容器未绑定时安全跳过渲染', async () => {
-        const { bind } = scope.run(() => useMorphRender())!
-        const source = ref('Hello')
-        // containerRef.value 未设置
-        bind(() => source.value)
+    expect(container.innerHTML).toBe('')
+  })
 
-        await nextTick()
-        // 不应抛错
-        flushRaf()
-    })
+  it('容器未绑定时安全跳过渲染', async () => {
+    const { bind } = scope.run(() => useMorphRender())!
+    const source = ref('Hello')
+    // containerRef.value 未设置
+    bind(() => source.value)
 
-    it('容器延迟挂载：watch 触发时容器为 null，挂载后补偿渲染', async () => {
-        const { containerRef, bind } = scope.run(() => useMorphRender())!
-        const source = ref('')
-        bind(() => source.value)
+    await nextTick()
+    // 不应抛错
+    flushRaf()
+  })
 
-        // 模拟首次对话：streamingContent 变化，但容器 DOM 还没挂载
-        source.value = '首 token'
-        await nextTick()
-        // 此时 containerRef.value 仍为 null（v-if 还没渲染容器）
-        flushRaf()
-        // applyHtml 因 el 为 null 跳过，内容不渲染
+  it('容器延迟挂载：watch 触发时容器为 null，挂载后补偿渲染', async () => {
+    const { containerRef, bind } = scope.run(() => useMorphRender())!
+    const source = ref('')
+    bind(() => source.value)
 
-        // 容器挂载（v-if=true → DOM 创建 → ref 赋值）
-        containerRef.value = container
-        await nextTick()
-        // containerRef watch 触发，补偿渲染
-        flushRaf()
+    // 模拟首次对话：streamingContent 变化，但容器 DOM 还没挂载
+    source.value = '首 token'
+    await nextTick()
+    // 此时 containerRef.value 仍为 null（v-if 还没渲染容器）
+    flushRaf()
+    // applyHtml 因 el 为 null 跳过，内容不渲染
 
-        // 内容应正确渲染
-        expect(container.querySelector('p')?.textContent).toBe('首 token')
-    })
+    // 容器挂载（v-if=true → DOM 创建 → ref 赋值）
+    containerRef.value = container
+    await nextTick()
+    // containerRef watch 触发，补偿渲染
+    flushRaf()
 
-    // 回归测试：修复段落从 N 增长到 N+1 时 DOM 顺序错乱
-    // 旧 bug：第一行渲染后，第三行先出现在 unstable-block，第二行被新建在末尾，
-    // 导致顺序变成 A、C、B
-    it('段落连续增长时保持 DOM 顺序（1段→2段→3段→4段）', async () => {
-        const { containerRef, bind } = scope.run(() => useMorphRender())!
-        containerRef.value = container
-        const source = ref('')
-        bind(() => source.value)
+    // 内容应正确渲染
+    expect(container.querySelector('p')?.textContent).toBe('首 token')
+  })
 
-        // 帧1：1段
-        source.value = 'A'
-        await nextTick()
-        flushRaf()
-        expect(container.textContent).toBe('A')
+  // 回归测试：修复段落从 N 增长到 N+1 时 DOM 顺序错乱
+  // 旧 bug：第一行渲染后，第三行先出现在 unstable-block，第二行被新建在末尾，
+  // 导致顺序变成 A、C、B
+  it('段落连续增长时保持 DOM 顺序（1段→2段→3段→4段）', async () => {
+    const { containerRef, bind } = scope.run(() => useMorphRender())!
+    containerRef.value = container
+    const source = ref('')
+    bind(() => source.value)
 
-        // 帧2：2段
-        source.value = 'A\n\nB'
-        await nextTick()
-        flushRaf()
-        // 验证：第一行 A 在前，第二行 B 在后
-        const ps2 = container.querySelectorAll('p')
-        expect(ps2.length).toBe(2)
-        expect(ps2[0].textContent).toBe('A')
-        expect(ps2[1].textContent).toBe('B')
+    // 帧1：1段
+    source.value = 'A'
+    await nextTick()
+    flushRaf()
+    expect(container.textContent).toBe('A')
 
-        // 帧3：3段（bug 触发点：原本会变成 A、C、B）
-        source.value = 'A\n\nB\n\nC'
-        await nextTick()
-        flushRaf()
-        const ps3 = container.querySelectorAll('p')
-        expect(ps3.length).toBe(3)
-        // 关键断言：DOM 顺序必须与逻辑顺序一致
-        expect(Array.from(ps3).map(p => p.textContent)).toEqual(['A', 'B', 'C'])
+    // 帧2：2段
+    source.value = 'A\n\nB'
+    await nextTick()
+    flushRaf()
+    // 验证：第一行 A 在前，第二行 B 在后
+    const ps2 = container.querySelectorAll('p')
+    expect(ps2.length).toBe(2)
+    expect(ps2[0].textContent).toBe('A')
+    expect(ps2[1].textContent).toBe('B')
 
-        // 帧4：4段（再次增长，验证连续提升的稳定性）
-        source.value = 'A\n\nB\n\nC\n\nD'
-        await nextTick()
-        flushRaf()
-        const ps4 = container.querySelectorAll('p')
-        expect(ps4.length).toBe(4)
-        expect(Array.from(ps4).map(p => p.textContent)).toEqual(['A', 'B', 'C', 'D'])
-    })
+    // 帧3：3段（bug 触发点：原本会变成 A、C、B）
+    source.value = 'A\n\nB\n\nC'
+    await nextTick()
+    flushRaf()
+    const ps3 = container.querySelectorAll('p')
+    expect(ps3.length).toBe(3)
+    // 关键断言：DOM 顺序必须与逻辑顺序一致
+    expect(Array.from(ps3).map(p => p.textContent)).toEqual(['A', 'B', 'C'])
 
-    // 回归测试：跨帧跳跃增长（从1段直接跳到3段）也应保持顺序
-    it('跳跃增长时保持 DOM 顺序（1段→3段）', async () => {
-        const { containerRef, bind } = scope.run(() => useMorphRender())!
-        containerRef.value = container
-        const source = ref('')
-        bind(() => source.value)
+    // 帧4：4段（再次增长，验证连续提升的稳定性）
+    source.value = 'A\n\nB\n\nC\n\nD'
+    await nextTick()
+    flushRaf()
+    const ps4 = container.querySelectorAll('p')
+    expect(ps4.length).toBe(4)
+    expect(Array.from(ps4).map(p => p.textContent)).toEqual(['A', 'B', 'C', 'D'])
+  })
 
-        source.value = 'A'
-        await nextTick()
-        flushRaf()
+  // 回归测试：跨帧跳跃增长（从1段直接跳到3段）也应保持顺序
+  it('跳跃增长时保持 DOM 顺序（1段→3段）', async () => {
+    const { containerRef, bind } = scope.run(() => useMorphRender())!
+    containerRef.value = container
+    const source = ref('')
+    bind(() => source.value)
 
-        // 直接跳到3段（跳过中间态）
-        source.value = 'A\n\nB\n\nC'
-        await nextTick()
-        flushRaf()
+    source.value = 'A'
+    await nextTick()
+    flushRaf()
 
-        const ps = container.querySelectorAll('p')
-        expect(ps.length).toBe(3)
-        expect(Array.from(ps).map(p => p.textContent)).toEqual(['A', 'B', 'C'])
-    })
+    // 直接跳到3段（跳过中间态）
+    source.value = 'A\n\nB\n\nC'
+    await nextTick()
+    flushRaf()
+
+    const ps = container.querySelectorAll('p')
+    expect(ps.length).toBe(3)
+    expect(Array.from(ps).map(p => p.textContent)).toEqual(['A', 'B', 'C'])
+  })
 })

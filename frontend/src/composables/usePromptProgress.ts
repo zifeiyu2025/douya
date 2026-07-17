@@ -6,10 +6,10 @@ import { computed, type ComputedRef } from 'vue'
 // PromptProgressData 描述 prompt 处理进度的原始数据。
 // 与 chat.ts 中 ConvState.promptProgress 字段类型保持一致。
 export interface PromptProgressData {
-  total: number     // prompt 总 token 数（含缓存命中）
-  cache: number     // 缓存命中的 token 数
+  total: number // prompt 总 token 数（含缓存命中）
+  cache: number // 缓存命中的 token 数
   processed: number // 已处理的 token 数（含缓存命中）
-  timeMs: number    // 已耗时（毫秒）
+  timeMs: number // 已耗时（毫秒）
 }
 
 /**
@@ -30,9 +30,7 @@ export interface PromptProgressData {
  *
  * @param promptProgress prompt 进度的 getter 函数（返回 PromptProgressData | null）
  */
-export function usePromptProgress(
-  promptProgress: () => PromptProgressData | null
-): {
+export function usePromptProgress(promptProgress: () => PromptProgressData | null): {
   percent: ComputedRef<number>
   eta: ComputedRef<number | null>
 } {

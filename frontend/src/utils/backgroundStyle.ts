@@ -18,7 +18,7 @@
  */
 export function buildBackgroundStyle(
   chat_background: string,
-  opacity?: number,
+  opacity?: number
 ): Record<string, string> {
   // 双主题都支持背景图：仅判断 chat_background 是否存在
   if (!chat_background) {
@@ -35,6 +35,6 @@ export function buildBackgroundStyle(
   }
   return {
     '--chat-background': `url(${bgUrl})`,
-    '--chat-background-opacity': String(actualOpacity),
+    '--chat-background-opacity': String(actualOpacity)
   }
 }

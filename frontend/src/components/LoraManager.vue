@@ -4,23 +4,52 @@
     <div class="lora-section">
       <div class="section-header">
         <span class="section-title">适配器路径</span>
-        <n-text depth="3" style="font-size: 12px;">修改后需重启生效</n-text>
+        <n-text depth="3" style="font-size: 12px">修改后需重启生效</n-text>
       </div>
 
       <div class="lora-path-list">
-        <div v-for="(path, index) in loraPathList" :key="path || 'empty-' + index" class="lora-path-item">
+        <div
+          v-for="(path, index) in loraPathList"
+          :key="path || 'empty-' + index"
+          class="lora-path-item"
+        >
           <div class="lora-path-text" :title="path" @click="handleReplacePath(index)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;opacity:0.5">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              style="flex-shrink: 0; opacity: 0.5"
+            >
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
             </svg>
             <span class="path-value">{{ path || '点击选择文件...' }}</span>
           </div>
-          <n-button quaternary circle size="tiny" class="lora-path-remove" @click="removePath(index)" title="移除">
+          <n-button
+            quaternary
+            circle
+            size="tiny"
+            class="lora-path-remove"
+            title="移除"
+            @click="removePath(index)"
+          >
             <template #icon>
               <n-icon size="14">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
                 </svg>
               </n-icon>
             </template>
@@ -31,8 +60,16 @@
       <n-button type="primary" size="small" ghost class="lora-add-btn" @click="handleAddPath">
         <template #icon>
           <n-icon size="14">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
           </n-icon>
         </template>
@@ -42,9 +79,21 @@
       <!-- 重启提示 -->
       <Transition name="lora-hint">
         <div v-if="pathChanged" class="lora-hint warning">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path
+              d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+            />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
           <span>路径已修改，重启应用后生效</span>
         </div>
@@ -55,12 +104,28 @@
     <div class="lora-section">
       <div class="section-header">
         <span class="section-title">运行时状态</span>
-        <n-button quaternary circle size="tiny" class="lora-refresh-btn" :class="{ spinning: loading }" @click="loadAdapters" title="刷新">
+        <n-button
+          quaternary
+          circle
+          size="tiny"
+          class="lora-refresh-btn"
+          :class="{ spinning: loading }"
+          title="刷新"
+          @click="loadAdapters"
+        >
           <template #icon>
             <n-icon size="14">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
-                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polyline points="23 4 23 10 17 10" />
+                <polyline points="1 20 1 14 7 14" />
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
               </svg>
             </n-icon>
           </template>
@@ -80,19 +145,32 @@
 
       <!-- 适配器列表 -->
       <div v-else-if="adapters.length > 0" class="lora-list">
-        <div v-for="adapter in adapters" :key="adapter.id" class="lora-item" :class="{ active: adapter.scale > 0 }">
+        <div
+          v-for="adapter in adapters"
+          :key="adapter.id"
+          class="lora-item"
+          :class="{ active: adapter.scale > 0 }"
+        >
           <div class="lora-info">
             <div class="lora-id-row">
-              <span class="lora-badge" :class="adapter.scale > 0 ? 'on' : 'off'">#{{ adapter.id }}</span>
+              <span class="lora-badge" :class="adapter.scale > 0 ? 'on' : 'off'">
+                #{{ adapter.id }}
+              </span>
               <span class="lora-path" :title="adapter.path">{{ adapter.path }}</span>
             </div>
           </div>
           <div class="lora-controls">
             <label class="lora-switch" :class="{ on: adapter.scale > 0 }">
-              <input type="checkbox" :checked="adapter.scale > 0" @change="(e: Event) => handleToggle(adapter, (e.target as HTMLInputElement).checked)" />
+              <input
+                type="checkbox"
+                :checked="adapter.scale > 0"
+                @change="
+                  (e: Event) => handleToggle(adapter, (e.target as HTMLInputElement).checked)
+                "
+              />
               <span class="lora-switch-track"></span>
             </label>
-            <div class="lora-scale" v-if="adapter.scale > 0">
+            <div v-if="adapter.scale > 0" class="lora-scale">
               <span class="scale-label">Scale</span>
               <n-input-number
                 :value="adapter.scale"
@@ -100,7 +178,7 @@
                 :max="2"
                 :step="0.1"
                 size="small"
-                style="width: 96px;"
+                style="width: 96px"
                 @update:value="(val: number | null) => handleScaleChange(adapter.id, val)"
               />
             </div>
@@ -110,8 +188,16 @@
 
       <!-- 加载中 -->
       <div v-if="loading && adapters.length === 0" class="lora-loading">
-        <svg class="spin-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+        <svg
+          class="spin-icon"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
         </svg>
       </div>
     </div>
@@ -143,7 +229,10 @@ const loraPathList = ref<string[]>([])
 
 function parsePaths(paths: string): string[] {
   if (!paths) return []
-  return paths.split(',').map(p => p.trim()).filter(p => p !== '')
+  return paths
+    .split(',')
+    .map(p => p.trim())
+    .filter(p => p !== '')
 }
 
 function syncPathsToString() {
@@ -199,14 +288,18 @@ async function handleReplacePath(index: number) {
 }
 
 // 监听 props 变化
-watch(() => props.loraPaths, (newVal) => {
-  const newList = parsePaths(newVal)
-  const currentClean = loraPathList.value.filter(p => p.trim() !== '')
-  if (JSON.stringify(newList) !== JSON.stringify(currentClean)) {
-    loraPathList.value = newList.length > 0 ? [...newList] : []
-  }
-  pathChanged.value = false
-}, { immediate: true })
+watch(
+  () => props.loraPaths,
+  newVal => {
+    const newList = parsePaths(newVal)
+    const currentClean = loraPathList.value.filter(p => p.trim() !== '')
+    if (JSON.stringify(newList) !== JSON.stringify(currentClean)) {
+      loraPathList.value = newList.length > 0 ? [...newList] : []
+    }
+    pathChanged.value = false
+  },
+  { immediate: true }
+)
 
 // 加载 LoRA 适配器列表
 async function loadAdapters() {
@@ -233,7 +326,7 @@ async function handleToggle(adapter: LoraAdapter, enabled: boolean) {
   const newScale = enabled ? 1.0 : 0
   const oldScale = adapter.scale
   // 无变化不响应
-  if ((oldScale > 0) === enabled) return
+  if (oldScale > 0 === enabled) return
   adapter.scale = newScale
 
   try {
@@ -386,7 +479,9 @@ onMounted(() => {
 
 .lora-hint-enter-active,
 .lora-hint-leave-active {
-  transition: opacity 0.25s, transform 0.25s;
+  transition:
+    opacity 0.25s,
+    transform 0.25s;
 }
 
 .lora-hint-enter-from,
@@ -450,7 +545,9 @@ onMounted(() => {
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-md, 12px);
   background: var(--bg-secondary);
-  transition: border-color 0.2s, background 0.2s;
+  transition:
+    border-color 0.2s,
+    background 0.2s;
 }
 
 .lora-item:hover {

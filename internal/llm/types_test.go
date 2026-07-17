@@ -70,7 +70,7 @@ func TestContentString_AnySliceWithText(t *testing.T) {
 func TestContentString_AnySliceWithoutText(t *testing.T) {
 	anySlice := []any{
 		map[string]any{
-			"type": "image_url",
+			"type":      "image_url",
 			"image_url": map[string]any{"url": "abc"},
 		},
 	}

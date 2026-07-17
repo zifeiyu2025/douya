@@ -200,11 +200,11 @@ func TestBuildMessageFromAttachments_RejectedAttachment(t *testing.T) {
 // TestEstimateAttachmentTokensWithData_KnownTypes 验证已知附件类型返回正确的估算值
 func TestEstimateAttachmentTokensWithData_KnownTypes(t *testing.T) {
 	cases := []struct {
-		name     string
-		attType  string
-		data     string
-		wantMin  int // 期望最小值（大于0）
-		wantMax  int // 期望最大值（合理上界）
+		name    string
+		attType string
+		data    string
+		wantMin int // 期望最小值（大于0）
+		wantMax int // 期望最大值（合理上界）
 	}{
 		{"image", "image", "base64data", 3500, 3500},
 		{"IMAGE大写", "IMAGE", "base64data", 3500, 3500},

@@ -2,9 +2,10 @@ package llm_test
 
 import (
 	"bytes"
-	"douya/internal/llm"
 	"strings"
 	"testing"
+
+	"douya/internal/llm"
 )
 
 func TestRingBuffer_WritesAndReads(t *testing.T) {

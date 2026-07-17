@@ -18,12 +18,12 @@ const isDev = import.meta.env.DEV
  * @param err 错误对象，生产环境仅输出类型不输出细节，开发环境输出完整信息
  */
 export function logError(prefix: string, err: unknown): void {
-    if (isDev) {
-        // 开发环境：完整错误信息便于调试
-        console.error(prefix, err)
-    } else {
-        // 生产环境：仅输出前缀和错误类型，不泄漏后端细节（文件路径/堆栈等）
-        const errType = err instanceof Error ? err.name : typeof err
-        console.error(`${prefix} (${errType})`)
-    }
+  if (isDev) {
+    // 开发环境：完整错误信息便于调试
+    console.error(prefix, err)
+  } else {
+    // 生产环境：仅输出前缀和错误类型，不泄漏后端细节（文件路径/堆栈等）
+    const errType = err instanceof Error ? err.name : typeof err
+    console.error(`${prefix} (${errType})`)
+  }
 }

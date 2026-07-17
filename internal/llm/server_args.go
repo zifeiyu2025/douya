@@ -62,11 +62,10 @@ func (s *Server) baseArgs() []string {
 // 包括 models-preset、no-models-autoload、models-max、sleep-idle、gpu-layers、flash-attn、cache-type-k/v。
 func (s *Server) appendModelLoadArgs(args []string) []string {
 	if s.config.ModelsPreset != "" {
-		args = append(args, "--models-preset", s.config.ModelsPreset)
 		// 禁用路由器自动加载：豆芽通过 /models/load API 显式控制模型加载时机
 		// 原版 llama.cpp 默认 models_autoload=true，会在请求到来时自动加载模型，
 		// 这与豆芽的显式加载逻辑冲突，可能导致子进程参数不完整或加载状态混乱
-		args = append(args, "--no-models-autoload")
+		args = append(args, "--models-preset", s.config.ModelsPreset, "--no-models-autoload")
 	}
 	args = appendIntArg(args, "--models-max", s.config.ModelsMax)
 	args = appendIntArg(args, "--sleep-idle-seconds", s.config.SleepIdleSeconds)
@@ -397,7 +396,7 @@ func (s *Server) appendLoraArgs(args []string) []string {
 			log.Warn().Str("slot_save_path", slotPath).Msg("[server] SlotSaveEnabled is true but SlotSavePath is empty, using default path")
 		}
 		// 确保目录存在，避免 llama-server 写入失败
-		if err := os.MkdirAll(slotPath, 0755); err != nil {
+		if err := os.MkdirAll(slotPath, 0o755); err != nil {
 			log.Warn().Err(err).Str("slot_save_path", slotPath).Msg("[server] failed to create slot save directory")
 		}
 		args = append(args, "--slot-save-path", slotPath)
@@ -416,7 +415,7 @@ func (s *Server) appendAdvancedArgs(args []string) []string {
 	args = s.appendMultimodalArgs(args)
 	args = s.appendMediaOfflineArgs(args)
 	args = s.appendDraftThreadsArgs(args)
-	args = s.appendCpuMoeArgs(args)
+	args = s.appendCPUMoeArgs(args)
 	return args
 }
 
@@ -495,8 +494,8 @@ func (s *Server) appendDraftThreadsArgs(args []string) []string {
 	return args
 }
 
-// appendCpuMoeArgs 追加 Direct IO、MoE 卸载、OpOffload 参数。
-func (s *Server) appendCpuMoeArgs(args []string) []string {
+// appendCPUMoeArgs 追加 Direct IO、MoE 卸载、OpOffload 参数。
+func (s *Server) appendCPUMoeArgs(args []string) []string {
 	// 直接 I/O（绕过操作系统页面缓存，加速大模型加载）
 	args = appendBoolArg(args, "--direct-io", s.config.DirectIO)
 	// MoE 权重 CPU 卸载

@@ -32,8 +32,8 @@
         class="compress-btn"
         :class="{ loading: isCompressing }"
         :disabled="isCompressing"
-        @click="handleCompress"
         title="立即压缩早期对话"
+        @click="handleCompress"
       >
         {{ isCompressing ? '压缩中…' : '压缩' }}
       </button>
@@ -50,12 +50,15 @@ import { useChatStore } from '../stores/chat'
 import { showSuccess, showError } from '../utils/showError'
 import { usePromptProgress } from '../composables/usePromptProgress'
 
-const props = withDefaults(defineProps<{
-  text: string
-  contextSize?: number
-}>(), {
-  contextSize: 0,
-})
+const props = withDefaults(
+  defineProps<{
+    text: string
+    contextSize?: number
+  }>(),
+  {
+    contextSize: 0
+  }
+)
 
 const settings = useSettingsStore()
 const chatStore = useChatStore()
@@ -98,7 +101,7 @@ const statusClass = computed(() => {
   const r = tokenCount.value / props.contextSize
   if (r >= 0.95) return 'danger'
   if (r >= 0.8) return 'warn'
-  if (r >= 0.6) return 'notice'  // P2-A2: 新增 60% 提示档
+  if (r >= 0.6) return 'notice' // P2-A2: 新增 60% 提示档
   return ''
 })
 
@@ -124,7 +127,7 @@ function formatCtx(n: number): string {
 }
 
 // 使用 llama.cpp 原生 /tokenize API 实时计算 token 数
-let requestVersion = 0  // IPC 请求版本号，防止快速输入时旧结果覆盖新结果
+let requestVersion = 0 // IPC 请求版本号，防止快速输入时旧结果覆盖新结果
 
 function scheduleCount(text: string) {
   if (timer) {
@@ -149,10 +152,13 @@ function scheduleCount(text: string) {
   }, 150)
 }
 
-watch(() => props.text, (t) => scheduleCount(t))
+watch(
+  () => props.text,
+  t => scheduleCount(t)
+)
 
 // 服务器就绪时立即触发一次计数
-watch(show, (ready) => {
+watch(show, ready => {
   if (ready && props.text) scheduleCount(props.text)
 })
 
@@ -277,7 +283,9 @@ onUnmounted(() => {
   height: 100%;
   background: var(--accent-primary);
   border-radius: 1px;
-  transition: width 0.25s ease, background 0.25s;
+  transition:
+    width 0.25s ease,
+    background 0.25s;
 }
 
 .token-bar-fill.warn {
@@ -294,7 +302,9 @@ onUnmounted(() => {
   margin-left: 6px;
   font-size: 10px;
   opacity: 0.85;
-  transition: color 0.2s, opacity 0.2s;
+  transition:
+    color 0.2s,
+    opacity 0.2s;
   white-space: nowrap;
 }
 
@@ -333,7 +343,10 @@ onUnmounted(() => {
   border: 1px solid color-mix(in srgb, var(--text-muted) 30%, transparent);
   border-radius: 8px;
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background-color 0.15s ease;
   user-select: none;
 }
 

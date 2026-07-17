@@ -1,9 +1,15 @@
 <template>
   <div class="settings-container">
     <div class="settings-header">
-      <button class="back-btn" type="button" @click="$router.push('/')" aria-label="返回">
+      <button class="back-btn" type="button" aria-label="返回" @click="$router.push('/')">
         <svg width="20" height="20" viewBox="0 0 512 512" fill="none" aria-hidden="true">
-          <path d="M244 400L100 256l144-144M120 256h292" stroke="currentColor" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
+          <path
+            d="M244 400L100 256l144-144M120 256h292"
+            stroke="currentColor"
+            stroke-width="48"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
         </svg>
       </button>
       <span class="settings-title">设置</span>
@@ -11,7 +17,6 @@
     <div class="settings-content">
       <n-form label-placement="left" label-width="120" :model="formConfig">
         <n-collapse :default-expanded-names="['basic']" display-directive="show">
-
           <!-- ==================== 基础设置 ==================== -->
           <n-collapse-item name="basic">
             <template #header>
@@ -55,7 +60,6 @@
             </template>
             <AboutSettings />
           </n-collapse-item>
-
         </n-collapse>
       </n-form>
     </div>
@@ -64,15 +68,12 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, onUnmounted, provide } from 'vue'
-import {
-  NForm,
-  NCollapse, NCollapseItem, useMessage,
-} from 'naive-ui'
+import { NForm, NCollapse, NCollapseItem, useMessage } from 'naive-ui'
 import { useSettingsStore } from '../stores/settings'
 import { matchModelRef } from '../stores/settings'
 import { MODEL_REFS } from '../utils/modelRefs'
 import { showSuccess } from '../utils/showError'
-import { logError } from '../utils/logger'  // 安全实践（#34）：用 logError 替代 console.error，避免泄漏后端细节
+import { logError } from '../utils/logger' // 安全实践（#34）：用 logError 替代 console.error，避免泄漏后端细节
 import { type Config, type SearchAPIKeys, DEFAULT_CONFIG } from '../services/wails'
 import { wails } from '../services/wails'
 import defaultUserAvatar from '../assets/images/user-avatar.svg'
@@ -103,7 +104,7 @@ const contextSizeMarks: Record<number, string> = {
   4: '32K',
   5: '64K',
   6: '128K',
-  7: '256K',
+  7: '256K'
 }
 
 function formatContextSize(size: number): string {
@@ -130,7 +131,7 @@ function findClosestStepIndex(size: number): number {
 const contextSizeIndex = ref(2)
 const refShowThinking = ref(false)
 
-watch(contextSizeIndex, (idx) => {
+watch(contextSizeIndex, idx => {
   formConfig.value.context_size = contextSizeSteps[idx]
 })
 
@@ -151,7 +152,7 @@ const cacheTypeKOptions = computed(() => {
     { label: 'q5_1 (5bit)', value: 'q5_1' },
     { label: 'q5_0 (5bit)', value: 'q5_0' },
     { label: 'q4_1 (4bit)', value: 'q4_1' },
-    { label: 'q4_0 (4bit)', value: 'q4_0' },
+    { label: 'q4_0 (4bit)', value: 'q4_0' }
   ]
   if (hasGPU) {
     // GPU 模式：在 f16 后插入 bf16，在 q4_0 后追加 iq4_nl
@@ -171,7 +172,7 @@ const cacheTypeVOptions = computed(() => {
     { label: 'q5_1 (5bit)', value: 'q5_1' },
     { label: 'q5_0 (5bit)', value: 'q5_0' },
     { label: 'q4_1 (4bit)', value: 'q4_1' },
-    { label: 'q4_0 (4bit)', value: 'q4_0' },
+    { label: 'q4_0 (4bit)', value: 'q4_0' }
   ]
   if (hasGPU) {
     baseOptions.splice(3, 0, { label: 'bf16 (16bit)', value: 'bf16' })
@@ -183,14 +184,12 @@ const cacheTypeVOptions = computed(() => {
 const reasoningOptions = [
   { label: '开启', value: 'on' },
   { label: '关闭', value: 'off' },
-  { label: '自动', value: 'auto' },
+  { label: '自动', value: 'auto' }
 ]
 
 const specTypeOptions = computed(() => {
   const caps = settingsStore.modelCapabilities
-  const options = [
-    { label: '自动检测', value: '' },
-  ]
+  const options = [{ label: '自动检测', value: '' }]
   // 仅当模型支持 MTP 时才显示 draft-mtp 选项
   if (caps.has_mtp) {
     options.push({ label: 'MTP 推测解码 🔥', value: 'draft-mtp' })
@@ -204,7 +203,7 @@ const specTypeOptions = computed(() => {
     { label: 'Ngram-Map-K 推测解码', value: 'ngram-map-k' },
     { label: 'Ngram-Map-K4V 推测解码', value: 'ngram-map-k4v' },
     { label: 'Ngram-Cache 推测解码', value: 'ngram-cache' },
-    { label: '关闭', value: 'none' },
+    { label: '关闭', value: 'none' }
   )
   return options
 })
@@ -216,18 +215,18 @@ const supportsReasoning = computed(() => settingsStore.modelCapabilities.reasoni
 const formConfig = ref<Config>({ ...DEFAULT_CONFIG })
 
 const backgroundImageUrl = computed(() => {
-    const bg = formConfig.value.chat_background
-    if (!bg) return ''
-    if (bg.startsWith('data:')) return bg
-    return '/local-file/' + encodeURIComponent(bg)
+  const bg = formConfig.value.chat_background
+  if (!bg) return ''
+  if (bg.startsWith('data:')) return bg
+  return '/local-file/' + encodeURIComponent(bg)
 })
 
 // 搜索 API Key 设置状态（后端不再返回实际密钥，仅返回是否已设置）
 const searchKeys = ref<SearchAPIKeys>({
-    ollama_api_key: '',
-    tavily_api_key: '',
-    ollama_api_key_set: false,
-    tavily_api_key_set: false,
+  ollama_api_key: '',
+  tavily_api_key: '',
+  ollama_api_key_set: false,
+  tavily_api_key_set: false
 })
 
 // 用户输入的新 API Key（不在状态中保存真实密钥）
@@ -236,35 +235,35 @@ const newTavilyApiKey = ref('')
 const savingSearchKeys = ref(false)
 
 async function saveSearchKeys() {
-    // 只发送非空的 key，空值表示不更新
-    const keysToUpdate: Partial<SearchAPIKeys> = {}
-    if (newOllamaApiKey.value) {
-        keysToUpdate.ollama_api_key = newOllamaApiKey.value
-    }
-    if (newTavilyApiKey.value) {
-        keysToUpdate.tavily_api_key = newTavilyApiKey.value
-    }
-    if (Object.keys(keysToUpdate).length === 0) return
+  // 只发送非空的 key，空值表示不更新
+  const keysToUpdate: Partial<SearchAPIKeys> = {}
+  if (newOllamaApiKey.value) {
+    keysToUpdate.ollama_api_key = newOllamaApiKey.value
+  }
+  if (newTavilyApiKey.value) {
+    keysToUpdate.tavily_api_key = newTavilyApiKey.value
+  }
+  if (Object.keys(keysToUpdate).length === 0) return
 
-    // 构建提示文案：区分保存了哪些 key
-    const savedNames: string[] = []
-    if (keysToUpdate.ollama_api_key) savedNames.push('Ollama')
-    if (keysToUpdate.tavily_api_key) savedNames.push('Tavily')
+  // 构建提示文案：区分保存了哪些 key
+  const savedNames: string[] = []
+  if (keysToUpdate.ollama_api_key) savedNames.push('Ollama')
+  if (keysToUpdate.tavily_api_key) savedNames.push('Tavily')
 
-    savingSearchKeys.value = true
-    try {
-        await settingsStore.saveSearchAPIKeys(keysToUpdate)
-        // 保存成功后清空输入框
-        newOllamaApiKey.value = ''
-        newTavilyApiKey.value = ''
-        showSuccess(message, `${savedNames.join(' + ')} API Key 已保存`)
-    } catch (e) {
-        logError('Failed to save search API keys', e)
-        message.destroyAll()
-        message.error('API Key 保存失败，请重试', { duration: 4000 })
-    } finally {
-        savingSearchKeys.value = false
-    }
+  savingSearchKeys.value = true
+  try {
+    await settingsStore.saveSearchAPIKeys(keysToUpdate)
+    // 保存成功后清空输入框
+    newOllamaApiKey.value = ''
+    newTavilyApiKey.value = ''
+    showSuccess(message, `${savedNames.join(' + ')} API Key 已保存`)
+  } catch (e) {
+    logError('Failed to save search API keys', e)
+    message.destroyAll()
+    message.error('API Key 保存失败，请重试', { duration: 4000 })
+  } finally {
+    savingSearchKeys.value = false
+  }
 }
 
 const serverApiKey = ref('')
@@ -272,48 +271,55 @@ const hasServerApiKey = ref(false)
 const savingServerApiKey = ref(false)
 
 async function saveServerApiKey() {
-    if (!serverApiKey.value) return
-    savingServerApiKey.value = true
-    try {
-        await settingsStore.saveServerAPIKey(serverApiKey.value)
-        hasServerApiKey.value = true
-        serverApiKey.value = ''
-        showSuccess(message, '服务 API Key 已保存')
-    } catch (e) {
-        logError('Failed to save server API key', e)
-        message.destroyAll()
-        message.error('服务 API Key 保存失败，请重试', { duration: 4000 })
-    } finally {
-        savingServerApiKey.value = false
-    }
+  if (!serverApiKey.value) return
+  savingServerApiKey.value = true
+  try {
+    await settingsStore.saveServerAPIKey(serverApiKey.value)
+    hasServerApiKey.value = true
+    serverApiKey.value = ''
+    showSuccess(message, '服务 API Key 已保存')
+  } catch (e) {
+    logError('Failed to save server API key', e)
+    message.destroyAll()
+    message.error('服务 API Key 保存失败，请重试', { duration: 4000 })
+  } finally {
+    savingServerApiKey.value = false
+  }
 }
 
 async function onServerAPIKeyToggle() {
-    await autoSave()
-    // 切换开关后需要重新创建 client 以更新 API Key 设置
-    if (formConfig.value.server_api_key_enabled) {
-        hasServerApiKey.value = await settingsStore.hasServerAPIKey()
-    }
+  await autoSave()
+  // 切换开关后需要重新创建 client 以更新 API Key 设置
+  if (formConfig.value.server_api_key_enabled) {
+    hasServerApiKey.value = await settingsStore.hasServerAPIKey()
+  }
 }
 
 async function onExposeServerToggle() {
-    await autoSave()
-    message.destroyAll()
-    if (formConfig.value.expose_server) {
-        message.warning('已开启局域网访问，重启服务后生效。请确保已设置 API Key 防止未授权访问。', { duration: 5000 })
-    } else {
-        message.info('已关闭局域网访问，重启服务后仅本机可访问。', { duration: 3000 })
-    }
+  await autoSave()
+  message.destroyAll()
+  if (formConfig.value.expose_server) {
+    message.warning('已开启局域网访问，重启服务后生效。请确保已设置 API Key 防止未授权访问。', {
+      duration: 5000
+    })
+  } else {
+    message.info('已关闭局域网访问，重启服务后仅本机可访问。', { duration: 3000 })
+  }
 }
 
 async function onEnableWebUIToggle() {
-    await autoSave()
-    message.destroyAll()
-    if (formConfig.value.enable_web_ui) {
-        message.warning('已启用原生 Web UI，重启服务后可通过浏览器访问 http://127.0.0.1:' + formConfig.value.port + ' 。该 UI 与豆芽前端独立，仅供高级用户调试。', { duration: 5000 })
-    } else {
-        message.info('已关闭原生 Web UI，重启服务后生效。', { duration: 3000 })
-    }
+  await autoSave()
+  message.destroyAll()
+  if (formConfig.value.enable_web_ui) {
+    message.warning(
+      '已启用原生 Web UI，重启服务后可通过浏览器访问 http://127.0.0.1:' +
+        formConfig.value.port +
+        ' 。该 UI 与豆芽前端独立，仅供高级用户调试。',
+      { duration: 5000 }
+    )
+  } else {
+    message.info('已关闭原生 Web UI，重启服务后生效。', { duration: 3000 })
+  }
 }
 
 const currentModelRef = computed(() => {
@@ -322,7 +328,8 @@ const currentModelRef = computed(() => {
 
 const activeModelRefRaw = computed(() => {
   const ref = currentModelRef.value
-  if (!ref) return { temperature: 0.6, top_p: 0.95, top_k: 20, context_size: 8192, repeat_penalty: 1.0 }
+  if (!ref)
+    return { temperature: 0.6, top_p: 0.95, top_k: 20, context_size: 8192, repeat_penalty: 1.0 }
   const useThinking = settingsStore.thinkingEnabled && ref.raw_thinking
   return useThinking ? ref.raw_thinking! : ref.raw
 })
@@ -371,10 +378,7 @@ const maxAvatarSize = 1024 * 1024
  * @param data n-upload custom-request 回调传入的数据
  * @param fieldName 要写入 formConfig 的字段名（'user_avatar' 或 'ai_avatar'）
  */
-async function handleAvatarUpload(
-  data: any,
-  fieldName: 'user_avatar' | 'ai_avatar',
-) {
+async function handleAvatarUpload(data: any, fieldName: 'user_avatar' | 'ai_avatar') {
   const file = data.file.file as File
   if (file.size > maxAvatarSize) {
     message.destroyAll()
@@ -414,7 +418,7 @@ function handleBackendSamplingChange() {
   autoSave()
 }
 
-let savingPromise: Promise<void> | null = null  // 进行中的保存 Promise，防止重入（任务 13）
+let savingPromise: Promise<void> | null = null // 进行中的保存 Promise，防止重入（任务 13）
 
 async function doAutoSave() {
   if (genParamsSaveTimer) {
@@ -476,29 +480,32 @@ onMounted(async () => {
   }
 })
 
-watch(() => settingsStore.currentModel, async () => {
-  if (!genParamsDirty.value) {
-    await settingsStore.loadConfig()
-    // 浅拷贝替代 JSON.parse(JSON.stringify)，Config 字段均为原始类型（任务 22）
-  formConfig.value = { ...settingsStore.config }
-    contextSizeIndex.value = findClosestStepIndex(formConfig.value.context_size)
-    if (currentModelRef.value) {
-      applyModelRef()
-    }
-    // 如果当前 spec_type 为 draft-mtp 但模型不支持 MTP，自动重置为空（自动检测）
-    if (formConfig.value.spec_type === 'draft-mtp' && !settingsStore.modelCapabilities.has_mtp) {
-      formConfig.value.spec_type = ''
-    }
-    // 非推理模型：自动重置 reasoning 为 off
-    if (!settingsStore.modelCapabilities.reasoning && formConfig.value.reasoning !== 'off') {
-      formConfig.value.reasoning = 'off'
-      formConfig.value.reasoning_budget = -1
+watch(
+  () => settingsStore.currentModel,
+  async () => {
+    if (!genParamsDirty.value) {
+      await settingsStore.loadConfig()
+      // 浅拷贝替代 JSON.parse(JSON.stringify)，Config 字段均为原始类型（任务 22）
+      formConfig.value = { ...settingsStore.config }
+      contextSizeIndex.value = findClosestStepIndex(formConfig.value.context_size)
+      if (currentModelRef.value) {
+        applyModelRef()
+      }
+      // 如果当前 spec_type 为 draft-mtp 但模型不支持 MTP，自动重置为空（自动检测）
+      if (formConfig.value.spec_type === 'draft-mtp' && !settingsStore.modelCapabilities.has_mtp) {
+        formConfig.value.spec_type = ''
+      }
+      // 非推理模型：自动重置 reasoning 为 off
+      if (!settingsStore.modelCapabilities.reasoning && formConfig.value.reasoning !== 'off') {
+        formConfig.value.reasoning = 'off'
+        formConfig.value.reasoning_budget = -1
+      }
     }
   }
-})
+)
 
 // GPU 状态变化时，自动重置不兼容的 KV cache 类型选中值（bf16/iq4_nl 仅 GPU 可用）
-watch(hasGPUInfo, (hasGPU) => {
+watch(hasGPUInfo, hasGPU => {
   if (!hasGPU) {
     const kVal = formConfig.value.cache_type_k
     const vVal = formConfig.value.cache_type_v
@@ -512,42 +519,126 @@ watch(hasGPUInfo, (hasGPU) => {
 })
 
 const ALL_CONFIG_KEYS: (keyof Config)[] = [
-  'model_path', 'llama_server_path', 'api_base', 'port', 'context_size',
-  'temperature', 'top_p', 'top_k', 'repeat_penalty',
-  'mmproj_auto', 'mmproj_offload', 'kv_unified', 'cache_idle_slots', 'cache_reuse', 'cache_ram',
-  'image_min_tokens', 'image_max_tokens', 'fit_target', 'fit_ctx',
-  'system_prompt', 'chat_background', 'chat_background_opacity', 'user_avatar', 'ai_avatar',
-  'search_mode', 'thinking_enabled', 'thinking_soft_switch', 'sleep_idle_seconds', 'models_max',
-  'rag_enabled', 'rag_active_kb', 'rag_top_k', 'rag_min_score', 'rag_chunk_size', 'rag_chunk_overlap', 'embedding_model',
-  'mmap', 'kv_offload', 'context_shift', 'min_p',
-  'dry_multiplier', 'dry_base', 'dry_allowed_length',
-  'dry_sequence_breaker', 'dry_penalty_last_n',
-  'grp_attn_n', 'grp_attn_w',
-  'jinja', 'cache_prompt', 'metrics', 'verbose',
-  'spec_draft_threads', 'spec_draft_threads_batch', 'spec_default',
-  'device', 'parallel', 'cache_type_k', 'cache_type_v', 'spec_type',
-  'spec_draft_n_max', 'spec_draft_n_min',
-  'spec_ngram_mod_n_min', 'spec_ngram_mod_n_max', 'spec_ngram_mod_n_match',
-  'spec_ngram_simple_size_n', 'spec_ngram_simple_size_m', 'spec_ngram_simple_min_hits',
-  'spec_ngram_map_k_size_n', 'spec_ngram_map_k_size_m', 'spec_ngram_map_k_min_hits',
-  'spec_ngram_map_k4v_size_n', 'spec_ngram_map_k4v_size_m', 'spec_ngram_map_k4v_min_hits',
-  'lookup_cache_static', 'lookup_cache_dynamic', 'spec_draft_model',
-  'cache_type_k_draft', 'cache_type_v_draft',
-  'server_api_key_enabled', 'expose_server', 'enable_web_ui', 'swa_full',
-  'ctx_checkpoints', 'checkpoint_min_step', 'tools', 'prefill_assistant',
-  'slot_prompt_similarity', 'skip_chat_parsing', 'api_prefix', 'simple_io',
-  'agent', 'ui_mcp_proxy', 'backend_sampling',
-  'gpu_layers', 'flash_attn', 'mlock', 'threads', 'threads_http', 'batch_size',
+  'model_path',
+  'llama_server_path',
+  'api_base',
+  'port',
+  'context_size',
+  'temperature',
+  'top_p',
+  'top_k',
+  'repeat_penalty',
+  'mmproj_auto',
+  'mmproj_offload',
+  'kv_unified',
+  'cache_idle_slots',
+  'cache_reuse',
+  'cache_ram',
+  'image_min_tokens',
+  'image_max_tokens',
+  'fit_target',
+  'fit_ctx',
+  'system_prompt',
+  'chat_background',
+  'chat_background_opacity',
+  'user_avatar',
+  'ai_avatar',
+  'search_mode',
+  'thinking_enabled',
+  'thinking_soft_switch',
+  'sleep_idle_seconds',
+  'models_max',
+  'rag_enabled',
+  'rag_active_kb',
+  'rag_top_k',
+  'rag_min_score',
+  'rag_chunk_size',
+  'rag_chunk_overlap',
+  'embedding_model',
+  'mmap',
+  'kv_offload',
+  'context_shift',
+  'min_p',
+  'dry_multiplier',
+  'dry_base',
+  'dry_allowed_length',
+  'dry_sequence_breaker',
+  'dry_penalty_last_n',
+  'grp_attn_n',
+  'grp_attn_w',
+  'jinja',
+  'cache_prompt',
+  'metrics',
+  'verbose',
+  'spec_draft_threads',
+  'spec_draft_threads_batch',
+  'spec_default',
+  'device',
+  'parallel',
+  'cache_type_k',
+  'cache_type_v',
+  'spec_type',
+  'spec_draft_n_max',
+  'spec_draft_n_min',
+  'spec_ngram_mod_n_min',
+  'spec_ngram_mod_n_max',
+  'spec_ngram_mod_n_match',
+  'spec_ngram_simple_size_n',
+  'spec_ngram_simple_size_m',
+  'spec_ngram_simple_min_hits',
+  'spec_ngram_map_k_size_n',
+  'spec_ngram_map_k_size_m',
+  'spec_ngram_map_k_min_hits',
+  'spec_ngram_map_k4v_size_n',
+  'spec_ngram_map_k4v_size_m',
+  'spec_ngram_map_k4v_min_hits',
+  'lookup_cache_static',
+  'lookup_cache_dynamic',
+  'spec_draft_model',
+  'cache_type_k_draft',
+  'cache_type_v_draft',
+  'server_api_key_enabled',
+  'expose_server',
+  'enable_web_ui',
+  'swa_full',
+  'ctx_checkpoints',
+  'checkpoint_min_step',
+  'tools',
+  'prefill_assistant',
+  'slot_prompt_similarity',
+  'skip_chat_parsing',
+  'api_prefix',
+  'simple_io',
+  'agent',
+  'ui_mcp_proxy',
+  'backend_sampling',
+  'gpu_layers',
+  'flash_attn',
+  'mlock',
+  'threads',
+  'threads_http',
+  'batch_size',
   // 推理配置
-  'reasoning', 'reasoning_budget', 'reasoning_budget_message', 'reasoning_format', 'reasoning_preserve',
+  'reasoning',
+  'reasoning_budget',
+  'reasoning_budget_message',
+  'reasoning_format',
+  'reasoning_preserve',
   // RAG 重排序配置
-  'reranker_model_path', 'rerank_top_n',
+  'reranker_model_path',
+  'rerank_top_n',
   // KV 缓存持久化配置
-  'slot_save_path', 'slot_save_enabled', 'lora_paths',
+  'slot_save_path',
+  'slot_save_enabled',
+  'lora_paths',
   // Draft 模型 GPU 配置
-  'spec_draft_ngl', 'spec_draft_device',
+  'spec_draft_ngl',
+  'spec_draft_device',
   // 请求级采样配置
-  'samplers', 'ignore_eos', 'adaptive_target', 'adaptive_decay',
+  'samplers',
+  'ignore_eos',
+  'adaptive_target',
+  'adaptive_decay'
 ]
 
 watch(
@@ -624,11 +715,10 @@ const settingsContext: SettingsContext = {
   specTypeOptions,
   handleAgentChange,
   handleBackendSamplingChange,
-  settingsStore,
+  settingsStore
 }
 
 provide(SETTINGS_CONTEXT_KEY, settingsContext)
-
 </script>
 
 <style scoped>

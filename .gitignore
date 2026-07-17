@@ -29,6 +29,9 @@ models/*.md5
 .trae/
 .idea/
 .vscode/
+# 例外：团队共享的扩展推荐与调试配置需要提交
+!.vscode/extensions.json
+!.vscode/launch.json
 *.swp
 
 # OS

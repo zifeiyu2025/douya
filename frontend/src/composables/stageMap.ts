@@ -11,12 +11,12 @@ import type { SwitchProgressStage } from '../types/settings'
 
 /** 阶段 → 粗略进度百分比映射（仅作为无真实加载进度时的兜底） */
 export const STAGE_PERCENT_MAP: Record<SwitchProgressStage, number> = {
-    idle: 0,
-    preparing: 5,
-    loading: 10,
-    waiting: 10,
-    detecting: 90,
-    done: 100,
-    failed: 100,
-    rolling_back: 50,
+  idle: 0,
+  preparing: 5,
+  loading: 10,
+  waiting: 10,
+  detecting: 90,
+  done: 100,
+  failed: 100,
+  rolling_back: 50
 }

@@ -37,41 +37,41 @@ const FILE_CONFIGS: Record<string, FileProcessConfig> = {
   audio: {
     maxSize: MAX_AUDIO_SIZE,
     label: '音频',
-    mimeType: (file) => file.type || `audio/${file.name.split('.').pop()?.toLowerCase() || 'wav'}`,
-    extra: (file) => ({ format: file.name.split('.').pop()?.toLowerCase() || 'wav' }),
-    readMode: 'dataURL',
+    mimeType: file => file.type || `audio/${file.name.split('.').pop()?.toLowerCase() || 'wav'}`,
+    extra: file => ({ format: file.name.split('.').pop()?.toLowerCase() || 'wav' }),
+    readMode: 'dataURL'
   },
   pdf: {
     maxSize: MAX_PDF_SIZE,
     label: 'PDF',
     mimeType: () => 'application/pdf',
-    readMode: 'dataURL',
+    readMode: 'dataURL'
   },
   docx: {
     maxSize: MAX_DOCX_SIZE,
     label: 'DOCX',
     mimeType: () => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    readMode: 'dataURL',
+    readMode: 'dataURL'
   },
   video: {
     maxSize: MAX_VIDEO_SIZE,
     label: '视频',
-    mimeType: (file) => file.type || 'video/mp4',
-    readMode: 'dataURL',
+    mimeType: file => file.type || 'video/mp4',
+    readMode: 'dataURL'
   },
   text: {
     maxSize: MAX_TEXT_SIZE,
     label: '文本',
-    mimeType: (file) => file.type || 'text/plain',
+    mimeType: file => file.type || 'text/plain',
     readMode: 'text',
-    postProcess: (result, file) => {
+    postProcess: (result, _file) => {
       // 安全实践：检测文本内容是否含大量不可打印字符（可能是伪造的文本文件），见安全审查 #37
       if (isLikelyBinaryContent(result)) {
         return null // 中止添加，调用方通过返回值判断
       }
       return result
-    },
-  },
+    }
+  }
 }
 
 // MessageApi 类型从 naive-ui 导入，避免在此处硬依赖 message 实例
@@ -112,10 +112,7 @@ function isLikelyBinaryContent(text: string): boolean {
  * @param attachments 附件数组的 shallowRef（外部持有，确保响应式由调用方控制）
  * @param message naive-ui 的 message API（用于错误/警告提示）
  */
-export function useAttachments(
-  attachments: ShallowRef<Attachment[]>,
-  message: MessageApi
-) {
+export function useAttachments(attachments: ShallowRef<Attachment[]>, message: MessageApi) {
   // checkFileSize 校验文件大小是否超过限制。
   // 生活类比：像快递员称重——超重的包裹直接拒收并告知原因。
   function checkFileSize(file: File, maxSizeMB: number, label: string): boolean {
@@ -159,14 +156,14 @@ export function useAttachments(
 
     readFileWithErrorHandling(
       file,
-      (reader) => {
+      reader => {
         if (cfg.readMode === 'dataURL') {
           reader.readAsDataURL(file)
         } else {
           reader.readAsText(file)
         }
       },
-      (result) => {
+      result => {
         let data: string
         if (cfg.readMode === 'dataURL') {
           // dataURL 格式：data:<mime>;base64,<payload>，提取 base64 部分
@@ -191,7 +188,7 @@ export function useAttachments(
           name: file.name,
           mime_type: cfg.mimeType(file),
           data,
-          ...cfg.extra?.(file),
+          ...cfg.extra?.(file)
         }
         attachments.value = [...attachments.value, attachment]
       },
@@ -217,12 +214,15 @@ export function useAttachments(
       // 图片预处理流水线：格式归一化（SVG/WebP→PNG）+ EXIF 方向修正 + 兆像素限制
       const { dataUrl, mimeType } = await processImagePipeline(file)
       // shallowRef 需替换整个数组才能触发响应式（任务 23）
-      attachments.value = [...attachments.value, {
-        type: 'image',
-        name: file.name,
-        mime_type: mimeType,
-        data: dataUrl,
-      }]
+      attachments.value = [
+        ...attachments.value,
+        {
+          type: 'image',
+          name: file.name,
+          mime_type: mimeType,
+          data: dataUrl
+        }
+      ]
     } catch (err) {
       console.error('图片预处理失败:', err)
       message.error('图片处理失败，请重试或更换图片')
@@ -250,6 +250,6 @@ export function useAttachments(
     processFileCommon,
     processFileByType,
     removeAttachment,
-    checkFileSize,
+    checkFileSize
   }
 }

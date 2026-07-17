@@ -167,10 +167,10 @@ func TestSystemPrompt_NoNegativePhrasingInKeyRules(t *testing.T) {
 
 	// 6. 验证正面表述已存在
 	positivePhrases := []string{
-		"保持沉默",       // 身份规则的正面表述
-		"省略寒暄",       // 简洁精炼的正面表述
-		"保持中立立场",    // 争议话题的正面表述
-		"省略\"关于\"",   // 开场白的正面表述
+		"保持沉默",     // 身份规则的正面表述
+		"省略寒暄",     // 简洁精炼的正面表述
+		"保持中立立场",   // 争议话题的正面表述
+		"省略\"关于\"", // 开场白的正面表述
 		"都应正确包裹",   // LaTeX 的正面表述
 	}
 	for _, phrase := range positivePhrases {

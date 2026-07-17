@@ -21,9 +21,9 @@ type ModelPreset struct {
 	ModelPath       string
 	MmprojPath      string
 	MmprojVision    bool
-	MmprojAudio  bool
-	MmprojVideo  bool   `json:"mmproj_video"`
-	MmprojOffload bool
+	MmprojAudio     bool
+	MmprojVideo     bool `json:"mmproj_video"`
+	MmprojOffload   bool
 	Alias           string
 	CtxSize         int
 	BatchSize       int
@@ -58,21 +58,21 @@ type ModelOption struct {
 // 生活类比：像填表时，某栏没填就不写那行，避免空白行。
 func writeStringField(sb *strings.Builder, name, val string) {
 	if val != "" {
-		sb.WriteString(fmt.Sprintf("%s = %s\n", name, val))
+		fmt.Fprintf(sb, "%s = %s\n", name, val)
 	}
 }
 
 // writeIntField 写入整数字段（值 <= 0 则跳过）。
 func writeIntField(sb *strings.Builder, name string, val int) {
 	if val > 0 {
-		sb.WriteString(fmt.Sprintf("%s = %d\n", name, val))
+		fmt.Fprintf(sb, "%s = %d\n", name, val)
 	}
 }
 
 // writeBoolField 写入布尔字段（值为 false 则跳过，true 写入 "1"）。
 func writeBoolField(sb *strings.Builder, name string, val bool) {
 	if val {
-		sb.WriteString(fmt.Sprintf("%s = 1\n", name))
+		fmt.Fprintf(sb, "%s = 1\n", name)
 	}
 }
 
@@ -87,14 +87,14 @@ func GeneratePreset(presets []ModelPreset, globalDefaults map[string]string) str
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			sb.WriteString(fmt.Sprintf("%s = %s\n", k, globalDefaults[k]))
+			fmt.Fprintf(&sb, "%s = %s\n", k, globalDefaults[k])
 		}
 		sb.WriteString("\n")
 	}
 
 	for _, p := range presets {
-		sb.WriteString(fmt.Sprintf("[%s]\n", p.Name))
-		sb.WriteString(fmt.Sprintf("model = %s\n", p.ModelPath))
+		fmt.Fprintf(&sb, "[%s]\n", p.Name)
+		fmt.Fprintf(&sb, "model = %s\n", p.ModelPath)
 
 		writeStringField(&sb, "mmproj", p.MmprojPath)
 		writeBoolField(&sb, "mmproj-offload", p.MmprojOffload)
@@ -129,15 +129,14 @@ func WritePresetFile(path string, content string) error {
 		if string(existing) == content {
 			return nil
 		}
-	} else if !os.IsNotExist(err) {
-		// 其他读取错误（如权限问题）也继续尝试写入
 	}
+	// 其他读取错误（如权限问题）也继续尝试写入
 
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create preset dir: %w", err)
 	}
-	return os.WriteFile(path, []byte(content), 0644)
+	return os.WriteFile(path, []byte(content), 0o644)
 }
 
 func SetDefaultAlias(presets []ModelPreset, defaultModelPath string) {

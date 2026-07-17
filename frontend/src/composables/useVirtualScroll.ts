@@ -22,7 +22,7 @@ const STORAGE_KEY = 'douya-enable-virtual-scroll'
 const enableVirtualScroll = ref(localStorage.getItem(STORAGE_KEY) === 'true')
 
 // 持久化：开关变化即写回 localStorage
-watch(enableVirtualScroll, (val) => {
+watch(enableVirtualScroll, val => {
   localStorage.setItem(STORAGE_KEY, String(val))
 })
 

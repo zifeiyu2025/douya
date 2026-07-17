@@ -5,7 +5,6 @@ package llm_test
 
 import (
 	"context"
-	"douya/internal/llm"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"douya/internal/llm"
 )
 
 func TestStreamChat_NormalSSE(t *testing.T) {
@@ -1269,13 +1270,14 @@ func TestWaitForModelLoaded_CrashAfterLoaded(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		var resp string
-		if callCount == 1 {
+		switch callCount {
+		case 1:
 			// 第一次：loaded
 			resp = `{"data":[{"id":"test-model","status":{"value":"loaded"}}]}`
-		} else if callCount == 2 {
+		case 2:
 			// 第二次：unloaded（崩溃了）
 			resp = `{"data":[{"id":"test-model","status":{"value":"unloaded"}}]}`
-		} else {
+		default:
 			// 之后重新 loaded
 			resp = `{"data":[{"id":"test-model","status":{"value":"loaded"}}]}`
 		}

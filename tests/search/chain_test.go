@@ -5,11 +5,12 @@ package search_test
 
 import (
 	"context"
-	"douya/internal/search"
 	"fmt"
 	"sync"
 	"testing"
 	"time"
+
+	"douya/internal/search"
 )
 
 type mockProvider struct {

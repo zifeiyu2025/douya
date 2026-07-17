@@ -52,34 +52,34 @@ var textExtensions = map[string]bool{
 }
 
 var codeExtensions = map[string]bool{
-	".go":      true,
-	".py":      true,
-	".js":      true,
-	".jsx":     true, // React
-	".ts":      true,
-	".tsx":     true, // React + TypeScript
-	".vue":     true, // Vue SFC
-	".svelte":  true, // Svelte
-	".java":    true,
-	".c":       true,
-	".cpp":     true,
-	".h":       true,
-	".hpp":     true,
-	".rs":      true,
-	".sh":      true,
-	".bat":     true, // Windows batch
-	".rb":      true,
-	".php":     true,
-	".swift":   true,
-	".kt":      true,
-	".cs":      true, // C#
-	".dart":    true, // Dart
-	".r":       true, // R language
-	".scala":   true,
-	".hs":      true, // Haskell
-	".cu":      true, // CUDA
-	".cuh":     true,
-	".comp":    true, // Vulkan compute shader
+	".go":     true,
+	".py":     true,
+	".js":     true,
+	".jsx":    true, // React
+	".ts":     true,
+	".tsx":    true, // React + TypeScript
+	".vue":    true, // Vue SFC
+	".svelte": true, // Svelte
+	".java":   true,
+	".c":      true,
+	".cpp":    true,
+	".h":      true,
+	".hpp":    true,
+	".rs":     true,
+	".sh":     true,
+	".bat":    true, // Windows batch
+	".rb":     true,
+	".php":    true,
+	".swift":  true,
+	".kt":     true,
+	".cs":     true, // C#
+	".dart":   true, // Dart
+	".r":      true, // R language
+	".scala":  true,
+	".hs":     true, // Haskell
+	".cu":     true, // CUDA
+	".cuh":    true,
+	".comp":   true, // Vulkan compute shader
 }
 
 func ParseFileFromBytes(data []byte, fileName string) (string, error) {
@@ -118,23 +118,24 @@ func parseDOCX(data []byte) (string, error) {
 
 	var xmlContent []byte
 	for _, f := range reader.File {
-		if f.Name == "word/document.xml" {
-			rc, err := f.Open()
-			if err != nil {
-				return "", fmt.Errorf("failed to open word/document.xml: %w", err)
-			}
-			// 使用 limitedReadAll 限制解压后大小，防御 zip bomb 攻击
-			xmlContent, err = limitedReadAll(rc, maxDOCXUncompressedSize)
-			rc.Close()
-			if err != nil {
-				return "", fmt.Errorf("failed to read word/document.xml: %w", err)
-			}
-			// 检查读取到的字节数是否达到上限，若达到则说明内容超过 100MB 限制
-			if int64(len(xmlContent)) >= maxDOCXUncompressedSize {
-				return "", fmt.Errorf("DOCX 解压内容超过 100MB 限制，可能为恶意文件")
-			}
-			break
+		if f.Name != "word/document.xml" {
+			continue
 		}
+		rc, err := f.Open()
+		if err != nil {
+			return "", fmt.Errorf("failed to open word/document.xml: %w", err)
+		}
+		// 使用 limitedReadAll 限制解压后大小，防御 zip bomb 攻击
+		xmlContent, err = limitedReadAll(rc, maxDOCXUncompressedSize)
+		rc.Close()
+		if err != nil {
+			return "", fmt.Errorf("failed to read word/document.xml: %w", err)
+		}
+		// 检查读取到的字节数是否达到上限，若达到则说明内容超过 100MB 限制
+		if int64(len(xmlContent)) >= maxDOCXUncompressedSize {
+			return "", fmt.Errorf("DOCX 解压内容超过 100MB 限制，可能为恶意文件")
+		}
+		break
 	}
 
 	if xmlContent == nil {

@@ -18,7 +18,7 @@ import (
 type QualityScenario struct {
 	Name          string
 	Input         string
-	SearchMode string
+	SearchMode    string
 	ModelBehavior func() []string
 	Assertions    []QualityAssertion
 }
@@ -52,7 +52,7 @@ func runQualityScenario(_ *testing.T, svc *chat.Service, scenario QualityScenari
 	}
 
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
-		Content:       scenario.Input,
+		Content:    scenario.Input,
 		SearchMode: scenario.SearchMode,
 	})
 
@@ -161,8 +161,8 @@ func TestQuality_BasicScenarios(t *testing.T) {
 			},
 		},
 		{
-			Name:          "Forced Search",
-			Input:         "Latest Go version",
+			Name:       "Forced Search",
+			Input:      "Latest Go version",
 			SearchMode: "on",
 			ModelBehavior: func() []string {
 				return []string{makeContentChunk("Go 1.24 is the latest"), makeFinishChunk("stop")}
@@ -247,16 +247,16 @@ func TestQuality_BasicScenarios(t *testing.T) {
 func TestQuality_SearchScenarios(t *testing.T) {
 	scenarios := []QualityScenario{
 		{
-			Name:          "Search with results",
-			Input:         "Go 1.24 features",
+			Name:       "Search with results",
+			Input:      "Go 1.24 features",
 			SearchMode: "on",
 			Assertions: []QualityAssertion{
 				{Name: "no_error", Severity: "critical", Check: func(r string) bool { return true }},
 			},
 		},
 		{
-			Name:          "Search without results",
-			Input:         "xyznonexistent123",
+			Name:       "Search without results",
+			Input:      "xyznonexistent123",
 			SearchMode: "on",
 			Assertions: []QualityAssertion{
 				{Name: "no_error", Severity: "critical", Check: func(r string) bool { return true }},

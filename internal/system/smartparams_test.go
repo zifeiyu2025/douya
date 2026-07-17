@@ -17,11 +17,11 @@ func TestCalculateCacheTypes(t *testing.T) {
 	vramBytes := float64(vramMB) * 1024 * 1024
 
 	tests := []struct {
-		name     string
-		hw       *HardwareInfo
-		meta     *GGUFMetadata
-		wantK    string
-		wantV    string
+		name  string
+		hw    *HardwareInfo
+		meta  *GGUFMetadata
+		wantK string
+		wantV string
 	}{
 		{
 			name:  "ratio ≤ 0.5 显存充裕",
@@ -160,10 +160,10 @@ func TestCalculateBatchSizeFromRatio(t *testing.T) {
 	vramBytes := float64(vramMB) * 1024 * 1024
 
 	tests := []struct {
-		name       string
-		hw         *HardwareInfo
-		meta       *GGUFMetadata
-		wantBatch  int
+		name      string
+		hw        *HardwareInfo
+		meta      *GGUFMetadata
+		wantBatch int
 	}{
 		{
 			name:      "ratio ≤ 0.5 返回 1024",
@@ -311,10 +311,10 @@ func TestEstimateKVCostPerToken(t *testing.T) {
 			wantExactCost: int64(28 * 128 * 8 * 1.0 * 2),
 		},
 		{
-			name: "meta 为 nil 返回 0",
-			meta: nil,
-			cacheTypeK: "f32",
-			cacheTypeV: "f32",
+			name:          "meta 为 nil 返回 0",
+			meta:          nil,
+			cacheTypeK:    "f32",
+			cacheTypeV:    "f32",
 			wantExactCost: 0,
 		},
 		{
@@ -325,8 +325,8 @@ func TestEstimateKVCostPerToken(t *testing.T) {
 				HeadDimKV:       128,
 				KVHeadCount:     8,
 			},
-			cacheTypeK: "f32",
-			cacheTypeV: "f32",
+			cacheTypeK:    "f32",
+			cacheTypeV:    "f32",
 			wantExactCost: 0,
 		},
 	}

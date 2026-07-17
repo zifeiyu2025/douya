@@ -1,8 +1,9 @@
 package llm_test
 
 import (
-	"douya/internal/llm"
 	"testing"
+
+	"douya/internal/llm"
 )
 
 func TestDeriveModelName_Qwen35U9B(t *testing.T) {

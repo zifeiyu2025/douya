@@ -28,6 +28,10 @@ var assets embed.FS
 //go:embed app.ico
 var iconData []byte
 
+// appStartTime 记录应用启动时间，供 Health() 计算 uptime 使用
+// 在 main() 第一行赋值，保证记录的是最早可观测时间点
+var appStartTime time.Time
+
 type LocalFileLoader struct {
 	http.Handler
 	// baseDir 是本地文件服务的基目录，所有请求路径都会被限制在此目录之下，
@@ -170,7 +174,7 @@ func (h *LocalFileLoader) ServeHTTP(res http.ResponseWriter, req *http.Request) 
 	if ext == ".svg" {
 		res.Header().Set("Content-Type", "image/svg+xml")
 		res.Header().Set("Content-Disposition", "attachment")
-		res.Write(fileData)
+		_, _ = res.Write(fileData)
 		return
 	}
 
@@ -186,7 +190,7 @@ func (h *LocalFileLoader) ServeHTTP(res http.ResponseWriter, req *http.Request) 
 	case ".bmp":
 		res.Header().Set("Content-Type", "image/bmp")
 	}
-	res.Write(fileData)
+	_, _ = res.Write(fileData)
 }
 
 // loadFileWithCache 优先从 LRU 缓存加载文件内容。
@@ -260,8 +264,8 @@ func activateExistingWindow() {
 	titlePtr, _ := syscall.UTF16PtrFromString("豆芽 - AI 聊天助手")
 	hwnd, _, _ := pFindWindow.Call(0, uintptr(unsafe.Pointer(titlePtr)))
 	if hwnd != 0 {
-		pShowWindow.Call(hwnd, 9)
-		pSetForegroundWindow.Call(hwnd)
+		_, _, _ = pShowWindow.Call(hwnd, 9)
+		_, _, _ = pSetForegroundWindow.Call(hwnd)
 	}
 }
 
@@ -269,6 +273,9 @@ func main() {
 	if isWailsBindingsProcess() {
 		return
 	}
+
+	// 记录应用启动时间（供 Health() 计算 uptime）
+	appStartTime = time.Now()
 
 	// 初始化日志系统（同时输出到控制台和文件）
 	logDir := filepath.Join(appDir(), "data", "logs")
@@ -283,7 +290,7 @@ func main() {
 	}
 	log.Info().Msg("单实例互斥体获取成功")
 	if mutexHandle != 0 {
-		defer syscall.CloseHandle(syscall.Handle(mutexHandle))
+		defer func() { _ = syscall.CloseHandle(syscall.Handle(mutexHandle)) }()
 	}
 
 	app := NewApp()

@@ -44,10 +44,7 @@ const IFD_ENTRY_SIZE = 12
  * 注：BMP 实际上被 stb_image 支持，所以不在此列表中；
  * JPEG/PNG/GIF/BMP 直接 pass through，避免无谓重编码。
  */
-const NORMALIZE_TO_PNG = new Set([
-  'image/svg+xml',
-  'image/webp',
-])
+const NORMALIZE_TO_PNG = new Set(['image/svg+xml', 'image/webp'])
 
 // ===== EXIF 方向读取 =====
 

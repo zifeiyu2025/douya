@@ -4,12 +4,8 @@
       <n-tabs v-model:value="activeTab" type="line" size="small">
         <n-tab-pane name="logs" tab="日志">
           <div class="console-toolbar">
-            <n-button size="small" @click="clearLogs" type="tertiary">
-              清空
-            </n-button>
-            <n-button size="small" @click="copyLogs" type="tertiary">
-              复制
-            </n-button>
+            <n-button size="small" type="tertiary" @click="clearLogs">清空</n-button>
+            <n-button size="small" type="tertiary" @click="copyLogs">复制</n-button>
             <n-checkbox v-model:checked="paused" size="small" @update:checked="onPauseChange">
               暂停
             </n-checkbox>
@@ -69,7 +65,7 @@ const toggle = () => {
 }
 
 // 抽屉打开时调整终端尺寸（容器从 0 变为可见，需要重新 fit）
-watch(visible, (val) => {
+watch(visible, val => {
   if (val) {
     // 延迟一帧等待 DOM 渲染完成
     requestAnimationFrame(() => {

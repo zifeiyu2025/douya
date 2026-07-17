@@ -4,6 +4,7 @@
 package llm
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -224,7 +225,7 @@ func (s *Server) updateStatusAfterExit(err error, exitCode uint32, isConPTY bool
 		}
 		// ConPTY 路径：检测 DLL 缺失导致的立即崩溃
 		if isConPTY && exitCode != 0 && s.lastStartTime.Before(time.Now().Add(-10*time.Second)) {
-			if enhanced := enhanceStartError(fmt.Errorf("%s", errMsg)); enhanced != nil {
+			if enhanced := enhanceStartError(errors.New(errMsg)); enhanced != nil {
 				errMsg = enhanced.Error()
 			}
 		}

@@ -1,0 +1,144 @@
+# golangci-lint v2 配置
+# 文档: https://golangci-lint.run/usage/configuration/
+#
+# 设计原则:
+# - 保守优先: 仅启用 Go 官方推荐 + 高价值 linter，避免激进规则改坏逻辑
+# - 不启用 lll/funlen/gocyclo: 这些会强制改代码结构，与"打磨"目标相悖
+# - 测试代码放宽部分规则: 测试常需要 magic number / 简短变量名
+version: "2"
+
+run:
+  timeout: 5m
+  go: "1.26"
+  modules-download-mode: readonly
+
+linters:
+  default: none
+  enable:
+    # 官方推荐核心 linter
+    - errcheck      # 检查未处理的错误返回值
+    - govet         # go vet 检查
+    - staticcheck   # 综合静态分析
+    - ineffassign   # 检测无效赋值
+    - unused        # 检测未使用的代码
+    # typecheck: v2 中内部强制启用，不可显式声明
+    # 高价值补充
+    - gocritic      # 代码风格与常见错误
+    - revive        # golint 的替代，可配置
+    - misspell      # 拼写错误
+    # gofmt / goimports: v2 中归入 formatters 段
+    - dupl          # 重复代码检测
+    - nakedret      # 检测裸 return
+    - prealloc      # 切片预分配建议
+    - unconvert     # 检测不必要的类型转换
+    - goconst       # 重复字面量提取为常量
+
+  settings:
+    staticcheck:
+      checks:
+        - all       # 启用所有 staticcheck 检查
+        - -ST1000   # 禁用：package comment 要求（个人项目过度严格）
+        - -ST1020   # 禁用：导出函数注释格式要求（项目已有注释风格，不强改）
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+        - style
+      disabled-checks:
+        - hugeParam          # 大参数按值传递（性能优化项，可读性优先）
+        - rangeValCopy       # range 中值拷贝（同上）
+        - ifElseChain        # if-else 链（switch 不一定更清晰）
+        - paramTypeCombine   # 合并同类型参数（纯风格，Go 社区无强制要求，改动量大）
+        - unnamedResult      # 返回值命名（纯风格，项目大量使用匿名返回值）
+        - evalOrder          # 子表达式求值顺序建议（多为合理早期返回模式，过度优化提示）
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+          disabled: true     # Wails 绑定方法 context 位置受框架约束，不能改为首参
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-naming
+        - name: error-strings
+        - name: error-return
+        - name: errorf
+        - name: exported
+          disabled: true     # 项目导出函数无 doc 较多，后续单独迭代
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: var-declaration
+        - name: var-naming
+    dupl:
+      threshold: 200         # 较高阈值，避免误报
+    goconst:
+      min-len: 3
+      min-occurrences: 8       # 提高阈值过滤低频通用词（如 default/stage/message），只关注真正高频的业务字面量
+    prealloc:
+      simple: true
+      for-loops: false       # for 循环中预分配误报较多
+
+  exclusions:
+    presets:
+      - std-error-handling
+      - common-false-positives
+    rules:
+      # 测试代码放宽
+      - path: _test\.go
+        linters:
+          - dupl
+          - goconst
+          - prealloc
+          - errcheck
+          - gocritic
+      # 测试目录整体放宽
+      - path: (^|/)tests/
+        linters:
+          - dupl
+          - goconst
+          - prealloc
+          - errcheck
+          - gocritic
+      # 生成代码豁免（前端 wailsjs 不会被 Go linter 扫描，此处冗余保留以防误入）
+      - path: frontend/wailsjs/
+        linters:
+          - all
+      # main 包放宽部分规则
+      - path: (^|/)(main|app)\.go$
+        linters:
+          - gocritic
+          - revive
+      # Windows API 常量传统使用 ALL_CAPS 命名（如 PROCESS_SET_QUOTA），不适用 Go 命名规范
+      - path: process_windows\.go$
+        linters:
+          - revive
+          - staticcheck
+    # 要排除的文件路径：这些路径会被分析，但不会报告问题。
+    # golangci-lint v2 用 linters.exclusions.paths 替代 v1 的 issues.exclude-dirs。
+    # "/" 会被自动替换为当前 OS 的路径分隔符，Windows 上兼容反斜杠。
+    paths:
+      - frontend/node_modules/   # 第三方 Go 代码（如 flatted 库）不参与 lint
+      - node_modules/            # 兜底：任何 node_modules 路径
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - douya
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  fix: false
+
+output:
+  formats:
+    text:
+      path: stdout
+      print-linter-name: true
+      print-issued-lines: true

@@ -14,7 +14,8 @@
       </div>
       <div v-if="expanded" class="trimmed-detail">
         <span>
-          对话内容超出模型上下文长度（{{ data.promptTokens }} / {{ data.contextSize }} tokens），已自动裁剪早期对话以继续生成
+          对话内容超出模型上下文长度（{{ data.promptTokens }} /
+          {{ data.contextSize }} tokens），已自动裁剪早期对话以继续生成
         </span>
       </div>
     </div>
@@ -86,11 +87,15 @@ const expanded = ref(false)
 }
 
 .trim-fade-enter-active {
-  transition: opacity 0.4s ease, transform 0.4s ease;
+  transition:
+    opacity 0.4s ease,
+    transform 0.4s ease;
 }
 
 .trim-fade-leave-active {
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease;
 }
 
 .trim-fade-enter-from {

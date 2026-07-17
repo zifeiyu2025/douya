@@ -10,9 +10,9 @@ import (
 
 // ClientEmbedder adapts llm.Client to the Embedder interface.
 type ClientEmbedder struct {
-	Client      *llm.Client
-	model       string // embedding model name (protected by mu)
-	mu          sync.RWMutex
+	Client         *llm.Client
+	model          string // embedding model name (protected by mu)
+	mu             sync.RWMutex
 	currentModelFn func() string // 获取当前聊天模型名的回调（model 为空时使用）
 }
 

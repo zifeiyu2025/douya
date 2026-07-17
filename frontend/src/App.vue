@@ -1,14 +1,29 @@
 <template>
-  <n-config-provider :theme="isDark ? darkTheme : undefined" :theme-overrides="themeOverrides" :locale="zhCN" :date-locale="dateZhCN">
+  <n-config-provider
+    :theme="isDark ? darkTheme : undefined"
+    :theme-overrides="themeOverrides"
+    :locale="zhCN"
+    :date-locale="dateZhCN"
+  >
     <n-message-provider>
       <n-dialog-provider>
         <Transition name="main-fade">
-          <div v-if="!showSplash" class="app-layout" :class="{ dark: isDark, 'has-background': !!settingsStore.config.chat_background }" :style="mainAreaStyle">
+          <div
+            v-if="!showSplash"
+            class="app-layout"
+            :class="{ dark: isDark, 'has-background': !!settingsStore.config.chat_background }"
+            :style="mainAreaStyle"
+          >
             <Sidebar :collapsed="sidebarCollapsed" @toggle="sidebarCollapsed = !sidebarCollapsed" />
             <div class="main-area" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
-              <div class="main-header" style="--wails-draggable:drag">
-                <div class="main-header-left" style="--wails-draggable:no-drag">
-                  <n-button quaternary circle @click="sidebarCollapsed = !sidebarCollapsed" size="large">
+              <div class="main-header" style="--wails-draggable: drag">
+                <div class="main-header-left" style="--wails-draggable: no-drag">
+                  <n-button
+                    quaternary
+                    circle
+                    size="large"
+                    @click="sidebarCollapsed = !sidebarCollapsed"
+                  >
                     <template #icon>
                       <n-icon size="20"><MenuOutline /></n-icon>
                     </template>
@@ -17,7 +32,7 @@
                     <div class="header-title" :title="currentTitle">{{ currentTitle }}</div>
                   </div>
                 </div>
-                <div class="main-header-right" style="--wails-draggable:no-drag">
+                <div class="main-header-right" style="--wails-draggable: no-drag">
                   <n-select
                     :value="selectedModel"
                     :options="displayModelOptions"
@@ -29,16 +44,29 @@
                     @update:value="handleModelChange"
                   />
                   <div class="server-status" :title="modelFullName">
-                    <div v-if="isModelSwitching && switchProgressStage !== 'idle'" class="switching-animation">
+                    <div
+                      v-if="isModelSwitching && switchProgressStage !== 'idle'"
+                      class="switching-animation"
+                    >
                       <div class="loading-spinner"></div>
-                      <span class="status-text">{{ switchingModelName }} · {{ switchStageText }}{{ switchDuration }}</span>
+                      <span class="status-text">
+                        {{ switchingModelName }} · {{ switchStageText }}{{ switchDuration }}
+                      </span>
                     </div>
-                    <div v-else-if="modelLoadProgress && modelLoadProgress.status === 'loading'" class="load-progress-animation">
+                    <div
+                      v-else-if="modelLoadProgress && modelLoadProgress.status === 'loading'"
+                      class="load-progress-animation"
+                    >
                       <div class="loading-spinner"></div>
                       <div class="load-progress-info">
-                        <span class="status-text">{{ loadProgressModelName }} · 加载 {{ modelLoadProgress.progress }}%</span>
+                        <span class="status-text">
+                          {{ loadProgressModelName }} · 加载 {{ modelLoadProgress.progress }}%
+                        </span>
                         <div class="load-progress-bar">
-                          <div class="load-progress-bar-fill" :style="{ width: modelLoadProgress.progress + '%' }"></div>
+                          <div
+                            class="load-progress-bar-fill"
+                            :style="{ width: modelLoadProgress.progress + '%' }"
+                          ></div>
                         </div>
                       </div>
                     </div>
@@ -46,35 +74,51 @@
                       <span class="status-dot stopped" />
                       <span class="status-text error-text">{{ errorModelName }} · 加载失败</span>
                     </div>
-                    <div v-else-if="isServerLoading && switchProgressStage === 'idle' && !isFirstLoad" class="loading-animation">
+                    <div
+                      v-else-if="isServerLoading && switchProgressStage === 'idle' && !isFirstLoad"
+                      class="loading-animation"
+                    >
                       <div class="loading-spinner"></div>
                       <span class="status-text">{{ modelName || '启动中...' }}</span>
                     </div>
                     <template v-else>
-                      <span class="status-dot" :class="serverStatus.running ? 'running' : 'stopped'" />
-                      <span class="status-text" :class="{ 'error-text': !serverStatus.running && serverStatus.error }">{{ modelName }} · {{ serverStatus.running ? '已就绪' : (serverStatus.error || '未运行') }}</span>
+                      <span
+                        class="status-dot"
+                        :class="serverStatus.running ? 'running' : 'stopped'"
+                      />
+                      <span
+                        class="status-text"
+                        :class="{ 'error-text': !serverStatus.running && serverStatus.error }"
+                      >
+                        {{ modelName }} ·
+                        {{ serverStatus.running ? '已就绪' : serverStatus.error || '未运行' }}
+                      </span>
                     </template>
                   </div>
                 </div>
-                <div class="window-controls" style="--wails-draggable:no-drag">
-                  <button class="win-btn" @click="toggleConsole" title="服务器控制台">
+                <div class="window-controls" style="--wails-draggable: no-drag">
+                  <button class="win-btn" title="服务器控制台" @click="toggleConsole">
                     <n-icon size="16">
                       <TerminalOutline />
                     </n-icon>
                   </button>
-                  <button class="win-btn theme-btn" @click="themeStore.toggleTheme()" :title="isDark ? '切换亮色模式' : '切换暗色模式'">
+                  <button
+                    class="win-btn theme-btn"
+                    :title="isDark ? '切换亮色模式' : '切换暗色模式'"
+                    @click="themeStore.toggleTheme()"
+                  >
                     <n-icon size="16">
                       <SunnyOutline v-if="isDark" />
                       <MoonOutline v-else />
                     </n-icon>
                   </button>
-                  <button class="win-btn" @click="handleMinimize" title="最小化">
+                  <button class="win-btn" title="最小化" @click="handleMinimize">
                     <AppIcon name="minimize" :size="14" />
                   </button>
-                  <button class="win-btn" @click="handleToggleMaximize" title="最大化">
+                  <button class="win-btn" title="最大化" @click="handleToggleMaximize">
                     <AppIcon :name="isMaximized ? 'restore' : 'maximize'" :size="12" />
                   </button>
-                  <button class="win-btn win-btn-close" @click="handleClose" title="关闭">
+                  <button class="win-btn win-btn-close" title="关闭" @click="handleClose">
                     <AppIcon name="close" :size="14" />
                   </button>
                 </div>
@@ -87,76 +131,166 @@
             </div>
           </div>
         </Transition>
-    <Transition name="switch-overlay">
-      <div v-if="showSwitchOverlay" class="switch-overlay switch-overlay--model">
-        <!-- SVG 装饰层：同心圆 + 双层旋转弧线 -->
-        <svg class="switch-deco" width="360" height="360" viewBox="0 0 360 360" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <circle cx="180" cy="180" r="160" stroke="currentColor" stroke-width="1" opacity="0.06" />
-          <circle cx="180" cy="180" r="120" stroke="currentColor" stroke-width="1" opacity="0.08" />
-          <circle cx="180" cy="180" r="160" stroke="currentColor" stroke-width="1.5"
-            stroke-linecap="round" stroke-dasharray="50 320" class="switch-deco-outer" opacity="0.35" />
-          <circle cx="180" cy="180" r="120" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-dasharray="35 240" class="switch-deco-mid" opacity="0.45" />
-        </svg>
-        <div class="switch-overlay-content">
-          <!-- 圆形进度环 + 中心 LOGO 图片 -->
-          <div class="switch-ring-wrapper">
-            <svg class="switch-ring-svg" width="80" height="80" viewBox="0 0 80 80">
-              <circle cx="40" cy="40" r="36" stroke="var(--border-color)" stroke-width="2" fill="none" opacity="0.3" />
-              <circle cx="40" cy="40" r="36" stroke="var(--accent-primary)" stroke-width="2.5"
-                stroke-linecap="round" fill="none"
-                stroke-dasharray="85 150"
-                class="switch-ring-arc" />
-            </svg>
-            <div class="switch-ring-center">
-              <img :src="appLogo" alt="豆芽" class="switch-ring-logo" />
-            </div>
-          </div>
-          <div class="switch-model-name">{{ overlayModelName }}</div>
-          <div class="switch-progress-msg">{{ switchStageText }}</div>
-          <!-- 阶段指示器：3 阶段进度 -->
-          <div class="switch-stage-indicator">
-            <div
-              v-for="(stage, idx) in switchStages"
-              :key="stage"
-              :class="['stage-item', {
-                'active': getSwitchStageIndex() >= idx,
-                'completed': getSwitchStageIndex() > idx
-              }]"
+        <Transition name="switch-overlay">
+          <div v-if="showSwitchOverlay" class="switch-overlay switch-overlay--model">
+            <!-- SVG 装饰层：同心圆 + 双层旋转弧线 -->
+            <svg
+              class="switch-deco"
+              width="360"
+              height="360"
+              viewBox="0 0 360 360"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
             >
-              <span class="stage-dot"></span>
-              <span class="stage-label">{{ stage }}</span>
+              <circle
+                cx="180"
+                cy="180"
+                r="160"
+                stroke="currentColor"
+                stroke-width="1"
+                opacity="0.06"
+              />
+              <circle
+                cx="180"
+                cy="180"
+                r="120"
+                stroke="currentColor"
+                stroke-width="1"
+                opacity="0.08"
+              />
+              <circle
+                cx="180"
+                cy="180"
+                r="160"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-dasharray="50 320"
+                class="switch-deco-outer"
+                opacity="0.35"
+              />
+              <circle
+                cx="180"
+                cy="180"
+                r="120"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-dasharray="35 240"
+                class="switch-deco-mid"
+                opacity="0.45"
+              />
+            </svg>
+            <div class="switch-overlay-content">
+              <!-- 圆形进度环 + 中心 LOGO 图片 -->
+              <div class="switch-ring-wrapper">
+                <svg class="switch-ring-svg" width="80" height="80" viewBox="0 0 80 80">
+                  <circle
+                    cx="40"
+                    cy="40"
+                    r="36"
+                    stroke="var(--border-color)"
+                    stroke-width="2"
+                    fill="none"
+                    opacity="0.3"
+                  />
+                  <circle
+                    cx="40"
+                    cy="40"
+                    r="36"
+                    stroke="var(--accent-primary)"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    fill="none"
+                    stroke-dasharray="85 150"
+                    class="switch-ring-arc"
+                  />
+                </svg>
+                <div class="switch-ring-center">
+                  <img :src="appLogo" alt="豆芽" class="switch-ring-logo" />
+                </div>
+              </div>
+              <div class="switch-model-name">{{ overlayModelName }}</div>
+              <div class="switch-progress-msg">{{ switchStageText }}</div>
+              <!-- 阶段指示器：3 阶段进度 -->
+              <div class="switch-stage-indicator">
+                <div
+                  v-for="(stage, idx) in switchStages"
+                  :key="stage"
+                  :class="[
+                    'stage-item',
+                    {
+                      active: getSwitchStageIndex() >= idx,
+                      completed: getSwitchStageIndex() > idx
+                    }
+                  ]"
+                >
+                  <span class="stage-dot"></span>
+                  <span class="stage-label">{{ stage }}</span>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
-    </Transition>
-    <Transition name="exit-overlay">
-      <div v-if="showExitOverlay" class="switch-overlay switch-overlay--exit">
-        <!-- 退出动效：渐变收缩消散装饰 -->
-        <svg class="exit-deco" width="360" height="360" viewBox="0 0 360 360" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <!-- 三层同心圆，从外到内逐渐消失 -->
-          <circle cx="180" cy="180" r="160" stroke="currentColor" stroke-width="1" opacity="0.08" class="exit-ring-outer" />
-          <circle cx="180" cy="180" r="120" stroke="currentColor" stroke-width="1.5" opacity="0.15" class="exit-ring-mid" />
-          <circle cx="180" cy="180" r="80" stroke="currentColor" stroke-width="2" opacity="0.25" class="exit-ring-inner" />
-        </svg>
-        <div class="switch-overlay-content">
-          <!-- 退出动效：仅 LOGO（简洁） -->
-          <div class="exit-logo-wrapper">
-            <img :src="appLogo" alt="豆芽" class="exit-logo-img" />
+        </Transition>
+        <Transition name="exit-overlay">
+          <div v-if="showExitOverlay" class="switch-overlay switch-overlay--exit">
+            <!-- 退出动效：渐变收缩消散装饰 -->
+            <svg
+              class="exit-deco"
+              width="360"
+              height="360"
+              viewBox="0 0 360 360"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <!-- 三层同心圆，从外到内逐渐消失 -->
+              <circle
+                cx="180"
+                cy="180"
+                r="160"
+                stroke="currentColor"
+                stroke-width="1"
+                opacity="0.08"
+                class="exit-ring-outer"
+              />
+              <circle
+                cx="180"
+                cy="180"
+                r="120"
+                stroke="currentColor"
+                stroke-width="1.5"
+                opacity="0.15"
+                class="exit-ring-mid"
+              />
+              <circle
+                cx="180"
+                cy="180"
+                r="80"
+                stroke="currentColor"
+                stroke-width="2"
+                opacity="0.25"
+                class="exit-ring-inner"
+              />
+            </svg>
+            <div class="switch-overlay-content">
+              <!-- 退出动效：仅 LOGO（简洁） -->
+              <div class="exit-logo-wrapper">
+                <img :src="appLogo" alt="豆芽" class="exit-logo-img" />
+              </div>
+              <div class="switch-model-name">正在退出豆芽</div>
+              <div class="switch-progress-msg">{{ exitProgress }}</div>
+            </div>
           </div>
-          <div class="switch-model-name">正在退出豆芽</div>
-          <div class="switch-progress-msg">{{ exitProgress }}</div>
-        </div>
-      </div>
-    </Transition>
-    <SplashScreen
-      :visible="showSplash"
-      :stage="splashStage"
-      :model-name="splashModelName"
-      :progress="splashProgress"
-    />
-    <ServerConsole ref="consoleRef" />
+        </Transition>
+        <SplashScreen
+          :visible="showSplash"
+          :stage="splashStage"
+          :model-name="splashModelName"
+          :progress="splashProgress"
+        />
+        <ServerConsole ref="consoleRef" />
       </n-dialog-provider>
     </n-message-provider>
   </n-config-provider>
@@ -165,8 +299,22 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref, watch } from 'vue'
 import { darkTheme, zhCN, dateZhCN } from 'naive-ui'
-import { NConfigProvider, NMessageProvider, NDialogProvider, NButton, NIcon, NSelect, NTooltip } from 'naive-ui'
-import { MenuOutline, SunnyOutline, MoonOutline, TerminalOutline, TrashOutline } from '@vicons/ionicons5'
+import {
+  NConfigProvider,
+  NMessageProvider,
+  NDialogProvider,
+  NButton,
+  NIcon,
+  NSelect,
+  NTooltip
+} from 'naive-ui'
+import {
+  MenuOutline,
+  SunnyOutline,
+  MoonOutline,
+  TerminalOutline,
+  TrashOutline
+} from '@vicons/ionicons5'
 import Sidebar from './components/Sidebar.vue'
 import AppIcon from './components/ui/AppIcon.vue'
 import SplashScreen from './components/ui/SplashScreen.vue'
@@ -208,7 +356,7 @@ const mainAreaStyle = computed(() => {
   // isDark 不再作为限制条件，亮色与深色都会注入 --chat-background 变量
   return buildBackgroundStyle(
     settingsStore.config.chat_background ?? '',
-    settingsStore.config.chat_background_opacity,
+    settingsStore.config.chat_background_opacity
   )
 })
 
@@ -223,28 +371,19 @@ const {
   switchStages,
   isModelSwitching,
   switchingModelDisplay,
-  getSwitchStageIndex,
+  getSwitchStageIndex
 } = useModelSwitch()
 
-const {
-  isMaximized,
-  handleMinimize,
-  handleToggleMaximize,
-  handleClose,
-} = useWindowControls()
+const { isMaximized, handleMinimize, handleToggleMaximize, handleClose } = useWindowControls()
 
-const {
-  showSplash,
-  splashStage,
-  splashModelName,
-  splashProgress,
-  showExitOverlay,
-  exitProgress,
-} = useAppLifecycle()
+const { showSplash, splashStage, splashModelName, splashProgress, showExitOverlay, exitProgress } =
+  useAppLifecycle()
 
 // ----- 服务器状态显示 -----
 const isServerLoading = computed(() => {
-  return serverStatus.value.switching || (!serverStatus.value.model_ready && !serverStatus.value.error)
+  return (
+    serverStatus.value.switching || (!serverStatus.value.model_ready && !serverStatus.value.error)
+  )
 })
 const isFirstLoad = computed(() => settingsStore.isFirstLoad)
 const modelLoadFailed = computed(() => settingsStore.modelLoadFailed)
@@ -256,18 +395,32 @@ const loadProgressModelName = computed(() => {
 })
 
 // ----- 模型选择 -----
-const modelOptions = ref<{ label: string; value: string; fullName: string; quantSuffix: string; isLoaded: boolean; mmprojVision: boolean; mmprojAudio: boolean; mmprojVideo: boolean; status: string }[]>([])
+const modelOptions = ref<
+  {
+    label: string
+    value: string
+    fullName: string
+    quantSuffix: string
+    isLoaded: boolean
+    mmprojVision: boolean
+    mmprojAudio: boolean
+    mmprojVideo: boolean
+    status: string
+  }[]
+>([])
 const availableModels = ref<ModelOption[]>([])
 const selectedModel = ref('')
 
 // 模型下拉为空时显示引导提示：用一个不可选的提示项占位，引导用户放置 .gguf 文件
 const displayModelOptions = computed(() => {
   if (modelOptions.value.length === 0) {
-    return [{
-      label: '未找到模型，请将 .gguf 文件放入 models/ 目录',
-      value: '__no_models__',
-      disabled: true,
-    }]
+    return [
+      {
+        label: '未找到模型，请将 .gguf 文件放入 models/ 目录',
+        value: '__no_models__',
+        disabled: true
+      }
+    ]
   }
   return modelOptions.value
 })
@@ -293,77 +446,140 @@ const modelFullName = computed(() => {
 
 const errorModelName = computed(() => {
   if (switchingModelDisplay.value) return switchingModelDisplay.value
-  if (serverStatus.value.switching_to) return formatModelName(serverStatus.value.switching_to).display
+  if (serverStatus.value.switching_to)
+    return formatModelName(serverStatus.value.switching_to).display
   return modelName.value || ''
 })
 
 const currentTitle = computed(() => {
-  const conv = chatStore.conversations.find((c: Conversation) => c.id === chatStore.currentConversationId)
+  const conv = chatStore.conversations.find(
+    (c: Conversation) => c.id === chatStore.currentConversationId
+  )
   return fixUtf8(conv?.title || '豆芽 AI')
 })
 
-watch(() => settingsStore.currentModel, (newModel) => {
-  if (isModelSwitching.value) return
-  if (newModel && newModel !== selectedModel.value) {
-    const match = modelOptions.value.find(m => m.value === newModel)
-    if (match) {
-      selectedModel.value = newModel
+watch(
+  () => settingsStore.currentModel,
+  newModel => {
+    if (isModelSwitching.value) return
+    if (newModel && newModel !== selectedModel.value) {
+      const match = modelOptions.value.find(m => m.value === newModel)
+      if (match) {
+        selectedModel.value = newModel
+      }
     }
   }
-})
+)
 
-function renderModelLabel(option: { label: string; value: string; fullName?: string; quantSuffix?: string; isLoaded?: boolean; mmprojVision?: boolean; mmprojAudio?: boolean; mmprojVideo?: boolean; status?: string }) {
+function renderModelLabel(option: {
+  label: string
+  value: string
+  fullName?: string
+  quantSuffix?: string
+  isLoaded?: boolean
+  mmprojVision?: boolean
+  mmprojAudio?: boolean
+  mmprojVideo?: boolean
+  status?: string
+}) {
   const children = [h('span', option.label)]
   if (option.quantSuffix) {
-    children.push(h('span', {
-      style: 'color: var(--text-muted); font-size: 11px; margin-left: 4px; font-weight: 400;'
-    }, option.quantSuffix))
+    children.push(
+      h(
+        'span',
+        {
+          style: 'color: var(--text-muted); font-size: 11px; margin-left: 4px; font-weight: 400;'
+        },
+        option.quantSuffix
+      )
+    )
   }
   const tags: string[] = []
   if (option.mmprojVision) tags.push('📷')
   if (option.mmprojAudio) tags.push('🎤')
   if (option.mmprojVideo) tags.push('🎬')
   if (tags.length > 0) {
-    children.push(h('span', {
-      style: 'margin-left: 6px; font-size: 11px;'
-    }, tags.join(' ')))
+    children.push(
+      h(
+        'span',
+        {
+          style: 'margin-left: 6px; font-size: 11px;'
+        },
+        tags.join(' ')
+      )
+    )
   }
   if (option.status === 'sleeping') {
-    children.push(h('span', {
-      style: 'color: #f0a020; margin-left: 6px; font-size: 10px;'
-    }, '💤'))
+    children.push(
+      h(
+        'span',
+        {
+          style: 'color: #f0a020; margin-left: 6px; font-size: 10px;'
+        },
+        '💤'
+      )
+    )
   } else if (option.status === 'loading') {
-    children.push(h('span', {
-      style: 'color: var(--accent-primary); margin-left: 6px; font-size: 10px;'
-    }, '⏳'))
+    children.push(
+      h(
+        'span',
+        {
+          style: 'color: var(--accent-primary); margin-left: 6px; font-size: 10px;'
+        },
+        '⏳'
+      )
+    )
   } else if (option.isLoaded) {
-    children.push(h('span', {
-      style: 'color: var(--accent-primary); margin-left: 6px; font-size: 10px;'
-    }, '●'))
+    children.push(
+      h(
+        'span',
+        {
+          style: 'color: var(--accent-primary); margin-left: 6px; font-size: 10px;'
+        },
+        '●'
+      )
+    )
   }
   // 删除按钮：点击时阻止冒泡，避免触发模型切换
-  const deleteBtn = h(NButton, {
-    type: 'error',
-    size: 'small',
-    quaternary: true,
-    style: 'margin-left: 8px; flex-shrink: 0;',
-    onClick: (e: Event) => {
-      e.stopPropagation()
-      confirmDeleteModel(option.value, option.label)
+  const deleteBtn = h(
+    NButton,
+    {
+      type: 'error',
+      size: 'small',
+      quaternary: true,
+      style: 'margin-left: 8px; flex-shrink: 0;',
+      onClick: (e: Event) => {
+        e.stopPropagation()
+        confirmDeleteModel(option.value, option.label)
+      }
+    },
+    {
+      icon: () => h(NIcon, { size: 14 }, { default: () => h(TrashOutline) })
     }
-  }, {
-    icon: () => h(NIcon, { size: 14 }, { default: () => h(TrashOutline) })
-  })
-  const content = h('span', {
-    style: 'display: inline-flex; align-items: center; width: 100%; justify-content: space-between'
-  }, [
-    h('span', { style: 'display: inline-flex; align-items: center; min-width: 0; overflow: hidden' }, children),
-    deleteBtn
-  ])
-  return h(NTooltip, { placement: 'right', delay: 300 }, {
-    trigger: () => content,
-    default: () => option.fullName || option.value,
-  })
+  )
+  const content = h(
+    'span',
+    {
+      style:
+        'display: inline-flex; align-items: center; width: 100%; justify-content: space-between'
+    },
+    [
+      h(
+        'span',
+        { style: 'display: inline-flex; align-items: center; min-width: 0; overflow: hidden' },
+        children
+      ),
+      deleteBtn
+    ]
+  )
+  return h(
+    NTooltip,
+    { placement: 'right', delay: 300 },
+    {
+      trigger: () => content,
+      default: () => option.fullName || option.value
+    }
+  )
 }
 
 async function loadAvailableModels() {
@@ -382,7 +598,7 @@ async function loadAvailableModels() {
         mmprojVision: m.mmproj_vision,
         mmprojAudio: m.mmproj_audio,
         mmprojVideo: m.mmproj_video,
-        status: m.status,
+        status: m.status
       }
     })
 
@@ -472,12 +688,15 @@ async function handleModelChange(value: string) {
         if (caps.audio_input) features.push('音频')
         if (caps.reasoning) features.push('推理')
         const featureText = features.length > 0 ? ` · 支持${features.join('、')}` : ' · 仅文本'
-        discreteMessage.success(`${formatModelName(result.current_model || value).display}${featureText} 已就绪`, { duration: 3000 })
+        discreteMessage.success(
+          `${formatModelName(result.current_model || value).display}${featureText} 已就绪`,
+          { duration: 3000 }
+        )
         loadAvailableModels()
       }, 300)
     } else {
       selectedModel.value = result.rolled_back
-        ? (result.current_model || previousModel)
+        ? result.current_model || previousModel
         : previousModel
       // 等待 0.3s 过渡动画完全结束后显示失败提示
       setTimeout(() => {
@@ -490,7 +709,7 @@ async function handleModelChange(value: string) {
             title: guidance.title,
             content: `${guidance.description}\n\n修复建议：\n${suggestions}`,
             positiveText: '知道了',
-            style: { whiteSpace: 'pre-wrap' },
+            style: { whiteSpace: 'pre-wrap' }
           })
         } else {
           discreteMessage.error(errorText, { duration: 5000 })
@@ -508,7 +727,7 @@ async function handleModelChange(value: string) {
         title: guidance.title,
         content: `${guidance.description}\n\n修复建议：\n${suggestions}`,
         positiveText: '知道了',
-        style: { whiteSpace: 'pre-wrap' },
+        style: { whiteSpace: 'pre-wrap' }
       })
     } else {
       discreteMessage.error(errorText, { duration: 5000 })
@@ -534,18 +753,24 @@ function debouncedRefreshModels() {
 }
 
 // 当服务器从停止变为运行时，刷新模型列表
-watch(() => serverStatus.value.running, (running, prev) => {
-  if (running && !prev) {
-    debouncedRefreshModels()
+watch(
+  () => serverStatus.value.running,
+  (running, prev) => {
+    if (running && !prev) {
+      debouncedRefreshModels()
+    }
   }
-})
+)
 
 // 当模型准备就绪时，刷新模型列表以更新各模型的 is_loaded 状态
-watch(() => serverStatus.value.model_ready, (ready) => {
-  if (ready) {
-    debouncedRefreshModels()
+watch(
+  () => serverStatus.value.model_ready,
+  ready => {
+    if (ready) {
+      debouncedRefreshModels()
+    }
   }
-})
+)
 
 // ----- 启动时加载可用模型列表 -----
 // 注：其他生命周期事件（监听器注册、loadConfig、异常清理、退出进度）由 useAppLifecycle 负责；
@@ -559,12 +784,16 @@ onMounted(async () => {
 
 <style scoped>
 .main-fade-enter-active {
-  transition: opacity 0.5s ease 0.3s, transform 0.5s cubic-bezier(0.4, 0, 0.2, 1) 0.3s;
+  transition:
+    opacity 0.5s ease 0.3s,
+    transform 0.5s cubic-bezier(0.4, 0, 0.2, 1) 0.3s;
   will-change: transform, opacity;
 }
 
 .main-fade-leave-active {
-  transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   will-change: transform, opacity;
 }
 
@@ -632,7 +861,8 @@ onMounted(async () => {
 }
 
 @keyframes switchingPulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
   }
   50% {
@@ -668,7 +898,9 @@ onMounted(async () => {
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
   flex-shrink: 0;
 }
 
@@ -705,7 +937,11 @@ onMounted(async () => {
   z-index: 1000;
   pointer-events: auto;
   /* 径向渐变营造氛围 */
-  background-image: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--accent-primary) 4%, transparent) 0%, transparent 70%);
+  background-image: radial-gradient(
+    circle at 50% 50%,
+    color-mix(in srgb, var(--accent-primary) 4%, transparent) 0%,
+    transparent 70%
+  );
 }
 
 .switch-overlay-content {
@@ -741,7 +977,9 @@ onMounted(async () => {
 }
 
 @keyframes spin-reverse {
-  to { transform: rotate(-360deg); }
+  to {
+    transform: rotate(-360deg);
+  }
 }
 
 /* ===== 圆形进度环（与 MessageList 一致） ===== */
@@ -784,7 +1022,8 @@ onMounted(async () => {
 }
 
 @keyframes logo-breath {
-  0%, 100% {
+  0%,
+  100% {
     transform: scale(1);
     opacity: 0.85;
   }
@@ -839,7 +1078,9 @@ onMounted(async () => {
   height: 8px;
   border-radius: 50%;
   background: var(--border-color);
-  transition: background 0.3s ease, box-shadow 0.3s ease;
+  transition:
+    background 0.3s ease,
+    box-shadow 0.3s ease;
 }
 
 .stage-item.active .stage-dot {
@@ -853,7 +1094,8 @@ onMounted(async () => {
 }
 
 @keyframes stage-dot-pulse {
-  0%, 100% {
+  0%,
+  100% {
     transform: scale(1);
   }
   50% {
@@ -874,10 +1116,15 @@ onMounted(async () => {
 
 /* ===== 切换 overlay 过渡：入场缩放 + 出场模糊 ===== */
 .switch-overlay-enter-active {
-  transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .switch-overlay-leave-active {
-  transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), filter 0.4s ease;
+  transition:
+    opacity 0.4s ease,
+    transform 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+    filter 0.4s ease;
 }
 
 .switch-overlay-enter-from {
@@ -895,7 +1142,11 @@ onMounted(async () => {
  */
 .switch-overlay--exit {
   /* 退出语义色用 --accent-danger 派生，移除硬编码 rgba */
-  background-image: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--accent-danger) 4%, transparent) 0%, transparent 70%);
+  background-image: radial-gradient(
+    circle at 50% 50%,
+    color-mix(in srgb, var(--accent-danger) 4%, transparent) 0%,
+    transparent 70%
+  );
 }
 
 .exit-deco {
@@ -946,7 +1197,8 @@ onMounted(async () => {
 }
 
 @keyframes exit-dot-pulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0.4;
     transform: scale(1);
   }
@@ -1001,10 +1253,15 @@ onMounted(async () => {
 
 /* ===== 退出 overlay 过渡：入场从右滑入 + 出场向下消散 ===== */
 .exit-overlay-enter-active {
-  transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition:
+    opacity 0.4s ease,
+    transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .exit-overlay-leave-active {
-  transition: opacity 0.6s ease, transform 0.6s cubic-bezier(0.4, 0, 0.2, 1), filter 0.6s ease;
+  transition:
+    opacity 0.6s ease,
+    transform 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+    filter 0.6s ease;
 }
 
 .exit-overlay-enter-from {
@@ -1040,12 +1297,16 @@ onMounted(async () => {
  * translateY(6px) 轻微上滑，配合 opacity 营造层次感
  */
 .route-fade-enter-active {
-  transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   will-change: opacity, transform;
 }
 
 .route-fade-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   will-change: opacity, transform;
 }
 

@@ -5,13 +5,14 @@ package llm
 
 import (
 	"fmt"
-	"github.com/rs/zerolog/log"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 // waitForVRAMRelease blocks until nvidia-smi reports no llama-server GPU usage.

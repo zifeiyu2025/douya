@@ -92,9 +92,10 @@ func (s *Service) buildLLMMessages(ctx context.Context, convID string, dbMsgs []
 // 用于不支持 system role 的模型（如 Gemma 系列）
 //
 // 合并后的 user 消息格式：
-//   <原 system 内容>
 //
-//   <原 user 内容>
+//	<原 system 内容>
+//
+//	<原 user 内容>
 //
 // 若没有 user 消息，则把 system 内容转成一条 user 消息
 func mergeSystemIntoUser(messages []llm.ChatMessage) []llm.ChatMessage {
@@ -205,9 +206,8 @@ func (s *Service) calculateContextBudget(cfg *config.Config, maxContext int, sys
 	calibActual := s.lastPromptTokens
 	calibEstimated := s.lastEstimatedTokens
 	s.tokenCalibMu.RUnlock()
-	calibRatio := 1.0
 	if calibEstimated > 0 && calibActual > 0 {
-		calibRatio = float64(calibActual) / float64(calibEstimated)
+		calibRatio := float64(calibActual) / float64(calibEstimated)
 		if calibRatio < 1.0 {
 			calibRatio = 1.0
 		} else if calibRatio > 3.0 {
@@ -294,9 +294,8 @@ func (s *Service) buildNormalMessages(systemContent string, dbMsgs []*store.Mess
 	history, trimmedMsgs := s.buildHistoryFromDB(dbMsgs, currentUserContent, currentAttachments, caps, estimatedTokens, effectiveMax)
 	history = cleanHistoryMessages(history)
 
-	baseMessages := []llm.ChatMessage{
-		{Role: "system", Content: systemContent},
-	}
+	baseMessages := make([]llm.ChatMessage, 0, 1+len(history))
+	baseMessages = append(baseMessages, llm.ChatMessage{Role: "system", Content: systemContent})
 	baseMessages = append(baseMessages, history...)
 
 	// 如果有消息被裁剪，调用 CompressContext 进行统一压缩

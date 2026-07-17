@@ -30,7 +30,7 @@ var (
 // 生活类比：像尺子上的刻度，统一标定后所有测量都用同一标准。图片刻度可按需调整。
 const (
 	videoTokenEstimate = 5000 // 视频附件 token 估算值
-	audioTokenEstimate = 500 // 音频附件 token 估算值
+	audioTokenEstimate = 500  // 音频附件 token 估算值
 )
 
 // imageTokenEstimate 图片附件 token 估算值，默认 3500（覆盖多数模型默认值）。

@@ -489,8 +489,13 @@ func (s *Service) runStreamWithStandardErrors(
 	return streamContinue, nil
 }
 
-
 func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) error {
+	log.Info().
+		Str("convID", params.ConversationID).
+		Str("searchMode", params.SearchMode).
+		Int("attachments", len(params.Attachments)).
+		Int("images", len(params.Images)).
+		Msg("[chat] SendMessage 入口")
 	s.mutex.Lock()
 	var oldCancel context.CancelFunc
 	var oldConvID string
@@ -617,7 +622,6 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 
 	return s.streamWithSearch(cancelCtx, convID, llmMessages, params.SearchMode, params.Content, params.Content, searchResp)
 }
-
 
 func generateConversationTitle(content string) string {
 	// 去除首尾空白

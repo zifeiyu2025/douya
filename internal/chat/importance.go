@@ -62,12 +62,12 @@ func ScoreChatMessage(msg llm.ChatMessage) int {
 			score += 2
 		} else if msg.ReasoningContent == "" {
 			// assistant 的最终回复（非 thinking 推理内容）
-			score += 1
+			score++
 		}
 		// assistant 的 thinking 内容（ReasoningContent）默认 0 分，可被裁剪
 	case "user":
 		// user 消息代表用户意图，比 assistant 的中间回复更重要
-		score += 1
+		score++
 	}
 
 	// 分数上限 10

@@ -4,12 +4,13 @@
 package llm_test
 
 import (
-	"douya/internal/llm"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"douya/internal/llm"
 )
 
 func TestServer_GracefulShutdown_SendsShutdownRequest(t *testing.T) {
@@ -31,11 +32,11 @@ func TestServer_GracefulShutdown_SendsShutdownRequest(t *testing.T) {
 	defer ts.Close()
 
 	cfg := &llm.ServerConfig{
-		ModelsDir:   "/path/to/models",
-		ServerPath:  "/path/to/llama-server",
-		Port:        8080,
-		GPULayers:   "99",
-		APIBase:     ts.URL,
+		ModelsDir:  "/path/to/models",
+		ServerPath: "/path/to/llama-server",
+		Port:       8080,
+		GPULayers:  "99",
+		APIBase:    ts.URL,
 	}
 
 	s := llm.NewServer(cfg)
@@ -50,11 +51,11 @@ func TestServer_GracefulShutdown_SendsShutdownRequest(t *testing.T) {
 
 func TestServer_GracefulStop_NoPanicWhenNotRunning(t *testing.T) {
 	cfg := &llm.ServerConfig{
-		ModelsDir:   "/path/to/models",
-		ServerPath:  "/path/to/llama-server",
-		Port:        8080,
-		GPULayers:   "99",
-		APIBase:     "http://127.0.0.1:8080",
+		ModelsDir:  "/path/to/models",
+		ServerPath: "/path/to/llama-server",
+		Port:       8080,
+		GPULayers:  "99",
+		APIBase:    "http://127.0.0.1:8080",
 	}
 
 	s := llm.NewServer(cfg)
@@ -75,11 +76,11 @@ func TestServer_GracefulStop_SetsStatusToStopped(t *testing.T) {
 	defer ts.Close()
 
 	cfg := &llm.ServerConfig{
-		ModelsDir:   "/path/to/models",
-		ServerPath:  "/path/to/llama-server",
-		Port:        8080,
-		GPULayers:   "99",
-		APIBase:     ts.URL,
+		ModelsDir:  "/path/to/models",
+		ServerPath: "/path/to/llama-server",
+		Port:       8080,
+		GPULayers:  "99",
+		APIBase:    ts.URL,
 	}
 
 	s := llm.NewServer(cfg)
@@ -103,11 +104,11 @@ func TestServer_GracefulStop_HandlesShutdownEndpointUnavailable(t *testing.T) {
 	defer ts.Close()
 
 	cfg := &llm.ServerConfig{
-		ModelsDir:   "/path/to/models",
-		ServerPath:  "/path/to/llama-server",
-		Port:        8080,
-		GPULayers:   "99",
-		APIBase:     ts.URL,
+		ModelsDir:  "/path/to/models",
+		ServerPath: "/path/to/llama-server",
+		Port:       8080,
+		GPULayers:  "99",
+		APIBase:    ts.URL,
 	}
 
 	s := llm.NewServer(cfg)
@@ -131,11 +132,11 @@ func TestServer_GracefulStop_CancelContextOnStop(t *testing.T) {
 	defer ts.Close()
 
 	cfg := &llm.ServerConfig{
-		ModelsDir:   "/path/to/models",
-		ServerPath:  "/path/to/llama-server",
-		Port:        8080,
-		GPULayers:   "99",
-		APIBase:     ts.URL,
+		ModelsDir:  "/path/to/models",
+		ServerPath: "/path/to/llama-server",
+		Port:       8080,
+		GPULayers:  "99",
+		APIBase:    ts.URL,
 	}
 
 	s := llm.NewServer(cfg)
@@ -152,11 +153,11 @@ func TestServer_GracefulStop_CancelContextOnStop(t *testing.T) {
 
 func TestServer_Stop_NilProcess(t *testing.T) {
 	cfg := &llm.ServerConfig{
-		ModelsDir:   "/path/to/models",
-		ServerPath:  "/path/to/llama-server",
-		Port:        8080,
-		GPULayers:   "99",
-		APIBase:     "http://127.0.0.1:8080",
+		ModelsDir:  "/path/to/models",
+		ServerPath: "/path/to/llama-server",
+		Port:       8080,
+		GPULayers:  "99",
+		APIBase:    "http://127.0.0.1:8080",
 	}
 
 	s := llm.NewServer(cfg)

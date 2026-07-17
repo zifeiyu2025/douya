@@ -33,7 +33,8 @@ func startWithConPTY(path string, args []string, dir string, env []string, width
 // buildCommandLine 将程序路径和参数列表组合为 Windows 命令行字符串
 // 生活类比：就像在命令行里输入完整命令，路径和参数有空格时要用引号括起来
 func buildCommandLine(path string, args []string) string {
-	parts := []string{quoteIfNeeded(path)}
+	parts := make([]string, 0, 1+len(args))
+	parts = append(parts, quoteIfNeeded(path))
 	for _, arg := range args {
 		parts = append(parts, quoteIfNeeded(arg))
 	}

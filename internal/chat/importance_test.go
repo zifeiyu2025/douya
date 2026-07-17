@@ -28,7 +28,7 @@ func TestScoreChatMessage_CodeBlock(t *testing.T) {
 func TestScoreChatMessage_UserImportantKeyword(t *testing.T) {
 	cases := []struct {
 		content string
-		desc   string
+		desc    string
 	}{
 		{"请记住我的项目用 Go 1.22", "中文'记住'"},
 		{"重要决策：使用 SQLite 而非 PostgreSQL", "中文'重要'"},
@@ -224,16 +224,16 @@ func truncateForLog(s string, max int) string {
 func TestSelectImportantMessages_FillsBudget(t *testing.T) {
 	// 构造 11 条消息：3 条必保（评分 6），1 条高分非必保（评分 3），其余低分（评分 1）
 	msgs := []llm.ChatMessage{
-		{Role: "user", Content: "你好"},                                          // 0: 评分 1
-		{Role: "assistant", Content: "你好！"},                                    // 1: 评分 1
+		{Role: "user", Content: "你好"},                                     // 0: 评分 1
+		{Role: "assistant", Content: "你好！"},                               // 1: 评分 1
 		{Role: "user", Content: "请记住这段代码：\n```go\nfunc a(){}\n```"},       // 2: 必保（6）
-		{Role: "assistant", Content: "好的"},                                     // 3: 评分 1
-		{Role: "user", Content: "今天天气如何"},                                   // 4: 评分 1
-		{Role: "assistant", Content: "我不知道"},                                 // 5: 评分 1
+		{Role: "assistant", Content: "好的"},                                // 3: 评分 1
+		{Role: "user", Content: "今天天气如何"},                                 // 4: 评分 1
+		{Role: "assistant", Content: "我不知道"},                              // 5: 评分 1
 		{Role: "user", Content: "重要：请记住 API key=123"},                     // 6: 高分非必保（3）
-		{Role: "assistant", Content: "好的，记住了"},                             // 7: 评分 1
-		{Role: "user", Content: "请记住：\n```python\nprint('hi')\n```"},         // 8: 必保（6）
-		{Role: "assistant", Content: "好的，已记住"},                             // 9: 评分 1
+		{Role: "assistant", Content: "好的，记住了"},                            // 7: 评分 1
+		{Role: "user", Content: "请记住：\n```python\nprint('hi')\n```"},      // 8: 必保（6）
+		{Role: "assistant", Content: "好的，已记住"},                            // 9: 评分 1
 		{Role: "user", Content: "重要：请记住这段代码\n```js\nconsole.log(1)\n```"}, // 10: 必保（6）
 	}
 
@@ -295,11 +295,11 @@ func TestSelectImportantMessages_FillsBudget(t *testing.T) {
 func TestSelectImportantMessages_TimeOrder(t *testing.T) {
 	// 构造评分乱序、内容唯一的消息：必保(0) → 低分(1) → 必保(2) → 低分(3) → 高分非必保(4)
 	msgs := []llm.ChatMessage{
-		{Role: "user", Content: "请记住代码A：\n```go\nfunc a(){}\n```"},       // 0: 必保
-		{Role: "assistant", Content: "好的，明白了代码A"},                       // 1: 低分
-		{Role: "user", Content: "请记住代码B：\n```py\nprint(1)\n```"},         // 2: 必保
-		{Role: "assistant", Content: "好的，已记住代码B"},                       // 3: 低分
-		{Role: "user", Content: "重要：记住 key=123"},                        // 4: 高分非必保
+		{Role: "user", Content: "请记住代码A：\n```go\nfunc a(){}\n```"}, // 0: 必保
+		{Role: "assistant", Content: "好的，明白了代码A"},                  // 1: 低分
+		{Role: "user", Content: "请记住代码B：\n```py\nprint(1)\n```"},   // 2: 必保
+		{Role: "assistant", Content: "好的，已记住代码B"},                  // 3: 低分
+		{Role: "user", Content: "重要：记住 key=123"},                   // 4: 高分非必保
 	}
 
 	// 极小预算（budget=1）：必保消息即使超预算也保留，非必保消息因 remainingBudget<0 全部不选
@@ -435,4 +435,3 @@ func TestShouldResetSummary_TriggerEvery10(t *testing.T) {
 		t.Errorf("第 5 次压缩 ShouldResetSummary 应为 false（不重置，只合并）")
 	}
 }
-

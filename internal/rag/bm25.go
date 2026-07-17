@@ -2,7 +2,6 @@ package rag
 
 import (
 	"context"
-	"encoding/json"
 	"maps"
 	"math"
 	"regexp"
@@ -11,7 +10,7 @@ import (
 	"sync"
 	"unicode"
 
-	"github.com/dgraph-io/badger/v4"
+	"github.com/rs/zerolog/log"
 )
 
 // BM25Index 实现轻量级 BM25 关键词检索
@@ -66,12 +65,10 @@ func tokenize(text string) []string {
 			}
 		} else if unicode.IsLetter(r) || unicode.IsDigit(r) {
 			current = append(current, r)
-		} else {
+		} else if len(current) > 0 {
 			// 标点/空格：分割
-			if len(current) > 0 {
-				tokens = append(tokens, string(current))
-				current = current[:0]
-			}
+			tokens = append(tokens, string(current))
+			current = current[:0]
 		}
 	}
 	if len(current) > 0 {
@@ -325,6 +322,11 @@ type HybridSearchResult struct {
 // HybridSearch 执行混合检索：向量检索 + BM25 关键词检索，RRF 融合
 // ctx 用于传播取消信号到向量检索
 func (vs *VectorStore) HybridSearch(ctx context.Context, collection string, query []float64, queryText string, topK int, minScore float64) ([]HybridSearchResult, error) {
+	log.Info().
+		Str("collection", collection).
+		Int("topK", topK).
+		Float64("minScore", minScore).
+		Msg("[rag] HybridSearch 入口")
 	if topK <= 0 {
 		topK = 10
 	}
@@ -425,40 +427,6 @@ func (vs *VectorStore) HybridSearch(ctx context.Context, collection string, quer
 	}
 
 	return results, nil
-}
-
-// loadChunkContent 从 Badger 加载单个 chunk 的文本内容
-func (vs *VectorStore) loadChunkContent(collection, id string) (string, error) {
-	var content string
-	err := vs.db.View(func(txn *badger.Txn) error {
-		item, err := txn.Get(chunkKey(collection, id))
-		if err != nil {
-			return err
-		}
-		return item.Value(func(val []byte) error {
-			content = string(val)
-			return nil
-		})
-	})
-	return content, err
-}
-
-// loadChunkMeta 从 Badger 加载单个 chunk 的元数据
-func (vs *VectorStore) loadChunkMeta(collection, id string) (map[string]string, error) {
-	var meta map[string]string
-	err := vs.db.View(func(txn *badger.Txn) error {
-		item, err := txn.Get(chunkMetaKey(collection, id))
-		if err != nil {
-			return err
-		}
-		return item.Value(func(val []byte) error {
-			return json.Unmarshal(val, &meta)
-		})
-	})
-	if err != nil {
-		return nil, err
-	}
-	return meta, nil
 }
 
 // cleanQueryText 清理查询文本，去除特殊字符

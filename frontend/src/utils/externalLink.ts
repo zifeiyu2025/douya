@@ -17,7 +17,7 @@ import { isSafeUrl } from './lightSanitize'
  * @param url 待打开的 URL
  */
 export function openExternal(url: string): void {
-    if (isSafeUrl(url)) {
-        BrowserOpenURL(url)
-    }
+  if (isSafeUrl(url)) {
+    BrowserOpenURL(url)
+  }
 }

@@ -43,8 +43,8 @@ func formatSearchResultsWithLang(results []search.SearchResult, lang string) str
 	for _, r := range results[:count] {
 		sb.WriteString("<result>\n")
 		// 只保留 title 和 snippet，移除 url：url 对回答内容无帮助，仅占 token
-		sb.WriteString(fmt.Sprintf("<title>%s</title>\n", escapeXML(truncateRunes(r.Title, maxSearchTitleRunes))))
-		sb.WriteString(fmt.Sprintf("<snippet>%s</snippet>\n", escapeXML(truncateRunes(r.Snippet, maxSearchSnippetRunes))))
+		fmt.Fprintf(&sb, "<title>%s</title>\n", escapeXML(truncateRunes(r.Title, maxSearchTitleRunes)))
+		fmt.Fprintf(&sb, "<snippet>%s</snippet>\n", escapeXML(truncateRunes(r.Snippet, maxSearchSnippetRunes)))
 		sb.WriteString("</result>\n")
 	}
 	sb.WriteString("</search_results>")
@@ -87,8 +87,10 @@ func MergeSearchJSON(existing, newResults string) string {
 		return existing
 	}
 
-	// 合并并序列化
-	merged := append(existingResults, newResultsArr...)
+	// 合并并序列化（预分配容量避免多次扩容）
+	merged := make([]search.SearchResult, 0, len(existingResults)+len(newResultsArr))
+	merged = append(merged, existingResults...)
+	merged = append(merged, newResultsArr...)
 	mergedBytes, err := json.Marshal(merged)
 	if err != nil {
 		// 序列化失败，降级返回 existing

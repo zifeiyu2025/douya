@@ -38,7 +38,9 @@
             <span class="info-card-value">1090873033</span>
           </div>
           <n-button text size="tiny" class="copy-btn" @click="copyQQ">
-            <template #icon><n-icon><CopyOutline /></n-icon></template>
+            <template #icon>
+              <n-icon><CopyOutline /></n-icon>
+            </template>
           </n-button>
         </div>
       </n-card>
@@ -51,9 +53,7 @@
       <!-- 空闲状态 -->
       <div v-if="updateStatus === 'idle'" class="update-row">
         <span class="update-current">当前版本：v{{ currentVersion }}</span>
-        <n-button type="primary" size="small" ghost @click="handleCheckUpdate">
-          检查更新
-        </n-button>
+        <n-button type="primary" size="small" ghost @click="handleCheckUpdate">检查更新</n-button>
       </div>
 
       <!-- 检查中 -->
@@ -72,7 +72,8 @@
       <div v-else-if="updateStatus === 'available'" class="update-available">
         <div class="update-row">
           <span class="update-info">
-            新版本：<span class="version-highlight">v{{ updateInfo?.latest_version }}</span>
+            新版本：
+            <span class="version-highlight">v{{ updateInfo?.latest_version }}</span>
           </span>
           <n-button type="primary" size="small" ghost @click="handlePerformUpdate">
             立即更新
@@ -120,8 +121,15 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import {
-  NCard, NButton, NIcon, NSpin, NProgress, NDivider,
-  NCollapse, NCollapseItem, useMessage,
+  NCard,
+  NButton,
+  NIcon,
+  NSpin,
+  NProgress,
+  NDivider,
+  NCollapse,
+  NCollapseItem,
+  useMessage
 } from 'naive-ui'
 import {
   PersonOutline,
@@ -129,7 +137,7 @@ import {
   ChatbubblesOutline,
   CopyOutline,
   CheckmarkCircleOutline,
-  CloseCircleOutline,
+  CloseCircleOutline
 } from '@vicons/ionicons5'
 import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime'
 import { wails, type UpdateInfo } from '../../services/wails'
@@ -139,7 +147,9 @@ const GITHUB_URL = 'https://github.com/zifeiyu2025/douya'
 
 const message = useMessage()
 const currentVersion = ref('0.10.7')
-const updateStatus = ref<'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'installing' | 'error'>('idle')
+const updateStatus = ref<
+  'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'installing' | 'error'
+>('idle')
 const updateInfo = ref<UpdateInfo | null>(null)
 const downloadPercent = ref(0)
 const errorMessage = ref('')
@@ -273,7 +283,9 @@ onUnmounted(() => {
 
 .info-card {
   cursor: default;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .info-card:hover {

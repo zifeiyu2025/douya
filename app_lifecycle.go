@@ -41,7 +41,7 @@ func (a *App) startup(ctx context.Context) {
 	loadedCfg, err := config.Load(cfgPath)
 	if err != nil {
 		zlog.Error().Err(err).Msg("load config failed")
-		runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+		_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 			Type:    runtime.ErrorDialog,
 			Title:   "配置加载失败",
 			Message: fmt.Sprintf("加载配置文件失败: %v", err),
@@ -56,9 +56,9 @@ func (a *App) startup(ctx context.Context) {
 		for _, p := range missingPaths {
 			msg.WriteString("❌ " + p + "\n")
 		}
-		msg.WriteString(fmt.Sprintf("\n应用根目录: %s\n请确保所有文件位于正确位置。", appDir()))
+		fmt.Fprintf(&msg, "\n应用根目录: %s\n请确保所有文件位于正确位置。", appDir())
 		zlog.Error().Interface("paths", missingPaths).Msg("[startup] missing paths")
-		runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+		_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 			Type:    runtime.ErrorDialog,
 			Title:   "关键文件缺失",
 			Message: msg.String(),
@@ -83,7 +83,7 @@ func (a *App) startup(ctx context.Context) {
 	a.encKey, err = secrets.LoadOrCreateKey(keyPath)
 	if err != nil {
 		zlog.Error().Err(err).Msg("[startup] load encryption key failed")
-		runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+		_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 			Type:    runtime.ErrorDialog,
 			Title:   "加密密钥加载失败",
 			Message: fmt.Sprintf("加载加密密钥失败：\n%v\n\n请按上述提示处理后重新启动应用。", err),
@@ -94,7 +94,7 @@ func (a *App) startup(ctx context.Context) {
 	a.db, err = store.Init(dbPath, a.encKey)
 	if err != nil {
 		zlog.Error().Err(err).Msg("init database failed")
-		runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+		_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 			Type:    runtime.ErrorDialog,
 			Title:   "数据库初始化失败",
 			Message: fmt.Sprintf("初始化数据库失败: %v", err),
@@ -122,13 +122,13 @@ func (a *App) startup(ctx context.Context) {
 				}
 				if v, ok := seMap["ollama_api_key"]; ok && v != "" {
 					if existing := getFn("search_ollama_api_key"); existing == "" {
-						setFn("search_ollama_api_key", fmt.Sprintf("%v", v))
+						_ = setFn("search_ollama_api_key", fmt.Sprintf("%v", v))
 						migrated = true
 					}
 				}
 				if v, ok := seMap["tavily_api_key"]; ok && v != "" {
 					if existing := getFn("search_tavily_api_key"); existing == "" {
-						setFn("search_tavily_api_key", fmt.Sprintf("%v", v))
+						_ = setFn("search_tavily_api_key", fmt.Sprintf("%v", v))
 						migrated = true
 					}
 				}
@@ -138,7 +138,9 @@ func (a *App) startup(ctx context.Context) {
 					if err := a.getConfig().Validate(); err != nil {
 						zlog.Warn().Err(err).Msg("[startup] 配置校验失败（搜索引擎迁移），仍保存")
 					}
-					config.Save(cfgPath, a.getConfig())
+					if err := config.Save(cfgPath, a.getConfig()); err != nil {
+						zlog.Warn().Err(err).Msg("[startup] 保存配置失败（搜索引擎迁移）")
+					}
 				}
 			}
 		}

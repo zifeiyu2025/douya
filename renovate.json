@@ -1,0 +1,67 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "schedule": ["before 9am on monday"],
+  "timezone": "Asia/Shanghai",
+  "commitMessagePrefix": "deps:",
+  "commitMessageTopic": "{{depName}}",
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "labels": ["dependencies"],
+  "groups": {
+    "goMinorPatch": {
+      "description": "Go 依赖的 patch 和 minor 更新分组提交，减少 PR 数量",
+      "matchUpdateTypes": ["patch", "minor"],
+      "matchManagers": ["gomod"],
+      "groupName": "Go 依赖（patch/minor）"
+    },
+    "githubActions": {
+      "description": "GitHub Actions 版本更新分组",
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions"
+    },
+    "npmMinorPatch": {
+      "description": "前端 npm 依赖的 patch 和 minor 更新分组",
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["patch", "minor"],
+      "groupName": "npm 依赖（patch/minor）"
+    }
+  },
+  "packageRules": [
+    {
+      "description": "patch 更新：CI 通过后自动合并，无需人工审核",
+      "matchUpdateTypes": ["patch"],
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash",
+      "stabilityDays": 3
+    },
+    {
+      "description": "Wails 框架更新需人工审核，可能涉及 API 变更",
+      "matchPackagePatterns": ["wails"],
+      "automerge": false,
+      "labels": ["dependencies", "wails", "needs-review"]
+    },
+    {
+      "description": "主要版本更新需人工审核，可能有 breaking changes",
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "labels": ["dependencies", "major", "needs-review"],
+      "stabilityDays": 7
+    },
+    {
+      "description": "已废弃的依赖不自动更新，单独标记",
+      "matchDeprecation": "deprecated",
+      "automerge": false,
+      "labels": ["dependencies", "deprecated", "needs-review"]
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security"],
+    "automerge": true,
+    "automergeType": "pr",
+    "automergeStrategy": "squash"
+  },
+  "osvVulnerabilityAlerts": true
+}

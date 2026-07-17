@@ -1,12 +1,20 @@
 <template>
   <div class="message-item" :class="{ user: isUser }">
     <div class="message-avatar" :class="isUser ? 'user-avatar' : 'ai-avatar'">
-      <img v-if="(isUser && settingsStore.config.user_avatar) || (!isUser && settingsStore.config.ai_avatar)" 
-           :src="isUser ? settingsStore.config.user_avatar : settingsStore.config.ai_avatar" 
-           :alt="isUser ? '用户' : 'AI'" />
-      <img v-else :src="isUser ? defaultUserAvatar : defaultAiAvatar" 
-           :alt="isUser ? '用户' : 'AI'"
-           class="default-avatar" />
+      <img
+        v-if="
+          (isUser && settingsStore.config.user_avatar) ||
+          (!isUser && settingsStore.config.ai_avatar)
+        "
+        :src="isUser ? settingsStore.config.user_avatar : settingsStore.config.ai_avatar"
+        :alt="isUser ? '用户' : 'AI'"
+      />
+      <img
+        v-else
+        :src="isUser ? defaultUserAvatar : defaultAiAvatar"
+        :alt="isUser ? '用户' : 'AI'"
+        class="default-avatar"
+      />
     </div>
     <div class="message-bubble-wrapper">
       <button
@@ -18,13 +26,29 @@
         <AppIcon name="copy" :size="12" />
         <span>复制</span>
       </button>
-      <div class="message-bubble" :class="isUser ? 'user-bubble' : 'ai-bubble'" ref="rootRef" @mouseup="handleMouseUp">
+      <div
+        ref="rootRef"
+        class="message-bubble"
+        :class="isUser ? 'user-bubble' : 'ai-bubble'"
+        @mouseup="handleMouseUp"
+      >
         <template v-if="isUser">
           <div v-if="parsedImages.length > 0" class="message-images">
-            <img v-for="src in parsedImages" :key="src" :src="src" class="message-image" @click="previewImage(src)" />
+            <img
+              v-for="src in parsedImages"
+              :key="src"
+              :src="src"
+              class="message-image"
+              @click="previewImage(src)"
+            />
           </div>
           <div v-if="nonImageAttachments.length > 0" class="message-attachments">
-            <div v-for="att in nonImageAttachments" :key="att.name" class="attachment-tag" :class="'att-' + att.type">
+            <div
+              v-for="att in nonImageAttachments"
+              :key="att.name"
+              class="attachment-tag"
+              :class="'att-' + att.type"
+            >
               <AppIcon :name="attachmentIcon(att.type)" class="att-icon" :size="14" />
               <span class="att-name">{{ att.name }}</span>
             </div>
@@ -32,24 +56,40 @@
           <div v-if="message.content" class="user-text">{{ message.content }}</div>
         </template>
         <template v-else>
-          <ThinkBlock v-if="message.thinking_content" :content="message.thinking_content" :duration="message.thinking_duration" />
+          <ThinkBlock
+            v-if="message.thinking_content"
+            :content="message.thinking_content"
+            :duration="message.thinking_duration"
+          />
           <div class="markdown-body" v-html="renderedContent" />
-          <SearchStatus v-if="hasSearchResults" :searching="false" :results="message.search_results" :default-expanded="false" />
+          <SearchStatus
+            v-if="hasSearchResults"
+            :searching="false"
+            :results="message.search_results"
+            :default-expanded="false"
+          />
         </template>
       </div>
 
       <div class="msg-actions" :class="{ 'user-actions': isUser, 'ai-actions': !isUser }">
         <div class="action-row">
-          <span v-if="!isUser && tokensPerSecond > 0" class="token-speed">⚡ {{ tokensPerSecond }} t/s</span>
-          <button class="action-btn" @click="copyContent" title="复制">
+          <span v-if="!isUser && tokensPerSecond > 0" class="token-speed">
+            ⚡ {{ tokensPerSecond }} t/s
+          </span>
+          <button class="action-btn" title="复制" @click="copyContent">
             <AppIcon name="copy" class="action-icon" :size="14" />
             <span class="action-label">复制</span>
           </button>
-          <button v-if="!isUser && !chatStore.isGenerating && isLastAIMessage" class="action-btn" @click="regenerate" title="重新生成">
+          <button
+            v-if="!isUser && !chatStore.isGenerating && isLastAIMessage"
+            class="action-btn"
+            title="重新生成"
+            @click="regenerate"
+          >
             <AppIcon name="regenerate" class="action-icon" :size="14" />
             <span class="action-label">重新生成</span>
           </button>
-          <button v-if="isUser" class="action-btn danger" @click="deleteMsg" title="删除">
+          <button v-if="isUser" class="action-btn danger" title="删除" @click="deleteMsg">
             <AppIcon name="trash" class="action-icon" :size="14" />
             <span class="action-label">删除</span>
           </button>
@@ -64,7 +104,7 @@ import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import ThinkBlock from './ThinkBlock.vue'
 import SearchStatus from './SearchStatus.vue'
- import { renderMarkdown, escapeHtml } from '../utils/markdown'
+import { renderMarkdown, escapeHtml } from '../utils/markdown'
 import { setupCodeCopyDelegation } from '../utils/codeCopy'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
@@ -79,38 +119,38 @@ const settingsStore = useSettingsStore()
 const messageApi = useMessage()
 
 const ATTACHMENT_ICON_MAP: Record<string, 'audio' | 'video' | 'pdf' | 'file' | 'image'> = {
-    audio: 'audio',
-    video: 'video',
-    pdf: 'pdf',
-    text: 'file',
-    image: 'image',
+  audio: 'audio',
+  video: 'video',
+  pdf: 'pdf',
+  text: 'file',
+  image: 'image'
 }
 
 function attachmentIcon(type: string): 'audio' | 'video' | 'pdf' | 'file' | 'image' {
-    return ATTACHMENT_ICON_MAP[type] || 'file'
+  return ATTACHMENT_ICON_MAP[type] || 'file'
 }
 
 const isUser = computed(() => props.message.role === 'user')
 
 const isLastAIMessage = computed(() => {
-    return chatStore.lastAIMessageId === props.message.id
+  return chatStore.lastAIMessageId === props.message.id
 })
 
 const tokensPerSecond = computed(() => {
-    // 流式中：使用实时速度数据
-    if (chatStore.isGenerating && isLastAIMessage.value && chatStore.tokensPerSecond > 0) {
-        return Math.round(chatStore.tokensPerSecond * 10) / 10
-    }
-    // 流式后：使用消息中保存的速度数据
-    const tps = props.message.tokens_per_second
-    if (!tps || tps <= 0) return 0
-    return Math.round(tps * 10) / 10
+  // 流式中：使用实时速度数据
+  if (chatStore.isGenerating && isLastAIMessage.value && chatStore.tokensPerSecond > 0) {
+    return Math.round(chatStore.tokensPerSecond * 10) / 10
+  }
+  // 流式后：使用消息中保存的速度数据
+  const tps = props.message.tokens_per_second
+  if (!tps || tps <= 0) return 0
+  return Math.round(tps * 10) / 10
 })
 
 const hasSearchResults = computed(() => {
-    if (!props.message.search_results) return false
-    if (props.message.search_results === '[]') return false
-    return props.message.search_results.length > 0
+  if (!props.message.search_results) return false
+  if (props.message.search_results === '[]') return false
+  return props.message.search_results.length > 0
 })
 
 const parsedImages = computed(() => {
@@ -118,7 +158,9 @@ const parsedImages = computed(() => {
   try {
     const arr = JSON.parse(props.message.images)
     if (Array.isArray(arr)) return arr
-  } catch {}
+  } catch {
+    // 忽略 JSON 解析错误，返回空数组
+  }
   return []
 })
 
@@ -133,23 +175,27 @@ const renderedContent = ref('')
 // 先发起的渲染任务可能后完成并覆盖最新内容。版本号校验确保只采用最新结果。
 let renderVersion = 0
 
-watch(() => props.message.content, async (newContent) => {
-  if (!newContent) {
-    renderedContent.value = ''
-    return
-  }
-  const version = ++renderVersion
-  try {
-    let html = await renderMarkdown(newContent)
-    // 版本号不匹配说明期间有更新的渲染任务发起，丢弃本次过期结果
-    if (version !== renderVersion) return
-    renderedContent.value = html
-  } catch (_) {
-    if (version !== renderVersion) return
-    // 渲染失败时转义后作为纯文本显示，避免直接赋值原始未消毒内容到 v-html（XSS 防护）
-    renderedContent.value = escapeHtml(newContent)
-  }
-}, { immediate: true })
+watch(
+  () => props.message.content,
+  async newContent => {
+    if (!newContent) {
+      renderedContent.value = ''
+      return
+    }
+    const version = ++renderVersion
+    try {
+      const html = await renderMarkdown(newContent)
+      // 版本号不匹配说明期间有更新的渲染任务发起，丢弃本次过期结果
+      if (version !== renderVersion) return
+      renderedContent.value = html
+    } catch (_) {
+      if (version !== renderVersion) return
+      // 渲染失败时转义后作为纯文本显示，避免直接赋值原始未消毒内容到 v-html（XSS 防护）
+      renderedContent.value = escapeHtml(newContent)
+    }
+  },
+  { immediate: true }
+)
 
 const findPreviousUserMessage = () => {
   const index = chatStore.messages.findIndex(m => m.id === props.message.id)
@@ -167,13 +213,13 @@ const rootRef = ref<HTMLElement>()
 let cleanupCodeCopyDelegation: (() => void) | null = null
 
 onMounted(() => {
-    const el = rootRef.value
-    if (el) {
-        cleanupCodeCopyDelegation = setupCodeCopyDelegation(el)
-    }
-    document.addEventListener('mousedown', handleDocumentMouseDown)
-    // scroll 监听器改为按需注册（见下方 watch(selectionBtnVisible)），
-    // 避免每个 MessageItem 实例都常驻全局 scroll 监听导致长会话滚动卡顿
+  const el = rootRef.value
+  if (el) {
+    cleanupCodeCopyDelegation = setupCodeCopyDelegation(el)
+  }
+  document.addEventListener('mousedown', handleDocumentMouseDown)
+  // scroll 监听器改为按需注册（见下方 watch(selectionBtnVisible)），
+  // 避免每个 MessageItem 实例都常驻全局 scroll 监听导致长会话滚动卡顿
 })
 
 async function copyContent() {
@@ -188,7 +234,7 @@ async function copyContent() {
       await navigator.clipboard.write([
         new ClipboardItem({
           'text/html': htmlBlob,
-          'text/plain': textBlob,
+          'text/plain': textBlob
         })
       ])
     } else {
@@ -281,7 +327,7 @@ function hideSelectionBtn() {
 
 // scroll 监听器按需注册：仅在选择按钮可见时注册，隐藏时移除
 // 避免每个 MessageItem 实例常驻全局 scroll 监听导致长会话滚动卡顿
-watch(selectionBtnVisible, (visible) => {
+watch(selectionBtnVisible, visible => {
   if (visible) {
     document.addEventListener('scroll', hideSelectionBtn, true)
   } else {
@@ -351,7 +397,6 @@ function regenerate() {
     chatStore.regenerateMessage(userMessageId, settingsStore.searchMode)
   }
 }
-
 </script>
 
 <style scoped>
@@ -475,7 +520,9 @@ function regenerate() {
   margin-top: 5px;
   min-height: 30px;
   opacity: 0;
-  transition: opacity 0.22s ease, transform 0.22s ease;
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease;
   transform: translateY(-4px);
 }
 
@@ -513,7 +560,9 @@ function regenerate() {
   font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
-  transition: color 0.15s ease, background-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
   line-height: 1;
   white-space: nowrap;
 }
@@ -730,8 +779,14 @@ function regenerate() {
 }
 
 @keyframes selectionBtnIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .selection-copy-btn:hover {

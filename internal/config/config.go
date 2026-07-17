@@ -6,10 +6,13 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"math"
 	"os"
 	"strings"
+
+	"douya/internal/apperror"
+
+	"github.com/rs/zerolog/log"
 )
 
 type Config struct {
@@ -226,114 +229,112 @@ func DefaultConfig() *Config {
 		KVOffload:                  true,
 		// 默认启用 context-shift 作为兜底：应用层压缩失败时由 llama-server 自动移位，
 		// 避免请求直接报错。--keep 512 保护 system prompt 不被移位
-		ContextShift:               true,
-		MinP:                       0.05,
-		DryMultiplier:              0,
-		DryBase:                    1.75,
-		DryAllowedLength:           2,
-		DrySequenceBreaker:         "",
-		DryPenaltyLastN:            0,
-		GrpAttnN:                   0,
-		GrpAttnW:                   0,
-		Jinja:                      nil,
-		CachePrompt:                new(true), // 显式启用 prompt 缓存，多轮对话时复用前缀 KV，降低首 token 延迟
-		Metrics:                    false,
-		Verbose:                    false,
-		SpecDraftThreads:           0,
-		SpecDraftThreadsBatch:      0,
-		SpecDefault:                false,
-		Device:                     "",
-		Parallel:                   0,
-		CacheTypeK:                 "",
-		CacheTypeV:                 "",
-		SpecType:                   "",
-		SpecDraftNMax:              0,
-		SpecDraftNMin:              0,
-		CacheTypeKDraft:            "",
-		CacheTypeVDraft:            "",
-		ServerAPIKeyEnabled:        true,
-		ExposeServer:               false,
-		EnableWebUI:                false,
-		SwaFull:                    false,
-		CtxCheckpoints:             32,  // 与 llama.cpp 默认值对齐，长上下文检查点回滚
-		CheckpointMinStep:          256, // 与 llama.cpp 默认值对齐，检查点最小步长
-		Tools:                      "",
-		PrefillAssistant:           true,
-		SlotPromptSimilarity:       0.1, // 与 llama.cpp 默认值对齐，slot 缓存 prompt 相似度阈值
-		SkipChatParsing:            false,
-		APIPrefix:                  "",
-		SimpleIO:                   false,
-		GPULayers:                  0,
-		FlashAttn:                  nil,
-		Mlock:                      nil,
-		Threads:                    0,
-		ThreadsHTTP:                0,
-		BatchSize:                  0,
-		CloseAction:                "ask",
-		RerankerModelPath:          "",
-		RerankTopN:                 5,
-		SlotSavePath:               "",
-		SlotSaveEnabled:            false,
-		SpecDraftNgl:               0,
-		SpecDraftDevice:            "",
-		SpecDraftPSplit:            0,
-		SpecDraftPMin:              0,
-		SpecDraftBackendSampling:   nil,
-		MtmdBatchMaxTokens:         0,
-		AdaptiveTarget:             0,
-		AdaptiveDecay:              0,
-		Samplers:                   "",
-		IgnoreEos:                  false,
-		Tags:                       "",
-		MediaPath:                  "",
-		Offline:                    false,
-		Repack:                     false,
-		EmbeddingModel:             "",
-		SpecNgramModNMin:           0,
-		SpecNgramModNMax:           0,
-		SpecNgramModNMatch:         0,
-		SpecNgramSimpleSizeN:       0,
-		SpecNgramSimpleSizeM:       0,
-		SpecNgramSimpleMinHits:     0,
-		SpecNgramMapKSizeN:         0,
-		SpecNgramMapKSizeM:         0,
-		SpecNgramMapKMinHits:       0,
-		SpecNgramMapK4VSizeN:       0,
-		SpecNgramMapK4VSizeM:       0,
-		SpecNgramMapK4VMinHits:     0,
-		LookupCacheStatic:          "",
-		LookupCacheDynamic:         "",
-		SpecDraftModel:             "",
+		ContextShift:             true,
+		MinP:                     0.05,
+		DryMultiplier:            0,
+		DryBase:                  1.75,
+		DryAllowedLength:         2,
+		DrySequenceBreaker:       "",
+		DryPenaltyLastN:          0,
+		GrpAttnN:                 0,
+		GrpAttnW:                 0,
+		Jinja:                    nil,
+		CachePrompt:              new(true), // 显式启用 prompt 缓存，多轮对话时复用前缀 KV，降低首 token 延迟
+		Metrics:                  false,
+		Verbose:                  false,
+		SpecDraftThreads:         0,
+		SpecDraftThreadsBatch:    0,
+		SpecDefault:              false,
+		Device:                   "",
+		Parallel:                 0,
+		CacheTypeK:               "",
+		CacheTypeV:               "",
+		SpecType:                 "",
+		SpecDraftNMax:            0,
+		SpecDraftNMin:            0,
+		CacheTypeKDraft:          "",
+		CacheTypeVDraft:          "",
+		ServerAPIKeyEnabled:      true,
+		ExposeServer:             false,
+		EnableWebUI:              false,
+		SwaFull:                  false,
+		CtxCheckpoints:           32,  // 与 llama.cpp 默认值对齐，长上下文检查点回滚
+		CheckpointMinStep:        256, // 与 llama.cpp 默认值对齐，检查点最小步长
+		Tools:                    "",
+		PrefillAssistant:         true,
+		SlotPromptSimilarity:     0.1, // 与 llama.cpp 默认值对齐，slot 缓存 prompt 相似度阈值
+		SkipChatParsing:          false,
+		APIPrefix:                "",
+		SimpleIO:                 false,
+		GPULayers:                0,
+		FlashAttn:                nil,
+		Mlock:                    nil,
+		Threads:                  0,
+		ThreadsHTTP:              0,
+		BatchSize:                0,
+		CloseAction:              "ask",
+		RerankerModelPath:        "",
+		RerankTopN:               5,
+		SlotSavePath:             "",
+		SlotSaveEnabled:          false,
+		SpecDraftNgl:             0,
+		SpecDraftDevice:          "",
+		SpecDraftPSplit:          0,
+		SpecDraftPMin:            0,
+		SpecDraftBackendSampling: nil,
+		MtmdBatchMaxTokens:       0,
+		AdaptiveTarget:           0,
+		AdaptiveDecay:            0,
+		Samplers:                 "",
+		IgnoreEos:                false,
+		Tags:                     "",
+		MediaPath:                "",
+		Offline:                  false,
+		Repack:                   false,
+		EmbeddingModel:           "",
+		SpecNgramModNMin:         0,
+		SpecNgramModNMax:         0,
+		SpecNgramModNMatch:       0,
+		SpecNgramSimpleSizeN:     0,
+		SpecNgramSimpleSizeM:     0,
+		SpecNgramSimpleMinHits:   0,
+		SpecNgramMapKSizeN:       0,
+		SpecNgramMapKSizeM:       0,
+		SpecNgramMapKMinHits:     0,
+		SpecNgramMapK4VSizeN:     0,
+		SpecNgramMapK4VSizeM:     0,
+		SpecNgramMapK4VMinHits:   0,
+		LookupCacheStatic:        "",
+		LookupCacheDynamic:       "",
+		SpecDraftModel:           "",
 		// 默认 256：启用 KV 缓存块复用，对重复的 system prompt 前缀加速
 		// 256 是合理块大小，覆盖豆芽 system prompt（约 200-400 token）
-		CacheReuse:                 256,
-		Agent:                      false,
-		UIMcpProxy:                 false,
-		BackendSampling:            false,
-		SsePingInterval:            0,
-		LoraPaths:                  "",
-		DirectIO:                   false,
-		CPUMoe:                     false,
-		NCpuMoe:                    0,
-		OpOffload:                  nil,
+		CacheReuse:      256,
+		Agent:           false,
+		UIMcpProxy:      false,
+		BackendSampling: false,
+		SsePingInterval: 0,
+		LoraPaths:       "",
+		DirectIO:        false,
+		CPUMoe:          false,
+		NCpuMoe:         0,
+		OpOffload:       nil,
 	}
 }
 
-// boolPtr 返回指向 b 的指针，用于 *bool 类型配置字段的默认值
-//
-//go:fix inline
-func boolPtr(b bool) *bool { return new(b) }
-
 func Load(path string) (*Config, error) {
+	log.Info().Str("path", path).Msg("[config] 开始加载配置文件")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			log.Info().Msg("[config] 配置文件不存在，创建默认配置")
 			cfg := DefaultConfig()
 			if saveErr := Save(path, cfg); saveErr != nil {
 				return nil, fmt.Errorf("创建默认配置文件失败: %w", saveErr)
 			}
 			return cfg, nil
 		}
+		log.Error().Err(err).Str("path", path).Msg("[config] 读取配置文件失败")
 		return nil, fmt.Errorf("读取配置文件失败: %w", err)
 	}
 
@@ -347,7 +348,7 @@ func Load(path string) (*Config, error) {
 					_ = Save(path, cfg)
 					// 校验配置，若失败则回退到默认配置并写盘，避免每次启动都告警
 					if validateErr := cfg.Validate(); validateErr != nil {
-						log.Printf("警告: 配置校验失败: %v，回退到默认配置并写盘", validateErr)
+						log.Warn().Err(validateErr).Msg("[config] 配置校验失败，回退到默认配置并写盘")
 						fallback := DefaultConfig()
 						_ = Save(path, fallback)
 						return fallback, nil
@@ -356,6 +357,7 @@ func Load(path string) (*Config, error) {
 				}
 			}
 		}
+		log.Error().Err(err).Msg("[config] 解析配置文件失败")
 		return nil, fmt.Errorf("解析配置文件失败: %w", err)
 	}
 
@@ -363,15 +365,15 @@ func Load(path string) (*Config, error) {
 
 	// 校验配置，若失败则逐字段修复无效值，保留用户其他设置
 	if validateErr := cfg.Validate(); validateErr != nil {
-		log.Printf("警告: 配置校验失败: %v，开始逐字段修复", validateErr)
+		log.Warn().Err(validateErr).Msg("[config] 配置校验失败，开始逐字段修复")
 		repairedFields := cfg.repairInvalidFields()
 		if len(repairedFields) > 0 {
-			log.Printf("[配置修复] 已修复以下字段: %v", repairedFields)
+			log.Info().Strs("fields", repairedFields).Msg("[config] 已修复无效字段")
 		}
 		// 修复后重新校验
 		if reValidateErr := cfg.Validate(); reValidateErr != nil {
 			// 修复后仍校验失败（理论上不应发生），回退到默认配置保底
-			log.Printf("错误: 配置修复后仍校验失败: %v，回退到默认配置", reValidateErr)
+			log.Error().Err(reValidateErr).Msg("[config] 修复后仍校验失败，回退到默认配置")
 			fallback := DefaultConfig()
 			_ = Save(path, fallback)
 			return fallback, nil
@@ -381,6 +383,7 @@ func Load(path string) (*Config, error) {
 	}
 	// 补全缺失的配置项（新增字段），值用 cfg 当前值（含迁移结果），保留用户已有值
 	ensureConfigFields(path, data, cfg)
+	log.Info().Str("path", path).Msg("[config] 配置加载完成")
 	return cfg, nil
 }
 
@@ -425,7 +428,7 @@ func ensureConfigFields(path string, userData []byte, cfg *Config) {
 
 	if missing {
 		if merged, err := json.MarshalIndent(userMap, "", "  "); err == nil {
-			_ = os.WriteFile(path, merged, 0644)
+			_ = os.WriteFile(path, merged, 0o644)
 		}
 	}
 }
@@ -514,13 +517,19 @@ func LoadRaw(path string) (map[string]any, error) {
 }
 
 func Save(path string, cfg *Config) error {
+	log.Debug().Str("path", path).Msg("[config] 保存配置文件")
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
+		log.Error().Err(err).Msg("[config] 序列化配置失败")
 		return err
 	}
 	// 注：配置文件不收紧 ACL（icacls），本地单用户应用收益有限且可能导致运行时权限问题。
 	// 敏感数据（API Key）已用 AES-GCM 加密存储。见安全审查 #6（已评估，风险可接受）。
-	return os.WriteFile(path, data, 0644)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		log.Error().Err(err).Str("path", path).Msg("[config] 写入配置文件失败")
+		return err
+	}
+	return nil
 }
 
 // repairInvalidFields 逐字段修复无效值为默认值，保留有效字段的用户设置
@@ -649,7 +658,7 @@ func (c *Config) Validate() error {
 	}
 	for _, chk := range intChecks {
 		if chk.val < chk.min || chk.val > chk.max {
-			return fmt.Errorf(chk.errMsg, chk.val)
+			return apperror.Newf(apperror.KindInvalidConfig, chk.errMsg, chk.val)
 		}
 	}
 
@@ -671,40 +680,40 @@ func (c *Config) Validate() error {
 	}
 	for _, chk := range floatChecks {
 		if chk.val < chk.min || chk.val > chk.max {
-			return fmt.Errorf(chk.errMsg, chk.val)
+			return apperror.Newf(apperror.KindInvalidConfig, chk.errMsg, chk.val)
 		}
 	}
 
 	// 条件范围检查（有额外前置条件，不适合纯表驱动）
 	// P1-A1: 主动压缩阈值，> 0 时才校验 0.5-0.95
 	if c.ProactiveCompressThreshold > 0 && (c.ProactiveCompressThreshold < 0.5 || c.ProactiveCompressThreshold > 0.95) {
-		return fmt.Errorf("invalid proactive_compress_threshold: %.2f (must be 0.5-0.95 or 0 for default)", c.ProactiveCompressThreshold)
+		return apperror.Newf(apperror.KindInvalidConfig, "invalid proactive_compress_threshold: %.2f (must be 0.5-0.95 or 0 for default)", c.ProactiveCompressThreshold)
 	}
 
 	// 依赖/互斥检查（跨字段约束）
 	if c.RAGChunkSize > 0 && c.RAGChunkOverlap > 0 && c.RAGChunkOverlap >= c.RAGChunkSize {
-		return fmt.Errorf("invalid rag_chunk_overlap: %d (必须小于 rag_chunk_size: %d)", c.RAGChunkOverlap, c.RAGChunkSize)
+		return apperror.Newf(apperror.KindInvalidConfig, "invalid rag_chunk_overlap: %d (必须小于 rag_chunk_size: %d)", c.RAGChunkOverlap, c.RAGChunkSize)
 	}
 	if c.ImageMinTokens > 0 && c.ImageMaxTokens > 0 && c.ImageMinTokens > c.ImageMaxTokens {
-		return fmt.Errorf("invalid image_min_tokens: %d (image_min_tokens 不能大于 image_max_tokens: %d)", c.ImageMinTokens, c.ImageMaxTokens)
+		return apperror.Newf(apperror.KindInvalidConfig, "invalid image_min_tokens: %d (image_min_tokens 不能大于 image_max_tokens: %d)", c.ImageMinTokens, c.ImageMaxTokens)
 	}
 	if (c.GrpAttnN == 0) != (c.GrpAttnW == 0) {
-		return fmt.Errorf("invalid grp_attn_n/grp_attn_w: n=%d w=%d (grp_attn_n 和 grp_attn_w 必须同时非零或同时为零)", c.GrpAttnN, c.GrpAttnW)
+		return apperror.Newf(apperror.KindInvalidConfig, "invalid grp_attn_n/grp_attn_w: n=%d w=%d (grp_attn_n 和 grp_attn_w 必须同时非零或同时为零)", c.GrpAttnN, c.GrpAttnW)
 	}
 	if c.BackendSampling && c.ReasoningBudget > 0 {
-		return fmt.Errorf("backend_sampling and reasoning_budget are mutually exclusive (backend_sampling=true requires reasoning_budget <= 0, got %d)", c.ReasoningBudget)
+		return apperror.Newf(apperror.KindInvalidConfig, "backend_sampling and reasoning_budget are mutually exclusive (backend_sampling=true requires reasoning_budget <= 0, got %d)", c.ReasoningBudget)
 	}
 
 	// 枚举检查
 	switch c.SearchMode {
 	case "off", "auto", "on":
 	default:
-		return fmt.Errorf("invalid search_mode: %q (必须是 off / auto / on)", c.SearchMode)
+		return apperror.Newf(apperror.KindInvalidConfig, "invalid search_mode: %q (必须是 off / auto / on)", c.SearchMode)
 	}
 	switch c.SystemPromptMode {
 	case "append", "replace", "":
 	default:
-		return fmt.Errorf("invalid system_prompt_mode: %q (必须是 append / replace)", c.SystemPromptMode)
+		return apperror.Newf(apperror.KindInvalidConfig, "invalid system_prompt_mode: %q (必须是 append / replace)", c.SystemPromptMode)
 	}
 	return nil
 }

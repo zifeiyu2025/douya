@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+
+	"douya/internal/apperror"
 )
 
 // modelStatus 表示 /v1/models 返回的模型状态字段。
@@ -37,13 +39,13 @@ type modelsListResponse struct {
 // 生活类比：就像质检员检查产品时的检查记录表——记录当前是第几次检查、
 // 连续合格次数、是否见过产品上线等，每次检查后更新记录表。
 type modelLoadPollState struct {
-	pollCount           int           // 成功轮询次数
-	stableCount         int           // 连续状态稳定次数（loaded/sleeping）
-	vramSeenOccupied    bool          // 是否曾检测到 VRAM 被占用
-	vramReleaseCount    int           // VRAM 释放确认计数
-	modelSeenBefore     bool          // 模型是否曾出现在列表中
-	lastDetailedLogTime time.Time     // 上次详细日志时间
-	startTime           time.Time     // 开始时间（用于计算耗时）
+	pollCount           int       // 成功轮询次数
+	stableCount         int       // 连续状态稳定次数（loaded/sleeping）
+	vramSeenOccupied    bool      // 是否曾检测到 VRAM 被占用
+	vramReleaseCount    int       // VRAM 释放确认计数
+	modelSeenBefore     bool      // 模型是否曾出现在列表中
+	lastDetailedLogTime time.Time // 上次详细日志时间
+	startTime           time.Time // 开始时间（用于计算耗时）
 }
 
 // WaitForModelLoaded 等待指定模型加载完成（状态变为 loaded 或 sleeping）。
@@ -65,10 +67,10 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 		lastDetailedLogTime: time.Now(),
 	}
 
-	const requiredStablePolls = 2                          // 连续 2 次轮询状态稳定才认为真正就绪
-	const stableInterval = 500 * time.Millisecond          // 稳定性检查间隔
-	const detailedLogInterval = 30 * time.Second           // 详细日志间隔
-	const vramReleaseThreshold = 3                         // VRAM 释放确认阈值
+	const requiredStablePolls = 2                 // 连续 2 次轮询状态稳定才认为真正就绪
+	const stableInterval = 500 * time.Millisecond // 稳定性检查间隔
+	const detailedLogInterval = 30 * time.Second  // 详细日志间隔
+	const vramReleaseThreshold = 3                // VRAM 释放确认阈值
 
 	for time.Now().Before(deadline) {
 		select {
@@ -112,19 +114,19 @@ func (c *Client) WaitForModelLoaded(ctx context.Context, modelName string, timeo
 		// 模型未找到处理
 		if !found {
 			if handleModelNotFound(state, modelName, raw) {
-				return fmt.Errorf("model %s disappeared from model list (process crashed)", modelName)
+				return apperror.Newf(apperror.KindUnavailable, "model %s disappeared from model list (process crashed)", modelName)
 			}
 			time.Sleep(pollRetryInterval)
 		}
 	}
 
-	return fmt.Errorf("model %s did not become loaded within %v", modelName, timeout)
+	return apperror.Newf(apperror.KindTimeout, "model %s did not become loaded within %v", modelName, timeout)
 }
 
 // pollModelsEndpoint 执行单次 /v1/models 轮询并解析响应。
 // 返回 (parsed, ok)：ok=false 表示请求或解析失败，调用者应重试。
 func (c *Client) pollModelsEndpoint(ctx context.Context, pollClient *http.Client) (modelsListResponse, bool) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/models", nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/models", http.NoBody)
 	if err != nil {
 		return modelsListResponse{}, false
 	}
@@ -201,7 +203,7 @@ func evaluateModelState(state *modelLoadPollState, modelName string, raw modelsL
 
 		// 检测 failed 字段：子进程崩溃后路由器可能将状态设为 unloaded+failed
 		if d.Status.Failed {
-			return found, false, false, fmt.Errorf("model %s failed to load (exit_code=%d)", modelName, d.Status.ExitCode)
+			return found, false, false, apperror.Newf(apperror.KindUnavailable, "model %s failed to load (exit_code=%d)", modelName, d.Status.ExitCode)
 		}
 
 		// 每 10 次轮询记录一次状态，帮助排查加载卡住的问题
@@ -218,19 +220,19 @@ func evaluateModelState(state *modelLoadPollState, modelName string, raw modelsL
 			if state.stableCount >= requiredStablePolls {
 				log.Info().Str("model", modelName).Str("status", d.Status.Value).Int("polls", state.pollCount).Msg("[client] WaitForModelLoaded: model is stable")
 				shouldReturn = true
-				return
+				return found, modelLoaded, shouldReturn, err
 			}
 			log.Debug().Str("model", modelName).Str("status", d.Status.Value).Int("stable", state.stableCount).Int("required", requiredStablePolls).Msg("[client] WaitForModelLoaded: stability check")
 			// 稳定性检查期间使用较长间隔
 			time.Sleep(stableInterval)
 		case "failed":
-			err = fmt.Errorf("model %s failed to load", modelName)
-			return
+			err = apperror.Newf(apperror.KindUnavailable, "model %s failed to load", modelName)
+			return found, modelLoaded, shouldReturn, err
 		case "unloaded":
 			// unloaded 可能是子进程崩溃（exit_code != 0），也可能是初始状态
 			if d.Status.ExitCode != 0 {
-				err = fmt.Errorf("model %s crashed during loading (exit_code=%d)", modelName, d.Status.ExitCode)
-				return
+				err = apperror.Newf(apperror.KindUnavailable, "model %s crashed during loading (exit_code=%d)", modelName, d.Status.ExitCode)
+				return found, modelLoaded, shouldReturn, err
 			}
 			// 模型曾经加载后又卸载了（子进程崩溃），重置稳定性计数
 			if state.stableCount > 0 {
@@ -246,9 +248,9 @@ func evaluateModelState(state *modelLoadPollState, modelName string, raw modelsL
 			}
 			time.Sleep(pollRetryInterval)
 		}
-		return
+		return found, modelLoaded, shouldReturn, err
 	}
-	return
+	return found, modelLoaded, shouldReturn, err
 }
 
 // checkVRAMCrash 通过 VRAM 释放检测子进程崩溃。
@@ -279,7 +281,7 @@ func checkVRAMCrash(state *modelLoadPollState, modelName string, vramReleaseThre
 	state.vramReleaseCount++
 	log.Warn().Str("model", modelName).Int("release_count", state.vramReleaseCount).Int("threshold", vramReleaseThreshold).Msg("[client] WaitForModelLoaded: VRAM released after being occupied (possible crash)")
 	if state.vramReleaseCount >= vramReleaseThreshold {
-		return fmt.Errorf("model %s crashed during loading (VRAM released after being occupied)", modelName)
+		return apperror.Newf(apperror.KindUnavailable, "model %s crashed during loading (VRAM released after being occupied)", modelName)
 	}
 	return nil
 }

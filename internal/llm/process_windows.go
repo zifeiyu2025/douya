@@ -8,23 +8,24 @@ import (
 	"os/exec"
 	"syscall"
 	"unsafe"
+
 	"github.com/rs/zerolog/log"
 )
 
 var (
-	kernel32                    = syscall.NewLazyDLL("kernel32.dll")
-	procCreateJobObject         = kernel32.NewProc("CreateJobObjectW")
-	procSetInformationJobObject = kernel32.NewProc("SetInformationJobObject")
+	kernel32                     = syscall.NewLazyDLL("kernel32.dll")
+	procCreateJobObject          = kernel32.NewProc("CreateJobObjectW")
+	procSetInformationJobObject  = kernel32.NewProc("SetInformationJobObject")
 	procAssignProcessToJobObject = kernel32.NewProc("AssignProcessToJobObject")
-	procCloseHandle             = kernel32.NewProc("CloseHandle")
+	procCloseHandle              = kernel32.NewProc("CloseHandle")
 )
 
 const (
 	JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
 	JobObjectExtendedLimitInformation  = 9
 
-	PROCESS_SET_QUOTA   = 0x0100
-	PROCESS_TERMINATE   = 0x0001
+	PROCESS_SET_QUOTA = 0x0100
+	PROCESS_TERMINATE = 0x0001
 )
 
 type JOBOBJECT_BASIC_LIMIT_INFORMATION struct {
@@ -77,10 +78,10 @@ func CreateJobObject() (*JobObject, error) {
 		handle,
 		JobObjectExtendedLimitInformation,
 		uintptr(unsafe.Pointer(&info)),
-		uintptr(unsafe.Sizeof(info)),
+		unsafe.Sizeof(info),
 	)
 	if err != nil && err != syscall.Errno(0) {
-		procCloseHandle.Call(handle)
+		_, _, _ = procCloseHandle.Call(handle)
 		return nil, err
 	}
 
@@ -92,7 +93,7 @@ func (j *JobObject) AssignProcess(pid int) error {
 	if err != nil {
 		return err
 	}
-	defer syscall.CloseHandle(processHandle)
+	defer func() { _ = syscall.CloseHandle(processHandle) }()
 
 	ret, _, err := procAssignProcessToJobObject.Call(
 		uintptr(j.handle),
@@ -106,7 +107,7 @@ func (j *JobObject) AssignProcess(pid int) error {
 
 func (j *JobObject) Close() {
 	if j.handle != 0 {
-		procCloseHandle.Call(uintptr(j.handle))
+		_, _, _ = procCloseHandle.Call(uintptr(j.handle))
 		j.handle = 0
 	}
 }
@@ -116,7 +117,7 @@ func KillOrphanLlamaServers() {
 	if err != nil {
 		return
 	}
-	defer syscall.CloseHandle(snapshot)
+	defer func() { _ = syscall.CloseHandle(snapshot) }()
 
 	var entry syscall.ProcessEntry32
 	entry.Size = uint32(unsafe.Sizeof(entry))

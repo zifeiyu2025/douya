@@ -99,8 +99,8 @@ type ToolCallStartContent struct {
 // 修复前 search_result 事件只发射 []search.SearchResult，前端无法区分并发 tool call 的结果
 // 修复后使用 struct 包含 tool_call_id，前端可正确关联结果与开始事件
 type SearchResultContent struct {
-	ToolCallID string                 `json:"tool_call_id"` // 工具调用 ID（用于并发 tool call 关联）
-	Results    []search.SearchResult  `json:"results"`     // 搜索结果数组
+	ToolCallID string                `json:"tool_call_id"` // 工具调用 ID（用于并发 tool call 关联）
+	Results    []search.SearchResult `json:"results"`      // 搜索结果数组
 }
 
 // TokenSpeedContent 生成速度事件的内容

@@ -22,6 +22,7 @@ func TestAESCipherImplementsCipher(t *testing.T) {
 	}
 
 	// 编译期即可校验 AESCipher 实现了 Cipher 接口
+	//nolint:revive,staticcheck // 有意显式声明接口类型以做编译期校验
 	var c Cipher = NewCipher(key)
 
 	plaintext := "你好，豆芽！这是一条加密测试消息。"
@@ -68,7 +69,7 @@ func TestCipherKey(t *testing.T) {
 // noopCipherImpl 是一个不暴露 Key() 的 Cipher 实现，用于测试 CipherKey 的回退逻辑
 type noopCipherImpl struct{}
 
-func (noopCipherImpl) Encrypt(plaintext string) (string, error) { return plaintext, nil }
+func (noopCipherImpl) Encrypt(plaintext string) (string, error)  { return plaintext, nil }
 func (noopCipherImpl) Decrypt(ciphertext string) (string, error) { return ciphertext, nil }
 
 // TestRestrictKeyFileACLWindows_NonWindows 验证非 Windows 平台 pathutil.RestrictACLWindows 的行为。
@@ -138,5 +139,3 @@ func TestLoadOrCreateKey_DamagedFile(t *testing.T) {
 		t.Fatal("损坏的密钥文件应返回错误，而非静默覆盖")
 	}
 }
-
-

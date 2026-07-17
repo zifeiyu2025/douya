@@ -41,8 +41,8 @@ func TestFormatErrCode_PrefixFormat(t *testing.T) {
 // 返回的提示信息包含正确的 "[ERR_CODE]" 前缀。
 func TestEnhanceErrorWithHint_ErrorCodePrefix(t *testing.T) {
 	cases := []struct {
-		name    string
-		errMsg  string
+		name     string
+		errMsg   string
 		wantCode string // 期望的错误码前缀（不含方括号）
 	}{
 		{"上下文溢出-exceed context", "exceed context size", ErrCodeContextOverflow},

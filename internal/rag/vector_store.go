@@ -140,53 +140,8 @@ func (idx *memIndex) insert(id string, vec []float64) {
 	idx.ids = append(idx.ids, id)
 }
 
-// search finds the topK most similar vectors to the query using cosine similarity.
-// Uses a min-heap for O(N log K) performance instead of full sort O(N log N).
-// Returns positions and scores; callers map positions back to IDs.
-func (idx *memIndex) search(query []float64, topK int) ([]int, []float64) {
-	idx.vecMu.RLock()
-	defer idx.vecMu.RUnlock()
-
-	qNorm := cosineNorm(query)
-	if qNorm == 0 {
-		return nil, nil
-	}
-
-	if topK <= 0 {
-		topK = 10
-	}
-
-	// 使用最小堆维护 topK 结果，避免全排序
-	h := &minHeap{}
-	heap.Init(h)
-
-	for i, v := range idx.vecs {
-		score := cosineSimilarityPreNorm(query, v, qNorm)
-		if h.Len() < topK {
-			heap.Push(h, scoredPos{pos: i, score: score})
-		} else if score > h.Peek().score {
-			heap.Pop(h)
-			heap.Push(h, scoredPos{pos: i, score: score})
-		}
-	}
-
-	// 从堆中提取结果，按分数降序排列
-	result := make([]scoredPos, h.Len())
-	for i := h.Len() - 1; i >= 0; i-- {
-		result[i] = heap.Pop(h).(scoredPos)
-	}
-
-	positions := make([]int, len(result))
-	scores := make([]float64, len(result))
-	for i, r := range result {
-		positions[i] = r.pos
-		scores[i] = r.score
-	}
-	return positions, scores
-}
-
 // Search 实现 vectorIndex 接口，返回 topK 最相似向量的 SearchResult。
-// 与 search 不同，这里直接返回包含 ID 的 SearchResult，调用方无需再映射位置。
+// 直接返回包含 ID 的 SearchResult，调用方无需再映射位置。
 // 在同一把 vecMu.RLock 内完成检索和 ID 映射，避免重复加锁。
 // 任务 34:接受 ctx 参数,每 1000 次迭代检查 ctx.Err() 以支持超时取消。
 func (idx *memIndex) Search(ctx context.Context, query []float64, k int) ([]SearchResult, error) {

@@ -62,7 +62,7 @@ func (a *App) startServerAndWaitReady(srv *llm.Server, ctx context.Context) erro
 		zlog.Error().Err(err).Msg("start llama-server failed")
 		a.emitErrorStatus(ctx, fmt.Sprintf("启动 llama-server 失败: %v", err))
 		// 配置类错误（如局域网暴露未配置 API Key）弹出对话框，确保用户立即感知
-		runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+		_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 			Type:    runtime.ErrorDialog,
 			Title:   "启动失败",
 			Message: fmt.Sprintf("启动 llama-server 失败: %v", err),
@@ -91,16 +91,17 @@ func (a *App) selectAndDetectDefaultModel(ctx context.Context) string {
 
 	foundDefault := false
 	for _, p := range presetsSnapshot {
-		if p.Alias == "default" {
-			a.currentModelMu.Lock()
-			a.currentModelName = p.Name
-			a.currentModelMu.Unlock()
-			if a.client != nil {
-				a.client.SetCurrentModel(p.Name)
-			}
-			foundDefault = true
-			break
+		if p.Alias != "default" {
+			continue
 		}
+		a.currentModelMu.Lock()
+		a.currentModelName = p.Name
+		a.currentModelMu.Unlock()
+		if a.client != nil {
+			a.client.SetCurrentModel(p.Name)
+		}
+		foundDefault = true
+		break
 	}
 	if !foundDefault && len(presetsSnapshot) > 0 {
 		a.currentModelMu.Lock()

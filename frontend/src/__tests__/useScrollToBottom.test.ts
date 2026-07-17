@@ -27,13 +27,17 @@ describe('useScrollToBottom', () => {
     Object.defineProperty(container, 'clientHeight', { configurable: true, get: () => 400 })
     Object.defineProperty(container, 'scrollTop', { configurable: true, writable: true, value: 0 })
     // mock scrollTo 同步更新 scrollTop（用于新消息 smooth 滚动）
-    scrollToSpy = vi.spyOn(container, 'scrollTo').mockImplementation(((options?: ScrollToOptions) => {
+    scrollToSpy = vi.spyOn(container, 'scrollTo').mockImplementation(((
+      options?: ScrollToOptions
+    ) => {
       if (options && typeof options === 'object') {
         container.scrollTop = options.top ?? container.scrollTop
       }
     }) as Element['scrollTo'])
     // mock scrollBy 同步更新 scrollTop（用于流式增量滚动 scrollByDelta）
-    scrollBySpy = vi.spyOn(container, 'scrollBy').mockImplementation(((options?: ScrollToOptions) => {
+    scrollBySpy = vi.spyOn(container, 'scrollBy').mockImplementation(((
+      options?: ScrollToOptions
+    ) => {
       if (options && typeof options === 'object') {
         container.scrollTop += options.top ?? 0
       }
@@ -64,8 +68,8 @@ describe('useScrollToBottom', () => {
     // 触发内容变化
     content.value = 'ab'
     // 等待 RAF + 微任务
-    await new Promise((r) => requestAnimationFrame(r))
-    await new Promise((r) => setTimeout(r, 120))
+    await new Promise(r => requestAnimationFrame(r))
+    await new Promise(r => setTimeout(r, 120))
 
     // 流式期间用 scrollBy 增量滚动（对标千问匀速下移）
     expect(scrollBySpy).toHaveBeenCalled()
@@ -88,8 +92,8 @@ describe('useScrollToBottom', () => {
     container.dispatchEvent(new Event('scroll'))
 
     content.value = 'ab'
-    await new Promise((r) => requestAnimationFrame(r))
-    await new Promise((r) => setTimeout(r, 120))
+    await new Promise(r => requestAnimationFrame(r))
+    await new Promise(r => setTimeout(r, 120))
 
     expect(scrollBySpy).not.toHaveBeenCalled()
   })
@@ -111,8 +115,8 @@ describe('useScrollToBottom', () => {
     content.value = 'abcd'
     content.value = 'abcde'
 
-    await new Promise((r) => requestAnimationFrame(r))
-    await new Promise((r) => setTimeout(r, 10))
+    await new Promise(r => requestAnimationFrame(r))
+    await new Promise(r => setTimeout(r, 10))
 
     // 批处理后应只调用一次 scrollBy（增量滚动）
     expect(scrollBySpy.mock.calls.length).toBe(1)
@@ -201,8 +205,8 @@ describe('useScrollToBottom', () => {
     })
 
     content.value = 'ab'
-    await new Promise((r) => requestAnimationFrame(r))
-    await new Promise((r) => setTimeout(r, 120))
+    await new Promise(r => requestAnimationFrame(r))
+    await new Promise(r => setTimeout(r, 120))
 
     // 即使 isNearBottom 为 false，因 isAutoScrollEnabled 为 true，仍应增量滚动
     expect(scrollBySpy).toHaveBeenCalled()

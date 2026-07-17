@@ -16,7 +16,18 @@ declare module 'vue-virtual-scroller' {
   // 常用 props：items / keyField / minItemSize / buffer / pageMode
   // 默认插槽 props：{ item, index, active, itemWithSize }
   export const DynamicScroller: DefineComponent<
-    any, any, any, any, any, any, any, any, any, any, any, any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
     SlotsType<{ default: { item: any; index: number; active: boolean; itemWithSize: any } }>
   >
 
@@ -24,8 +35,19 @@ declare module 'vue-virtual-scroller' {
   // 常用 props：item / active / index / watchData / sizeDependencies / data-index(attr)
   // 默认插槽无 props
   export const DynamicScrollerItem: DefineComponent<
-    any, any, any, any, any, any, any, any, any, any, any, any,
-    SlotsType<{ default: {} }>
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    SlotsType<{ default: Record<string, never> }>
   >
 
   // RecycleScroller：定高虚拟滚动（本项目未使用，保留以防导入报错）
