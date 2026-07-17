@@ -1,0 +1,17 @@
+# 强制文本文件使用 LF 行尾符，避免 Windows CRLF 导致 prettier/eslint 报错
+* text=auto eol=lf
+
+# 二进制文件不做行尾转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.zip binary
+*.gz binary
+*.dll binary
+*.exe binary

@@ -24,7 +24,7 @@ jobs:
 
       # golangci-lint 官方 action，自动缓存
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
           version: v2.1
           args: --timeout=5m
