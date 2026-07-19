@@ -366,13 +366,10 @@
     <div style="display: flex; flex-direction: column; gap: 4px">
       <span>{{ specAdvice.reason }}</span>
       <span style="font-size: 12px; color: var(--text-color-3)">
-        前往 hf-mirror.com（国内镜像）下载对应的 {{ specAdvice.desc }} 草稿模型，然后在下方「Draft 模型路径」中配置
+        前往 hf-mirror.com（国内镜像）下载对应的 {{ specAdvice.desc }} 草稿模型，然后在下方「Draft
+        模型路径」中配置
       </span>
-      <a
-        href="#"
-        class="spec-advice-link"
-        @click.prevent="openExternal(specAdvice.download_url)"
-      >
+      <a href="#" class="spec-advice-link" @click.prevent="openExternal(specAdvice.download_url)">
         前往下载 {{ specAdvice.desc }} 草稿模型 →
       </a>
     </div>
