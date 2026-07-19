@@ -81,6 +81,10 @@ type GGUFMetadata struct {
 	KVHeadCount         int
 	HeadDimKV           int
 	FileType            string // 从 general.file_type 枚举值映射的量化类型名（如 "Q4_K - Medium"）
+	// HFRepo 记录 GGUF 元数据中 general.source.huggingface.repository 字段。
+	// 用于构造 hf-mirror.com 下载链接，提示用户下载 sidecar 模型（eagle3-/dflash-）。
+	// 本地量化模型可能没有此字段，此时为空串。
+	HFRepo string
 }
 
 func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
@@ -110,6 +114,11 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 	}
 	if v, ok := kvMap["tokenizer.chat_template_tool_use"].(string); ok {
 		meta.ChatTemplateToolUse = v
+	}
+
+	// 解析 HF 源仓库地址（用于构造 sidecar 模型下载链接）
+	if v, ok := kvMap["general.source.huggingface.repository"].(string); ok {
+		meta.HFRepo = v
 	}
 
 	if meta.Architecture != "" {

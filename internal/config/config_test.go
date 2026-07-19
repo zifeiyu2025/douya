@@ -386,3 +386,17 @@ func TestDefaultConfig_Version(t *testing.T) {
 		t.Errorf("期望默认配置 Version=%d，实际得到: %d", currentConfigVersion, cfg.Version)
 	}
 }
+
+// TestDefaultConfig_SpecAdviceEnabled 验证默认配置中推测解码建议开关默认开启。
+//
+// 设计：默认开启，让新用户能及时获知模型支持的推测解码能力；
+// 用户觉得打扰时可在设置中关闭，尊重用户选择。
+//
+// 生活类比：像新手机的「省电模式提醒」默认开启——检测到耗电异常时提醒用户，
+// 用户觉得烦了可以关掉，但默认应该让用户知道这个能力存在。
+func TestDefaultConfig_SpecAdviceEnabled(t *testing.T) {
+	cfg := DefaultConfig()
+	if !cfg.SpecAdviceEnabled {
+		t.Errorf("期望默认 SpecAdviceEnabled=true，实际得到: %v", cfg.SpecAdviceEnabled)
+	}
+}

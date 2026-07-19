@@ -355,6 +355,29 @@
     <n-switch v-model:value="formConfig.prefill_assistant" />
   </n-form-item>
 
+  <!-- 推测解码智能提醒：检测到模型支持但未配置 draft 时显示 -->
+  <n-alert
+    v-if="specAdvice"
+    type="info"
+    :show-icon="true"
+    style="margin-bottom: 12px"
+    title="推测解码加速建议"
+  >
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <span>{{ specAdvice.reason }}</span>
+      <span style="font-size: 12px; color: var(--text-color-3)">
+        前往 hf-mirror.com（国内镜像）下载对应的 {{ specAdvice.desc }} 草稿模型，然后在下方「Draft 模型路径」中配置
+      </span>
+      <a
+        href="#"
+        class="spec-advice-link"
+        @click.prevent="openExternal(specAdvice.download_url)"
+      >
+        前往下载 {{ specAdvice.desc }} 草稿模型 →
+      </a>
+    </div>
+  </n-alert>
+
   <!-- 推测解码 -->
   <n-form-item>
     <template #label>
@@ -744,6 +767,17 @@
     默认推测配置已启用，其他推测参数将被忽略
   </n-text>
 
+  <!-- 推测解码建议开关 -->
+  <n-form-item>
+    <template #label>
+      推测解码建议
+      <HelpTip
+        content="检测到当前模型支持推测解码但未配置 draft 模型时，在设置界面显示提示并弹通知。关闭后不再打扰"
+      />
+    </template>
+    <n-switch v-model:value="formConfig.spec_advice_enabled" @update:value="autoSave" />
+  </n-form-item>
+
   <!-- RAG 重排序配置 -->
   <n-form-item>
     <template #label>
@@ -801,7 +835,7 @@
 
 <script setup lang="ts">
 import { inject, ref, computed, onMounted, watch } from 'vue'
-import { NFormItem, NInput, NDivider, NSwitch, NInputNumber, NSelect, NTag } from 'naive-ui'
+import { NFormItem, NInput, NDivider, NSwitch, NInputNumber, NSelect, NTag, NAlert } from 'naive-ui'
 import LoraManager from '../LoraManager.vue'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
 import { wails } from '../../services/wails'
@@ -809,6 +843,8 @@ import { wails } from '../../services/wails'
 import HelpTip from '../ui/HelpTip.vue'
 // F-1.13：openExternal 抽取到 utils/externalLink.ts（内含 isSafeUrl 校验），消除两处重复定义
 import { openExternal } from '../../utils/externalLink'
+// 推测解码建议类型
+import type { SpecAdvice } from '../../types/chat'
 
 const ctx = inject<SettingsContext>(SETTINGS_CONTEXT_KEY)!
 
@@ -839,6 +875,9 @@ const modelFtype = ref('')
 // GPU 状态信息
 const gpuInfo = ref({ has_gpu: false, has_cuda_backend: false, gpu_name: '', vram_gb: 0 })
 
+// 推测解码智能提醒（null 表示无需提醒）
+const specAdvice = ref<SpecAdvice | null>(null)
+
 // Flash Attention 三态选项
 // 生活类比：就像汽车空调有"自动/手动开/手动关"三档
 const flashAttnOptions = [
@@ -867,6 +906,8 @@ async function loadModelFtype() {
       gpu_name: smartParams.hardware.gpu_name,
       vram_gb: Math.round(smartParams.hardware.gpu_vram_mb / 1024)
     }
+    // 保存推测解码智能提醒（null 表示无需提醒）
+    specAdvice.value = smartParams.spec_advice
   } catch {
     modelFtype.value = ''
   }
@@ -948,6 +989,20 @@ watch(() => settingsStore.currentModel, loadModelFtype)
   font-size: 12px;
   color: var(--n-text-color-3);
   margin-left: 12px;
+}
+
+/* SpecAdvice 提示中的下载链接：用主题强调色，hover 时加深 */
+.spec-advice-link {
+  font-size: 12px;
+  color: var(--accent-primary, #2080f0);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.spec-advice-link:hover {
+  color: var(--accent-primary-hover, #4098fc);
+  text-decoration: underline;
 }
 
 /* F-1.2：.help-tip-icon 样式已抽取到 ui/HelpTip.vue，此处不再重复定义 */

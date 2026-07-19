@@ -690,6 +690,61 @@ func TestParseGGUFKV_InvalidVersion(t *testing.T) {
 	}
 }
 
+// TestParseGGUFMetadata_HFRepo 测试 HuggingFace 仓库地址解析。
+//
+// GGUF 1.x 标准中通过 general.source.huggingface.repository 字段记录源仓库
+// （见 llama.cpp src/llama-arch.cpp 中的 LLM_KV_GENERAL_SOURCE_HF_REPO），
+// 豆芽用它构造 hf-mirror.com 下载链接，提示用户下载 sidecar 模型。
+//
+// 生活类比：像商品包装上的「原厂地址」标签——拿到商品（GGUF 文件）后，
+// 通过这个标签可以找到原厂（HF 仓库）的其他配件（如 eagle3-/dflash- 草稿模型）。
+func TestParseGGUFMetadata_HFRepo(t *testing.T) {
+	tests := []struct {
+		name     string
+		arch     string
+		hfRepo   string // general.source.huggingface.repository 的值；空串表示不写入该字段
+		wantRepo string
+	}{
+		{
+			name:     "有 HF repo 字段",
+			arch:     "qwen3",
+			hfRepo:   "unsloth/Qwen3.5-7B-Instruct-GGUF",
+			wantRepo: "unsloth/Qwen3.5-7B-Instruct-GGUF",
+		},
+		{
+			name:     "无 HF repo 字段（本地量化模型常见情况）",
+			arch:     "qwen3",
+			hfRepo:   "",
+			wantRepo: "",
+		},
+		{
+			name:     "DFlash 模型的 HF repo",
+			arch:     "qwen3.6",
+			hfRepo:   "Qwen/Qwen3.6-UD-GGUF",
+			wantRepo: "Qwen/Qwen3.6-UD-GGUF",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := newGGUFBuilder().addString("general.architecture", tt.arch)
+			if tt.hfRepo != "" {
+				b.addString("general.source.huggingface.repository", tt.hfRepo)
+			}
+			path := buildTempGGUFFileWithSuffix(t, b, "model.gguf")
+			defer os.Remove(path)
+
+			meta, err := ParseGGUFMetadata(path)
+			if err != nil {
+				t.Fatalf("解析失败: %v", err)
+			}
+			if meta.HFRepo != tt.wantRepo {
+				t.Errorf("HFRepo 期望 %q，实际 %q", tt.wantRepo, meta.HFRepo)
+			}
+		})
+	}
+}
+
 // TestParseGGUFMetadata_FileSize 测试文件大小记录
 func TestParseGGUFMetadata_FileSize(t *testing.T) {
 	b := newGGUFBuilder().addString("general.architecture", "qwen3")

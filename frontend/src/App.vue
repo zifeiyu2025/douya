@@ -335,6 +335,12 @@ import { useWindowControls } from './composables/useWindowControls'
 import { useAppLifecycle } from './composables/useAppLifecycle'
 import { formatModelName, formatModelNameFromPath, extractQuantSuffix } from './utils/model'
 import { classifyError } from './utils/errorGuidance'
+import { openExternal } from './utils/externalLink'
+import {
+  decideSpecAdviceNotification,
+  getSpecAdviceDismissedKeys,
+  recordSpecAdviceDismissed
+} from './utils/specAdvice'
 import type { Conversation, ModelOption } from './services/wails'
 import { wails } from './services/wails'
 import appLogo from './assets/images/appicon.png'
@@ -765,12 +771,65 @@ watch(
 // 当模型准备就绪时，刷新模型列表以更新各模型的 is_loaded 状态
 watch(
   () => serverStatus.value.model_ready,
-  ready => {
+  (ready, prev) => {
     if (ready) {
       debouncedRefreshModels()
+      // 推测解码智能提醒：模型加载完成时检测是否需要引导用户下载 sidecar 模型
+      // 仅在 false → true 的边沿触发，避免每次轮询都弹窗
+      void tryShowSpecAdviceNotification(prev ?? false, ready)
     }
   }
 )
+
+/**
+ * 推测解码智能提醒：模型加载完成后弹通知引导用户下载 sidecar 模型
+ *
+ * 决策逻辑见 utils/specAdvice.ts 的 decideSpecAdviceNotification（已单元测试覆盖），
+ * 此处只负责：获取 smartParams → 调用决策函数 → 弹 dialog → 记录 dismissKey。
+ *
+ * 生活类比：像导购在顾客提着商品出门时叫住他——
+ *  - 先看顾客是不是刚提完货（model_ready 边沿）
+ *  - 看顾客有没有遗漏配件（spec_advice 是否非空）
+ *  - 看顾客是不是已经被告知过（dismissedKeys 是否包含）
+ *  - 全部条件满足，才会上前提醒"先生/女士，您还需要配一个 XX"
+ */
+async function tryShowSpecAdviceNotification(prevReady: boolean, currReady: boolean) {
+  const cfg = settingsStore.config
+  if (!cfg) return
+  try {
+    const smartParams = await wails.getSmartParams()
+    const decision = decideSpecAdviceNotification({
+      prevReady,
+      currReady,
+      specAdvice: smartParams.spec_advice,
+      adviceEnabled: cfg.spec_advice_enabled,
+      dismissedKeys: getSpecAdviceDismissedKeys()
+    })
+    if (!decision.shouldShow) return
+    const advice = smartParams.spec_advice!
+    discreteDialog.info({
+      title: `${advice.desc} 推测解码可用`,
+      content: `${advice.reason}。是否前往 hf-mirror.com（国内镜像）下载对应的 ${advice.desc} 草稿模型？下载后在「设置 → 推测解码」中配置 Draft 模型路径即可启用。`,
+      positiveText: '前往下载',
+      negativeText: '以后再说',
+      onPositiveClick: () => {
+        openExternal(advice.download_url)
+        recordSpecAdviceDismissed(decision.dismissKey)
+      },
+      onNegativeClick: () => {
+        // 用户已知晓，记录 dismiss 避免重复打扰
+        recordSpecAdviceDismissed(decision.dismissKey)
+      },
+      onClose: () => {
+        // 关闭按钮（X）或点击遮罩关闭：同样记录，避免反复弹出
+        recordSpecAdviceDismissed(decision.dismissKey)
+      }
+    })
+  } catch (e) {
+    // 通知失败不影响主流程，仅记录日志
+    console.warn('[specAdvice] 获取智能参数失败，跳过推测解码通知', e)
+  }
+}
 
 // ----- 启动时加载可用模型列表 -----
 // 注：其他生命周期事件（监听器注册、loadConfig、异常清理、退出进度）由 useAppLifecycle 负责；
