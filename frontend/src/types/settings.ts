@@ -7,7 +7,15 @@ import type { ModelCapabilities } from './chat'
 
 /** 切换进度阶段 */
 export type SwitchProgressStage =
-  'idle' | 'preparing' | 'loading' | 'waiting' | 'detecting' | 'done' | 'failed' | 'rolling_back'
+  | 'idle' | 'preparing' | 'loading' | 'waiting' | 'detecting' | 'done' | 'failed' | 'rolling_back'
+
+/**
+ * 后端推送的进度阶段（server:switchProgress 事件的 stage 字段）。
+ * 与 SwitchProgressStage 区分：这里包含后端特有的警告阶段（vram-warning/spec-warning），
+ * 前端收到这些警告阶段时不改变主状态机，但可在 UI 中提示。
+ */
+export type BackendProgressStage =
+  | SwitchProgressStage | 'vram-warning' | 'spec-warning'
 
 /** 切换进度（用于展示） */
 export interface SwitchProgress {
@@ -27,7 +35,14 @@ export interface SwitchProgress {
 export type ModelSwitchState =
   | { phase: 'idle' }
   | { phase: 'first_load'; startedAt: number; targetModel: string }
-  | { phase: 'switching'; startedAt: number; targetModel: string; previousModel: string }
+  | {
+      phase: 'switching'
+      startedAt: number
+      targetModel: string
+      previousModel: string
+      /** 后端推送的最新进度阶段，默认 'preparing'，由 reportProgress 更新 */
+      progressStage: SwitchProgressStage
+    }
   | { phase: 'ready_after_switch'; startedAt: number; targetModel: string }
   | {
       phase: 'failed'
@@ -53,7 +68,7 @@ export interface ModelSwitchContext {
   progressText: import('vue').ComputedRef<string>
   overlayModelName: import('vue').ComputedRef<string>
   startSwitch: (model: string, prev: string) => void
-  reportProgress: (stage: SwitchProgressStage) => void
+  reportProgress: (stage: BackendProgressStage) => void
   finishSuccess: (model: string, caps?: ModelCapabilities) => void
   finishFailure: (err: string, prev: string, rolledBack: boolean, rbSuccess: boolean) => void
   finishTimeout: () => void

@@ -93,22 +93,56 @@ func (a *App) SetServerAPIKey(key string) error {
 	return store.SetSetting(a.db, "server_api_key", key)
 }
 
-// validatePaths 检查启动所需的关键文件是否缺失
-// 返回缺失项列表，每项格式为 "类型: 路径"
-// 检查范围：引擎 exe、核心 DLL、CUDA 运行时 DLL、models 目录、模型文件
-func (a *App) validatePaths() []string {
-	var missing []string
+// PathCheckResult 启动路径检查的结构化结果
+//
+// 生活类比：像出门前的行李检查清单，分成"必需品"（runtime）和"重要物品"（models）两类。
+// 必需品缺失出不了门（终止启动），重要物品缺失可以出门但影响体验（警告但继续）。
+type PathCheckResult struct {
+	// RuntimeMissing runtime 目录缺失的文件列表（每项格式 "类型: 路径"）
+	// 非空表示 AI 推理引擎不完整，必须修复才能启动
+	RuntimeMissing []string
+	// ModelsDir 模型目录路径
+	ModelsDir string
+	// ModelsEmpty models 目录是否为空（无 .gguf 文件）
+	// 为 true 时警告但不阻止启动，允许用户进入应用后续下载模型
+	ModelsEmpty bool
+	// ModelsDirMissing models 目录本身不存在（比"空"更严重，但仍不阻止启动）
+	ModelsDirMissing bool
+}
+
+// HasRuntimeIssues 是否存在 runtime 问题（需要终止启动）
+func (r PathCheckResult) HasRuntimeIssues() bool {
+	return len(r.RuntimeMissing) > 0
+}
+
+// HasModelIssues 是否存在 models 问题（警告但不终止）
+func (r PathCheckResult) HasModelIssues() bool {
+	return r.ModelsEmpty || r.ModelsDirMissing
+}
+
+// validatePaths 检查启动所需的关键文件是否缺失，返回分类的结构化结果。
+//
+// 检查范围：
+//   - runtime/ 目录：引擎 exe、6 个核心 DLL、3 个 CUDA 运行时 DLL（仅当 ggml-cuda.dll 存在时）
+//   - models/ 目录：是否存在、是否含有 .gguf 模型文件
+//
+// 生活类比：
+//   - runtime 是"发动机舱"——里面有发动机(llama-server.exe)和传动系统(DLL)，缺一不可
+//   - models 是"油箱"——空了车也能点火，但跑不起来，需要用户去"加油"（下载模型）
+func (a *App) validatePaths() PathCheckResult {
+	result := PathCheckResult{}
 	baseDir := appDir()
 
+	// ===== 1. 检查 runtime 目录完整性 =====
 	cfg := a.getConfig()
 	serverPath := resolvePath(cfg.LlamaServerPath)
 	if _, err := os.Stat(serverPath); err != nil {
-		missing = append(missing, fmt.Sprintf("引擎程序: %s", serverPath))
+		result.RuntimeMissing = append(result.RuntimeMissing, fmt.Sprintf("引擎程序: %s", serverPath))
 	}
 
 	runtimeDir := filepath.Join(baseDir, "runtime")
 	if info, err := os.Stat(runtimeDir); err != nil || !info.IsDir() {
-		missing = append(missing, fmt.Sprintf("运行时目录: %s", runtimeDir))
+		result.RuntimeMissing = append(result.RuntimeMissing, fmt.Sprintf("运行时目录: %s", runtimeDir))
 	} else {
 		// runtime/ 目录存在，检查核心引擎 DLL
 		// 生活类比：引擎 exe 是"发动机"，这些 DLL 是"传动系统"，缺一不可
@@ -123,7 +157,7 @@ func (a *App) validatePaths() []string {
 		for _, dll := range coreDLLs {
 			dllPath := filepath.Join(runtimeDir, dll)
 			if _, err := os.Stat(dllPath); err != nil {
-				missing = append(missing, fmt.Sprintf("核心DLL: %s", dllPath))
+				result.RuntimeMissing = append(result.RuntimeMissing, fmt.Sprintf("核心DLL: %s", dllPath))
 			}
 		}
 
@@ -139,20 +173,22 @@ func (a *App) validatePaths() []string {
 			for _, dll := range cudaDLLs {
 				dllPath := filepath.Join(runtimeDir, dll)
 				if _, err := os.Stat(dllPath); err != nil {
-					missing = append(missing, fmt.Sprintf("CUDA运行时DLL: %s", dllPath))
+					result.RuntimeMissing = append(result.RuntimeMissing, fmt.Sprintf("CUDA运行时DLL: %s", dllPath))
 				}
 			}
 		}
 	}
 
-	modelsDir := filepath.Join(baseDir, "models")
-	if info, err := os.Stat(modelsDir); err != nil || !info.IsDir() {
-		missing = append(missing, fmt.Sprintf("模型目录: %s", modelsDir))
+	// ===== 2. 检查 models 目录 =====
+	result.ModelsDir = filepath.Join(baseDir, "models")
+	if info, err := os.Stat(result.ModelsDir); err != nil || !info.IsDir() {
+		// models 目录本身不存在
+		result.ModelsDirMissing = true
 	} else {
 		// models/ 目录存在，检查是否有至少一个 .gguf 模型文件
 		// 生活类比：厨房建好了，但里面没有食材也没法做菜
 		hasModel := false
-		entries, err := os.ReadDir(modelsDir)
+		entries, err := os.ReadDir(result.ModelsDir)
 		if err == nil {
 			for _, entry := range entries {
 				if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".gguf") {
@@ -162,9 +198,9 @@ func (a *App) validatePaths() []string {
 			}
 		}
 		if !hasModel {
-			missing = append(missing, fmt.Sprintf("模型文件: %s 目录下未找到任何 .gguf 文件", modelsDir))
+			result.ModelsEmpty = true
 		}
 	}
 
-	return missing
+	return result
 }

@@ -46,32 +46,103 @@ func (a *App) startup(ctx context.Context) {
 			Title:   "配置加载失败",
 			Message: fmt.Sprintf("加载配置文件失败: %v", err),
 		})
+		// startup 中的 return 只会结束启动函数，必须主动退出应用。
+		// 见 forceQuit 注释：需先设置 exiting 标志绕过 beforeClose 拦截，再退出 Wails + 托盘。
+		a.forceQuit()
 		return
 	}
 	a.setConfig(loadedCfg)
 
-	if missingPaths := a.validatePaths(); len(missingPaths) > 0 {
-		var msg strings.Builder
-		msg.WriteString("以下关键文件或目录缺失：\n\n")
-		for _, p := range missingPaths {
-			msg.WriteString("❌ " + p + "\n")
+	if checkResult := a.validatePaths(); checkResult.HasRuntimeIssues() || checkResult.HasModelIssues() {
+		// ===== 分层提示：runtime 问题（致命）和 models 问题（警告）分开处理 =====
+
+		// 1. runtime 目录不完整 —— 致命错误，必须终止启动
+		if checkResult.HasRuntimeIssues() {
+			var msg strings.Builder
+			msg.WriteString("⚠️ AI 推理引擎（runtime 目录）不完整，无法启动应用。\n\n")
+			msg.WriteString("缺失的文件：\n")
+			for _, p := range checkResult.RuntimeMissing {
+				msg.WriteString("  ❌ " + p + "\n")
+			}
+			msg.WriteString("\n")
+			msg.WriteString("【这是什么】\n")
+			msg.WriteString("runtime 目录包含 AI 推理引擎（llama-server.exe）和配套的 DLL 动态库，\n")
+			msg.WriteString("是应用运行的核心依赖，缺失任何一个文件都无法启动。\n\n")
+			msg.WriteString("【如何修复】\n")
+			msg.WriteString("1. 从官方发布包获取完整的 runtime 目录：\n")
+			msg.WriteString("   https://github.com/ggml-org/llama.cpp/releases\n")
+			msg.WriteString("   下载 Windows CUDA 版本（如 llama-bXXXX-bin-win-cuda-cu13.x.zip）\n")
+			msg.WriteString("2. 解压后将以下文件放入 runtime 目录：\n")
+			msg.WriteString("   - llama-server.exe（主程序）\n")
+			msg.WriteString("   - llama.dll / ggml.dll 等（核心引擎库）\n")
+			msg.WriteString("   - cudart64_13.dll / cublas64_13.dll 等（CUDA 加速库，NVIDIA 显卡才需要）\n\n")
+			fmt.Fprintf(&msg, "【应用根目录】\n%s", appDir())
+
+			zlog.Error().Strs("runtime_missing", checkResult.RuntimeMissing).Msg("[startup] runtime incomplete, aborting")
+			_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+				Type:    runtime.ErrorDialog,
+				Title:   "AI 推理引擎不完整",
+				Message: msg.String(),
+			})
+			// 通知前端启动失败
+			runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+				Running:    false,
+				ModelReady: false,
+				Error:      "runtime 目录不完整，请检查 AI 推理引擎文件",
+			})
+			// startup 中的 return 只会结束启动函数，必须主动退出应用。
+			// 见 forceQuit 注释：需先设置 exiting 标志绕过 beforeClose 拦截，再退出 Wails + 托盘。
+			a.forceQuit()
+			return
 		}
-		fmt.Fprintf(&msg, "\n应用根目录: %s\n请确保所有文件位于正确位置。", appDir())
-		zlog.Error().Interface("paths", missingPaths).Msg("[startup] missing paths")
-		_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-			Type:    runtime.ErrorDialog,
-			Title:   "关键文件缺失",
-			Message: msg.String(),
-		})
-		// 关键文件缺失，终止启动流程
-		// 尽力通知前端（前端可能还未注册监听器，但轮询机制会恢复状态）
-		runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
-			Running:    false,
-			ModelReady: false,
-			Error:      "关键文件缺失，请检查 runtime/ 和 models/ 目录",
-		})
-		zlog.Error().Strs("missing_paths", missingPaths).Msg("[startup] critical files missing, aborting startup")
-		return
+
+		// 2. models 目录为空或不存在 —— 致命错误，必须终止启动
+		// 生活类比：车没有引擎再豪华也跑不起来——模型文件就是 AI 的引擎，
+		// 缺了它应用启动了也没意义，不如直接停在车库里等用户把引擎装好。
+		if checkResult.HasModelIssues() {
+			var msg strings.Builder
+			msg.WriteString("⚠️ 模型目录为空，无法启动应用。\n\n")
+			if checkResult.ModelsDirMissing {
+				fmt.Fprintf(&msg, "模型目录不存在：%s\n", checkResult.ModelsDir)
+			} else {
+				fmt.Fprintf(&msg, "模型目录：%s\n", checkResult.ModelsDir)
+				msg.WriteString("该目录下未找到任何 .gguf 模型文件。\n")
+			}
+			msg.WriteString("\n")
+			msg.WriteString("【这是什么】\n")
+			msg.WriteString("模型文件（.gguf）是 AI 的「大脑」，没有模型文件应用无法进行对话。\n")
+			msg.WriteString("应用本身不内置模型，需要您自行下载。\n\n")
+			msg.WriteString("【如何获取模型】\n")
+			msg.WriteString("1. 访问 HuggingFace 搜索 GGUF 格式的模型：\n")
+			msg.WriteString("   https://huggingface.co/models?other=gguf\n")
+			msg.WriteString("2. 推荐的入门模型（Q4_K_M 量化，平衡速度与效果）：\n")
+			msg.WriteString("   - Qwen3-8B（通义千问，中文友好）\n")
+			msg.WriteString("   - Gemma-3-4B（轻量，适合低配机器）\n")
+			msg.WriteString("3. 下载 .gguf 文件后放入上面的模型目录\n")
+			msg.WriteString("4. 重新启动应用，在顶部模型下拉框选择刚放入的模型\n\n")
+			msg.WriteString("【提示】\n")
+			msg.WriteString("点击「确定」后应用将退出，请按上述步骤准备好模型文件后再次启动。")
+
+			zlog.Error().Str("models_dir", checkResult.ModelsDir).
+				Bool("dir_missing", checkResult.ModelsDirMissing).
+				Bool("empty", checkResult.ModelsEmpty).
+				Msg("[startup] models directory empty, aborting")
+			_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+				Type:    runtime.ErrorDialog,
+				Title:   "模型目录为空，无法启动应用",
+				Message: msg.String(),
+			})
+			// 通知前端启动失败
+			runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+				Running:    false,
+				ModelReady: false,
+				Error:      "模型目录为空，请下载 .gguf 模型文件后放入 models 目录",
+			})
+			// startup 中的 return 只会结束启动函数，必须主动退出应用。
+			// 见 forceQuit 注释：需先设置 exiting 标志绕过 beforeClose 拦截，再退出 Wails + 托盘。
+			a.forceQuit()
+			return
+		}
 	}
 
 	dbPath := filepath.Join(appDir(), "data", "douya.db")
@@ -88,6 +159,9 @@ func (a *App) startup(ctx context.Context) {
 			Title:   "加密密钥加载失败",
 			Message: fmt.Sprintf("加载加密密钥失败：\n%v\n\n请按上述提示处理后重新启动应用。", err),
 		})
+		// startup 中的 return 只会结束启动函数，必须主动退出应用。
+		// 见 forceQuit 注释：需先设置 exiting 标志绕过 beforeClose 拦截，再退出 Wails + 托盘。
+		a.forceQuit()
 		return
 	}
 
@@ -99,6 +173,9 @@ func (a *App) startup(ctx context.Context) {
 			Title:   "数据库初始化失败",
 			Message: fmt.Sprintf("初始化数据库失败: %v", err),
 		})
+		// startup 中的 return 只会结束启动函数，必须主动退出应用。
+		// 见 forceQuit 注释：需先设置 exiting 标志绕过 beforeClose 拦截，再退出 Wails + 托盘。
+		a.forceQuit()
 		return
 	}
 
@@ -364,6 +441,27 @@ func (a *App) tryStartExit() bool {
 		return false
 	}
 	return a.exiting.CompareAndSwap(false, true)
+}
+
+// forceQuit 用于启动阶段遇到致命错误时强制退出应用。
+//
+// 与 GracefulExit 的区别：此时 db / server / ragVS 等资源尚未初始化，
+// 无需执行资源清理流程，直接退出即可。
+//
+// 为什么需要先设置 exiting 标志：
+//   runtime.Quit 会触发 OnBeforeClose → beforeClose，
+//   而 beforeClose 在 exiting 为 false 时会返回 true 阻止关闭
+//   （根据 CloseAction 配置，可能只是隐藏窗口到托盘）。
+//   必须先将 exiting 置为 true，beforeClose 才会放行，Wails 进程才能真正退出。
+//
+// 为什么还需要 systray.Quit：
+//   systray.Run 在独立 goroutine 中运行（见 main.go），
+//   runtime.Quit 只关闭 Wails 窗口，不影响托盘。
+//   不调用 systray.Quit 会导致托盘图标残留，用户仍可操作菜单。
+func (a *App) forceQuit() {
+	a.exiting.Store(true)
+	runtime.Quit(a.ctx)
+	systray.Quit()
 }
 
 func (a *App) beforeClose(ctx context.Context) bool {

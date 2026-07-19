@@ -14,7 +14,7 @@ import { formatModelName } from '../utils/model'
 import { logError } from '../utils/logger'
 // 复用全局单例 discrete API，确保 message 跟随应用主题（任务 9）
 import { discreteMessage } from '../utils/discrete'
-import type { ModelSwitchState, SwitchProgressStage, SwitchProgress } from '../types/settings'
+import type { ModelSwitchState, SwitchProgressStage, BackendProgressStage, SwitchProgress } from '../types/settings'
 import { useSwitchStateMachine } from './settings/switchStateMachine'
 
 export type { SwitchProgressStage, SwitchProgress } from '../types/settings'
@@ -124,10 +124,20 @@ export const useSettingsStore = defineStore('settings', () => {
       rolledBack: false
     }
     if (s.phase === 'idle') return base
-    if (s.phase === 'first_load' || s.phase === 'switching') {
+    if (s.phase === 'first_load') {
       return {
         ...base,
         stage: 'preparing',
+        targetModel: formatModelName(s.targetModel).display,
+        startTime: s.startedAt
+      }
+    }
+    if (s.phase === 'switching') {
+      // 使用后端实时推送的 progressStage（默认 'preparing'，由 reportProgress 更新）
+      // 修复前：这里固定返回 'preparing'，导致 UI 一直显示"准备切换"，即使后端已在 loading/waiting
+      return {
+        ...base,
+        stage: s.progressStage,
         targetModel: formatModelName(s.targetModel).display,
         startTime: s.startedAt
       }
@@ -493,7 +503,7 @@ export const useSettingsStore = defineStore('settings', () => {
       if (switchState.value.phase === 'idle') {
         beginFirstLoad(progress.targetModel || currentModel.value)
       }
-      reportProgress(progress.stage as SwitchProgressStage)
+      reportProgress(progress.stage as BackendProgressStage)
     })
     return unsubscribe
   }

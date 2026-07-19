@@ -4,7 +4,7 @@
 import type { Ref } from 'vue'
 import { watch } from 'vue'
 import { logError } from '../../utils/logger'
-import type { ModelSwitchState, SwitchProgressStage } from '../../types/settings'
+import type { ModelSwitchState, BackendProgressStage, SwitchProgressStage } from '../../types/settings'
 import { SWITCH_TIMING } from '../../types/settings'
 
 /**
@@ -37,12 +37,22 @@ export function useSwitchStateMachine(deps: SwitchStateDeps) {
       phase: 'switching',
       startedAt: Date.now(),
       targetModel: modelName,
-      previousModel: currentModel.value
+      previousModel: currentModel.value,
+      progressStage: 'preparing'
     }
   }
 
-  /** 上报后端进度 */
-  function reportProgress(stage: SwitchProgressStage) {
+  /**
+   * 上报后端进度（server:switchProgress 事件的 stage 字段）。
+   *
+   * 生活类比：像快递物流跟踪——后端一路推送"已揽件→运输中→派送中→已签收"，
+   * 前端在这里把每一条状态更新到 switchState.progressStage，UI 就能实时显示当前阶段，
+   * 而不是一直停留在"准备切换"直到 wails.switchModel 返回。
+   *
+   * 注意：警告类 stage（vram-warning/spec-warning）不改变主进度阶段，
+   * 仅作为提示信息（UI 可选展示），避免警告事件打断正常进度显示。
+   */
+  function reportProgress(stage: BackendProgressStage) {
     // 状态机单向流转：终态不接受进度事件
     if (
       switchState.value.phase === 'idle' ||
@@ -52,9 +62,18 @@ export function useSwitchStateMachine(deps: SwitchStateDeps) {
     ) {
       return
     }
-    // 此处仅保留 targetModel 不变,stage 由 store 在收到状态时实时映射
-    // 当前用 switchProgress 反映 stage,但底层状态不变
-    void stage
+    // 警告类事件不改变主进度阶段，避免打断正常进度显示
+    if (stage === 'vram-warning' || stage === 'spec-warning') {
+      return
+    }
+    // switching 阶段：实时更新 progressStage，让 UI 能显示 loading/waiting/detecting 等中间阶段
+    if (switchState.value.phase === 'switching') {
+      switchState.value = {
+        ...switchState.value,
+        progressStage: stage as SwitchProgressStage
+      }
+    }
+    // first_load 阶段：暂不更新子阶段（首次加载的进度展示逻辑保持原样）
   }
 
   /** 切换成功 */

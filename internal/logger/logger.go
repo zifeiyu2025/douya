@@ -57,8 +57,16 @@ func Init(logDir string) {
 	// 保存句柄供 Close 使用
 	currentLogFile = fileWriter
 
-	// 同时输出到控制台（彩色）和文件（JSON 格式，便于分析）
-	multi := io.MultiWriter(consoleWriter, fileWriter)
+	// 同时输出到控制台（彩色）和文件（JSON 格式，便于分析）。
+	//
+	// 关键：用 ignoreErrorWriter 包装 consoleWriter。
+	// 原因：Wails 在 Windows 下编译为 GUI 程序（-ldflags -H=windowsgui），
+	// os.Stdout 是无效句柄，ConsoleWriter 写入会返回错误。
+	// io.MultiWriter 的行为是「任一 writer 返回错误就停止，不再写后续 writer」，
+	// 这会导致 fileWriter 永远收不到数据，日志文件保持 0 字节。
+	// 生活类比：邮递员同时投两个信箱，第一个拒收就把整封信撕掉——
+	// 所以给第一个信箱配个「宽容的代收员」，拒收也无所谓，不影响投第二个。
+	multi := io.MultiWriter(ignoreErrorWriter{consoleWriter}, fileWriter)
 	log.Logger = zerolog.New(multi).With().Timestamp().Logger()
 	zerolog.SetGlobalLevel(initialLevel)
 
@@ -66,6 +74,16 @@ func Init(logDir string) {
 	cleanOldLogs(logDir)
 
 	log.Info().Str("file", logFilePath).Str("level", initialLevel.String()).Msg("日志文件已启用")
+}
+
+// ignoreErrorWriter 包装一个 io.Writer，吞掉所有写入错误。
+// 用于 io.MultiWriter 中那些「失败了也无所谓」的 writer（如 GUI 程序的 stdout），
+// 防止其错误中断 MultiWriter 对后续 writer 的写入。
+type ignoreErrorWriter struct{ w io.Writer }
+
+func (iww ignoreErrorWriter) Write(p []byte) (int, error) {
+	n, _ := iww.w.Write(p)
+	return n, nil
 }
 
 // SetLevel 动态调整全局日志级别。

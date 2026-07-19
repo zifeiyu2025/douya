@@ -151,7 +151,7 @@
         class="scroll-to-bottom-btn"
         title="回到底部"
         @click="
-          scrollToBottom('smooth')
+          scrollToBottom('smooth');
           isAutoScrollEnabled = true
         "
       >
