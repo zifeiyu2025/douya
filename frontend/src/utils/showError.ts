@@ -50,15 +50,6 @@ export function showSuccess(message: MessageApiInjection, content: string): void
 }
 
 /**
- * 显示统一的信息提示。
- * 自动先调用 destroyAll() 清除旧提示，再显示新信息消息。
- */
-export function showInfo(message: MessageApiInjection, content: string): void {
-  message.destroyAll()
-  message.info(content)
-}
-
-/**
  * 显示统一的警告提示。
  * 自动先调用 destroyAll() 清除旧提示，再显示新警告消息。
  */

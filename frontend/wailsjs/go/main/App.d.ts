@@ -22,12 +22,6 @@ export function DeleteMessage(arg1:string):Promise<void>;
 
 export function CompressConversation(arg1:string):Promise<chat.CompressResult>;
 
-export function GetConversationSummaryView(arg1:string):Promise<chat.SummaryView>;
-
-export function UpdateConversationSummaryManual(arg1:string,arg2:string,arg3:string):Promise<void>;
-
-export function ResetConversationSummary(arg1:string):Promise<void>;
-
 export function DeleteModel(arg1:string):Promise<void>;
 
 export function DownloadModel(arg1:string):Promise<void>;
