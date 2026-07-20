@@ -1,4 +1,4 @@
-# pre-commit.ps1
+﻿# pre-commit.ps1
 # Git pre-commit hook：提交前自动运行 lint，拦截低质量代码
 #
 # 用法（接入说明）：
