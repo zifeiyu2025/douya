@@ -597,7 +597,7 @@ export const MODEL_REFS: Record<string, ModelRefConfig> = {
     ],
     note: 'Gemma 2 Google 官方推荐 temperature=1.0，Top K=64，与 Gemma 4 参数风格一致'
   },
-  'qwythos': {
+  qwythos: {
     name: 'Qwythos-9B-Claude-Mythos-5',
     raw: { temperature: 0.6, top_p: 0.95, top_k: 20, context_size: 32768, repeat_penalty: 1.05 },
     raw_thinking: {
@@ -631,7 +631,7 @@ export const MODEL_REFS: Record<string, ModelRefConfig> = {
   // 主流开源模型卡片（Tier 1）
   // 无审查/蒸馏等变体自动匹配到基础模型卡片，参数一致
   // ============================================================
-  'qwen3': {
+  qwen3: {
     name: 'Qwen3 系列',
     raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
     raw_thinking: {
@@ -838,7 +838,7 @@ export const MODEL_REFS: Record<string, ModelRefConfig> = {
     ],
     note: 'Mixtral 8x22B 大型 MoE，141B 总参数激活 39B。无审查/蒸馏变体参数一致'
   },
-  'codestral': {
+  codestral: {
     name: 'Codestral',
     raw: { temperature: 0.2, top_p: 0.9, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
     params: [
@@ -864,7 +864,7 @@ export const MODEL_REFS: Record<string, ModelRefConfig> = {
     ],
     note: 'Command R+ Cohere RAG 优化模型，推荐低 temperature 提升检索准确性。无审查/蒸馏变体参数一致'
   },
-  'minicpm3': {
+  minicpm3: {
     name: 'MiniCPM3',
     raw: { temperature: 0.7, top_p: 0.9, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
     params: [
@@ -890,7 +890,7 @@ export const MODEL_REFS: Record<string, ModelRefConfig> = {
     ],
     note: 'Phi-3.5 微软小模型，擅长推理。无审查/蒸馏变体参数一致'
   },
-  'internlm2': {
+  internlm2: {
     name: 'InternLM2.5',
     raw: { temperature: 0.7, top_p: 0.9, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
     params: [

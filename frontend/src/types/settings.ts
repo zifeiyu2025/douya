@@ -7,15 +7,14 @@ import type { ModelCapabilities } from './chat'
 
 /** 切换进度阶段 */
 export type SwitchProgressStage =
-  | 'idle' | 'preparing' | 'loading' | 'waiting' | 'detecting' | 'done' | 'failed' | 'rolling_back'
+  'idle' | 'preparing' | 'loading' | 'waiting' | 'detecting' | 'done' | 'failed' | 'rolling_back'
 
 /**
  * 后端推送的进度阶段（server:switchProgress 事件的 stage 字段）。
  * 与 SwitchProgressStage 区分：这里包含后端特有的警告阶段（vram-warning/spec-warning），
  * 前端收到这些警告阶段时不改变主状态机，但可在 UI 中提示。
  */
-export type BackendProgressStage =
-  | SwitchProgressStage | 'vram-warning' | 'spec-warning'
+export type BackendProgressStage = SwitchProgressStage | 'vram-warning' | 'spec-warning'
 
 /** 切换进度（用于展示） */
 export interface SwitchProgress {

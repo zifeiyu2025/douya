@@ -4,7 +4,11 @@
 import type { Ref } from 'vue'
 import { watch } from 'vue'
 import { logError } from '../../utils/logger'
-import type { ModelSwitchState, BackendProgressStage, SwitchProgressStage } from '../../types/settings'
+import type {
+  ModelSwitchState,
+  BackendProgressStage,
+  SwitchProgressStage
+} from '../../types/settings'
 import { SWITCH_TIMING } from '../../types/settings'
 
 /**

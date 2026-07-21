@@ -765,7 +765,7 @@ watch(
 // 当模型准备就绪时，刷新模型列表以更新各模型的 is_loaded 状态
 watch(
   () => serverStatus.value.model_ready,
-  (ready, prev) => {
+  ready => {
     if (ready) {
       debouncedRefreshModels()
     }

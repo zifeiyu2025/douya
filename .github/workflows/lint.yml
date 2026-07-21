@@ -22,6 +22,10 @@ jobs:
           go-version: "1.26.x"
           check-latest: true
 
+      - name: Create frontend/dist placeholder for embed
+        shell: bash
+        run: mkdir -p frontend/dist && echo '<html></html>' > frontend/dist/index.html
+
       # golangci-lint 官方 action，自动缓存
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7

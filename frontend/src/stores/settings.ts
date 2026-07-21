@@ -14,7 +14,7 @@ import { formatModelName } from '../utils/model'
 import { logError } from '../utils/logger'
 // 复用全局单例 discrete API，确保 message 跟随应用主题（任务 9）
 import { discreteMessage } from '../utils/discrete'
-import type { ModelSwitchState, SwitchProgressStage, BackendProgressStage, SwitchProgress } from '../types/settings'
+import type { ModelSwitchState, BackendProgressStage, SwitchProgress } from '../types/settings'
 import { useSwitchStateMachine } from './settings/switchStateMachine'
 
 export type { SwitchProgressStage, SwitchProgress } from '../types/settings'

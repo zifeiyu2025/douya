@@ -801,7 +801,7 @@
 
 <script setup lang="ts">
 import { inject, ref, computed, onMounted, watch } from 'vue'
-import { NFormItem, NInput, NDivider, NSwitch, NInputNumber, NSelect, NTag, NAlert } from 'naive-ui'
+import { NFormItem, NInput, NDivider, NSwitch, NInputNumber, NSelect, NTag } from 'naive-ui'
 import LoraManager from '../LoraManager.vue'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
 import { wails } from '../../services/wails'
