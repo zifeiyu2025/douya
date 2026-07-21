@@ -31,7 +31,8 @@ linters:
     - nakedret      # 检测裸 return
     - prealloc      # 切片预分配建议
     - unconvert     # 检测不必要的类型转换
-    - goconst       # 重复字面量提取为常量
+    # goconst 已禁用：对 OpenAI API 协议字符串（user/assistant/system/tool 等）误报严重，
+    # 提取为常量改动大且收益有限，不符合"保守优先"原则
 
   settings:
     staticcheck:
@@ -73,9 +74,6 @@ linters:
         - name: var-naming
     dupl:
       threshold: 200         # 较高阈值，避免误报
-    goconst:
-      min-len: 3
-      min-occurrences: 8       # 提高阈值过滤低频通用词（如 default/stage/message），只关注真正高频的业务字面量
     prealloc:
       simple: true
       for-loops: false       # for 循环中预分配误报较多
@@ -89,7 +87,6 @@ linters:
       - path: _test\.go
         linters:
           - dupl
-          - goconst
           - prealloc
           - errcheck
           - gocritic
@@ -97,7 +94,6 @@ linters:
       - path: (^|/)tests/
         linters:
           - dupl
-          - goconst
           - prealloc
           - errcheck
           - gocritic

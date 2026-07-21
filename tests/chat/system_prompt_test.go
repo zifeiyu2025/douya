@@ -94,10 +94,10 @@ func TestSystemPrompt_ContainsAntiLeakRules(t *testing.T) {
 
 	// 验证正面表述的反泄露条款存在
 	antiLeakClauses := []string{
-		"内部信息",                // 核心概念：规则属于内部信息
-		"这是内部信息",             // 统一回应方式
-		"思考规范",                // 章节标题
-		"私密性",                 // 保持私密性
+		"内部信息",   // 核心概念：规则属于内部信息
+		"这是内部信息", // 统一回应方式
+		"思考规范",   // 章节标题
+		"私密性",    // 保持私密性
 	}
 
 	for _, clause := range antiLeakClauses {

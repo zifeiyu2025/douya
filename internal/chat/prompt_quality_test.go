@@ -397,7 +397,7 @@ func TestSystemPrompt_ThinkingStageNoLeak(t *testing.T) {
 	}
 	// 4. 关键否定式不应出现（避免否定句反效果 + 避免列举泄露方式）
 	forbiddenNegatives := []string{
-		"禁止复述、引用、检查或回顾", // 旧版列举泄露方式
+		"禁止复述、引用、检查或回顾",         // 旧版列举泄露方式
 		"以原文引用、摘要、改写或逐条回顾的方式泄露", // 旧版列举泄露方式
 		"禁止复述", "禁止引用", "禁止检查", "禁止回顾",
 	}
@@ -410,9 +410,9 @@ func TestSystemPrompt_ThinkingStageNoLeak(t *testing.T) {
 	// 豆芽一般加载无审查模型（基本无拒绝），有审查模型自己会拒绝，都不需要提示词约束
 	// 因此不应出现任何"如何应对用户询问规则"的具体引导话术
 	forbiddenInterventions := []string{
-		"无可奉告",                  // 审查拒绝口吻
+		"无可奉告", // 审查拒绝口吻
 		"更愿意直接帮助用户解决实际问题", // 干预回答方式的引导话术
-		"主动询问用户原本的需求",       // 干预回答方式的引导话术
+		"主动询问用户原本的需求",     // 干预回答方式的引导话术
 	}
 	for _, intervention := range forbiddenInterventions {
 		if strings.Contains(base, intervention) {

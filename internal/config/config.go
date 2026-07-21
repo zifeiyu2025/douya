@@ -228,7 +228,7 @@ func DefaultConfig() *Config {
 		Mmap:                       true,
 		// KV 缓存 GPU 卸载：默认关闭，由用户在设置中按需开启。
 		// 开启后可将 KV cache 卸载到 GPU 降低首 token 延迟，但会增加显存占用。
-		KVOffload:                  false,
+		KVOffload: false,
 		// 上下文移位（context-shift）：默认关闭。
 		// 应用层已有主动压缩 + 摘要机制，无需 llama-server 兜底移位；
 		// 用户如需更激进的自动兜底，可在设置中手动开启。

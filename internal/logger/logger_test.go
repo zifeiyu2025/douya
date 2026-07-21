@@ -384,7 +384,7 @@ func TestInit_WithEnvLogLevel(t *testing.T) {
 		{"debug", zerolog.DebugLevel},
 		{"warn", zerolog.WarnLevel},
 		{"error", zerolog.ErrorLevel},
-		{"", zerolog.InfoLevel}, // 空环境变量 → 默认 info
+		{"", zerolog.InfoLevel},        // 空环境变量 → 默认 info
 		{"invalid", zerolog.InfoLevel}, // 无效值 → 默认 info
 	}
 	for _, c := range cases {

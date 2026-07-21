@@ -449,15 +449,17 @@ func (a *App) tryStartExit() bool {
 // 无需执行资源清理流程，直接退出即可。
 //
 // 为什么需要先设置 exiting 标志：
-//   runtime.Quit 会触发 OnBeforeClose → beforeClose，
-//   而 beforeClose 在 exiting 为 false 时会返回 true 阻止关闭
-//   （根据 CloseAction 配置，可能只是隐藏窗口到托盘）。
-//   必须先将 exiting 置为 true，beforeClose 才会放行，Wails 进程才能真正退出。
+//
+//	runtime.Quit 会触发 OnBeforeClose → beforeClose，
+//	而 beforeClose 在 exiting 为 false 时会返回 true 阻止关闭
+//	（根据 CloseAction 配置，可能只是隐藏窗口到托盘）。
+//	必须先将 exiting 置为 true，beforeClose 才会放行，Wails 进程才能真正退出。
 //
 // 为什么还需要 systray.Quit：
-//   systray.Run 在独立 goroutine 中运行（见 main.go），
-//   runtime.Quit 只关闭 Wails 窗口，不影响托盘。
-//   不调用 systray.Quit 会导致托盘图标残留，用户仍可操作菜单。
+//
+//	systray.Run 在独立 goroutine 中运行（见 main.go），
+//	runtime.Quit 只关闭 Wails 窗口，不影响托盘。
+//	不调用 systray.Quit 会导致托盘图标残留，用户仍可操作菜单。
 func (a *App) forceQuit() {
 	a.exiting.Store(true)
 	runtime.Quit(a.ctx)

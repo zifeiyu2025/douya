@@ -1471,14 +1471,14 @@ func isAlreadyRunningError(err error) bool {
 
 // HealthStatus 是健康检查端点返回的完整运行时状态
 type HealthStatus struct {
-	Status        string         `json:"status"`         // "ok" | "degraded" | "down"
-	Timestamp     string         `json:"timestamp"`      // RFC3339 格式
-	UptimeSeconds float64        `json:"uptime_seconds"` // 应用运行时长（秒）
-	AppReady      bool           `json:"app_ready"`      // 应用是否完成启动
-	ConfigLoaded  bool           `json:"config_loaded"`  // 配置是否已加载
-	Version       HealthVersion  `json:"version"`
+	Status        string           `json:"status"`         // "ok" | "degraded" | "down"
+	Timestamp     string           `json:"timestamp"`      // RFC3339 格式
+	UptimeSeconds float64          `json:"uptime_seconds"` // 应用运行时长（秒）
+	AppReady      bool             `json:"app_ready"`      // 应用是否完成启动
+	ConfigLoaded  bool             `json:"config_loaded"`  // 配置是否已加载
+	Version       HealthVersion    `json:"version"`
 	Components    HealthComponents `json:"components"`
-	Runtime       HealthRuntime  `json:"runtime"`
+	Runtime       HealthRuntime    `json:"runtime"`
 }
 
 // HealthVersion 版本信息
@@ -1489,25 +1489,25 @@ type HealthVersion struct {
 
 // HealthComponents 各组件健康状态
 type HealthComponents struct {
-	LLM       HealthLLM       `json:"llm_server"`
-	Database  HealthDatabase  `json:"database"`
-	Chat      HealthChat      `json:"chat_service"`
-	RAG       HealthRAG       `json:"rag"`
-	Hardware  HealthHardware  `json:"hardware"`
+	LLM      HealthLLM      `json:"llm_server"`
+	Database HealthDatabase `json:"database"`
+	Chat     HealthChat     `json:"chat_service"`
+	RAG      HealthRAG      `json:"rag"`
+	Hardware HealthHardware `json:"hardware"`
 }
 
 // HealthLLM llama-server 子进程状态
 type HealthLLM struct {
-	Running           bool   `json:"running"`             // 进程是否在运行
-	ModelReady        bool   `json:"model_ready"`          // 模型是否就绪
-	PermanentFailure  bool   `json:"permanent_failure"`    // 是否永久失败（不再自动重启）
-	LoadFailed        bool   `json:"load_failed"`          // 模型加载是否彻底失败
-	CurrentModel      string `json:"current_model"`        // 当前加载的模型名
-	Switching         bool   `json:"switching"`            // 是否正在切换模型
-	SwitchingTo       string `json:"switching_to"`         // 切换目标模型名
-	Port              int    `json:"port"`                 // llama-server 监听端口
-	APIBase           string `json:"api_base"`             // API 基础 URL
-	LastError         string `json:"last_error"`           // 最后一次错误信息
+	Running          bool   `json:"running"`           // 进程是否在运行
+	ModelReady       bool   `json:"model_ready"`       // 模型是否就绪
+	PermanentFailure bool   `json:"permanent_failure"` // 是否永久失败（不再自动重启）
+	LoadFailed       bool   `json:"load_failed"`       // 模型加载是否彻底失败
+	CurrentModel     string `json:"current_model"`     // 当前加载的模型名
+	Switching        bool   `json:"switching"`         // 是否正在切换模型
+	SwitchingTo      string `json:"switching_to"`      // 切换目标模型名
+	Port             int    `json:"port"`              // llama-server 监听端口
+	APIBase          string `json:"api_base"`          // API 基础 URL
+	LastError        string `json:"last_error"`        // 最后一次错误信息
 }
 
 // HealthDatabase 数据库状态
@@ -1524,7 +1524,7 @@ type HealthChat struct {
 
 // HealthRAG RAG 向量库状态
 type HealthRAG struct {
-	Available             bool `json:"available"`               // RAG 是否已初始化
+	Available              bool `json:"available"`                // RAG 是否已初始化
 	VectorStoreInitialized bool `json:"vector_store_initialized"` // 向量库是否已就绪
 }
 
@@ -1539,9 +1539,9 @@ type HealthHardware struct {
 
 // HealthRuntime Go 运行时状态
 type HealthRuntime struct {
-	Goroutines    int    `json:"goroutines"`       // goroutine 数量
-	MemAllocBytes uint64 `json:"mem_alloc_bytes"`  // 已分配内存（字节）
-	MemSysBytes   uint64 `json:"mem_sys_bytes"`    // 系统分配内存（字节）
+	Goroutines    int    `json:"goroutines"`      // goroutine 数量
+	MemAllocBytes uint64 `json:"mem_alloc_bytes"` // 已分配内存（字节）
+	MemSysBytes   uint64 `json:"mem_sys_bytes"`   // 系统分配内存（字节）
 }
 
 // Health 返回应用完整运行时状态快照，用于健康检查和调试。
