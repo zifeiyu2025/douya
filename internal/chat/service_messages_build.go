@@ -276,7 +276,7 @@ func (s *Service) buildOverflowMessages(systemContent string, dbMsgs []*store.Me
 		existingSummary, _ = store.GetConversationSummary(s.db, convID)
 	}
 	client := s.getClientSnapshot()
-	result := CompressContext(baseMessages, maxContext, existingSummary, dbMsgs, client, convID, s.db)
+	result := CompressContext(s.wailsCtx, baseMessages, maxContext, existingSummary, dbMsgs, client, convID, s.db)
 	messages := result.Messages
 
 	// 如果 CompressContext 返回的消息仍然超限（极端情况），fallback 到只保留 system + 最后一条消息
@@ -303,7 +303,7 @@ func (s *Service) buildNormalMessages(systemContent string, dbMsgs []*store.Mess
 	if len(trimmedMsgs) > 0 && convID != "" {
 		existingSummary, _ := store.GetConversationSummary(s.db, convID)
 		client := s.getClientSnapshot()
-		result := CompressContext(baseMessages, maxContext, existingSummary, trimmedMsgs, client, convID, s.db)
+		result := CompressContext(s.wailsCtx, baseMessages, maxContext, existingSummary, trimmedMsgs, client, convID, s.db)
 		messages = result.Messages
 		log.Info().Int("trimmed_count", result.TrimmedCount).Bool("summary_inserted", result.SummaryInserted).Str("convID", convID).Msg("[buildLLMMessages] 上下文已压缩")
 	} else {

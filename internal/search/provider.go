@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -58,9 +59,26 @@ type BaseProvider struct {
 
 // newSearchHTTPClient 创建带安全重定向策略的搜索 HTTP 客户端。
 // 安全实践：限制重定向目标，禁止跳转至内网/回环地址，防止 SSRF（见安全审查 #25）。
+//
+// H2 修复（DNS rebinding TOCTOU）：
+// 原实现仅在 CheckRedirect 中用 net.LookupIP 检查 host，但 http.Client.Do 内部会再次
+// 解析 DNS 并连接。攻击者可构造 DNS rebinding：首次 LookupIP 返回公网 IP（通过检查），
+// Do 内部第二次 LookupIP 返回 127.0.0.1（实际连接内网）。
+// 修复：自定义 Transport.Dialer.Control 钩子，在 TCP connect 系统调用前检查内核即将连接的
+// 实际 IP。此时 IP 已由 net 层解析完成，无法被 rebinding 篡改。
+// 这是纵深防御的第二层：CheckRedirect 拦截明显内网域名/IP，Control 拦截实际连接内网 IP。
 func newSearchHTTPClient(timeout time.Duration) *http.Client {
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control:   safeDialControl,
+	}
+	transport := &http.Transport{
+		DialContext: dialer.DialContext,
+	}
 	return &http.Client{
-		Timeout: timeout,
+		Transport: transport,
+		Timeout:   timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			host := req.URL.Hostname()
 			if isPrivateOrLoopback(host) {
@@ -72,6 +90,27 @@ func newSearchHTTPClient(timeout time.Duration) *http.Client {
 			return nil
 		},
 	}
+}
+
+// safeDialControl 是 net.Dialer.Control 钩子，在 TCP connect 前检查实际目标 IP。
+// address 形如 "1.2.3.4:80" 或 "[::1]:80"，此时 host 已是 IP（DNS 已由 net 层解析）。
+// 若 IP 为内网/回环/链路本地/未指定，返回 error 阻断连接。
+// 生活类比：门卫先看信封地址（CheckRedirect），快递员出发前再核对一次实际门牌号（Control），
+// 防止地址在核对后被偷偷换掉（DNS rebinding）。
+func safeDialControl(network, address string, c syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("safeDialControl: invalid address %q: %w", address, err)
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		// 理论上不应发生：dialer 在 Control 前已完成 DNS 解析，host 应为 IP
+		return fmt.Errorf("safeDialControl: non-IP address in Control (DNS not resolved?): %q", host)
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+		return fmt.Errorf("safeDialControl: dial to private/loopback blocked: %s", ip)
+	}
+	return nil
 }
 
 // isPrivateOrLoopback 判断主机是否为内网/回环/链路本地/未指定地址。

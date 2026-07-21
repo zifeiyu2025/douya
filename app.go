@@ -255,10 +255,6 @@ type SmartParamsInfo struct {
 		FType           string `json:"ftype"`
 	} `json:"model"`
 
-	// SpecAdvice 推测解码智能提醒（nil 表示无需提醒）。
-	// 前端通过 info.spec_advice 是否为 null 判断是否需要弹通知/显示静态提示。
-	SpecAdvice *SpecAdviceInfo `json:"spec_advice"`
-
 	Params struct {
 		GPULayers      int    `json:"gpu_layers"`
 		Threads        int    `json:"threads"`
@@ -289,23 +285,4 @@ type SmartParamsInfo struct {
 		CacheTypeV  bool `json:"cache_type_v"`
 		SpecType    bool `json:"spec_type"`
 	} `json:"overrides"`
-}
-
-// SpecAdviceInfo 推测解码智能提醒信息（JSON 序列化后传给前端）。
-//
-// 豆芽检测到当前模型支持 Eagle3 推测解码但用户未配置 draft 模型时，
-// 生成此提醒，前端在设置界面静态显示 + 模型加载后弹通知，
-// 引导用户前往 hf-mirror.com 下载对应的 sidecar 模型。
-//
-// 生活类比：像手机检测到连接了慢充充电器时弹出的「建议使用原装快充充电器」通知，
-// 包含充电器型号（Desc）和购买链接（DownloadURL），但不会强制你购买。
-type SpecAdviceInfo struct {
-	// Sidecar 推测解码类型："eagle3" 或 "dflash"
-	Sidecar string `json:"sidecar"`
-	// Desc 人类可读名称："Eagle3" 或 "DFlash"
-	Desc string `json:"desc"`
-	// DownloadURL hf-mirror.com 下载链接（仓库页或搜索页）
-	DownloadURL string `json:"download_url"`
-	// Reason 触发建议的原因（用于前端展示）
-	Reason string `json:"reason"`
 }

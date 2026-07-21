@@ -293,7 +293,6 @@ export interface Config {
   spec_draft_threads: number // Draft 模型线程数
   spec_draft_threads_batch: number // Draft 模型批处理线程数
   spec_default: boolean // 使用默认推测解码配置
-  spec_advice_enabled: boolean // 推测解码智能提醒开关
   device: string
   parallel: number
   cache_type_k: string
@@ -393,24 +392,6 @@ export interface Config {
   op_offload: boolean | null
 }
 
-/**
- * 推测解码智能提醒信息。
- *
- * 豆芽检测到当前模型支持 Eagle3 推测解码但用户未配置 draft 模型时，
- * 后端返回此对象，前端在设置界面静态显示 + 模型加载后弹通知，
- * 引导用户前往 hf-mirror.com 下载对应的 sidecar 模型。
- */
-export interface SpecAdvice {
-  /** 推测解码类型："eagle3" 或 "dflash" */
-  sidecar: string
-  /** 人类可读名称："Eagle3" 或 "DFlash" */
-  desc: string
-  /** hf-mirror.com 下载链接（仓库页或搜索页） */
-  download_url: string
-  /** 触发建议的原因（用于前端展示） */
-  reason: string
-}
-
 export interface SmartParamsInfo {
   hardware: {
     cpu_cores: number
@@ -433,8 +414,6 @@ export interface SmartParamsInfo {
     size_label: string
     ftype: string
   }
-  /** 推测解码智能提醒（null 表示无需提醒） */
-  spec_advice: SpecAdvice | null
   params: {
     gpu_layers: number
     threads: number
@@ -522,7 +501,6 @@ export const DEFAULT_CONFIG: Config = {
   spec_draft_threads: 0,
   spec_draft_threads_batch: 0,
   spec_default: false,
-  spec_advice_enabled: true, // 默认开启：检测到模型支持推测解码但未配置 draft 时提醒用户
   device: '',
   parallel: 0,
   cache_type_k: '',

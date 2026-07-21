@@ -463,16 +463,26 @@ async function handleFileUpload({ file }: any) {
       message.error('文件大小不能超过 200MB')
       return
     }
-    const arrayBuffer = await f.arrayBuffer()
-    const bytes = new Uint8Array(arrayBuffer)
-    // 分块转字符串后 join，避免 binary += 造成 O(n²) 字符串拼接开销
-    const chunks: string[] = []
-    const chunkSize = 8192
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-      const slice = bytes.subarray(i, i + chunkSize)
-      chunks.push(String.fromCharCode.apply(null, slice as unknown as number[]))
-    }
-    const base64 = btoa(chunks.join(''))
+    // 安全修复（S3）：原实现 arrayBuffer → chunks 数组 → join → btoa，
+    // 同一份数据在内存中存在 3~4 份副本（bytes + chunks + joined + base64），
+    // 200MB 文件峰值约 867MB，易导致 OOM。
+    // 改用 FileReader.readAsDataURL 让浏览器原生实现读取+编码，
+    // 消除 chunks 数组和 join 的中间字符串副本，降低内存峰值。
+    // dataURL 形如 "data:application/pdf;base64,XXXX"，剥离前缀得到纯 base64。
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const result = reader.result as string
+        const commaIdx = result.indexOf(',')
+        if (commaIdx < 0) {
+          reject(new Error('文件读取失败：dataURL 格式异常'))
+          return
+        }
+        resolve(result.slice(commaIdx + 1))
+      }
+      reader.onerror = () => reject(reader.error || new Error('文件读取失败'))
+      reader.readAsDataURL(f)
+    })
     await wails.uploadDocument(activeKB.value, f.name, base64, f.type || 'application/octet-stream')
     showSuccess(message, `${f.name} 上传成功`)
     await loadDocuments()

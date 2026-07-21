@@ -742,6 +742,8 @@ func selectImportantMessages(msgs []llm.ChatMessage, budget int) []llm.ChatMessa
 
 // CompressContext 统一上下文压缩函数：滑动窗口裁剪 + 异步摘要
 // 参数：
+//   - parentCtx: 父上下文，用于异步摘要 goroutine 的生命周期跟踪。应用关闭时取消此 ctx，
+//     goroutine 内的 LLM 调用会自动取消并退出，避免在 db 关闭后仍访问 db（H1 修复）。
 //   - messages: 原始消息列表（第一条可能是 system 消息）
 //   - maxTokens: 上下文大小
 //   - contextSize: 用于计算滑动窗口大小
@@ -754,6 +756,7 @@ func selectImportantMessages(msgs []llm.ChatMessage, budget int) []llm.ChatMessa
 // 返回：压缩后的消息列表和裁剪信息
 // 摘要生成是异步的，此函数立即返回
 func CompressContext(
+	parentCtx context.Context,
 	messages []llm.ChatMessage,
 	contextSize int,
 	existingSummary string,
@@ -762,6 +765,11 @@ func CompressContext(
 	convID string,
 	db *sql.DB,
 ) CompressContextResult {
+	// H1 修复：parentCtx 为 nil 时兜底为 Background，避免 context.WithTimeout(nil) panic
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+
 	// 1. 分离 system 消息
 	var systemMsg *llm.ChatMessage
 	rest := messages
@@ -840,8 +848,10 @@ func CompressContext(
 		capturedExistingSummary := existingSummary
 		capturedLongSummary := existingLongSummary
 		capturedCompressCount := compressCount
-		// 注：此处未使用 trackedGo，因为该 goroutine 为短生命周期且已有 defer recover()，
-		// summarizeCtx 超时会自动退出。见安全审查 #26。
+		// H1 修复：用 parentCtx 作为父上下文，应用关闭时 parentCtx 取消会自动传播到
+		// summarizeCtx，使 goroutine 内的 LLM 调用立即取消并退出。
+		// 这样无需 trackedGo 也能保证 goroutine 不在 db 关闭后访问 db。
+		// 仍保留 defer recover() 防 panic 崩溃进程。
 		go func() {
 			// 防止 panic 导致整个进程崩溃（异步 goroutine 的 panic 无法被外层 recover 捕获）
 			defer func() {
@@ -850,7 +860,8 @@ func CompressContext(
 				}
 			}()
 			// 超时设为 summaryTimeoutSec*2+10s，留出足够时间给短期+长期两次 LLM 调用
-			summarizeCtx, cancel := context.WithTimeout(context.Background(), (summaryTimeoutSec*2+10)*time.Second)
+			// 父 ctx（parentCtx）取消时会自动传播取消，应用关闭时 goroutine 立即退出
+			summarizeCtx, cancel := context.WithTimeout(parentCtx, (summaryTimeoutSec*2+10)*time.Second)
 			defer cancel()
 
 			// P3-C2: 周期性摘要重置判断（每 10 次压缩重置一次）

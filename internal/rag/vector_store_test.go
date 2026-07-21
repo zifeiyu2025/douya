@@ -1510,3 +1510,70 @@ func TestMemIndex_CtxCanceled(t *testing.T) {
 		t.Fatal("已取消的 ctx 应返回错误，实际返回 nil")
 	}
 }
+
+// TestDeleteDocument_DocIDPrefixNoFalseMatch 验证安全修复 S1：
+// 当两个 docID 互为前缀时（如 "doc" 和 "doc_1"），删除 "doc" 不应误删 "doc_1" 的 chunk。
+// 原实现仅用 strings.HasPrefix(id, docID+"_") 匹配，会对 "doc_1_0" 误判（因为 "doc_1_0"
+// 以 "doc_" 开头）。修复后用 parseChunkID 精确提取 docID 部分后再比对。
+func TestDeleteDocument_DocIDPrefixNoFalseMatch(t *testing.T) {
+	vs, cleanup := newTestStore(t)
+	defer cleanup()
+
+	const dim = 8
+	const collection = "prefix_test"
+	if err := vs.CreateCollection(collection, dim); err != nil {
+		t.Fatalf("CreateCollection: %v", err)
+	}
+
+	// 辅助函数：写入 chunk 文本
+	writeChunk := func(id, text string) {
+		if err := vs.WithTx(func(txn *badger.Txn) error {
+			return txn.Set(chunkKey(collection, id), []byte(text))
+		}); err != nil {
+			t.Fatalf("write chunk %s: %v", id, err)
+		}
+	}
+
+	vec := unitVector(dim, 1, 0.01)
+
+	// 写入两个 docID 互为前缀的文档：
+	// - docID="doc" 的 chunk：doc_0, doc_1
+	// - docID="doc_1" 的 chunk：doc_1_0, doc_1_1
+	// 注意：删除 "doc" 时，"doc_0" 应被删除，"doc_1_0" 不应被误删
+	writeChunk("doc_0", "苹果香蕉")
+	writeChunk("doc_1", "橙子葡萄")
+	writeChunk("doc_1_0", "西瓜荔枝")
+	writeChunk("doc_1_1", "芒果榴莲")
+	if err := vs.AddVectors(collection,
+		[]string{"doc_0", "doc_1", "doc_1_0", "doc_1_1"},
+		[][]float64{vec, vec, vec, vec}); err != nil {
+		t.Fatalf("AddVectors: %v", err)
+	}
+
+	// 删除 docID="doc"，只应删除 doc_0 和 doc_1，不应误删 doc_1_0 和 doc_1_1
+	if err := vs.DeleteDocument(collection, "doc"); err != nil {
+		t.Fatalf("DeleteDocument doc: %v", err)
+	}
+
+	// 验证 doc_1_0 和 doc_1_1 仍存在
+	meta, err := vs.getCollectionMeta(collection)
+	if err != nil {
+		t.Fatalf("getCollectionMeta: %v", err)
+	}
+	if meta.VectorCount != 2 {
+		t.Errorf("删除 'doc' 后 VectorCount 应为 2（doc_1_0 和 doc_1_1），实际 %d", meta.VectorCount)
+	}
+
+	// 验证 BM25 检索仍能找到 doc_1 的内容
+	results := vs.getOrCreateBM25(collection).Search("西瓜", 10)
+	foundDoc1 := false
+	for _, r := range results {
+		if r.ID == "doc_1_0" {
+			foundDoc1 = true
+			break
+		}
+	}
+	if !foundDoc1 {
+		t.Errorf("删除 'doc' 后 BM25 应仍能找到 'doc_1_0'，但未找到。结果: %v", results)
+	}
+}

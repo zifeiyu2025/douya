@@ -255,7 +255,7 @@ func (s *Service) compressContextIfNeeded(convID string, llmMessages []llm.ChatM
 	if convID != "" {
 		existingSummary, _ = store.GetConversationSummary(s.db, convID)
 	}
-	result := CompressContext(llmMessages, contextLimit, existingSummary, nil, client, convID, s.db)
+	result := CompressContext(s.wailsCtx, llmMessages, contextLimit, existingSummary, nil, client, convID, s.db)
 	llmMessages = result.Messages
 	// 压缩后 llmMessages 发生变化，重新计算 totalTokens 以保持准确
 	state.totalTokens = estimateMessagesTokens(llmMessages)

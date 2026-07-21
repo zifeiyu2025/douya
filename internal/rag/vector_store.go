@@ -1311,6 +1311,9 @@ func (vs *VectorStore) SearchWithThreshold(ctx context.Context, collection strin
 //     用 txn.Get 直接读取 collection meta，使读写参与同一冲突重试周期。
 //  2. 原实现遗漏 chunkmeta: 前缀键的删除，导致 chunk 元数据残留。
 //  3. 原实现未清理 BM25 索引，导致关键词检索返回已删除文档内容。
+//  4. 安全修复（S1）：原实现仅用 strings.HasPrefix(id, docID+"_") 匹配，当某 docID
+//     是另一 docID 的前缀时（如 "doc" 和 "doc_1"），删除 "doc" 会误删 "doc_1" 的
+//     所有 chunk。改为用 parseChunkID 精确提取 chunk ID 所属的 docID 后再比对。
 func (vs *VectorStore) DeleteDocument(collection string, docID string) error {
 	// 任务 13：获取 collectionLock，与 IngestDocumentWithMeta 互斥，
 	// 避免并发摄入与删除产生孤立数据（向量无对应文本 或 文本无对应向量）
@@ -1327,6 +1330,14 @@ func (vs *VectorStore) DeleteDocument(collection string, docID string) error {
 	// 收集被删除的 vector id（用于事务后清理 BM25 索引）
 	var deletedIDs []string
 
+	// matchDocID 精确判断 chunk ID 是否属于指定 docID。
+	// 用 parseChunkID 提取最后一个 "_" 之前的部分作为 docID，避免前缀冲突误删
+	// （如 docID="doc" 不应匹配 "doc_1_0"，因为 parseChunkID("doc_1_0") = "doc_1"）。
+	matchDocID := func(id string) bool {
+		parsedDocID, _ := parseChunkID(id)
+		return parsedDocID == docID
+	}
+
 	err = vs.db.Update(func(txn *badger.Txn) error {
 		vecPrefix := []byte("vector:" + collection + ":")
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
@@ -1335,7 +1346,7 @@ func (vs *VectorStore) DeleteDocument(collection string, docID string) error {
 			item := it.Item()
 			key := item.Key()
 			id := key[len(vecPrefix):]
-			if strings.HasPrefix(string(id), docID+"_") {
+			if matchDocID(string(id)) {
 				vecKeys = append(vecKeys, item.KeyCopy(nil))
 				deletedIDs = append(deletedIDs, string(id))
 			}
@@ -1355,7 +1366,7 @@ func (vs *VectorStore) DeleteDocument(collection string, docID string) error {
 			item := it2.Item()
 			key := item.Key()
 			id := key[len(chunkPrefix):]
-			if strings.HasPrefix(string(id), docID+"_") {
+			if matchDocID(string(id)) {
 				chunkKeys = append(chunkKeys, item.KeyCopy(nil))
 			}
 		}
@@ -1374,7 +1385,7 @@ func (vs *VectorStore) DeleteDocument(collection string, docID string) error {
 			item := it3.Item()
 			key := item.Key()
 			id := key[len(chunkMetaPrefix):]
-			if strings.HasPrefix(string(id), docID+"_") {
+			if matchDocID(string(id)) {
 				metaKeys = append(metaKeys, item.KeyCopy(nil))
 			}
 		}
@@ -1437,7 +1448,7 @@ func (vs *VectorStore) DeleteDocument(collection string, docID string) error {
 			var newVecs [][]float64
 			var newIDs []string
 			for i, id := range mi.ids {
-				if !strings.HasPrefix(id, docID+"_") {
+				if !matchDocID(id) {
 					newVecs = append(newVecs, mi.vecs[i])
 					newIDs = append(newIDs, id)
 				}

@@ -21,12 +21,16 @@ func NewRingBuffer(maxLines int) *RingBuffer {
 }
 
 func (rb *RingBuffer) Write(p []byte) (n int, err error) {
-	rb.mu.Lock()
-	defer rb.mu.Unlock()
-
 	text := string(p)
 	newLines := strings.SplitSeq(strings.TrimRight(text, "\n"), "\n")
 
+	// 安全修复（S2）：原实现在持有 rb.mu 时调用 rb.onChange 和 rb.writer.Write，
+	// 若回调或 writer 内部再次访问 RingBuffer 任何方法（如 String/Write）会死锁。
+	// 修复：锁内只更新 lines 并收集待触发的回调与 writer，锁外触发。
+	var pendingCallbacks []string
+	var cb func(string)
+	var writer io.Writer
+	rb.mu.Lock()
 	for line := range newLines {
 		if line == "" {
 			continue
@@ -35,14 +39,24 @@ func (rb *RingBuffer) Write(p []byte) (n int, err error) {
 		if len(rb.lines) > rb.max {
 			rb.lines = rb.lines[len(rb.lines)-rb.max:]
 		}
-		// 触发回调（在锁内调用，回调实现需避免死锁，不能再次获取同一把锁）
 		if rb.onChange != nil {
-			rb.onChange(line)
+			pendingCallbacks = append(pendingCallbacks, line)
+		}
+	}
+	cb = rb.onChange
+	writer = rb.writer
+	rb.mu.Unlock()
+
+	// 锁外触发回调：回调内可安全调用 rb.String() / rb.Write() 等方法
+	if cb != nil {
+		for _, line := range pendingCallbacks {
+			cb(line)
 		}
 	}
 
-	if rb.writer != nil {
-		return rb.writer.Write(p)
+	// 锁外写入 tee writer，避免 writer 内部回调导致死锁
+	if writer != nil {
+		return writer.Write(p)
 	}
 	return len(p), nil
 }

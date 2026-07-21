@@ -862,25 +862,6 @@ func (a *App) GetSmartParams() *SmartParamsInfo {
 	info.Params.NgramModNMax = sp.NgramModNMax
 	info.Params.NgramModNMatch = sp.NgramModNMatch
 
-	// 推测解码智能提醒：检测到模型支持 Eagle3 但用户未配置 draft 模型时生成建议
-	// 前端通过 info.spec_advice 是否为 null 判断是否需要弹通知/显示静态提示
-	if meta != nil {
-		if advice := system.EvaluateSpecAdvice(
-			meta.SupportsEagle3,
-			meta.HFRepo,
-			meta.Architecture,
-			cfg.SpecDraftModel,
-			cfg.SpecAdviceEnabled,
-		); advice != nil {
-			info.SpecAdvice = &SpecAdviceInfo{
-				Sidecar:     advice.Sidecar,
-				Desc:        advice.Desc,
-				DownloadURL: advice.DownloadURL,
-				Reason:      advice.Reason,
-			}
-		}
-	}
-
 	// 用户覆盖状态
 	info.Overrides.GPULayers = cfg.GPULayers > 0
 	info.Overrides.FlashAttn = cfg.FlashAttn != nil

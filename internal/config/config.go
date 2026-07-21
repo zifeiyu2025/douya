@@ -88,7 +88,6 @@ type Config struct {
 	SpecDraftThreads        int     `json:"spec_draft_threads"`       // Draft 模型线程数（0=不传递）
 	SpecDraftThreadsBatch   int     `json:"spec_draft_threads_batch"` // Draft 模型批处理线程数（0=不传递）
 	SpecDefault             bool    `json:"spec_default"`             // 使用默认推测解码配置
-	SpecAdviceEnabled       bool    `json:"spec_advice_enabled"`       // 推测解码智能提醒开关（检测到模型支持但未配置 draft 时提醒用户）
 	Device                  string  `json:"device"`
 	Parallel                int     `json:"parallel"`
 	CacheTypeK              string  `json:"cache_type_k"`
@@ -246,7 +245,6 @@ func DefaultConfig() *Config {
 		SpecDraftThreads:         0,
 		SpecDraftThreadsBatch:    0,
 		SpecDefault:              false,
-		SpecAdviceEnabled:        true, // 默认开启：检测到模型支持推测解码但未配置 draft 时提醒用户
 		Device:                   "",
 		Parallel:                 0,
 		CacheTypeK:               "",

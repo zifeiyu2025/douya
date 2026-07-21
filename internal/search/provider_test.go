@@ -267,6 +267,80 @@ func TestDedupAndFilterResults_RemovesSelfLinks(t *testing.T) {
 	}
 }
 
+// TestSafeDialControl_BlocksPrivateIPs 验证 safeDialControl 拦截内网/回环 IP（H2 修复）
+//
+// 生活类比：门卫（safeDialControl）在快递员出发前核对实际门牌号，
+// 发现是"内部宿舍"（127.0.0.1）或"内网仓库"（10.0.0.1）时立即拦下。
+func TestSafeDialControl_BlocksPrivateIPs(t *testing.T) {
+	cases := []string{
+		"127.0.0.1:80",
+		"[::1]:80",
+		"10.0.0.1:443",
+		"172.16.0.1:443",
+		"192.168.1.1:8080",
+		"169.254.1.1:80", // 链路本地
+		"0.0.0.0:80",     // 未指定
+	}
+	for _, addr := range cases {
+		err := safeDialControl("tcp4", addr, nil)
+		if err == nil {
+			t.Errorf("safeDialControl(%q) 期望 error（拦截内网），实际 nil", addr)
+		}
+	}
+}
+
+// TestSafeDialControl_AllowsPublicIPs 验证 safeDialControl 放行公网 IP
+func TestSafeDialControl_AllowsPublicIPs(t *testing.T) {
+	cases := []string{
+		"8.8.8.8:443",
+		"1.1.1.1:443",
+		"114.114.114.114:80",
+	}
+	for _, addr := range cases {
+		err := safeDialControl("tcp4", addr, nil)
+		if err != nil {
+			t.Errorf("safeDialControl(%q) 期望 nil（放行公网），实际: %v", addr, err)
+		}
+	}
+}
+
+// TestSafeDialControl_RejectsNonIP 验证非 IP 地址被拒绝（理论上不应发生，但兜底）
+func TestSafeDialControl_RejectsNonIP(t *testing.T) {
+	err := safeDialControl("tcp4", "example.com:80", nil)
+	if err == nil {
+		t.Errorf("safeDialControl(%q) 期望 error（非 IP 应被拒绝），实际 nil", "example.com:80")
+	}
+}
+
+// TestNewSearchHTTPClient_BlocksLoopbackDial 集成测试：
+// 验证 newSearchHTTPClient 实际连接 127.0.0.1 时被 Control 钩子拦截（H2 修复）
+//
+// 这是 DNS rebinding 防护的核心验证：即使 CheckRedirect 漏过，Control 仍会在 connect 前拦截。
+// 用 httptest 启动本地服务器（绑定 127.0.0.1），用 newSearchHTTPClient 请求应失败。
+func TestNewSearchHTTPClient_BlocksLoopbackDial(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("should not reach"))
+	}))
+	defer server.Close()
+
+	client := newSearchHTTPClient(5 * time.Second)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+
+	resp, err := client.Do(req)
+	// 期望连接被 Control 拦截，返回 error
+	if err == nil {
+		resp.Body.Close()
+		t.Fatalf("期望请求 127.0.0.1 被 Control 拦截，实际成功（状态码 %d）", resp.StatusCode)
+	}
+	if !strings.Contains(err.Error(), "private/loopback") {
+		t.Errorf("期望 error 包含 'private/loopback'，实际: %v", err)
+	}
+}
+
 // TestDedupAndFilterResults_DeduplicatesByURL 验证按 URL 去重
 func TestDedupAndFilterResults_DeduplicatesByURL(t *testing.T) {
 	results := []SearchResult{
