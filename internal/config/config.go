@@ -226,10 +226,13 @@ func DefaultConfig() *Config {
 		ReasoningBudgetStartTag:    "",
 		ReasoningBudgetEndTag:      "",
 		Mmap:                       true,
-		KVOffload:                  true,
-		// 默认启用 context-shift 作为兜底：应用层压缩失败时由 llama-server 自动移位，
-		// 避免请求直接报错。--keep 512 保护 system prompt 不被移位
-		ContextShift:             true,
+		// KV 缓存 GPU 卸载：默认关闭，由用户在设置中按需开启。
+		// 开启后可将 KV cache 卸载到 GPU 降低首 token 延迟，但会增加显存占用。
+		KVOffload:                  false,
+		// 上下文移位（context-shift）：默认关闭。
+		// 应用层已有主动压缩 + 摘要机制，无需 llama-server 兜底移位；
+		// 用户如需更激进的自动兜底，可在设置中手动开启。
+		ContextShift:             false,
 		MinP:                     0.05,
 		DryMultiplier:            0,
 		DryBase:                  1.75,
@@ -254,7 +257,7 @@ func DefaultConfig() *Config {
 		SpecDraftNMin:            0,
 		CacheTypeKDraft:          "",
 		CacheTypeVDraft:          "",
-		ServerAPIKeyEnabled:      true,
+		ServerAPIKeyEnabled:      false,
 		ExposeServer:             false,
 		EnableWebUI:              false,
 		SwaFull:                  false,
@@ -459,12 +462,11 @@ func (c *Config) migrate(data []byte) {
 		c.migrateLegacyThinking(data)
 		c.Version = 1
 	}
-	// v1 -> v2：默认启用 context-shift 作为上下文溢出兜底 + 启用 cache-reuse 加速
-	// 老版本默认 false/0 且会被写入 config.json，此处一次性迁移为推荐值，
-	// 让老用户也能享受到应用层压缩失败时的自动兜底和 KV 缓存复用加速。
-	// 用户如需关闭，可在设置中手动切换（下次启动 Version 已是 2，不会再迁移）
+	// v1 -> v2：启用 cache-reuse 加速 KV 缓存复用。
+	// 注意：原迁移逻辑会强制开启 context-shift，但已改为默认关闭（应用层压缩已足够兜底），
+	// 因此迁移时不再强制设置 ContextShift，仅迁移 CacheReuse。
+	// 老用户如已在 v2 迁移时开启 context-shift，其 config.json 中已写入 true，读取时保持用户选择。
 	if c.Version < 2 {
-		c.ContextShift = true
 		if c.CacheReuse == 0 {
 			c.CacheReuse = 256
 		}
