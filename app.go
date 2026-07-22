@@ -84,6 +84,8 @@ type App struct {
 	serverLoadFailed atomic.Bool // 模型加载彻底失败后锁定状态，防止监控循环覆盖错误状态
 	lastServerError  string      // 最后一次服务器/模型加载错误信息
 	lastServerErrMu  sync.RWMutex
+	// fileLoader 是本地文件服务的引用，托盘最小化时调用 ClearCache 释放内存
+	fileLoader *LocalFileLoader
 }
 
 func NewApp() *App {
@@ -110,18 +112,26 @@ func (a *App) trackedGo(fn func()) {
 	})
 }
 
-var cachedAppDir string
+var (
+	cachedAppDir string
+	appDirOnce   sync.Once
+)
 
 func appDir() string {
-	if cachedAppDir != "" {
-		return cachedAppDir
-	}
+	appDirOnce.Do(func() {
+		cachedAppDir = resolveAppDir()
+	})
+	return cachedAppDir
+}
 
+// resolveAppDir 查找并缓存应用根目录。
+// 生活类比：就像搬家后找"哪个房间放了配置文件"——先查当前目录，再往上找，
+// 最后实在找不到就在当前目录新建一份默认配置。
+func resolveAppDir() string {
 	exePath, err := os.Executable()
 	if err != nil {
 		zlog.Error().Err(err).Msg("[appDir] 获取可执行文件路径失败")
-		cachedAppDir = "."
-		return cachedAppDir
+		return "."
 	}
 	exeDir := filepath.Dir(exePath)
 
@@ -185,8 +195,7 @@ func appDir() string {
 				continue
 			}
 			zlog.Info().Str("dir", d).Msg("[appDir] 找到配置文件目录")
-			cachedAppDir = d
-			return cachedAppDir
+			return d
 		}
 	}
 
@@ -194,13 +203,12 @@ func appDir() string {
 	for _, d := range searchDirs {
 		if info, err := os.Stat(filepath.Join(d, "models")); err == nil && info.IsDir() {
 			zlog.Info().Str("dir", d).Msg("[appDir] 通过资源目录定位到应用根目录")
-			cachedAppDir = d
 			// 在找到的根目录创建默认配置文件
 			cfgPath := filepath.Join(d, "config.json")
 			if err := config.Save(cfgPath, config.DefaultConfig()); err != nil {
 				zlog.Error().Err(err).Msg("[appDir] 创建默认配置失败")
 			}
-			return cachedAppDir
+			return d
 		}
 	}
 
@@ -211,8 +219,7 @@ func appDir() string {
 	if err := config.Save(cfgPath, defaultCfg); err != nil {
 		zlog.Error().Err(err).Msg("[appDir] 创建默认配置失败")
 	}
-	cachedAppDir = exeDir
-	return cachedAppDir
+	return exeDir
 }
 
 func resolvePath(p string) string {

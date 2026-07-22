@@ -479,11 +479,21 @@ func (a *App) beforeClose(ctx context.Context) bool {
 	case "tray":
 		runtime.WindowHide(ctx)
 		a.hidden.Store(true)
+		a.clearFileCache()
 		return true
 	default: // "ask" 或未设置
 		runtime.WindowHide(ctx)
 		a.hidden.Store(true)
+		a.clearFileCache()
 		return true
+	}
+}
+
+// clearFileCache 清空本地文件 LRU 缓存，释放内存。
+// 在窗口最小化到托盘时调用——用户不查看图片时无需占用 50MB 缓存。
+func (a *App) clearFileCache() {
+	if a.fileLoader != nil {
+		a.fileLoader.ClearCache()
 	}
 }
 

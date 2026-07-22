@@ -103,6 +103,14 @@ var extToMIME = map[string]string{
 
 const maxUploadSize = 200 * 1024 * 1024 // 200MB
 
+// 知识库文档数量上限和总大小上限
+// 生活类比：像一个书架最多放 200 本书、总共不超过 2GB——
+// 超过的话要么换更大的书架，要么先把不用的书拿走。
+const (
+	maxDocumentsPerKB  = 200               // 每个知识库最多 200 个文档
+	maxTotalSizePerKB  = 2 * 1024 * 1024 * 1024 // 每个知识库总大小上限 2GB
+)
+
 func (a *App) UploadDocument(kbName string, fileName string, fileData string, mimeType string) error {
 	if a.ragVS == nil {
 		return fmt.Errorf("知识库未初始化")
@@ -136,6 +144,27 @@ func (a *App) UploadDocument(kbName string, fileName string, fileData string, mi
 	decodedLen := base64.StdEncoding.DecodedLen(len(fileData))
 	if decodedLen > maxUploadSize {
 		return fmt.Errorf("文件大小超过限制（最大 %d MB）", maxUploadSize/(1024*1024))
+	}
+
+	// 知识库级别限制：检查文档数量和总大小
+	// 生活类比：上飞机前不仅查行李箱大小（单文件限制），还查总行李件数和总重量（知识库限制）
+	if a.ragDS != nil {
+		existingDocs, err := a.ragDS.List(kbName)
+		if err != nil {
+			zlog.Warn().Err(err).Msg("[rag] 查询已有文档列表失败，跳过知识库级别限制检查")
+		} else {
+			if len(existingDocs) >= maxDocumentsPerKB {
+				return fmt.Errorf("知识库文档数量已达上限（%d 个），请删除不需要的文档后再上传", maxDocumentsPerKB)
+			}
+			var totalSize int64
+			for _, doc := range existingDocs {
+				totalSize += doc.FileSize
+			}
+			if totalSize+int64(decodedLen) > maxTotalSizePerKB {
+				return fmt.Errorf("知识库总大小将超过上限（%.0f MB），请删除不需要的文档后再上传",
+					float64(maxTotalSizePerKB)/(1024*1024))
+			}
+		}
 	}
 
 	// 安全实践（基于 GO-UPLOAD-001 #7）：对 PDF 增加 magic bytes 内容校验

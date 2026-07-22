@@ -3,6 +3,7 @@ package main
 import (
 	"container/list"
 	"embed"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -110,6 +111,25 @@ func (c *fileLRUCache) put(path string, data []byte, mtime time.Time) {
 	}
 }
 
+// clear 清空缓存中所有条目，释放内存。
+// 生活类比：像下班后把书架上所有暂存的书都收回书库，腾空书架。
+// 适用于窗口最小化到托盘或内存压力较大时主动释放缓存。
+func (c *fileLRUCache) clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ll.Init()
+	c.items = make(map[string]*list.Element)
+	c.curSize = 0
+}
+
+// ClearCache 清空本地文件缓存，释放内存。
+// 在窗口最小化到托盘等场景调用，避免缓存长期占用内存。
+func (h *LocalFileLoader) ClearCache() {
+	if h.cache != nil {
+		h.cache.clear()
+	}
+}
+
 // allowedFileExts 定义 LocalFileLoader 允许提供的文件扩展名白名单
 var allowedFileExts = map[string]bool{
 	".jpg": true, ".jpeg": true, ".png": true, ".gif": true,
@@ -173,7 +193,10 @@ func (h *LocalFileLoader) ServeHTTP(res http.ResponseWriter, req *http.Request) 
 	// 基于 GO-XSS-001 安全实践：不将可能含脚本的活跃格式作为 HTML 内容提供
 	if ext == ".svg" {
 		res.Header().Set("Content-Type", "image/svg+xml")
-		res.Header().Set("Content-Disposition", "attachment")
+		// 提取文件名用于 Content-Disposition，改善下载体验
+		// RFC 6266: filename* 支持非 ASCII 字符，filename 作回退
+		svgName := filepath.Base(cleaned)
+		res.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, svgName))
 		_, _ = res.Write(fileData)
 		return
 	}
@@ -295,6 +318,14 @@ func main() {
 
 	app := NewApp()
 
+	// 提前创建 LocalFileLoader，保存引用以便托盘最小化时清理缓存
+	fileLoader := &LocalFileLoader{
+		baseDir: appDir(),
+		// LRU 缓存：最多 100 个文件，总大小上限 50MB，超限淘汰最久未访问的
+		cache: newFileLRUCache(100, 50*1024*1024),
+	}
+	app.fileLoader = fileLoader
+
 	go systray.Run(app.onSystrayReady, app.onSystrayExit)
 
 	err := wails.Run(&options.App{
@@ -304,12 +335,8 @@ func main() {
 		MinWidth:  800,
 		MinHeight: 600,
 		AssetServer: &assetserver.Options{
-			Assets: assets,
-			Handler: &LocalFileLoader{
-				baseDir: appDir(),
-				// LRU 缓存：最多 100 个文件，总大小上限 50MB，超限淘汰最久未访问的
-				cache: newFileLRUCache(100, 50*1024*1024),
-			},
+			Assets:  assets,
+			Handler: fileLoader,
 		},
 		BackgroundColour: &options.RGBA{R: 30, G: 30, B: 30, A: 1},
 		OnStartup:        app.startup,
