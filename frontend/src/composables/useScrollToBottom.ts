@@ -23,6 +23,8 @@ export function useScrollToBottom(threshold = 150) {
   let boundElement: HTMLElement | null = null
   // 增量滚动：记录上次滚动高度，只滚动差值部分
   let lastScrollHeight = 0
+  // 上次消息数（提到外层，便于 resetState 重置）
+  let prevMsgLen = 0
 
   function isNearBottom(): boolean {
     const el = containerRef.value
@@ -43,8 +45,18 @@ export function useScrollToBottom(threshold = 150) {
       // 改为根据 scrollHeight 动态估算时长（每 1000px 约 100ms，上限 2000ms），
       // 保留 500ms 下限兜底短内容场景。
       const animEstimate = Math.min(Math.max(el.scrollHeight / 10, 500), 2000)
+      // Bug 3 修复：smooth 动画期间监听用户 wheel/touch 事件，
+      // 一旦用户主动滚动立即取消程序化滚动标志，让用户可以接管滚动
+      const cancelProg = () => {
+        isProgrammaticScroll = false
+      }
+      el.addEventListener('wheel', cancelProg, { passive: true, once: true })
+      el.addEventListener('touchstart', cancelProg, { passive: true, once: true })
       setTimeout(() => {
         isProgrammaticScroll = false
+        // once: true 会自动移除，但 setTimeout 可能先触发，手动移除确保清理
+        el.removeEventListener('wheel', cancelProg)
+        el.removeEventListener('touchstart', cancelProg)
       }, animEstimate)
     } else {
       // auto 滚动是同步的，下一帧重置即可
@@ -120,23 +132,44 @@ export function useScrollToBottom(threshold = 150) {
     })
   }
 
-  function watchMessagesLength(getLength: () => number) {
-    let prevLen = 0
+  function watchMessagesLength(getLength: () => number, getLastRole?: () => string) {
     watch(getLength, newLen => {
-      if (newLen > prevLen) {
-        // 新增消息：强制滚动到底部（绕过节流）
-        isAutoScrollEnabled.value = true
-        requestAnimationFrame(() => {
-          scrollToBottom('smooth')
-          // 重置增量滚动基准：新增消息后 lastScrollHeight 应为最新高度
-          const el = containerRef.value
-          if (el) lastScrollHeight = el.scrollHeight
-        })
+      if (newLen > prevMsgLen) {
+        const lastRole = getLastRole?.()
+        if (lastRole === 'user') {
+          // 用户发送新消息：强制滚动到底部（绕过节流）
+          isAutoScrollEnabled.value = true
+          requestAnimationFrame(() => {
+            scrollToBottom('smooth')
+            const el = containerRef.value
+            if (el) lastScrollHeight = el.scrollHeight
+          })
+        } else {
+          // AI 回复完成加入列表：尊重用户查看历史的意图，
+          // 仅在启用自动滚动时才滚动，避免把上滑看历史的用户拉回底部
+          if (isAutoScrollEnabled.value) {
+            requestAnimationFrame(() => {
+              scrollToBottom('smooth')
+              const el = containerRef.value
+              if (el) lastScrollHeight = el.scrollHeight
+            })
+          }
+        }
       } else if (isAutoScrollEnabled.value) {
         scheduleScroll()
       }
-      prevLen = newLen
+      prevMsgLen = newLen
     })
+  }
+
+  /**
+   * 重置滚动状态：切换会话时调用
+   * 重置自动滚动标志和消息计数基准，避免新会话误显示"回到底部"按钮
+   */
+  function resetState() {
+    isAutoScrollEnabled.value = true
+    prevMsgLen = 0
+    lastScrollHeight = 0
   }
 
   /** 启动 MutationObserver 监听容器子节点变化 */
@@ -185,6 +218,7 @@ export function useScrollToBottom(threshold = 150) {
     scrollToBottom,
     watchContentChange,
     watchMessagesLength,
+    resetState,
     startObserver,
     stopObserver
   }

@@ -167,7 +167,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch, ref, nextTick, onMounted, onUnmounted } from 'vue'
+import { computed, watch, ref, onMounted, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import MessageItem from './MessageItem.vue'
 import ThinkBlock from './ThinkBlock.vue'
@@ -305,10 +305,10 @@ bindMarkdown(() => streamingContent.value)
 const {
   containerRef,
   isAutoScrollEnabled,
-  isNearBottom,
   scrollToBottom,
   watchContentChange,
   watchMessagesLength,
+  resetState,
   startObserver
 } = useScrollToBottom()
 
@@ -374,7 +374,11 @@ onUnmounted(() => {
 })
 
 // 新消息时滚动到底部
-watchMessagesLength(() => chatStore.messages?.length || 0)
+// 传入 getLastRole 区分用户发消息（强制滚动）和 AI 回复完成（尊重用户查看历史）
+watchMessagesLength(
+  () => chatStore.messages?.length || 0,
+  () => chatStore.messages?.[chatStore.messages.length - 1]?.role || ''
+)
 
 // 流式内容变化时平滑滚动跟随
 // useMorphRender 用 innerHTML 更新 DOM（分块渲染），由 watchContentChange 响应式触发 scheduleScroll
@@ -393,13 +397,11 @@ watch(
   }
 )
 
-// done 事件更新消息后重新滚动
+// 切换会话时重置滚动状态，避免误显示"回到底部"按钮
 watch(
-  () => chatStore.messages.length,
+  () => chatStore.currentConversationId,
   () => {
-    if (isNearBottom()) {
-      nextTick(scrollToBottom)
-    }
+    resetState()
   }
 )
 
@@ -677,14 +679,17 @@ watch(
 
 /* 模型切换 overlay 样式已移至 App.vue 统一管理 */
 
-/* 回到底部按钮：圆角方形包裹箭头（36x36，密度优化） */
+/* 回到底部按钮：正圆包裹箭头（36x36，密度优化） */
 .scroll-to-bottom-btn {
   position: sticky;
   bottom: 20px;
   align-self: center;
   width: 36px;
   height: 36px;
-  border-radius: var(--border-radius-md);
+  /* 防止 flex 容器压缩高度导致椭圆：flex-shrink 默认 1 会在空间不足时压缩主轴尺寸 */
+  flex-shrink: 0;
+  /* 正圆包裹箭头：固定 50% 而非 --border-radius-md 变量（变量是圆角方形） */
+  border-radius: 50%;
   border: 1px solid var(--border-color);
   background: var(--bg-primary);
   color: var(--text-secondary);
@@ -692,6 +697,8 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
+  /* 半透明：不抢视觉焦点，hover 时恢复不透明 */
+  opacity: 0.85;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
   z-index: 10;
   /* 只过渡颜色和阴影，不过渡 transform，避免 transform 分量时机不同导致椭圆 */
@@ -699,10 +706,12 @@ watch(
     background 0.2s ease,
     border-color 0.2s ease,
     color 0.2s ease,
+    opacity 0.2s ease,
     box-shadow 0.2s ease;
 }
 
 .scroll-to-bottom-btn:hover {
+  opacity: 1;
   background: var(--accent-primary);
   border-color: var(--accent-primary);
   color: #ffffff;
