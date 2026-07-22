@@ -230,6 +230,10 @@ export function Tokenize(arg1) {
   return window['go']['main']['App']['Tokenize'](arg1);
 }
 
+export function GetLastPromptTokens() {
+  return window['go']['main']['App']['GetLastPromptTokens']();
+}
+
 export function ApplyTemplate(arg1) {
   return window['go']['main']['App']['ApplyTemplate'](arg1);
 }

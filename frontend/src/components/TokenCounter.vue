@@ -16,7 +16,7 @@
         <div class="prompt-bar-fill" :style="{ width: promptPercent + '%' }"></div>
       </div>
     </template>
-    <!-- 空闲：显示输入 token 计数 -->
+    <!-- 空闲：显示已用 token 数 / 上下文上限 -->
     <template v-else>
       <span class="token-label" :class="statusClass">{{ displayCount }}</span>
       <span v-if="contextSize > 0" class="token-sep">/</span>
@@ -63,7 +63,8 @@ const props = withDefaults(
 const settings = useSettingsStore()
 const chatStore = useChatStore()
 const message = useMessage()
-const tokenCount = ref(0)
+// 输入框文本的 token 数（实时增量）
+const inputTokens = ref(0)
 let timer: ReturnType<typeof setTimeout> | null = null
 
 // 使用 model_ready 判断可见性（比 running 更精确：表示模型已加载可使用）
@@ -74,6 +75,8 @@ const isGenerating = computed(() => chatStore.isGenerating)
 const tokensPerSecond = computed(() => chatStore.tokensPerSecond)
 const predictedN = computed(() => chatStore.predictedN)
 const promptProgress = computed(() => chatStore.promptProgress)
+// 最近一次请求的 prompt_tokens（来自 llama-server usage），持久化显示总上下文已用 token 数
+const lastPromptTokens = computed(() => chatStore.lastPromptTokens)
 
 // 生成速度显示（保留 1 位小数）
 const speedDisplay = computed(() => {
@@ -87,18 +90,23 @@ const speedDisplay = computed(() => {
 // 与 MessageList.vue 共享同一计算逻辑，避免一处改漏导致两处显示不一致
 const { percent: promptPercent, eta: promptEta } = usePromptProgress(() => promptProgress.value)
 
-// ---- 输入 token 计数逻辑（空闲状态使用） ----
+// ---- 上下文 token 计数逻辑（空闲状态使用） ----
+
+// 总已用 token = 上次请求的 prompt_tokens + 当前输入框文本的 token 增量
+// lastPromptTokens 来自 llama-server usage，包含系统提示词+历史消息+RAG+搜索结果等
+// inputTokens 是当前正在输入的新文本，发送后会并入下次请求的 prompt_tokens
+const totalTokens = computed(() => lastPromptTokens.value + inputTokens.value)
 
 // 百分比
 const pct = computed(() => {
   if (!props.contextSize || props.contextSize <= 0) return 0
-  return Math.min(100, Math.round((tokenCount.value / props.contextSize) * 100))
+  return Math.min(100, Math.round((totalTokens.value / props.contextSize) * 100))
 })
 
 // 状态样式
 const statusClass = computed(() => {
   if (!props.contextSize || props.contextSize <= 0) return ''
-  const r = tokenCount.value / props.contextSize
+  const r = totalTokens.value / props.contextSize
   if (r >= 0.95) return 'danger'
   if (r >= 0.8) return 'warn'
   if (r >= 0.6) return 'notice' // P2-A2: 新增 60% 提示档
@@ -109,20 +117,24 @@ const statusClass = computed(() => {
 // 60% 提示用户上下文紧张，80% 提示已自动压缩，95% 警告即将溢出
 const statusText = computed(() => {
   if (!props.contextSize || props.contextSize <= 0) return ''
-  const r = tokenCount.value / props.contextSize
+  const r = totalTokens.value / props.contextSize
   if (r >= 0.95) return '即将超出上下文，请开启新对话'
   if (r >= 0.8) return '上下文紧张，已自动压缩早期对话'
   if (r >= 0.6) return '上下文较紧张'
   return ''
 })
 
-// 显示数字
-const displayCount = computed(() => tokenCount.value.toLocaleString())
+// 显示数字（总已用 token 数）
+// < 1024 直接显示数字，>= 1024 用 K 单位（与右侧 contextSize 的 K 格式一致）
+const displayCount = computed(() => formatCtx(totalTokens.value))
 
-// 格式化上下文大小
+// 格式化 token 数：< 1024 显示原数，>= 1024 显示 K 单位（按 1024 进制，与 contextSize 一致）
 function formatCtx(n: number): string {
-  if (n >= 1024 && n % 1024 === 0) return `${n / 1024}K`
-  if (n >= 1024) return `${(n / 1024).toFixed(1)}K`
+  if (n >= 1024) {
+    const k = n / 1024
+    // 整数 K（如 5120 → 5K），小数 K 保留 1 位（如 1536 → 1.5K）
+    return k % 1 === 0 ? `${k}K` : `${k.toFixed(1)}K`
+  }
   return String(n)
 }
 
@@ -135,7 +147,7 @@ function scheduleCount(text: string) {
     timer = null
   }
   if (!text) {
-    tokenCount.value = 0
+    inputTokens.value = 0
     return
   }
   if (!show.value) return
@@ -145,7 +157,7 @@ function scheduleCount(text: string) {
       const tokens = await wails.tokenize(text)
       // 丢弃过期结果：用户已输入新内容，旧请求的结果不再适用
       if (version !== requestVersion) return
-      tokenCount.value = tokens.length
+      inputTokens.value = tokens.length
     } catch {
       // 静默
     }

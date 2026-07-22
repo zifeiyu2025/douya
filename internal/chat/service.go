@@ -78,6 +78,15 @@ func (s *Service) SetContext(ctx context.Context) {
 	s.wailsCtx = ctx
 }
 
+// LastPromptTokens 返回最近一次请求的 prompt_tokens（来自 llama-server usage）。
+// 这是真实的上下文已用 token 数（含系统提示词+历史消息+RAG+搜索结果等）。
+// 用于前端持久化显示总上下文 token 用量。
+func (s *Service) LastPromptTokens() int {
+	s.tokenCalibMu.RLock()
+	defer s.tokenCalibMu.RUnlock()
+	return s.lastPromptTokens
+}
+
 func (s *Service) CurrentConvID() string {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()

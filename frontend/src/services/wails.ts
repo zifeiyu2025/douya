@@ -55,6 +55,7 @@ import {
   SetLoraAdapters,
   GetSlots,
   Tokenize,
+  GetLastPromptTokens,
   ApplyTemplate,
   GetServerLogs,
   GetTerminalHistory,
@@ -340,6 +341,9 @@ export const wails = {
   },
   tokenize: async (text: string): Promise<number[]> => {
     return await Tokenize(text)
+  },
+  getLastPromptTokens: async (): Promise<number> => {
+    return await GetLastPromptTokens()
   },
   applyTemplate: async (messages: ChatMessage[]): Promise<string> => {
     return await ApplyTemplate(toWailsChatMessages(messages))

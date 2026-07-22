@@ -120,6 +120,8 @@ export function SwitchModel(arg1:string):Promise<main.SwitchResult>;
 
 export function Tokenize(arg1:string):Promise<Array<number>>;
 
+export function GetLastPromptTokens():Promise<number>;
+
 export function ApplyTemplate(arg1:Array<llm.ChatMessage>):Promise<string>;
 
 export function UpdateConfig(arg1:config.Config):Promise<void>;

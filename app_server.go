@@ -395,6 +395,16 @@ func (a *App) Tokenize(text string) ([]int, error) {
 	return a.client.Tokenize(ctx, text)
 }
 
+// GetLastPromptTokens 返回最近一次请求的 prompt_tokens（来自 llama-server usage）。
+// 这是真实的上下文已用 token 数（含系统提示词+历史消息+RAG+搜索结果等）。
+// 前端用于持久化显示总上下文 token 用量，而非仅显示输入框文本的 token 数。
+func (a *App) GetLastPromptTokens() int {
+	if a.service == nil {
+		return 0
+	}
+	return a.service.LastPromptTokens()
+}
+
 // ApplyTemplate 对消息列表应用聊天模板，返回格式化后的字符串
 func (a *App) ApplyTemplate(messages []llm.ChatMessage) (string, error) {
 	if a.client == nil {

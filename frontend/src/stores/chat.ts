@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, shallowReactive, computed, nextTick } from 'vue'
+import { ref, shallowReactive, computed, nextTick, watch } from 'vue'
 import {
   wails,
   type Conversation,
@@ -71,6 +71,8 @@ export const useChatStore = defineStore('chat', () => {
   const waitingFirstToken = ref(false)
   // 生成速度（tokens/s），由后端 token_speed 事件实时推送（每 500ms 降频），0 表示未获取
   const generationSpeed = ref(0)
+  // 最近一次请求的 prompt_tokens（来自 llama-server usage），持久化显示总上下文已用 token 数
+  const lastPromptTokens = ref(0)
   // 消息请求版本号（M-前2）：防止 handleTerminalAsync 的 await 期间用户切换会话，
   // 旧请求返回后覆盖新会话的消息列表（TOCTOU 竞态）。每次发起新请求递增，响应返回后校验。
   // 用 ref 包装以便跨 composable 共享（useConversations 也需要递增此值）。
@@ -262,6 +264,11 @@ export const useChatStore = defineStore('chat', () => {
     messagesRequestVersion
   })
 
+  // 切换对话时重置 lastPromptTokens（新对话的已用 token 数未知，显示 0 直到下次请求完成）
+  watch(currentConversationId, () => {
+    lastPromptTokens.value = 0
+  })
+
   function handleTerminalEvent(convId: string) {
     clearTimers()
     // 终止前立即刷新剩余的流式分块，确保最终内容完整
@@ -274,6 +281,13 @@ export const useChatStore = defineStore('chat', () => {
       generatingConvId.value = ''
       // 生成结束，重置速度显示（UI 仅在 isGenerating 时展示，重置可避免残留）
       generationSpeed.value = 0
+      // 生成结束后从后端拉取最近一次请求的 prompt_tokens，持久化显示总上下文用量
+      wails
+        .getLastPromptTokens()
+        .then(n => {
+          lastPromptTokens.value = n || 0
+        })
+        .catch(() => {})
     }
   }
 
@@ -865,6 +879,7 @@ export const useChatStore = defineStore('chat', () => {
     generatingConvId,
     waitingFirstToken,
     generationSpeed,
+    lastPromptTokens,
     isLoadingConversations,
     lastAIMessageId,
     loadConversations,
