@@ -556,3 +556,78 @@ export namespace rag {
 
 }
 
+export namespace mcp {
+
+	export class MCPServerConfig {
+	    name: string;
+	    command: string;
+	    args: string[];
+	    env: Record<string, string>;
+	    enabled: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new MCPServerConfig(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.command = source["command"];
+	        this.args = source["args"];
+	        this.env = source["env"];
+	        this.enabled = source["enabled"];
+	    }
+	}
+	export class ToolInfo {
+	    name: string;
+	    description: string;
+	    input_schema: Record<string, any>;
+
+	    static createFrom(source: any = {}) {
+	        return new ToolInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.input_schema = source["input_schema"];
+	    }
+	}
+	export class ServerStatus {
+	    connected: boolean;
+	    error?: string;
+	    tool_count: number;
+
+	    static createFrom(source: any = {}) {
+	        return new ServerStatus(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.connected = source["connected"];
+	        this.error = source["error"];
+	        this.tool_count = source["tool_count"];
+	    }
+	}
+	export class ConnectResult {
+	    name: string;
+	    success: boolean;
+	    error?: string;
+	    tool_count: number;
+
+	    static createFrom(source: any = {}) {
+	        return new ConnectResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.success = source["success"];
+	        this.error = source["error"];
+	        this.tool_count = source["tool_count"];
+	    }
+	}
+
+}
+

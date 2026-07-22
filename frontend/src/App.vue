@@ -44,10 +44,7 @@
                     @update:value="handleModelChange"
                   />
                   <div class="server-status" :title="modelFullName">
-                    <div
-                      v-if="isModelSwitching && switchProgressStage !== 'idle'"
-                      class="switching-animation"
-                    >
+                    <div v-if="switchProgressStage !== 'idle'" class="switching-animation">
                       <div class="loading-spinner"></div>
                       <span class="status-text">
                         {{ switchingModelName }} · {{ switchStageText }}{{ switchDuration }}

@@ -15,6 +15,7 @@ import (
 	"douya/internal/chat"
 	"douya/internal/config"
 	"douya/internal/llm"
+	"douya/internal/mcp"
 	"douya/internal/pathutil"
 	"douya/internal/rag"
 	"douya/internal/system"
@@ -78,6 +79,8 @@ type App struct {
 	ragVS            *rag.VectorStore
 	ragDS            *rag.DocumentStore
 	ragEmbedder      *rag.ClientEmbedder
+	// MCP 原生客户端（管理外部 MCP server 连接）
+	mcpManager *mcp.Manager
 	encKey           []byte
 	hidden           atomic.Bool
 	exiting          atomic.Bool

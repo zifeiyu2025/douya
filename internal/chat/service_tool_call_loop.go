@@ -13,6 +13,7 @@ import (
 
 	"douya/internal/config"
 	"douya/internal/llm"
+	"douya/internal/mcp"
 	"douya/internal/secrets"
 	"douya/internal/store"
 )
@@ -106,7 +107,7 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 	return s.saveToolCallFinalMessage(convID, acc, state)
 }
 
-// executeToolCallsConcurrently 并发执行所有 search tool calls。
+// executeToolCallsConcurrently 并发执行所有 tool calls（search + MCP 工具）。
 // 预分配结果切片，按 tool call 在原切片中的索引写入，
 // 避免 goroutine 并发完成后 append 导致结果乱序。
 // 生活类比：像给每个快递员编好编号，按编号放回对应格子，避免谁先回来谁先放导致顺序乱。
@@ -114,11 +115,19 @@ func (s *Service) executeToolCallsConcurrently(cancelCtx context.Context, convID
 	toolResults := make([]toolCallResult, len(toolCalls))
 	var toolWg sync.WaitGroup
 
+	mgr := s.getMCPManager()
+
 	for idx, tc := range toolCalls {
-		if tc.Function.Name != "search" {
-			continue
+		// 判断工具类型：search、MCP 工具、未知工具
+		isSearch := tc.Function.Name == "search"
+		isMCP := !isSearch && mgr != nil && mgr.HasTool(tc.Function.Name)
+		if !isSearch && !isMCP {
+			continue // 跳过未知工具
 		}
-		s.emitForConv(convID, "search_start", tc.Function.Arguments)
+
+		if isSearch {
+			s.emitForConv(convID, "search_start", tc.Function.Arguments)
+		}
 		toolWg.Add(1)
 		go func(idx int, tc llm.ToolCall) {
 			defer toolWg.Done()
@@ -132,8 +141,29 @@ func (s *Service) executeToolCallsConcurrently(cancelCtx context.Context, convID
 }
 
 // executeSingleToolCall 执行单个 tool call（在 goroutine 内调用）。
-// 处理流程：解析参数 → 发起搜索 → 处理超时/空结果 → 格式化搜索结果。
+// 根据工具名路由：search 走原搜索逻辑，MCP 工具走 MCP 调用。
+// 生活类比：前台接到订单后，看是自家的菜（search）还是外卖平台的菜（MCP），
+// 分别送到对应的后厨。
 func (s *Service) executeSingleToolCall(cancelCtx context.Context, convID string, tc llm.ToolCall, cfg *config.Config) toolCallResult {
+	// search 工具：走原有搜索逻辑
+	if tc.Function.Name == "search" {
+		return s.executeSearchToolCall(cancelCtx, convID, tc, cfg)
+	}
+	// MCP 工具：走 MCP 客户端调用
+	mgr := s.getMCPManager()
+	if mgr != nil && mgr.HasTool(tc.Function.Name) {
+		return s.executeMCPToolCall(cancelCtx, convID, tc, mgr)
+	}
+	// 未知工具，返回错误信息
+	var result toolCallResult
+	result.tc = tc
+	result.toolContent = fmt.Sprintf("Error: unknown tool %q. Please use only the provided tools.", tc.Function.Name)
+	return result
+}
+
+// executeSearchToolCall 执行 search 工具调用（原 executeSingleToolCall 逻辑）。
+// 处理流程：解析参数 → 发起搜索 → 处理超时/空结果 → 格式化搜索结果。
+func (s *Service) executeSearchToolCall(cancelCtx context.Context, convID string, tc llm.ToolCall, cfg *config.Config) toolCallResult {
 	var result toolCallResult
 	result.tc = tc
 
@@ -183,6 +213,46 @@ func (s *Service) executeSingleToolCall(cancelCtx context.Context, convID string
 		ctxSize = cfg.ContextSize
 	}
 	result.toolContent = truncateSearchContext(toolContent, ctxSize)
+	return result
+}
+
+// executeMCPToolCall 执行 MCP 工具调用（在 goroutine 内调用）。
+// 处理流程：解析参数 → 调用 MCP server → 返回结果文本。
+// 生活类比：前台把订单发到对应的外卖平台，等平台返回结果。
+func (s *Service) executeMCPToolCall(cancelCtx context.Context, convID string, tc llm.ToolCall, mgr *mcp.Manager) toolCallResult {
+	var result toolCallResult
+	result.tc = tc
+
+	// 解析参数（MCP 工具参数是任意 JSON 对象）
+	var args map[string]any
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+		result.toolContent = fmt.Sprintf("Error: invalid arguments format for tool %q. Got: %s", tc.Function.Name, tc.Function.Arguments)
+		return result
+	}
+
+	// 推送工具调用开始事件（复用现有前端事件机制）
+	s.emitForConv(convID, EventToolCallStart, ToolCallStartContent{
+		ToolCallID: tc.ID,
+		Tool:       tc.Function.Name,
+		Query:      tc.Function.Arguments,
+	})
+
+	log.Info().Str("tool", tc.Function.Name).Str("convID", convID).Msg("[chat] 调用 MCP 工具")
+
+	// 调用 MCP 工具（Manager 内部已有超时控制）
+	content, err := mgr.CallTool(cancelCtx, tc.Function.Name, args)
+	if err != nil {
+		log.Warn().Err(err).Str("tool", tc.Function.Name).Msg("[chat] MCP 工具调用失败")
+		result.toolContent = fmt.Sprintf("Error: tool %q call failed: %v", tc.Function.Name, err)
+		return result
+	}
+
+	if content == "" {
+		content = "(工具未返回内容)"
+	}
+
+	result.toolContent = content
+	log.Info().Str("tool", tc.Function.Name).Int("content_len", len(content)).Msg("[chat] MCP 工具调用完成")
 	return result
 }
 
@@ -287,7 +357,7 @@ func (s *Service) buildToolCallStreamRequest(llmMessages []llm.ChatMessage, cfg 
 		SsePingInterval: &defaultSsePingInterval,
 	}
 	if !state.hitMaxRounds {
-		req.Tools = []llm.ToolDefinition{searchToolDef}
+		req.Tools = s.buildAvailableTools(true)
 	}
 
 	s.applyThinkingControl(req)

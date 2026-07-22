@@ -51,6 +51,35 @@ var searchToolDef = llm.ToolDefinition{
 	},
 }
 
+// buildAvailableTools 构建当前可用的工具列表（search + MCP 工具）。
+// 生活类比：把自家的招牌菜（search）和各外卖平台的菜品（MCP 工具）合并到一张菜单上。
+// includeSearch: 是否包含 search 工具（在 tool call 循环中始终包含，首次请求取决于 searchMode）
+func (s *Service) buildAvailableTools(includeSearch bool) []llm.ToolDefinition {
+	var tools []llm.ToolDefinition
+
+	// 添加 search 工具
+	if includeSearch {
+		tools = append(tools, searchToolDef)
+	}
+
+	// 添加 MCP 工具（如果 MCP Manager 已连接）
+	mgr := s.getMCPManager()
+	if mgr != nil {
+		for _, t := range mgr.ListTools() {
+			tools = append(tools, llm.ToolDefinition{
+				Type: "function",
+				Function: llm.FunctionDef{
+					Name:        t.Name,
+					Description: t.Description,
+					Parameters:  t.InputSchema,
+				},
+			})
+		}
+	}
+
+	return tools
+}
+
 type StreamAccumulator struct {
 	FullContent                strings.Builder
 	FullThinking               strings.Builder

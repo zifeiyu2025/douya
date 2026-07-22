@@ -74,6 +74,14 @@ export function GetLoraAdapters() {
   return window['go']['main']['App']['GetLoraAdapters']();
 }
 
+export function GetMCPServers() {
+  return window['go']['main']['App']['GetMCPServers']();
+}
+
+export function GetMCPStatus() {
+  return window['go']['main']['App']['GetMCPStatus']();
+}
+
 export function GetMessages(arg1) {
   return window['go']['main']['App']['GetMessages'](arg1);
 }
@@ -138,6 +146,10 @@ export function ListKnowledgeBases() {
   return window['go']['main']['App']['ListKnowledgeBases']();
 }
 
+export function ListMCPTools() {
+  return window['go']['main']['App']['ListMCPTools']();
+}
+
 export function PrepareShutdown() {
   return window['go']['main']['App']['PrepareShutdown']();
 }
@@ -164,6 +176,10 @@ export function RestoreSlot(arg1) {
 
 export function EraseSlot(arg1) {
   return window['go']['main']['App']['EraseSlot'](arg1);
+}
+
+export function SaveMCPServers(arg1) {
+  return window['go']['main']['App']['SaveMCPServers'](arg1);
 }
 
 export function SaveSlot(arg1) {
@@ -224,6 +240,10 @@ export function StopThinking() {
 
 export function SwitchModel(arg1) {
   return window['go']['main']['App']['SwitchModel'](arg1);
+}
+
+export function TestMCPConnection(arg1) {
+  return window['go']['main']['App']['TestMCPConnection'](arg1);
 }
 
 export function Tokenize(arg1) {

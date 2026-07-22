@@ -50,6 +50,17 @@
             <ExperimentalSettings />
           </n-collapse-item>
 
+          <!-- ==================== MCP 服务器 ==================== -->
+          <n-collapse-item name="mcp">
+            <template #header>
+              <div class="settings-group-header">
+                <span class="settings-group-title">MCP 服务器</span>
+                <span class="settings-group-desc">连接外部 MCP 服务器，扩展模型工具能力</span>
+              </div>
+            </template>
+            <MCPSettings />
+          </n-collapse-item>
+
           <!-- ==================== 关于 ==================== -->
           <n-collapse-item name="about">
             <template #header>
@@ -81,6 +92,7 @@ import defaultAiAvatar from '../assets/images/appicon.png'
 import BasicSettings from '../components/settings/BasicSettings.vue'
 import AdvancedSettings from '../components/settings/AdvancedSettings.vue'
 import ExperimentalSettings from '../components/settings/ExperimentalSettings.vue'
+import MCPSettings from '../components/settings/MCPSettings.vue'
 import AboutSettings from '../components/settings/AboutSettings.vue'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from '../components/settings/settingsContext'
 // F-1.17：readFileAsDataURL 抽取到 imageProcess.ts 统一导出，消除两处重复定义

@@ -21,6 +21,7 @@ declare module 'vue' {
     ExperimentalSettings: typeof import('./components/settings/ExperimentalSettings.vue')['default']
     HelpTip: typeof import('./components/ui/HelpTip.vue')['default']
     LoraManager: typeof import('./components/LoraManager.vue')['default']
+    MCPSettings: typeof import('./components/settings/MCPSettings.vue')['default']
     MessageItem: typeof import('./components/MessageItem.vue')['default']
     MessageList: typeof import('./components/MessageList.vue')['default']
     NButton: typeof import('naive-ui')['NButton']

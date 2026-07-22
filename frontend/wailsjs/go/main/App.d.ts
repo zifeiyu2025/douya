@@ -3,6 +3,7 @@
 import {chat} from '../models';
 import {llm} from '../models';
 import {config} from '../models';
+import {mcp} from '../models';
 import {main} from '../models';
 import {rag} from '../models';
 
@@ -42,6 +43,10 @@ export function GetConversations():Promise<Array<chat.Conversation>>;
 
 export function GetLoraAdapters():Promise<Array<llm.LoraAdapter>>;
 
+export function GetMCPServers():Promise<Array<mcp.MCPServerConfig>>;
+
+export function GetMCPStatus():Promise<{[key:string]: mcp.ServerStatus}>;
+
 export function GetMessages(arg1:string):Promise<Array<chat.Message>>;
 
 export function GetModelCapabilities():Promise<llm.ModelCapabilities>;
@@ -74,6 +79,8 @@ export function ListDocuments(arg1:string):Promise<Array<rag.DocumentMeta>>;
 
 export function ListKnowledgeBases():Promise<Array<rag.CollectionInfo>>;
 
+export function ListMCPTools():Promise<Array<mcp.ToolInfo>>;
+
 export function PrepareShutdown():Promise<void>;
 
 export function RegenerateMessage(arg1:string,arg2:string):Promise<void>;
@@ -87,6 +94,8 @@ export function RerankEnabled():Promise<boolean>;
 export function RestoreSlot(arg1:number):Promise<void>;
 
 export function EraseSlot(arg1:number):Promise<void>;
+
+export function SaveMCPServers(arg1:Array<mcp.MCPServerConfig>):Promise<void>;
 
 export function SaveSlot(arg1:number):Promise<void>;
 
@@ -117,6 +126,8 @@ export function StopGeneration():Promise<void>;
 export function StopThinking():Promise<void>;
 
 export function SwitchModel(arg1:string):Promise<main.SwitchResult>;
+
+export function TestMCPConnection(arg1:mcp.MCPServerConfig):Promise<mcp.ConnectResult>;
 
 export function Tokenize(arg1:string):Promise<Array<number>>;
 

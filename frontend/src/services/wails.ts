@@ -61,7 +61,12 @@ import {
   GetTerminalHistory,
   ResizeTerminal,
   IsConPTYMode,
-  SelectLoraFile
+  SelectLoraFile,
+  GetMCPServers,
+  SaveMCPServers,
+  TestMCPConnection,
+  GetMCPStatus,
+  ListMCPTools
 } from '../../wailsjs/go/main/App'
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
 import { chat as ChatModel } from '../../wailsjs/go/models'
@@ -79,7 +84,11 @@ import type {
   Attachment,
   AttachmentSummary,
   ModelCapabilities,
-  SmartParamsInfo
+  SmartParamsInfo,
+  MCPServerConfig,
+  MCPToolInfo,
+  MCPServerStatus,
+  MCPConnectResult
 } from '../types/chat'
 import type { CollectionInfo, DocumentMeta } from '../types/search'
 import { DEFAULT_CONFIG } from '../types/chat'
@@ -100,7 +109,11 @@ export type {
   ModelCapabilities,
   SmartParamsInfo,
   CollectionInfo,
-  DocumentMeta
+  DocumentMeta,
+  MCPServerConfig,
+  MCPToolInfo,
+  MCPServerStatus,
+  MCPConnectResult
 }
 export { DEFAULT_CONFIG }
 
@@ -496,6 +509,26 @@ export const wails = {
   subscribeUpdateProgress: (callback: (progress: UpdateProgressEvent) => void): (() => void) => {
     EventsOn('update:progress', callback)
     return () => EventsOff('update:progress')
+  },
+  // ============ MCP 服务器管理 ============
+  // 生活类比：像管理外卖平台对接——查询已对接的平台列表、保存新对接配置、
+  // 测试某个平台能否对接成功、查询所有平台当前状态、列出所有平台提供的菜品（工具）。
+  getMCPServers: async (): Promise<MCPServerConfig[]> => {
+    return (await GetMCPServers()) as MCPServerConfig[]
+  },
+  saveMCPServers: async (servers: MCPServerConfig[]): Promise<void> => {
+    await SaveMCPServers(servers as Parameters<typeof SaveMCPServers>[0])
+  },
+  testMCPConnection: async (server: MCPServerConfig): Promise<MCPConnectResult> => {
+    return (await TestMCPConnection(
+      server as Parameters<typeof TestMCPConnection>[0]
+    )) as MCPConnectResult
+  },
+  getMCPStatus: async (): Promise<Record<string, MCPServerStatus>> => {
+    return (await GetMCPStatus()) as Record<string, MCPServerStatus>
+  },
+  listMCPTools: async (): Promise<MCPToolInfo[]> => {
+    return (await ListMCPTools()) as MCPToolInfo[]
   }
 } as const
 

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"douya/internal/apperror"
+	"douya/internal/mcp"
 
 	"github.com/rs/zerolog/log"
 )
@@ -178,6 +179,9 @@ type Config struct {
 	NCpuMoe int `json:"n_cpu_moe"`
 	// 算子卸载开关（nil=使用默认值 true，true=--op-offload，false=--no-op-offload）
 	OpOffload *bool `json:"op_offload"`
+	// MCP 服务器列表（豆芽原生 MCP 客户端，通过 stdio 连接外部 MCP server）
+	// 空数组表示不连接任何 MCP server，不影响现有行为
+	MCPServers []mcp.MCPServerConfig `json:"mcp_servers"`
 }
 
 func DefaultConfig() *Config {
@@ -322,6 +326,7 @@ func DefaultConfig() *Config {
 		CPUMoe:          false,
 		NCpuMoe:         0,
 		OpOffload:       nil,
+		MCPServers:      []mcp.MCPServerConfig{},
 	}
 }
 

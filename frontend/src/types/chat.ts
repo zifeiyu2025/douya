@@ -390,6 +390,39 @@ export interface Config {
   n_cpu_moe: number
   // 算子卸载开关（null=使用默认值 true，对应 Go *bool）
   op_offload: boolean | null
+  // MCP 服务器列表（豆芽原生 MCP 客户端，通过 stdio 连接外部 MCP server）
+  mcp_servers: MCPServerConfig[]
+}
+
+// MCP 服务器配置
+export interface MCPServerConfig {
+  name: string
+  command: string
+  args: string[]
+  env: Record<string, string>
+  enabled: boolean
+}
+
+// MCP 工具信息
+export interface MCPToolInfo {
+  name: string
+  description: string
+  input_schema: Record<string, any>
+}
+
+// MCP 服务器运行状态
+export interface MCPServerStatus {
+  connected: boolean
+  error?: string
+  tool_count: number
+}
+
+// MCP 连接测试结果
+export interface MCPConnectResult {
+  name: string
+  success: boolean
+  error?: string
+  tool_count: number
 }
 
 export interface SmartParamsInfo {
@@ -579,7 +612,8 @@ export const DEFAULT_CONFIG: Config = {
   direct_io: false, // 默认不绕过页面缓存
   cpu_moe: false, // 默认不卸载 MoE 权重到 CPU
   n_cpu_moe: 0, // 0=不启用
-  op_offload: null // null=使用默认值 true（对应 Go *bool nil）
+  op_offload: null, // null=使用默认值 true（对应 Go *bool nil）
+  mcp_servers: [] // 默认不连接任何 MCP server
 }
 
 export interface ServerStatus {

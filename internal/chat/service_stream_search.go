@@ -193,21 +193,25 @@ func (s *Service) buildChatStreamRequest(llmMessages []llm.ChatMessage, searchMo
 		StreamOptions:   &llm.StreamOptions{IncludeUsage: true},
 		SsePingInterval: &defaultSsePingInterval,
 	}
-	// 支持 tool call 的模型，在 "auto" 和 "on" 模式下提供工具
-	if (searchMode == "auto" || searchMode == "on") && caps.ToolCallSupport {
-		req.Tools = []llm.ToolDefinition{searchToolDef}
-		// tool schema 定义约占 250 tokens，需计入上下文估算
-		req.MaxTokens = s.calcMaxTokens(estimateMessagesTokens(llmMessages) + 250)
-		// searchMode="on" 为强制搜索，用 tool_choice="required" 确保模型一定调用工具
-		// searchMode="auto" 不设置（默认 "auto"），让模型自主决定
-		if searchMode == "on" {
-			req.ToolChoice = "required"
+	// 支持 tool call 的模型，提供 search + MCP 工具
+	if caps.ToolCallSupport {
+		includeSearch := searchMode == "auto" || searchMode == "on"
+		tools := s.buildAvailableTools(includeSearch)
+		if len(tools) > 0 {
+			req.Tools = tools
+			// tool schema 定义约占 250 tokens，需计入上下文估算
+			req.MaxTokens = s.calcMaxTokens(estimateMessagesTokens(llmMessages) + 250)
+			// searchMode="on" 为强制搜索，用 tool_choice="required" 确保模型一定调用工具
+			// searchMode="auto" 不设置（默认 "auto"），让模型自主决定
+			if searchMode == "on" {
+				req.ToolChoice = "required"
+			}
+			// 显式声明是否允许并发 tool call
+			// SupportsParallelToolCalls=true 时允许（提升多查询场景效率）
+			// SupportsParallelToolCalls=false 时禁用（避免不支持并发的模型出错）
+			parallel := caps.SupportsParallelToolCalls
+			req.ParallelToolCalls = &parallel
 		}
-		// 显式声明是否允许并发 tool call
-		// SupportsParallelToolCalls=true 时允许（提升多查询场景效率）
-		// SupportsParallelToolCalls=false 时禁用（避免不支持并发的模型出错）
-		parallel := caps.SupportsParallelToolCalls
-		req.ParallelToolCalls = &parallel
 	}
 
 	req.Messages = llmMessages

@@ -15,6 +15,7 @@ import (
 
 	"douya/internal/config"
 	"douya/internal/llm"
+	"douya/internal/mcp"
 	"douya/internal/rag"
 	"douya/internal/search"
 	"douya/internal/secrets"
@@ -49,6 +50,8 @@ type Service struct {
 	ragEmbedder    rag.Embedder
 	ragCollection  string
 	ragEnabled     bool
+	// MCP（原生 MCP 客户端，连接外部 MCP server 获取工具）
+	mcpManager *mcp.Manager
 	// prompt_tokens 反馈校准
 	lastPromptTokens    int // 最近一次实际 prompt_tokens（来自 llama-server usage）
 	lastEstimatedTokens int // 对应的估算值
@@ -156,6 +159,21 @@ func (s *Service) SetRAGEnabled(enabled bool) {
 	s.ragMu.Lock()
 	defer s.ragMu.Unlock()
 	s.ragEnabled = enabled
+}
+
+// SetMCPManager 设置 MCP 管理器（由 app 层在启动时注入）。
+// 生活类比：前台装上了外卖对接系统，之后就能把各平台的菜品加入菜单了。
+func (s *Service) SetMCPManager(mgr *mcp.Manager) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.mcpManager = mgr
+}
+
+// getMCPManager 在读锁保护下获取 MCP 管理器快照。
+func (s *Service) getMCPManager() *mcp.Manager {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+	return s.mcpManager
 }
 
 func (s *Service) emit(eventType string, content any) {
