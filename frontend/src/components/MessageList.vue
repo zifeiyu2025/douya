@@ -150,10 +150,7 @@
         v-if="!isAutoScrollEnabled && messages && messages.length > 0"
         class="scroll-to-bottom-btn"
         title="回到底部"
-        @click="
-          scrollToBottom('smooth')
-          isAutoScrollEnabled = true
-        "
+        @click="scrollToBottomAndEnable"
       >
         <svg width="18" height="18" viewBox="0 0 22 22" fill="none">
           <path
@@ -286,6 +283,12 @@ async function handleStopThinking() {
   } finally {
     isStoppingThinking.value = false
   }
+}
+
+// 回到底部并重新启用自动滚动（抽取为方法避免模板内多语句与 prettier semi:false 冲突）
+function scrollToBottomAndEnable() {
+  scrollToBottom('smooth')
+  isAutoScrollEnabled.value = true
 }
 
 // 模型切换 overlay 相关逻辑已移至 App.vue 统一管理
