@@ -326,9 +326,10 @@ func TestConnectAll_partialFailure(t *testing.T) {
 	// 找到两个结果
 	var goodResult, badResult *ConnectResult
 	for i := range results {
-		if results[i].Name == "good" {
+		switch results[i].Name {
+		case "good":
 			goodResult = &results[i]
-		} else if results[i].Name == "bad" {
+		case "bad":
 			badResult = &results[i]
 		}
 	}

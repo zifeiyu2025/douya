@@ -107,8 +107,8 @@ const maxUploadSize = 200 * 1024 * 1024 // 200MB
 // 生活类比：像一个书架最多放 200 本书、总共不超过 2GB——
 // 超过的话要么换更大的书架，要么先把不用的书拿走。
 const (
-	maxDocumentsPerKB  = 200               // 每个知识库最多 200 个文档
-	maxTotalSizePerKB  = 2 * 1024 * 1024 * 1024 // 每个知识库总大小上限 2GB
+	maxDocumentsPerKB = 200                    // 每个知识库最多 200 个文档
+	maxTotalSizePerKB = 2 * 1024 * 1024 * 1024 // 每个知识库总大小上限 2GB
 )
 
 func (a *App) UploadDocument(kbName string, fileName string, fileData string, mimeType string) error {

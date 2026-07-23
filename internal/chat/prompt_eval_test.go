@@ -479,7 +479,8 @@ func sendChat(systemPrompt, userMessage string) (string, error) {
 // TestPromptEval 系统提示词实际模型测试主函数
 //
 // 运行方式：
-//   go test -tags=prompt_eval -run TestPromptEval -v -timeout 60m ./internal/chat/
+//
+//	go test -tags=prompt_eval -run TestPromptEval -v -timeout 60m ./internal/chat/
 func TestPromptEval(t *testing.T) {
 	// 1. 构建当前系统提示词（复用豆芽实际提示词）
 	base := buildBaseSystemPrompt("test-model", "", "append")

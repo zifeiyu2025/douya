@@ -33,15 +33,15 @@ type ToolInfo struct {
 
 // ServerStatus 单个 MCP 服务器的运行状态。
 type ServerStatus struct {
-	Connected bool   `json:"connected"`            // 是否已连接
-	Error     string `json:"error,omitempty"`      // 错误信息（未连接时）
-	ToolCount int    `json:"tool_count"`           // 已注册工具数量
+	Connected bool   `json:"connected"`       // 是否已连接
+	Error     string `json:"error,omitempty"` // 错误信息（未连接时）
+	ToolCount int    `json:"tool_count"`      // 已注册工具数量
 }
 
 // ConnectResult 连接单个 MCP 服务器的结果。
 type ConnectResult struct {
-	Name      string `json:"name"`                 // 服务器名
-	Success   bool   `json:"success"`              // 是否连接成功
-	Error     string `json:"error,omitempty"`      // 失败原因
-	ToolCount int    `json:"tool_count"`           // 发现的工具数量
+	Name      string `json:"name"`            // 服务器名
+	Success   bool   `json:"success"`         // 是否连接成功
+	Error     string `json:"error,omitempty"` // 失败原因
+	ToolCount int    `json:"tool_count"`      // 发现的工具数量
 }

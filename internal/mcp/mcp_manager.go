@@ -20,11 +20,11 @@ import (
 
 // 协议常量
 const (
-	protocolVersion = "2024-11-05"   // MCP 协议版本
-	clientName      = "douya"        // 客户端标识
-	clientVersion   = "1.0.0"        // 客户端版本
-	initTimeout     = 30 * time.Second // 初始化超时
-	listToolsTimeout = 15 * time.Second // 列出工具超时
+	protocolVersion  = "2024-11-05"      // MCP 协议版本
+	clientName       = "douya"           // 客户端标识
+	clientVersion    = "1.0.0"           // 客户端版本
+	initTimeout      = 30 * time.Second  // 初始化超时
+	listToolsTimeout = 15 * time.Second  // 列出工具超时
 	callToolTimeout  = 120 * time.Second // 调用工具超时
 	scannerMaxBuf    = 10 * 1024 * 1024  // scanner 缓冲区上限 10MB（工具结果可能较大）
 )
@@ -95,13 +95,13 @@ type managedServer struct {
 	stdin   io.WriteCloser
 	scanner *bufio.Scanner
 
-	mu      sync.Mutex           // 序列化 call 请求（同一 server 串行通信）
-	nextID  int64                // JSON-RPC 请求 ID 自增
+	mu      sync.Mutex                 // 序列化 call 请求（同一 server 串行通信）
+	nextID  int64                      // JSON-RPC 请求 ID 自增
 	pending map[int64]chan rpcResponse // 请求 ID -> 响应通道
-	done    chan struct{}        // readLoop 结束信号
+	done    chan struct{}              // readLoop 结束信号
 
-	tools  []ToolInfo    // 缓存的工具列表
-	status ServerStatus  // 运行状态
+	tools  []ToolInfo   // 缓存的工具列表
+	status ServerStatus // 运行状态
 }
 
 // Manager 管理所有 MCP 服务器连接，提供统一的工具列表和调用接口。
