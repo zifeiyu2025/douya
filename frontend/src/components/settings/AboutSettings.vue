@@ -44,6 +44,17 @@
           </n-button>
         </div>
       </n-card>
+
+      <!-- 第四个卡片：支持（与其他卡片完全一致的水平布局） -->
+      <n-card class="info-card" hoverable>
+        <div class="info-card-content">
+          <img :src="llamaIcon" alt="llama.cpp" class="info-card-icon-img" />
+          <div class="info-card-text">
+            <span class="info-card-label">支持</span>
+            <span class="info-card-value">llama.cpp</span>
+          </div>
+        </div>
+      </n-card>
     </div>
 
     <!-- 更新检查 -->
@@ -142,6 +153,7 @@ import {
 import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime'
 import { wails, type UpdateInfo } from '../../services/wails'
 import appIcon from '../../assets/images/appicon.png'
+import llamaIcon from '../../assets/images/llama-icon.png'
 
 const GITHUB_URL = 'https://github.com/zifeiyu2025/douya'
 
@@ -337,6 +349,15 @@ onUnmounted(() => {
 .copy-btn {
   margin-left: auto;
   flex-shrink: 0;
+}
+
+/* 第四个卡片图标：与其他 n-icon 同样大小 20x20，方形透明背景 */
+.info-card-icon-img {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: block;
+  object-fit: contain;
 }
 
 /* 更新区域 */
