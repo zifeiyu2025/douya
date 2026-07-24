@@ -174,7 +174,9 @@ describe('Task 21: 背景图双主题支持', () => {
     it('BasicSettings.vue 上传占位区在无背景图时显示（v-if 仅依赖 chat_background）', () => {
       const content = readFileSync(BASIC_SETTINGS_VUE_PATH, 'utf-8')
       // upload-placeholder 的 v-if 应仅依赖 formConfig.chat_background
-      const placeholderLine = content.match(/<div class="upload-placeholder"[^>]*>/)?.[0] ?? ''
+      // 正则允许 <div 与 class 之间有其他属性和换行（prettier 格式化后属性分散多行）
+      const placeholderLine =
+        content.match(/<div\b[^>]*class="upload-placeholder"[^>]*>/)?.[0] ?? ''
       expect(placeholderLine).toBeTruthy()
       expect(placeholderLine).toContain('v-if="!formConfig.chat_background"')
       expect(placeholderLine).not.toContain('isDark')

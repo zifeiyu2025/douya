@@ -3,10 +3,10 @@ package chat
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 
+	"douya/internal/apperror"
 	"douya/internal/config"
 
 	"douya/internal/secrets"
@@ -97,7 +97,7 @@ func (s *Service) CreateConversation() (*Conversation, error) {
 // RenameConversation renames a conversation.
 func (s *Service) RenameConversation(id string, title string) error {
 	if strings.TrimSpace(title) == "" {
-		return fmt.Errorf("title cannot be empty")
+		return apperror.New(apperror.KindInvalidInput, "title cannot be empty")
 	}
 	conv, err := store.GetConversation(s.db, id, secrets.CipherKey(s.cipher))
 	if err != nil {
@@ -142,7 +142,7 @@ func (s *Service) GetMessages(conversationID string) ([]*Message, error) {
 func (s *Service) DeleteMessage(id string) error {
 	msg, err := store.GetMessage(s.db, id, secrets.CipherKey(s.cipher))
 	if err != nil {
-		return fmt.Errorf("get message: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "get message", err)
 	}
 
 	convID := msg.ConversationID
@@ -152,7 +152,7 @@ func (s *Service) DeleteMessage(id string) error {
 	if msg.Role == "user" {
 		msgs, err := store.GetMessagesByConversation(s.db, convID, secrets.CipherKey(s.cipher))
 		if err != nil {
-			return fmt.Errorf("load conversation messages: %w", err)
+			return apperror.Wrap(apperror.KindInternal, "load conversation messages", err)
 		}
 		found := false
 		for _, m := range msgs {
@@ -209,14 +209,14 @@ func (s *Service) RegenerateMessage(msgID string, searchMode string) error {
 
 	targetMsg, err := store.GetMessage(s.db, msgID, secrets.CipherKey(s.cipher))
 	if err != nil {
-		return fmt.Errorf("message %s not found: %w", msgID, err)
+		return apperror.Wrapf(apperror.KindNotFound, "message %s not found", err, msgID)
 	}
 
 	convID := targetMsg.ConversationID
 
 	msgs, err := store.GetMessagesByConversation(s.db, convID, secrets.CipherKey(s.cipher))
 	if err != nil {
-		return fmt.Errorf("load messages: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "load messages", err)
 	}
 
 	var targetIdx int
@@ -229,7 +229,7 @@ func (s *Service) RegenerateMessage(msgID string, searchMode string) error {
 		}
 	}
 	if !found {
-		return fmt.Errorf("message %s not found in conversation", msgID)
+		return apperror.Newf(apperror.KindNotFound, "message %s not found in conversation", msgID)
 	}
 
 	var assistantMsgIDs []string
@@ -267,7 +267,7 @@ func (s *Service) RegenerateMessage(msgID string, searchMode string) error {
 
 	dbMsgs, err := store.GetMessagesByConversation(s.db, convID, secrets.CipherKey(s.cipher))
 	if err != nil {
-		return fmt.Errorf("reload messages: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "reload messages", err)
 	}
 
 	llmMessages, _, err := s.buildLLMMessages(cancelCtx, convID, dbMsgs, userContent, userAttachments, searchMode, "")
@@ -281,7 +281,7 @@ func (s *Service) RegenerateMessage(msgID string, searchMode string) error {
 // SearchMessages searches messages across all conversations.
 func (s *Service) SearchMessages(query string) ([]*Message, error) {
 	if strings.TrimSpace(query) == "" {
-		return nil, fmt.Errorf("query cannot be empty")
+		return nil, apperror.New(apperror.KindInvalidInput, "query cannot be empty")
 	}
 	msgs, err := store.SearchMessages(s.db, query, secrets.CipherKey(s.cipher))
 	if err != nil {
@@ -322,7 +322,7 @@ func (s *Service) ExportConversation(id string, format string) (string, error) {
 	case "csv":
 		return s.exportCSV(conv, filtered)
 	default:
-		return "", fmt.Errorf("unsupported export format: %s", format)
+		return "", apperror.Newf(apperror.KindInvalidInput, "unsupported export format: %s", format)
 	}
 }
 

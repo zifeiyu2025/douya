@@ -12,6 +12,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"douya/internal/apperror"
 	"douya/internal/config"
 	"douya/internal/llm"
 	"douya/internal/store"
@@ -147,10 +148,10 @@ func mergeSystemIntoUser(messages []llm.ChatMessage) []llm.ChatMessage {
 func validateAttachments(caps llm.ModelCapabilities, attachments []Attachment) error {
 	for _, att := range attachments {
 		if att.Type == "image" && !caps.ImageInput {
-			return fmt.Errorf("当前模型不支持图片输入，请加载支持视觉的模型（如 llava 系列）")
+			return apperror.New(apperror.KindInvalidConfig, "当前模型不支持图片输入，请加载支持视觉的模型（如 llava 系列）")
 		}
 		if att.Type == "audio" && !caps.AudioInput {
-			return fmt.Errorf("当前模型不支持音频输入，请加载支持音频的模型（如 whisper 系列）")
+			return apperror.New(apperror.KindInvalidConfig, "当前模型不支持音频输入，请加载支持音频的模型（如 whisper 系列）")
 		}
 	}
 	return nil

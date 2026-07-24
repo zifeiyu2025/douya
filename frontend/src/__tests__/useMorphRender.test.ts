@@ -16,6 +16,8 @@ import { effectScope, ref, nextTick } from 'vue'
 import { useMorphRender } from '../composables/useMorphRender'
 
 // mock marked：简单地将文本按 \n\n 分段为 <p>
+// useMorphRender.ts 从 marked 导入 lexer 和 Parser（非 marked.lexer / marked.Parser），
+// mock 需提供这两个独立导出，否则 vitest 报 "No lexer export defined"
 vi.mock('marked', () => ({
   marked: {
     parse: vi.fn((text: string) => {
@@ -28,6 +30,18 @@ vi.mock('marked', () => ({
     }),
     use: vi.fn(),
     Renderer: vi.fn(() => ({}))
+  },
+  // lexer：将文本按 \n\n 分段为 token 数组（模拟 marked.Lexer.lex）
+  lexer: vi.fn((text: string) => {
+    if (!text) return []
+    return text
+      .split(/\n{2,}/)
+      .filter(p => p.trim())
+      .map(p => ({ type: 'paragraph', raw: p }))
+  }),
+  // Parser.parse：将 token 数组渲染为 HTML（模拟 marked.Parser.parse）
+  Parser: {
+    parse: vi.fn((tokens: { raw: string }[]) => tokens.map(t => `<p>${t.raw}</p>`).join(''))
   }
 }))
 
@@ -39,7 +53,10 @@ vi.mock('../utils/lightSanitize', () => ({
 
 vi.mock('../utils/markdown', () => ({
   renderMarkdown: vi.fn(async (text: string) => `<article>${text}</article>`),
-  escapeHtml: vi.fn((text: string) => text)
+  escapeHtml: vi.fn((text: string) => text),
+  // useMorphRender.renderToken 调用 sanitizeHtml 消毒每个 token 的 HTML，
+  // 测试环境无 XSS 风险，直接返回原 HTML
+  sanitizeHtml: vi.fn((html: string) => html)
 }))
 
 describe('useMorphRender', () => {

@@ -466,37 +466,9 @@ import type { Attachment } from '../services/wails'
 import TokenCounter from './TokenCounter.vue'
 import { showSuccess } from '../utils/showError'
 import { useAttachments } from '../composables/useAttachments'
-
-interface SpeechRecognitionEvent {
-  results: SpeechRecognitionResultList
-  resultIndex: number
-}
-
-interface SpeechRecognitionErrorEvent {
-  error: string
-  message: string
-}
-
-interface SpeechRecognitionInstance {
-  lang: string
-  continuous: boolean
-  interimResults: boolean
-  maxAlternatives: number
-  onresult: ((event: SpeechRecognitionEvent) => void) | null
-  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null
-  onend: (() => void) | null
-  onstart: (() => void) | null
-  start: () => void
-  stop: () => void
-  abort: () => void
-}
-
-declare global {
-  interface Window {
-    SpeechRecognition?: new () => SpeechRecognitionInstance
-    webkitSpeechRecognition?: new () => SpeechRecognitionInstance
-  }
-}
+// 语音输入与上下文菜单逻辑抽取为 composable（基于架构优化：ChatInput.vue 1789 行→拆分独立职责）
+import { useVoiceInput } from '../composables/useVoiceInput'
+import { useContextMenu } from '../composables/useContextMenu'
 
 const emit = defineEmits<{
   send: [content: string, images?: string[], attachments?: Attachment[]]
@@ -515,14 +487,17 @@ const { processFileByType, removeAttachment } = useAttachments(attachments, mess
 const showAttachMenu = ref(false)
 const pendingUploadType = ref<string>('image')
 
-const isListening = ref(false)
-const voiceInterimText = ref('')
-let recognition: SpeechRecognitionInstance | null = null
-let voiceFinalBuffer = ''
-
-const speechSupported = computed(() => {
-  return !!(window.SpeechRecognition || window.webkitSpeechRecognition)
-})
+// 语音输入逻辑抽取到 useVoiceInput composable（基于架构优化）
+// 生活类比：就像雇了一个语音速记员，说话自动转成文字填进输入框
+const {
+  isListening,
+  voiceInterimText,
+  speechSupported,
+  initSpeechRecognition,
+  toggleListening,
+  stopListening,
+  cleanup: cleanupVoiceInput
+} = useVoiceInput(inputText)
 
 const searchMode = computed(() => settingsStore.searchMode)
 const thinkingMode = computed(() => settingsStore.thinkingSoftSwitch)
@@ -676,102 +651,6 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 
-const contextMenuVisible = ref(false)
-const contextMenuX = ref(0)
-const contextMenuY = ref(0)
-const canCut = ref(false)
-const canCopy = ref(false)
-
-function handleContextMenu(e: MouseEvent) {
-  e.preventDefault()
-  const ta = textareaRef.value
-  if (!ta) return
-  // 检查是否有选中文本
-  const start = ta.selectionStart
-  const end = ta.selectionEnd
-  canCut.value = start !== end
-  canCopy.value = start !== end
-  // 边界检测：确保菜单不超出视窗
-  const menuWidth = 160
-  const menuHeight = 180
-  let x = e.clientX
-  let y = e.clientY
-  if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 4
-  if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 4
-  contextMenuX.value = x
-  contextMenuY.value = y
-  contextMenuVisible.value = true
-}
-
-function closeContextMenu() {
-  contextMenuVisible.value = false
-}
-
-function ctxCut() {
-  if (!canCut.value) return
-  document.execCommand('cut')
-  closeContextMenu()
-}
-
-function ctxCopy() {
-  if (!canCopy.value) return
-  document.execCommand('copy')
-  closeContextMenu()
-}
-
-async function ctxPaste() {
-  closeContextMenu()
-  try {
-    // 优先尝试读取剪贴板文件
-    const clipboardItems = await navigator.clipboard.read()
-    for (const item of clipboardItems) {
-      for (const type of item.types) {
-        if (
-          type.startsWith('image/') ||
-          type.startsWith('audio/') ||
-          type.startsWith('video/') ||
-          type === 'application/pdf'
-        ) {
-          const blob = await item.getType(type)
-          const file = new File([blob], `pasted-${Date.now()}.${type.split('/')[1]}`, { type })
-          // 模拟 paste 事件处理
-          const fakeEvent = {
-            clipboardData: { items: [{ kind: 'file', type, getAsFile: () => file }] },
-            preventDefault: () => {}
-          } as unknown as ClipboardEvent
-          handlePaste(fakeEvent)
-          return
-        }
-      }
-    }
-    // 没有文件，读取文本
-    const text = await navigator.clipboard.readText()
-    if (text) {
-      const ta = textareaRef.value
-      if (ta) {
-        const start = ta.selectionStart
-        const end = ta.selectionEnd
-        inputText.value = inputText.value.slice(0, start) + text + inputText.value.slice(end)
-        nextTick(() => {
-          ta.selectionStart = ta.selectionEnd = start + text.length
-          ta.focus()
-        })
-      }
-    }
-  } catch {
-    message.warning('粘贴失败，请使用 Ctrl+V')
-  }
-}
-
-function ctxSelectAll() {
-  const ta = textareaRef.value
-  if (ta) {
-    ta.select()
-    ta.focus()
-  }
-  closeContextMenu()
-}
-
 function handlePaste(e: ClipboardEvent) {
   const clipboardData = e.clipboardData
   if (!clipboardData) return
@@ -804,6 +683,23 @@ function handlePaste(e: ClipboardEvent) {
     processFileByType(fileType, file)
   }
 }
+
+// 上下文菜单逻辑抽取到 useContextMenu composable（基于架构优化）
+// 生活类比：就像在文字上右键弹出的小工具箱——剪切/复制/粘贴/全选
+// 依赖注入：将 handlePaste 作为参数传入，让 composable 内部的"粘贴"操作能复用主组件的文件处理逻辑
+const {
+  contextMenuVisible,
+  contextMenuX,
+  contextMenuY,
+  canCut,
+  canCopy,
+  handleContextMenu,
+  closeContextMenu,
+  ctxCut,
+  ctxCopy,
+  ctxPaste,
+  ctxSelectAll
+} = useContextMenu(textareaRef, inputText, handlePaste, message)
 
 // isLikelyBinaryContent / checkFileSize / readFileWithErrorHandling /
 // 6 个 process*File 函数 / removeAttachment 已抽取到 useAttachments composable（基于 F-1.8+F-3.2）
@@ -964,107 +860,8 @@ function handleFileSelect(e: Event) {
 //   - 其他 5 个通过 processFileCommon 高阶函数 + FILE_CONFIGS 表驱动统一处理
 //   - 原约 130 行重复代码缩减为 composable 中的 1 个通用函数 + 1 个配置表
 
-function initSpeechRecognition() {
-  const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition
-  if (!SpeechRecognitionCtor) return
-
-  recognition = new SpeechRecognitionCtor()
-  recognition.lang = 'zh-CN'
-  recognition.continuous = true
-  recognition.interimResults = true
-  recognition.maxAlternatives = 1
-
-  recognition.onresult = (event: SpeechRecognitionEvent) => {
-    let interim = ''
-    let finalTranscript = ''
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      const result = event.results[i]
-      if (result.isFinal) {
-        finalTranscript += result[0].transcript
-      } else {
-        interim += result[0].transcript
-      }
-    }
-    if (finalTranscript) {
-      voiceFinalBuffer += finalTranscript
-      inputText.value = voiceFinalBuffer + interim
-    } else {
-      inputText.value = voiceFinalBuffer + interim
-    }
-    voiceInterimText.value = interim
-  }
-
-  recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-    console.warn('语音识别错误:', event.error)
-    if (event.error === 'not-allowed') {
-      isListening.value = false
-      voiceInterimText.value = ''
-    }
-  }
-
-  recognition.onend = () => {
-    if (isListening.value) {
-      try {
-        recognition?.start()
-      } catch {
-        isListening.value = false
-        voiceInterimText.value = ''
-      }
-    } else {
-      voiceInterimText.value = ''
-    }
-  }
-
-  recognition.onstart = () => {
-    isListening.value = true
-  }
-}
-
-function toggleListening() {
-  if (!speechSupported.value) return
-  if (isListening.value) {
-    stopListening()
-  } else {
-    startListening()
-  }
-}
-
-function doStartRecognition(rec: SpeechRecognitionInstance) {
-  try {
-    rec.start()
-  } catch {
-    console.warn('无法启动语音识别')
-  }
-}
-
-function startListening() {
-  if (!recognition) {
-    initSpeechRecognition()
-  }
-  if (!recognition) return
-
-  voiceFinalBuffer = inputText.value
-  voiceInterimText.value = ''
-
-  try {
-    recognition.start()
-  } catch {
-    recognition = null
-    initSpeechRecognition()
-    if (recognition) {
-      doStartRecognition(recognition)
-    }
-  }
-}
-
-function stopListening() {
-  if (recognition) {
-    isListening.value = false
-    recognition.stop()
-  }
-  voiceInterimText.value = ''
-  voiceFinalBuffer = ''
-}
+// initSpeechRecognition / toggleListening / startListening / stopListening
+// 已抽取到 useVoiceInput composable（基于架构优化：ChatInput.vue 1789 行→拆分独立职责）
 
 function handleSend() {
   const text = inputText.value.trim()
@@ -1112,11 +909,8 @@ onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('click', closeContextMenu)
   document.removeEventListener('contextmenu', closeContextMenu, true)
-  if (recognition) {
-    isListening.value = false
-    recognition.abort()
-    recognition = null
-  }
+  // 释放语音识别资源（composable 内部清理）
+  cleanupVoiceInput()
 })
 </script>
 

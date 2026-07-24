@@ -105,3 +105,21 @@ jobs:
           fi
           echo ""
           echo "🎉 所有包覆盖率均达标"
+
+  config-sync-check:
+    # 配置字段同步检查：防止 Go Config struct 与前端 TS Config / DEFAULT_CONFIG 漂移
+    # 运行 cmd/checkconfig 验证工具，对比三处字段是否一致
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          check-latest: true
+
+      - name: Check config field sync
+        shell: bash
+        run: go run ./cmd/checkconfig

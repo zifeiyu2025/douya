@@ -7,12 +7,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"douya/internal/apperror"
 	"douya/internal/config"
 	"douya/internal/llm"
 	"douya/internal/mcp"
@@ -242,13 +242,13 @@ type CompressResult struct {
 // 复用的核心函数：CalcSlidingWindowSize / summarizeMessages / shouldMergeLongSummary / mergeLongSummary
 func (s *Service) CompressConversation(convID string) (*CompressResult, error) {
 	if convID == "" {
-		return nil, fmt.Errorf("会话 ID 不能为空")
+		return nil, apperror.New(apperror.KindInvalidInput, "会话 ID 不能为空")
 	}
 
 	// 1. 加载会话所有 DB 消息
 	dbMsgs, err := store.GetMessagesByConversation(s.db, convID, secrets.CipherKey(s.cipher))
 	if err != nil {
-		return nil, fmt.Errorf("加载消息失败: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "加载消息失败", err)
 	}
 
 	// 2. 读取上下文大小（用于计算滑动窗口）
@@ -293,7 +293,7 @@ func (s *Service) CompressConversation(convID string) (*CompressResult, error) {
 	// 5. 获取 LLM 客户端
 	client := s.getClientSnapshot()
 	if client == nil {
-		return nil, fmt.Errorf("LLM 客户端未初始化，请等待模型加载完成")
+		return nil, apperror.New(apperror.KindUnavailable, "LLM 客户端未初始化，请等待模型加载完成")
 	}
 
 	// 6. 同步生成新短期摘要
@@ -308,14 +308,14 @@ func (s *Service) CompressConversation(convID string) (*CompressResult, error) {
 		// 重置模式：从当前所有被裁剪消息重新生成摘要，丢弃旧摘要
 		newShortSummary = resetSummary(ctx, client, trimmedMsgs)
 		if newShortSummary == "" {
-			return nil, fmt.Errorf("摘要重置失败，请稍后重试或检查模型是否正常")
+			return nil, apperror.New(apperror.KindInternal, "摘要重置失败，请稍后重试或检查模型是否正常")
 		}
 		newLongSummary = "" // 清空长期摘要，下次 mergeLongSummary 会重新积累
 	} else {
 		// 原有流程：增量短期摘要 + 每 5 次合并长期摘要
 		newShortSummary = summarizeMessages(ctx, client, shortSummary, trimmedMsgs)
 		if newShortSummary == "" {
-			return nil, fmt.Errorf("摘要生成失败，请稍后重试或检查模型是否正常")
+			return nil, apperror.New(apperror.KindInternal, "摘要生成失败，请稍后重试或检查模型是否正常")
 		}
 		if shouldMergeLongSummary(compressCount) {
 			newLongSummary = mergeLongSummary(ctx, client, longSummary, newShortSummary)
@@ -324,7 +324,7 @@ func (s *Service) CompressConversation(convID string) (*CompressResult, error) {
 
 	// 8. 保存分层摘要到 DB（短期每次更新，长期仅在合并时有值）
 	if err := store.UpdateConversationLayeredSummary(s.db, convID, newShortSummary, newLongSummary); err != nil {
-		return nil, fmt.Errorf("保存摘要失败: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "保存摘要失败", err)
 	}
 
 	totalTrimmed := len(trimmedMsgs)

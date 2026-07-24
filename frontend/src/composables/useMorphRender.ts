@@ -8,8 +8,8 @@
  * - 未闭合代码围栏补全：让 marked 识别为 code token，走 renderer.code 高亮
  *
  * 在现有 marked 管道上实现（不引入 remark/rehype）：
- * - marked.lexer 解析为 tokens
- * - marked.Parser.parse 渲染单个 token 为 HTML
+ * - lexer 解析为 tokens
+ * - Parser.parse 渲染单个 token 为 HTML
  * - sanitizeHtml (DOMPurify) 消毒每个 token 的 HTML
  *
  * 生活类比：像翻译一本书，已经翻完的章节（stable blocks）存档，
@@ -24,7 +24,7 @@
  * ```
  */
 import { ref, watch, onScopeDispose, type Ref } from 'vue'
-import { marked, Parser } from 'marked'
+import { Parser, lexer } from 'marked'
 import { renderMarkdown, sanitizeHtml } from '../utils/markdown'
 
 // marked token 的最小类型约束（marked 的 Token 类型较复杂，用结构化约束即可）
@@ -121,7 +121,7 @@ export function useMorphRender() {
    * 分块渲染：stable blocks 缓存 + unstable block 实时渲染
    *
    * 核心优化（对标 llama.cpp webui）：
-   * 1. marked.lexer 解析为 tokens
+   * 1. lexer 解析为 tokens
    * 2. 除最后一个 token 外都是 stable，走缓存或首次渲染后缓存
    * 3. 最后一个 token（unstable）每次重新渲染（流式中持续变化）
    * 4. append mode 下复用 stable 缓存，避免重复渲染
@@ -140,8 +140,10 @@ export function useMorphRender() {
       blockCache.clear()
     }
 
-    // 解析为 tokens（marked.lexer 使用 marked.defaults 配置：gfm、breaks、renderer）
-    const tokens = marked.lexer(closed) as unknown as MarkedToken[]
+    // 解析为 tokens（lexer 使用 Lexer.defaults，与 marked.use() 设置的全局配置同步：gfm、breaks、renderer）
+    // 注意：marked v18 运行时 marked.lexer 属性不存在（类型声明有但未挂载到函数对象），
+    // 必须用独立导出的 lexer 函数（即 _Lexer.lex）
+    const tokens = lexer(closed) as unknown as MarkedToken[]
 
     // 除最后一个 token 外都是 stable
     const stableCount = Math.max(tokens.length - 1, 0)

@@ -228,9 +228,9 @@ export interface SearchAPIKeys {
 /**
  * 配置类型（与后端 internal/config/config.go 的 Config struct 对齐）
  *
- * 路线图：未来可用 `go generate` 从 Go struct 自动生成 TS interface，
- * 避免手动维护两份字段清单导致漂移（参见任务 29.5 评估）。
- * 当前仍手工维护，新增字段时务必同步 Go Config / TS Config / DEFAULT_CONFIG 三处。
+ * 字段同步保障：运行 `go run ./cmd/checkconfig` 可自动检测 Go Config / TS Config /
+ * DEFAULT_CONFIG 三处字段是否一致，CI 也会在每次提交时自动运行此检查。
+ * 新增字段时务必同步三处，否则 CI 会报错。
  */
 export interface Config {
   model_path: string
@@ -240,6 +240,9 @@ export interface Config {
   api_base: string
   port: number
   context_size: number
+  // 主动压缩阈值：当估算 token 占比 >= 该阈值时，提前触发上下文压缩（不等溢出）
+  // 默认 0.8（80%），范围 0.5-0.95。值越小越激进（更早压缩）
+  proactive_compress_threshold: number
   temperature: number
   top_p: number
   top_k: number
@@ -486,6 +489,7 @@ export const DEFAULT_CONFIG: Config = {
   api_base: 'http://127.0.0.1:8080',
   port: 8080,
   context_size: 8192,
+  proactive_compress_threshold: 0.8, // P1-A1: 80% 时主动压缩，为后续对话留出 20% 空间
   temperature: 0.8, // 与 Go DefaultConfig 对齐（llama.cpp 默认值）
   top_p: 0.95,
   top_k: 40, // 与 Go DefaultConfig 对齐（llama.cpp 默认值）

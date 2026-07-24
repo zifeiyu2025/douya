@@ -5,13 +5,13 @@ package chat
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
 
+	"douya/internal/apperror"
 	"douya/internal/llm"
 	"douya/internal/system"
 )
@@ -87,13 +87,13 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 		// 防止 panic 导致 infoCh 永不写入、调用方永久阻塞
 		defer func() {
 			if r := recover(); r != nil {
-				infoCh <- infoResult{nil, fmt.Errorf("get model info panic: %v", r)}
+				infoCh <- infoResult{nil, apperror.Newf(apperror.KindInternal, "get model info panic: %v", r)}
 			}
 		}()
 		var info *llm.ModelInfo
 		var err error
 		if client == nil {
-			infoCh <- infoResult{nil, fmt.Errorf("llm client is nil")}
+			infoCh <- infoResult{nil, apperror.New(apperror.KindUnavailable, "llm client is nil")}
 			return
 		}
 		if modelName != "" {
@@ -110,7 +110,7 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 		// 防止 panic 导致 propsCh 永不写入、调用方永久阻塞
 		defer func() {
 			if r := recover(); r != nil {
-				propsCh <- propsResult{nil, fmt.Errorf("get server props panic: %v", r)}
+				propsCh <- propsResult{nil, apperror.Newf(apperror.KindInternal, "get server props panic: %v", r)}
 			}
 		}()
 		if cached != nil {
@@ -118,7 +118,7 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 			return
 		}
 		if client == nil {
-			propsCh <- propsResult{nil, fmt.Errorf("llm client is nil")}
+			propsCh <- propsResult{nil, apperror.New(apperror.KindUnavailable, "llm client is nil")}
 			return
 		}
 		props, err := client.GetServerProps(ctx, modelName)
@@ -130,7 +130,7 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 	if ir.err != nil {
 		// Drain props channel
 		<-propsCh
-		return fmt.Errorf("failed to get model info: %w", ir.err)
+		return apperror.Wrap(apperror.KindInternal, "failed to get model info", ir.err)
 	}
 	info := ir.info
 

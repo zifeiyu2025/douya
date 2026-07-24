@@ -33,7 +33,8 @@ vi.mock('../services/wails', async importOriginal => {
       subscribeServerStatus: vi.fn().mockReturnValue(() => {}),
       subscribeSwitchProgress: vi.fn().mockReturnValue(() => {}),
       subscribeAbnormalCleanup: vi.fn().mockReturnValue(() => {}),
-      prepareShutdown: vi.fn()
+      prepareShutdown: vi.fn(),
+      getLastPromptTokens: vi.fn().mockResolvedValue(0)
     }
   }
 })
@@ -45,6 +46,7 @@ function setupGeneratingState(store: ReturnType<typeof useChatStore>, convId: st
     streamingContent: '',
     streamingChunks: [],
     thinkingContent: '',
+    thinkingChunks: [],
     searchResults: '',
     isSearching: false,
     isThinking: false,
@@ -80,14 +82,19 @@ describe('chat store - handleStreamEvent', () => {
     vi.useRealTimers()
   })
 
-  it('should handle thinking event', () => {
+  it('should handle thinking event', async () => {
+    // handleThinking 首个 token 立即 flush，后续 token 走 20ms 节流（scheduleStreamingFlush），
+    // 需用 fake timers 推进时间让第二个 token 的 flush 触发后再校验。
+    vi.useFakeTimers()
     const store = useChatStore()
     setupGeneratingState(store)
 
     store.handleStreamEvent({ type: 'thinking', content: '分析中' } as StreamEvent)
     store.handleStreamEvent({ type: 'thinking', content: '...' } as StreamEvent)
 
+    await vi.advanceTimersByTimeAsync(20)
     expect(store.thinkingContent).toBe('分析中...')
+    vi.useRealTimers()
   })
 
   it('should handle search_start event', () => {

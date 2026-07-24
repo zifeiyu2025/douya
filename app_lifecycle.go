@@ -64,7 +64,9 @@ func (a *App) startup(ctx context.Context) {
 			msg.WriteString("⚠️ AI 推理引擎（runtime 目录）不完整，无法启动应用。\n\n")
 			msg.WriteString("缺失的文件：\n")
 			for _, p := range checkResult.RuntimeMissing {
-				msg.WriteString("  ❌ " + p + "\n")
+				msg.WriteString("  ❌ ")
+				msg.WriteString(p)
+				msg.WriteString("\n")
 			}
 			msg.WriteString("\n")
 			msg.WriteString("【这是什么】\n")
@@ -392,7 +394,7 @@ func (a *App) startup(ctx context.Context) {
 //
 // waitForServerStop 当前实现下不影响行为（srv.Stop 本身为同步阻塞），
 // 保留该参数以匹配任务规约签名，并为未来"异步停止"差异预留扩展点。
-func (a *App) shutdownInternal(ctx context.Context, waitForServerStop bool) {
+func (a *App) shutdownInternal(_ context.Context, waitForServerStop bool) {
 	a.stopOnce.Do(func() {
 		if a.service != nil {
 			a.service.StopGeneration()

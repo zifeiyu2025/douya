@@ -6,11 +6,11 @@ package chat
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/rs/zerolog/log"
 
+	"douya/internal/apperror"
 	"douya/internal/config"
 	"douya/internal/llm"
 	"douya/internal/search"
@@ -229,7 +229,7 @@ func (s *Service) executeStreamAndHandleErrors(streamCtx context.Context, cancel
 	result, err := s.runStreamWithStandardErrors(
 		streamCtx, cancelCtx, convID, convID, client, req, acc, cfg,
 		"生成超时，请重试",
-		fmt.Errorf("stream chat timeout"),
+		apperror.New(apperror.KindTimeout, "stream chat timeout"),
 		"[chat] context exceeded, trimming and retrying",
 		"stream chat (retry after context trim): %w",
 		"stream chat: %w",

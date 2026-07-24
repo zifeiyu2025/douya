@@ -12,6 +12,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"douya/internal/apperror"
 	"douya/internal/config"
 	"douya/internal/llm"
 	"douya/internal/search"
@@ -162,7 +163,7 @@ func (a *StreamAccumulator) callback() func(llm.SSEChunk) error {
 		// 检查缓冲区大小，防止内存无限增长
 		if a.FullContent.Len()+a.FullThinking.Len() > maxStreamBufferSize {
 			log.Warn().Msgf("[stream] buffer size exceeded %dMB, truncating", maxStreamBufferSize/1024/1024)
-			return fmt.Errorf("response exceeds maximum buffer size (%dMB)", maxStreamBufferSize/1024/1024)
+			return apperror.Newf(apperror.KindInvalidInput, "response exceeds maximum buffer size (%dMB)", maxStreamBufferSize/1024/1024)
 		}
 
 		choice := chunk.Choices[0]
@@ -554,7 +555,7 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 		conv := &store.Conversation{Title: "新对话"}
 		if err := store.CreateConversation(s.db, conv, secrets.CipherKey(s.cipher)); err != nil {
 			s.emitForConv("", "error", enhanceErrorWithHint(fmt.Sprintf("创建对话失败: %v", err)))
-			return fmt.Errorf("create conversation: %w", err)
+			return apperror.Wrap(apperror.KindInternal, "create conversation", err)
 		}
 		convID = conv.ID
 		s.mutex.Lock()
@@ -585,7 +586,7 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 	}
 	if err := store.CreateMessage(s.db, userMsg, secrets.CipherKey(s.cipher)); err != nil {
 		s.emitForConv(convID, "error", enhanceErrorWithHint(fmt.Sprintf("保存消息失败: %v", err)))
-		return fmt.Errorf("save user message: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "save user message", err)
 	}
 	emitMsg := &Message{
 		ID:             userMsg.ID,
@@ -610,7 +611,7 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 	dbMsgs, err := store.GetMessagesByConversation(s.db, convID, secrets.CipherKey(s.cipher))
 	if err != nil {
 		s.emitForConv(convID, "error", enhanceErrorWithHint(fmt.Sprintf("加载消息失败: %v", err)))
-		return fmt.Errorf("load messages: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "load messages", err)
 	}
 
 	var searchContext string

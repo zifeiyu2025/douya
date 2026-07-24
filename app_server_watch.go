@@ -195,7 +195,7 @@ func (a *App) makeLoadProgressCallback(ctx context.Context, modelForDetect strin
 }
 
 // handleModelLoadSuccess 处理模型加载成功：设置就绪状态、重新检测架构、推送成功事件。
-func (a *App) handleModelLoadSuccess(ctx context.Context, modelForDetect string, logMsg string) {
+func (a *App) handleModelLoadSuccess(_ context.Context, modelForDetect string, logMsg string) {
 	zlog.Info().Str("model", modelForDetect).Msg(logMsg)
 	a.serverReady.Store(true)
 	// 模型加载完成后重新检测架构，因为首次检测时 mmproj 可能尚未加载

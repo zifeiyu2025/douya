@@ -11,6 +11,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"douya/internal/apperror"
 	"douya/internal/config"
 	"douya/internal/llm"
 	"douya/internal/mcp"
@@ -381,7 +382,7 @@ func (s *Service) executeToolCallStream(cancelCtx context.Context, convID string
 	result, err := s.runStreamWithStandardErrors(
 		toolCtx, cancelCtx, convID, toolConvID, client, req, acc, cfg,
 		"工具调用生成超时",
-		fmt.Errorf("tool call stream timeout"),
+		apperror.New(apperror.KindTimeout, "tool call stream timeout"),
 		"[chat] tool call context exceeded, trimming and retrying",
 		"tool call stream (retry after context trim): %w",
 		"stream chat after search: %w",
