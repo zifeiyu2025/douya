@@ -55,6 +55,34 @@ export const MODEL_REFS: Record<string, ModelRefConfig> = {
     ],
     note: 'Qwen3.5-9B 官方推荐：非思考模式 temperature=0.7/top_p=0.8，思考模式 temperature=1.0/top_p=0.95。编码任务建议 temperature=0.6'
   },
+  'qwen3.5-4b': {
+    name: 'Qwen3.5-4B',
+    raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 1.0,
+      top_p: 0.95,
+      top_k: 20,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K / YaRN 扩展 1M' },
+      { label: '温度', value: '0.7 (非思考/常规)' },
+      { label: 'Top P', value: '0.8 (非思考)' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~4B (Dense)' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K / YaRN 扩展 1M' },
+      { label: '温度', value: '1.0 (思考模式/常规)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~4B (Dense)' }
+    ],
+    note: 'Qwen3.5-4B 官方推荐：非思考模式 temperature=0.7/top_p=0.8，思考模式 temperature=1.0/top_p=0.95。无审查/蒸馏变体参数一致'
+  },
   'gemma-4-e4b': {
     name: 'Gemma4-E4B',
     raw: { temperature: 1.0, top_p: 0.95, top_k: 64, context_size: 32768, repeat_penalty: 1.0 },
@@ -631,6 +659,36 @@ export const MODEL_REFS: Record<string, ModelRefConfig> = {
   // 主流开源模型卡片（Tier 1）
   // 无审查/蒸馏等变体自动匹配到基础模型卡片，参数一致
   // ============================================================
+  // Qwen3.5 通用兜底卡片：当文件名含 qwen3.5 但不匹配具体版本（4b/9b 等）时使用
+  // 关键：key 长度 7 > qwen3 长度 5，会先于 qwen3 匹配，避免 Qwen3.5 被误识别为 Qwen3
+  'qwen3.5': {
+    name: 'Qwen3.5 系列',
+    raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 1.0,
+      top_p: 0.95,
+      top_k: 20,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K-256K / YaRN 扩展 1M' },
+      { label: '温度', value: '0.7 (非思考/常规)' },
+      { label: 'Top P', value: '0.8 (非思考)' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '4B/9B 等' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K-256K / YaRN 扩展 1M' },
+      { label: '温度', value: '1.0 (思考模式/常规)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '4B/9B 等' }
+    ],
+    note: 'Qwen3.5 系列官方推荐：非思考 temperature=0.7/top_p=0.8，思考 temperature=1.0/top_p=0.95。无审查/蒸馏变体参数一致'
+  },
   qwen3: {
     name: 'Qwen3 系列',
     raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },

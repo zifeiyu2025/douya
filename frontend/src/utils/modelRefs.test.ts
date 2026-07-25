@@ -67,6 +67,35 @@ describe('matchModelRef', () => {
     }
   })
 
+  it('匹配 Qwen3.5 具体版本（4B/9B）', () => {
+    // Qwen3.5-4B 系列（含无审查变体）应匹配 qwen3.5-4b，而非 qwen3
+    const testNames4B = [
+      'Qwen3.5-4B-Instruct',
+      'Qwen3.5-4B-Uncensored-HauhauCS-Aggressive-Q6_K.gguf'
+    ]
+    for (const name of testNames4B) {
+      const result = matchModelRef(name, MODEL_REFS)
+      expect(result, `${name} should match qwen3.5-4b`).not.toBeNull()
+      expect(result?.name).toBe('Qwen3.5-4B')
+    }
+    // Qwen3.5-9B 系列（含 U 变体）应匹配 qwen3.5-9b
+    const testNames9B = ['Qwen3.5-9B-Instruct', 'Qwen3.5U-9B-Q4_K_M.gguf']
+    for (const name of testNames9B) {
+      const result = matchModelRef(name, MODEL_REFS)
+      expect(result, `${name} should match qwen3.5-9b`).not.toBeNull()
+      expect(result?.name).toBe('Qwen3.5-9B')
+    }
+  })
+
+  it('Qwen3.5 未知版本兜底匹配（不误判为 Qwen3）', () => {
+    // 未明确标注 4B/9B 的 Qwen3.5 变体应匹配 qwen3.5 兜底卡片，而非 qwen3
+    const result = matchModelRef('Qwen3.5-SomeFutureVariant-7B', MODEL_REFS)
+    expect(result).not.toBeNull()
+    expect(result?.name).toBe('Qwen3.5 系列')
+    // 关键断言：不能匹配到 Qwen3 系列
+    expect(result?.name).not.toBe('Qwen3 系列')
+  })
+
   it('匹配 Qwen3-Coder 编程专用模型', () => {
     const result = matchModelRef('Qwen3-Coder-30B-A3B-Instruct-GGUF', MODEL_REFS)
     expect(result).not.toBeNull()
