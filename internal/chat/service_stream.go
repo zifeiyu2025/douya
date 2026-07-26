@@ -55,6 +55,10 @@ var searchToolDef = llm.ToolDefinition{
 // buildAvailableTools 构建当前可用的工具列表（search + MCP 工具）。
 // 生活类比：把自家的招牌菜（search）和各外卖平台的菜品（MCP 工具）合并到一张菜单上。
 // includeSearch: 是否包含 search 工具（在 tool call 循环中始终包含，首次请求取决于 searchMode）
+//
+// MCP 工具由 llama-server 通过 GET /tools 端点提供（含内置工具 + 已配置的 MCP server 工具），
+// 工具名形如 "<server>_<tool>" 由 llama-server 自动加前缀避免冲突。
+// 这里使用懒加载缓存：第一次拉取后缓存，避免每个 tool call 循环都做 HTTP 调用。
 func (s *Service) buildAvailableTools(includeSearch bool) []llm.ToolDefinition {
 	var tools []llm.ToolDefinition
 
@@ -63,22 +67,128 @@ func (s *Service) buildAvailableTools(includeSearch bool) []llm.ToolDefinition {
 		tools = append(tools, searchToolDef)
 	}
 
-	// 添加 MCP 工具（如果 MCP Manager 已连接）
-	mgr := s.getMCPManager()
-	if mgr != nil {
-		for _, t := range mgr.ListTools() {
-			tools = append(tools, llm.ToolDefinition{
-				Type: "function",
-				Function: llm.FunctionDef{
-					Name:        t.Name,
-					Description: t.Description,
-					Parameters:  t.InputSchema,
-				},
-			})
-		}
-	}
+	// 添加 MCP 工具（从缓存获取，缓存为空时尝试拉取一次）
+	tools = append(tools, s.getMcpTools()...)
 
 	return tools
+}
+
+// getMcpTools 返回缓存的 MCP 工具列表（懒加载）。
+// 缓存未初始化时尝试拉取一次（失败也置为已初始化，避免反复重试）；
+// 已初始化后直接返回缓存（即使为空），直到显式调用 RefreshMcpToolsCache 重置。
+// 生活类比：前台第一次客人点菜时去后厨问菜单，问过一次后即使菜单为空也不重复问，
+// 直到经理（app 层）主动让前台重新去问。
+func (s *Service) getMcpTools() []llm.ToolDefinition {
+	// 快速路径：已初始化直接返回（缓存可能为空但已拉取过）
+	s.mcpToolsCacheMu.RLock()
+	if s.mcpToolsInitialized {
+		tools := make([]llm.ToolDefinition, len(s.mcpToolsCache))
+		copy(tools, s.mcpToolsCache)
+		s.mcpToolsCacheMu.RUnlock()
+		return tools
+	}
+	s.mcpToolsCacheMu.RUnlock()
+
+	// 慢速路径：未初始化，尝试拉取一次
+	s.refreshMcpToolsCache()
+
+	s.mcpToolsCacheMu.RLock()
+	defer s.mcpToolsCacheMu.RUnlock()
+	tools := make([]llm.ToolDefinition, len(s.mcpToolsCache))
+	copy(tools, s.mcpToolsCache)
+	return tools
+}
+
+// RefreshMcpToolsCache 强制刷新 MCP 工具缓存。
+// 公开方法：供 app 层在 llama-server 启动/重启后或用户改 MCP 配置后调用。
+// 会重置初始化标志，允许下次 getMcpTools 重新拉取。
+func (s *Service) RefreshMcpToolsCache() {
+	s.mcpToolsCacheMu.Lock()
+	s.mcpToolsInitialized = false
+	s.mcpToolsCacheMu.Unlock()
+	s.refreshMcpToolsCache()
+}
+
+// SetMcpToolsCache 直接覆盖 MCP 工具缓存（跳过 HTTP 拉取）。
+// 用途：app 层已在别处拉取过工具列表时直接注入；测试中用于避免 mock server 触发懒加载。
+// 传 nil 会清空缓存并标记为未初始化（下次 getMcpTools 会重新拉取）；
+// 传非 nil 切片（包括空切片）会标记为已初始化，不再触发拉取。
+func (s *Service) SetMcpToolsCache(tools []llm.ToolDefinition) {
+	s.mcpToolsCacheMu.Lock()
+	defer s.mcpToolsCacheMu.Unlock()
+	if tools == nil {
+		s.mcpToolsCache = nil
+		s.mcpToolsInitialized = false
+	} else {
+		s.mcpToolsCache = make([]llm.ToolDefinition, len(tools))
+		copy(s.mcpToolsCache, tools)
+		s.mcpToolsInitialized = true
+	}
+}
+
+// GetCachedMcpTools 返回缓存的 MCP 工具列表的副本（供 app 层查询状态/列表用）。
+// 生活类比：把后厨的菜单复印一份给前台，前台拿复印的看不会影响后厨做菜。
+func (s *Service) GetCachedMcpTools() []llm.ToolDefinition {
+	s.mcpToolsCacheMu.RLock()
+	defer s.mcpToolsCacheMu.RUnlock()
+	tools := make([]llm.ToolDefinition, len(s.mcpToolsCache))
+	copy(tools, s.mcpToolsCache)
+	return tools
+}
+
+// refreshMcpToolsCache 通过 GET /tools 拉取工具列表并更新缓存。
+// 拉取失败不抛错，只记录日志（避免阻塞对话流程，search 工具仍可用）。
+// 无论成功失败都会置 mcpToolsInitialized=true，避免反复重试失败的请求；
+// 失败后用户/ app 层可通过 RefreshMcpToolsCache 显式重置再重试。
+func (s *Service) refreshMcpToolsCache() {
+	defer func() {
+		s.mcpToolsCacheMu.Lock()
+		s.mcpToolsInitialized = true
+		s.mcpToolsCacheMu.Unlock()
+	}()
+
+	client := s.getClientSnapshot()
+	if client == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	body, err := client.GetToolsList(ctx)
+	if err != nil {
+		log.Warn().Err(err).Msg("[chat] 拉取 MCP 工具列表失败，本次使用空列表（仅影响 MCP 工具，search 仍可用）")
+		return
+	}
+
+	// llama-server /tools 返回的是 []ToolDefinition 直接数组（与 OpenAI tools 字段格式一致）
+	var tools []llm.ToolDefinition
+	if err := json.Unmarshal(body, &tools); err != nil {
+		log.Warn().Err(err).Str("body_preview", truncateForLog(string(body), 200)).Msg("[chat] 解析 MCP 工具列表失败")
+		return
+	}
+
+	// 过滤掉 "search" 工具（豆芽自己实现，避免与 llama-server 内置 search 冲突）
+	filtered := make([]llm.ToolDefinition, 0, len(tools))
+	for _, t := range tools {
+		if t.Function.Name == "search" {
+			continue
+		}
+		filtered = append(filtered, t)
+	}
+
+	s.mcpToolsCacheMu.Lock()
+	s.mcpToolsCache = filtered
+	s.mcpToolsCacheMu.Unlock()
+
+	log.Info().Int("count", len(filtered)).Msg("[chat] MCP 工具列表已刷新")
+}
+
+// truncateForLog 截断字符串用于日志输出，避免过长日志占用大量存储。
+func truncateForLog(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "...(truncated)"
 }
 
 type StreamAccumulator struct {

@@ -15,7 +15,6 @@ import (
 	"douya/internal/apperror"
 	"douya/internal/config"
 	"douya/internal/llm"
-	"douya/internal/mcp"
 	"douya/internal/rag"
 	"douya/internal/search"
 	"douya/internal/secrets"
@@ -50,8 +49,6 @@ type Service struct {
 	ragEmbedder    rag.Embedder
 	ragCollection  string
 	ragEnabled     bool
-	// MCP（原生 MCP 客户端，连接外部 MCP server 获取工具）
-	mcpManager *mcp.Manager
 	// prompt_tokens 反馈校准
 	lastPromptTokens    int // 最近一次实际 prompt_tokens（来自 llama-server usage）
 	lastEstimatedTokens int // 对应的估算值
@@ -63,6 +60,13 @@ type Service struct {
 	// 仅在 SlotSaveEnabled=true 时启用，用于对话切换时跳过重复 prefill
 	lastSavedConvID string
 	lastSavedSlotMu sync.RWMutex
+	// MCP 工具缓存：由 llama-server 通过 GET /tools 端点提供（含内置工具 + MCP 工具）。
+	// 懒加载：第一次 buildAvailableTools 时拉取，之后用缓存；
+	// 用户改 MCP 配置 + llama-server 重启后可通过 RefreshMcpToolsCache 强制刷新。
+	// mcpToolsInitialized 区分"未初始化"和"已初始化但为空"，避免空缓存反复触发拉取。
+	mcpToolsCache        []llm.ToolDefinition
+	mcpToolsCacheMu      sync.RWMutex
+	mcpToolsInitialized  bool
 }
 
 func NewService(llmClient *llm.Client, searchChain *search.SearchChain, db *sql.DB, cfg *config.Config, cipher secrets.Cipher, appDir string) *Service {
@@ -159,21 +163,6 @@ func (s *Service) SetRAGEnabled(enabled bool) {
 	s.ragMu.Lock()
 	defer s.ragMu.Unlock()
 	s.ragEnabled = enabled
-}
-
-// SetMCPManager 设置 MCP 管理器（由 app 层在启动时注入）。
-// 生活类比：前台装上了外卖对接系统，之后就能把各平台的菜品加入菜单了。
-func (s *Service) SetMCPManager(mgr *mcp.Manager) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	s.mcpManager = mgr
-}
-
-// getMCPManager 在读锁保护下获取 MCP 管理器快照。
-func (s *Service) getMCPManager() *mcp.Manager {
-	s.mutex.RLock()
-	defer s.mutex.RUnlock()
-	return s.mcpManager
 }
 
 func (s *Service) emit(eventType string, content any) {

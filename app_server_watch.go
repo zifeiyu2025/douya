@@ -78,6 +78,21 @@ func (a *App) startServerAndWaitReady(srv *llm.Server, ctx context.Context) erro
 
 	// 推送首次启动进度：引擎已就绪，准备加载模型
 	a.emitSwitchProgressCtx(ctx, "loading", "", nil)
+
+	// llama-server 就绪后异步刷新 MCP 工具缓存。
+	// /tools 端点由 llama-server 提供，不依赖模型加载，可在模型加载前并行拉取。
+	// 失败不影响主流程：下次 buildAvailableTools 时会再次尝试懒加载。
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				zlog.Warn().Interface("panic", r).Msg("[startup] refresh MCP tools panic")
+			}
+		}()
+		if a.service != nil {
+			a.service.RefreshMcpToolsCache()
+		}
+	}()
+
 	return nil
 }
 
@@ -299,6 +314,20 @@ func (a *App) makeStatusCallback(ctx context.Context) func(llm.ServerStatus) {
 // 重启后重新检测架构、重新加载模型，加载完成后才设置 serverReady。
 func (a *App) makeRestartCallback(ctx context.Context) func() {
 	return func() {
+		// llama-server 重启后异步刷新 MCP 工具缓存（不依赖模型加载）。
+		// 重启意味着新进程已就绪，可立即拉取最新工具列表。
+		// 失败不影响主流程，下次 buildAvailableTools 时会再次尝试懒加载。
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					zlog.Warn().Interface("panic", r).Msg("[restart] refresh MCP tools panic")
+				}
+			}()
+			if a.service != nil {
+				a.service.RefreshMcpToolsCache()
+			}
+		}()
+
 		a.currentModelMu.RLock()
 		modelForDetect2 := a.currentModelName
 		a.currentModelMu.RUnlock()

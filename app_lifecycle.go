@@ -9,12 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"douya/internal/chat"
 	"douya/internal/config"
 	"douya/internal/llm"
-	"douya/internal/mcp"
 	"douya/internal/rag"
 	"douya/internal/secrets"
 	"douya/internal/store"
@@ -275,22 +273,8 @@ func (a *App) startup(ctx context.Context) {
 		zlog.Info().Str("dir", ragDir).Str("collection", collection).Str("embed_model", embedModel).Bool("enabled", ragEnabled).Msg("[startup] RAG initialized")
 	}
 
-	// 初始化 MCP 原生客户端（连接配置中的所有 MCP server）
-	// 生活类比：前台装上外卖对接系统，连接所有已配置的外卖平台
-	if len(cfg.MCPServers) > 0 {
-		a.mcpManager = mcp.NewManager()
-		connectCtx, connectCancel := context.WithTimeout(ctx, 60*time.Second)
-		results := a.mcpManager.ConnectAll(connectCtx, cfg.MCPServers)
-		connectCancel()
-		successCount := 0
-		for _, r := range results {
-			if r.Success {
-				successCount++
-			}
-		}
-		a.service.SetMCPManager(a.mcpManager)
-		zlog.Info().Int("total", len(cfg.MCPServers)).Int("success", successCount).Msg("[startup] MCP servers initialized")
-	}
+	// MCP 服务器：豆芽不再自行启动 MCP 子进程，而是将配置写入 mcp_servers.json，
+	// 由 llama-server 通过 --mcp-servers-config 参数加载并管理（见 app_server_config.go）。
 
 	// 创建日志 channel 和消费者 goroutine（trackedGo 跟踪）
 	// 生活类比：就像一个邮筒（logChan），邮递员（llama-server）把每封信（日志行）投进邮筒，
@@ -425,10 +409,7 @@ func (a *App) shutdownInternal(_ context.Context, waitForServerStop bool) {
 			srv.CloseJob()
 		}
 
-		// 5. 关闭 MCP 服务器连接
-		if a.mcpManager != nil {
-			a.mcpManager.DisconnectAll()
-		}
+		// 5. MCP 服务器无需主动断开（由 llama-server 进程退出时自动清理子进程）
 
 		// 6. 关闭 RAG 向量库
 		if a.ragVS != nil {

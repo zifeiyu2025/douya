@@ -78,6 +78,8 @@ func newInteractionTestService(t *testing.T, llmServer *httptest.Server, searchP
 	svc := chat.NewService(llmClient, chain, db, cfg, nil, "")
 	// 设置默认模型能力（NewService 默认 SupportsSystemRole=false，大多数模型支持 system role）
 	svc.SetModelCapabilities(llm.ModelCapabilities{TextInput: true, SupportsSystemRole: true})
+	// 预设空 MCP 工具缓存，避免 buildAvailableTools 触发 GET /tools 拉取污染 mock server 计数
+	svc.SetMcpToolsCache([]llm.ToolDefinition{})
 	return svc
 }
 

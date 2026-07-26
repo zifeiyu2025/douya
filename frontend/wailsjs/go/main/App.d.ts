@@ -81,6 +81,8 @@ export function ListKnowledgeBases():Promise<Array<rag.CollectionInfo>>;
 
 export function ListMCPTools():Promise<Array<mcp.ToolInfo>>;
 
+export function RefreshMcpTools():Promise<void>;
+
 export function PrepareShutdown():Promise<void>;
 
 export function RegenerateMessage(arg1:string,arg2:string):Promise<void>;

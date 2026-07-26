@@ -365,6 +365,17 @@ func (s *Server) appendNewFeatureArgs(args []string) []string {
 		args = append(args, "--ui-mcp-proxy")
 	}
 
+	// MCP 服务器配置文件：豆芽在 AppDir 下生成 mcp_servers.json，
+	// 由 llama-server 通过 --mcp-servers-config 加载并管理所有 MCP 子进程。
+	// 仅当文件存在时传递，避免 llama-server 因找不到文件而启动失败。
+	// 注意：修改 MCP 配置后需重启 llama-server 才能生效（豆芽无热重载能力）。
+	if s.config.AppDir != "" {
+		mcpConfigPath := filepath.Join(s.config.AppDir, "mcp_servers.json")
+		if info, err := os.Stat(mcpConfigPath); err == nil && !info.IsDir() {
+			args = append(args, "--mcp-servers-config", mcpConfigPath)
+		}
+	}
+
 	// 后端采样（实验性，将采样逻辑移到 GPU 执行）
 	args = appendBoolArg(args, "--backend-sampling", s.config.BackendSampling)
 	// SSE ping 间隔（保持长连接活跃，防止代理/防火墙超时断连）

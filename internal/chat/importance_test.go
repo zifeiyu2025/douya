@@ -207,14 +207,6 @@ func indexOf(s, substr string) int {
 	return -1
 }
 
-// truncateForLog 截断字符串用于日志输出
-func truncateForLog(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "..."
-}
-
 // ===== P3-B2: selectImportantMessages 测试 =====
 
 // TestSelectImportantMessages_FillsBudget 验证预算填充逻辑：

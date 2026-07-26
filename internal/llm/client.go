@@ -333,6 +333,38 @@ func (c *Client) BuiltInTools(ctx context.Context, body []byte) ([]byte, error) 
 	return c.proxyRequest(ctx, "/tools", "built-in tools", body)
 }
 
+// GetToolsList 拉取 llama-server 当前暴露的所有工具列表（含内置工具 + MCP 工具）。
+// 用于在 /v1/chat/completions 请求的 tools 字段中注入可用工具。
+// 生活类比：去餐厅后厨问"今天有哪些菜可选"，把菜单拿回来给顾客看。
+//
+// 返回的原始 JSON 形如：
+//
+//	[{"type":"function","function":{"name":"...","description":"...","parameters":{...}}}, ...]
+func (c *Client) GetToolsList(ctx context.Context) ([]byte, error) {
+	reqURL := c.baseURL + "/tools"
+	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodGet, reqURL, nil, "list tools", true)
+	if err != nil {
+		return nil, err
+	}
+	return respBody, nil
+}
+
+// CallTool 通过 POST /tools 端点调用指定工具，返回原始响应体。
+// 用于 MCP 工具调用（llama-server 内部转发到对应 MCP server 子进程）。
+// toolName 形如 "echo_echo"（<server>_<tool> 格式，由 llama-server 自动加前缀）。
+// 生活类比：把订单送到外卖调度中心，调度中心再分发给对应平台。
+func (c *Client) CallTool(ctx context.Context, toolName string, params json.RawMessage) ([]byte, error) {
+	body := map[string]any{
+		"tool":   toolName,
+		"params": json.RawMessage(params),
+	}
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal tool call request: %w", err)
+	}
+	return c.proxyRequest(ctx, "/tools", "call tool "+toolName, bodyBytes)
+}
+
 // Embedding sends a request to /v1/embeddings and returns vector embeddings.
 // input can be a string or []string.
 func (c *Client) Embedding(ctx context.Context, req *EmbeddingRequest) (*EmbeddingResponse, error) {

@@ -4,32 +4,51 @@
 package main
 
 import (
-	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
-	"time"
 
 	"douya/internal/config"
-	"douya/internal/mcp"
 
 	zlog "github.com/rs/zerolog/log"
 )
 
+// cursorMcpServersFile Cursor 兼容的 mcpServers 配置文件结构。
+// llama-server 通过 --mcp-servers-config 加载此文件，启动并管理所有 MCP 子进程。
+// 字段名与 Cursor / Claude Desktop 的 mcpServers 格式保持一致，便于跨工具复用。
+type cursorMcpServersFile struct {
+	McpServers map[string]cursorMcpServer `json:"mcpServers"`
+}
+
+// cursorMcpServer 单个 MCP server 的 Cursor 格式配置。
+// 字段名采用 snake_case 对齐 llama.cpp 的 parse_cursor_format 实现。
+type cursorMcpServer struct {
+	Command   string            `json:"command"`
+	Args      []string          `json:"args,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
+	Cwd       string            `json:"cwd,omitempty"`
+	TimeoutMs int               `json:"timeout_ms,omitempty"`
+}
+
 // GetMCPServers 返回配置中的 MCP 服务器列表。
-func (a *App) GetMCPServers() []mcp.MCPServerConfig {
+func (a *App) GetMCPServers() []config.MCPServerConfig {
 	cfg := a.getConfig()
 	if cfg == nil {
-		return []mcp.MCPServerConfig{}
+		return []config.MCPServerConfig{}
 	}
 	if cfg.MCPServers == nil {
-		return []mcp.MCPServerConfig{}
+		return []config.MCPServerConfig{}
 	}
 	return cfg.MCPServers
 }
 
-// SaveMCPServers 保存 MCP 服务器配置并重新连接所有服务器。
-// 生活类比：更新外卖平台对接卡，然后断开旧连接、按新配置重新连接所有平台。
-func (a *App) SaveMCPServers(servers []mcp.MCPServerConfig) error {
+// SaveMCPServers 保存 MCP 服务器配置并写入 mcp_servers.json 文件。
+// 生活类比：更新外卖平台对接卡，然后重新生成给外卖调度中心的指令清单。
+//
+// 注意：llama-server 启动时通过 --mcp-servers-config 加载 mcp_servers.json，
+// 因此修改配置后需要重启 llama-server 才能让新配置生效（豆芽无热重载能力）。
+func (a *App) SaveMCPServers(servers []config.MCPServerConfig) error {
 	// 1. 更新配置（复制-修改-替换指针模式，避免破坏快照语义）
 	a.configMu.Lock()
 	if a.config == nil {
@@ -42,98 +61,148 @@ func (a *App) SaveMCPServers(servers []mcp.MCPServerConfig) error {
 	a.config = cfg
 	a.configMu.Unlock()
 
-	// 2. 断开旧连接
-	if a.mcpManager != nil {
-		a.mcpManager.DisconnectAll()
-	}
-
-	// 3. 重新连接
-	if len(servers) > 0 {
-		if a.mcpManager == nil {
-			a.mcpManager = mcp.NewManager()
-		}
-		connectCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		results := a.mcpManager.ConnectAll(connectCtx, servers)
-		cancel()
-
-		successCount := 0
-		for _, r := range results {
-			if r.Success {
-				successCount++
-			}
-		}
-		if a.service != nil {
-			a.service.SetMCPManager(a.mcpManager)
-		}
-		zlog.Info().Int("total", len(servers)).Int("success", successCount).Msg("[mcp] 服务器配置已保存并重新连接")
-	} else {
-		a.mcpManager = nil
-		if a.service != nil {
-			a.service.SetMCPManager(nil)
-		}
-		zlog.Info().Msg("[mcp] 无 MCP 服务器配置，已清空连接")
-	}
-
-	// 4. 保存配置到磁盘
+	// 2. 持久化 config.json
 	configPath := filepath.Join(appDir(), "config.json")
 	if err := config.Save(configPath, cfg); err != nil {
 		return fmt.Errorf("保存配置失败: %w", err)
 	}
+
+	// 3. 生成 mcp_servers.json（仅包含已启用的 server）
+	mcpConfigPath := filepath.Join(appDir(), "mcp_servers.json")
+	if err := writeMcpServersFile(mcpConfigPath, servers); err != nil {
+		return fmt.Errorf("写入 mcp_servers.json 失败: %w", err)
+	}
+
+	enabledCount := 0
+	for _, s := range servers {
+		if s.Enabled {
+			enabledCount++
+		}
+	}
+	zlog.Info().Int("total", len(servers)).Int("enabled", enabledCount).
+		Str("path", mcpConfigPath).Msg("[mcp] 配置已保存，需重启 llama-server 才能生效")
 	return nil
 }
 
-// TestMCPConnection 测试连接单个 MCP 服务器（不持久化，测试后立即断开）。
-// 生活类比：先试着拨通外卖平台电话确认能联系上，再决定是否长期合作。
-func (a *App) TestMCPConnection(server mcp.MCPServerConfig) (*mcp.ConnectResult, error) {
-	if server.Command == "" {
-		return &mcp.ConnectResult{
-			Name:  server.Name,
-			Error: "命令不能为空",
-		}, nil
+// writeMcpServersFile 将豆芽内部的 MCPServerConfig 列表转换为 Cursor 兼容格式并写入文件。
+// 仅写入 Enabled=true 的 server；command 为空的 server 被跳过（与 llama-server 解析逻辑一致）。
+func writeMcpServersFile(path string, servers []config.MCPServerConfig) error {
+	file := cursorMcpServersFile{McpServers: make(map[string]cursorMcpServer)}
+	for _, s := range servers {
+		if !s.Enabled || s.Command == "" {
+			continue
+		}
+		// server name 重复时后者覆盖前者，与 llama-server 的 duplicate skip 行为不同但可接受
+		// （豆芽前端已做唯一性校验，正常情况下不会重名）
+		file.McpServers[s.Name] = cursorMcpServer{
+			Command:   s.Command,
+			Args:      s.Args,
+			Env:       s.Env,
+			TimeoutMs: 30000, // 默认 30 秒，与 llama-server 默认值对齐
+		}
 	}
 
-	tempMgr := mcp.NewManager()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	err := tempMgr.Connect(ctx, server)
+	data, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {
-		return &mcp.ConnectResult{
-			Name:  server.Name,
-			Error: err.Error(),
-		}, nil
+		return fmt.Errorf("序列化 mcp_servers.json 失败: %w", err)
 	}
-
-	toolCount := 0
-	status, ok := tempMgr.GetServerStatus(server.Name)
-	if ok {
-		toolCount = status.ToolCount
-	}
-	tempMgr.Disconnect(server.Name)
-
-	return &mcp.ConnectResult{
-		Name:      server.Name,
-		Success:   true,
-		ToolCount: toolCount,
-	}, nil
+	return os.WriteFile(path, data, 0o644)
 }
 
-// GetMCPStatus 返回所有已连接 MCP 服务器的状态。
-func (a *App) GetMCPStatus() map[string]mcp.ServerStatus {
-	if a.mcpManager == nil {
-		return map[string]mcp.ServerStatus{}
+// GetMCPStatus 返回每个 MCP 服务器的运行时状态。
+// 状态由 llama-server /tools 端点暴露的工具列表反推得到：
+// 若工具列表中存在以 "<server>_" 为前缀的工具，则认为该 server 已连接。
+//
+// 生活类比：不去问每个外卖平台"你连上了吗"，而是看调度中心（llama-server）
+// 的菜单上有没有该平台的菜品——有菜品说明已对接成功。
+func (a *App) GetMCPStatus() map[string]config.MCPServerStatus {
+	result := make(map[string]config.MCPServerStatus)
+	cfg := a.getConfig()
+	if cfg == nil {
+		return result
 	}
-	return a.mcpManager.GetAllStatus()
+
+	// 收集缓存中各 server 的工具数量（通过工具名前缀 "<server>_" 匹配）
+	toolCountByServer := make(map[string]int)
+	if a.service != nil {
+		tools := a.service.GetCachedMcpTools()
+		for _, t := range tools {
+			// 工具名形如 "echo_echo"，下划线前是 server 名
+			name := t.Function.Name
+			idx := -1
+			for i := 0; i < len(name); i++ {
+				if name[i] == '_' {
+					idx = i
+					break
+				}
+			}
+			if idx > 0 {
+				serverName := name[:idx]
+				toolCountByServer[serverName]++
+			}
+		}
+	}
+
+	// 为每个已配置的 server 生成状态
+	for _, s := range cfg.MCPServers {
+		if !s.Enabled {
+			result[s.Name] = config.MCPServerStatus{
+				Connected: false,
+				Error:     "已禁用",
+			}
+			continue
+		}
+		count := toolCountByServer[s.Name]
+		if count > 0 {
+			result[s.Name] = config.MCPServerStatus{
+				Connected:  true,
+				ToolCount:  count,
+			}
+		} else {
+			result[s.Name] = config.MCPServerStatus{
+				Connected: false,
+				Error:     "未连接（重启 llama-server 后生效）",
+			}
+		}
+	}
+	return result
 }
 
-// ListMCPTools 列出所有已连接 MCP 服务器的工具。
-func (a *App) ListMCPTools() []mcp.ToolInfo {
-	if a.mcpManager == nil {
-		return []mcp.ToolInfo{}
+// TestMCPConnection 新架构下不再支持热测试连接（豆芽不管理 MCP 子进程）。
+// 返回提示信息告知用户需重启 llama-server 让新配置生效。
+//
+// 生活类比：以前豆芽自己开外卖平台，可以随时测试对接；
+// 现在豆芽只生成配置交给调度中心，要测试得重启调度中心。
+func (a *App) TestMCPConnection(server config.MCPServerConfig) config.MCPConnectResult {
+	return config.MCPConnectResult{
+		Name:    server.Name,
+		Success: false,
+		Error:   "新架构下需重启 llama-server 让配置生效。重启后点击「刷新状态」查看连接情况。",
 	}
-	tools := a.mcpManager.ListTools()
-	if tools == nil {
-		return []mcp.ToolInfo{}
+}
+
+// ListMCPTools 返回当前缓存的 MCP 工具列表（来自 llama-server /tools 端点）。
+// 生活类比：把调度中心菜单上所有外卖平台的菜品列出来给前台看。
+func (a *App) ListMCPTools() []config.MCPToolInfo {
+	if a.service == nil {
+		return []config.MCPToolInfo{}
 	}
-	return tools
+	tools := a.service.GetCachedMcpTools()
+	result := make([]config.MCPToolInfo, 0, len(tools))
+	for _, t := range tools {
+		result = append(result, config.MCPToolInfo{
+			Name:        t.Function.Name,
+			Description: t.Function.Description,
+			InputSchema: t.Function.Parameters,
+		})
+	}
+	return result
+}
+
+// RefreshMcpTools 刷新 MCP 工具缓存（供前端在 llama-server 重启后调用）。
+// 生活类比：让前台去调度中心重新拿一份最新菜单。
+func (a *App) RefreshMcpTools() {
+	if a.service != nil {
+		a.service.RefreshMcpToolsCache()
+	}
 }

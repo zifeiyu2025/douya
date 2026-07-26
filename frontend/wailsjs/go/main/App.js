@@ -150,6 +150,10 @@ export function ListMCPTools() {
   return window['go']['main']['App']['ListMCPTools']();
 }
 
+export function RefreshMcpTools() {
+  return window['go']['main']['App']['RefreshMcpTools']();
+}
+
 export function PrepareShutdown() {
   return window['go']['main']['App']['PrepareShutdown']();
 }

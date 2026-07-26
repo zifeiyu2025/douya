@@ -66,7 +66,8 @@ import {
   SaveMCPServers,
   TestMCPConnection,
   GetMCPStatus,
-  ListMCPTools
+  ListMCPTools,
+  RefreshMcpTools
 } from '../../wailsjs/go/main/App'
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
 import { chat as ChatModel } from '../../wailsjs/go/models'
@@ -511,8 +512,9 @@ export const wails = {
     return () => EventsOff('update:progress')
   },
   // ============ MCP 服务器管理 ============
-  // 生活类比：像管理外卖平台对接——查询已对接的平台列表、保存新对接配置、
-  // 测试某个平台能否对接成功、查询所有平台当前状态、列出所有平台提供的菜品（工具）。
+  // 新架构：豆芽不直接管理 MCP 子进程，而是生成 mcp_servers.json 交给 llama-server 加载。
+  // 修改配置后需重启 llama-server 才能生效（无热重载）。
+  // 生活类比：豆芽只负责填写外卖平台对接卡，调度中心（llama-server）才真正对接平台。
   getMCPServers: async (): Promise<MCPServerConfig[]> => {
     return (await GetMCPServers()) as MCPServerConfig[]
   },
@@ -529,6 +531,9 @@ export const wails = {
   },
   listMCPTools: async (): Promise<MCPToolInfo[]> => {
     return (await ListMCPTools()) as MCPToolInfo[]
+  },
+  refreshMcpTools: async (): Promise<void> => {
+    await RefreshMcpTools()
   }
 } as const
 

@@ -11,9 +11,17 @@
         <span class="mcp-intro-title">MCP 服务器</span>
       </template>
       <span class="mcp-intro-desc">
-        通过 stdio 连接外部 MCP 服务器，自动注册其工具供模型调用。配置保存后自动重连。
+        通过 llama-server 原生 MCP 支持连接外部工具服务器。修改配置后需重启 llama-server 才能生效。
       </span>
     </n-alert>
+
+    <!-- 刷新状态按钮 -->
+    <div class="mcp-toolbar">
+      <n-button size="small" quaternary :loading="refreshing" @click="handleRefresh">
+        刷新状态
+      </n-button>
+      <span v-if="lastRefreshTime" class="mcp-refresh-time">最后刷新：{{ lastRefreshTime }}</span>
+    </div>
 
     <!-- 服务器列表 -->
     <div v-if="servers.length === 0" class="mcp-empty">
@@ -40,19 +48,11 @@
               已连接 · {{ getStatus(server.name)?.tool_count || 0 }} 工具
             </n-tag>
             <n-tag v-else-if="server.enabled" type="warning" size="small" round>
-              {{ getStatus(server.name)?.error || '未连接' }}
+              {{ getStatus(server.name)?.error || '未连接（重启后生效）' }}
             </n-tag>
             <n-tag v-else type="default" size="small" round>已禁用</n-tag>
           </div>
           <div class="mcp-server-actions">
-            <n-button
-              size="tiny"
-              quaternary
-              :loading="testingName === server.name"
-              @click="handleTest(server)"
-            >
-              测试连接
-            </n-button>
             <n-button size="tiny" quaternary @click="handleEdit(server)">编辑</n-button>
             <n-button size="tiny" quaternary type="error" @click="handleDelete(server.name)">
               删除
@@ -162,8 +162,10 @@ const message = useMessage()
 const servers = ref<MCPServerConfig[]>([])
 // 服务器运行状态（name -> status）
 const statusMap = ref<Record<string, MCPServerStatus>>({})
-// 当前正在测试连接的服务器名（用于按钮 loading）
-const testingName = ref('')
+// 刷新状态中（用于按钮 loading）
+const refreshing = ref(false)
+// 最后刷新时间
+const lastRefreshTime = ref('')
 // 模态框显示
 const showModal = ref(false)
 // 编辑索引：-1 表示新增，>=0 表示编辑对应索引
@@ -240,25 +242,41 @@ function textToEnv(text: string): Record<string, string> {
 }
 
 // ============ 数据加载 ============
-// 加载服务器列表和状态
+// 加载服务器列表和状态（同时刷新 MCP 工具缓存）
 async function loadData() {
   try {
+    // 先刷新后端缓存（从 llama-server /tools 拉取最新工具列表）
+    await wails.refreshMcpTools()
     const [list, status] = await Promise.all([wails.getMCPServers(), wails.getMCPStatus()])
     servers.value = list || []
     statusMap.value = status || {}
+    updateRefreshTime()
   } catch (e) {
     logError('MCPSettings.loadData', e)
     showError(message, '加载 MCP 配置失败', e)
   }
 }
 
-// 刷新状态（不重新加载配置，只更新运行状态）
-async function refreshStatus() {
+// 刷新状态（重新拉取工具列表 + 更新状态）
+async function handleRefresh() {
+  refreshing.value = true
   try {
+    await wails.refreshMcpTools()
     statusMap.value = await wails.getMCPStatus()
+    updateRefreshTime()
+    showSuccess(message, '状态已刷新')
   } catch (e) {
-    logError('MCPSettings.refreshStatus', e)
+    logError('MCPSettings.handleRefresh', e)
+    showError(message, '刷新状态失败', e)
+  } finally {
+    refreshing.value = false
   }
+}
+
+// 更新最后刷新时间
+function updateRefreshTime() {
+  const now = new Date()
+  lastRefreshTime.value = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`
 }
 
 // ============ 操作处理 ============
@@ -293,9 +311,7 @@ async function handleDelete(name: string) {
     const newList = servers.value.filter(s => s.name !== name)
     await wails.saveMCPServers(newList)
     servers.value = newList
-    showSuccess(message, `已删除服务器「${name}」`)
-    // 延迟刷新状态，等后端断开连接
-    setTimeout(refreshStatus, 500)
+    showSuccess(message, `已删除服务器「${name}」，重启 llama-server 后生效`)
   } catch (e) {
     logError('MCPSettings.handleDelete', e)
     showError(message, '删除失败', e)
@@ -308,31 +324,10 @@ async function toggleEnabled(name: string, enabled: boolean) {
     const newList = servers.value.map(s => (s.name === name ? { ...s, enabled } : s))
     await wails.saveMCPServers(newList)
     servers.value = newList
-    // 延迟刷新状态，等后端重连
-    setTimeout(refreshStatus, 500)
+    showSuccess(message, '配置已保存，重启 llama-server 后生效')
   } catch (e) {
     logError('MCPSettings.toggleEnabled', e)
     showError(message, '切换状态失败', e)
-  }
-}
-
-// 测试连接
-async function handleTest(server: MCPServerConfig) {
-  testingName.value = server.name
-  try {
-    const result = await wails.testMCPConnection(server)
-    if (result.success) {
-      showSuccess(message, `连接成功，发现 ${result.tool_count} 个工具`)
-    } else {
-      showError(message, `连接失败`, result.error || '未知错误')
-    }
-    // 测试后刷新状态
-    await refreshStatus()
-  } catch (e) {
-    logError('MCPSettings.handleTest', e)
-    showError(message, '测试连接失败', e)
-  } finally {
-    testingName.value = ''
   }
 }
 
@@ -378,9 +373,7 @@ async function handleSave() {
     await wails.saveMCPServers(newList)
     servers.value = newList
     showModal.value = false
-    showSuccess(message, editingIndex.value === -1 ? '已添加服务器' : '已更新服务器')
-    // 延迟刷新状态，等后端重连
-    setTimeout(refreshStatus, 800)
+    showSuccess(message, '配置已保存，重启 llama-server 后生效')
   } catch (e) {
     logError('MCPSettings.handleSave', e)
     showError(message, '保存失败', e)
@@ -411,6 +404,17 @@ onMounted(loadData)
 .mcp-intro-desc {
   font-size: 13px;
   opacity: 0.85;
+}
+
+.mcp-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mcp-refresh-time {
+  font-size: 12px;
+  opacity: 0.6;
 }
 
 .mcp-empty {

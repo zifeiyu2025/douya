@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/rs/zerolog/log"
@@ -14,7 +15,6 @@ import (
 	"douya/internal/apperror"
 	"douya/internal/config"
 	"douya/internal/llm"
-	"douya/internal/mcp"
 	"douya/internal/secrets"
 	"douya/internal/store"
 )
@@ -112,16 +112,17 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 // 预分配结果切片，按 tool call 在原切片中的索引写入，
 // 避免 goroutine 并发完成后 append 导致结果乱序。
 // 生活类比：像给每个快递员编好编号，按编号放回对应格子，避免谁先回来谁先放导致顺序乱。
+//
+// MCP 工具的判定基于缓存的工具列表（由 llama-server /tools 端点提供）。
+// 工具名形如 "<server>_<tool>"，由 llama-server 自动加前缀避免命名冲突。
 func (s *Service) executeToolCallsConcurrently(cancelCtx context.Context, convID string, toolCalls []llm.ToolCall, cfg *config.Config) []toolCallResult {
 	toolResults := make([]toolCallResult, len(toolCalls))
 	var toolWg sync.WaitGroup
 
-	mgr := s.getMCPManager()
-
 	for idx, tc := range toolCalls {
 		// 判断工具类型：search、MCP 工具、未知工具
 		isSearch := tc.Function.Name == "search"
-		isMCP := !isSearch && mgr != nil && mgr.HasTool(tc.Function.Name)
+		isMCP := !isSearch && s.isMCPTool(tc.Function.Name)
 		if !isSearch && !isMCP {
 			continue // 跳过未知工具
 		}
@@ -142,7 +143,7 @@ func (s *Service) executeToolCallsConcurrently(cancelCtx context.Context, convID
 }
 
 // executeSingleToolCall 执行单个 tool call（在 goroutine 内调用）。
-// 根据工具名路由：search 走原搜索逻辑，MCP 工具走 MCP 调用。
+// 根据工具名路由：search 走原搜索逻辑，MCP 工具走 HTTP 调用 llama-server /tools 端点。
 // 生活类比：前台接到订单后，看是自家的菜（search）还是外卖平台的菜（MCP），
 // 分别送到对应的后厨。
 func (s *Service) executeSingleToolCall(cancelCtx context.Context, convID string, tc llm.ToolCall, cfg *config.Config) toolCallResult {
@@ -150,10 +151,9 @@ func (s *Service) executeSingleToolCall(cancelCtx context.Context, convID string
 	if tc.Function.Name == "search" {
 		return s.executeSearchToolCall(cancelCtx, convID, tc, cfg)
 	}
-	// MCP 工具：走 MCP 客户端调用
-	mgr := s.getMCPManager()
-	if mgr != nil && mgr.HasTool(tc.Function.Name) {
-		return s.executeMCPToolCall(cancelCtx, convID, tc, mgr)
+	// MCP 工具：通过 llama-server /tools 端点调用
+	if s.isMCPTool(tc.Function.Name) {
+		return s.executeMCPToolCall(cancelCtx, convID, tc)
 	}
 	// 未知工具，返回错误信息
 	var result toolCallResult
@@ -218,9 +218,12 @@ func (s *Service) executeSearchToolCall(cancelCtx context.Context, convID string
 }
 
 // executeMCPToolCall 执行 MCP 工具调用（在 goroutine 内调用）。
-// 处理流程：解析参数 → 调用 MCP server → 返回结果文本。
-// 生活类比：前台把订单发到对应的外卖平台，等平台返回结果。
-func (s *Service) executeMCPToolCall(cancelCtx context.Context, convID string, tc llm.ToolCall, mgr *mcp.Manager) toolCallResult {
+// 通过 llama-server 的 /tools 端点 HTTP 调用，由 llama-server 内部转发到对应 MCP server 子进程。
+// 生活类比：前台把订单发到外卖调度中心（llama-server），调度中心再分发给对应外卖平台（MCP server）。
+//
+// 工具名形如 "echo_echo"（<server>_<tool> 格式，由 llama-server 自动加前缀）。
+// 超时复用 toolCallSearchTimeout（30s），与 search 工具保持一致。
+func (s *Service) executeMCPToolCall(cancelCtx context.Context, convID string, tc llm.ToolCall) toolCallResult {
 	var result toolCallResult
 	result.tc = tc
 
@@ -240,14 +243,34 @@ func (s *Service) executeMCPToolCall(cancelCtx context.Context, convID string, t
 
 	log.Info().Str("tool", tc.Function.Name).Str("convID", convID).Msg("[chat] 调用 MCP 工具")
 
-	// 调用 MCP 工具（Manager 内部已有超时控制）
-	content, err := mgr.CallTool(cancelCtx, tc.Function.Name, args)
+	// 获取 LLM 客户端快照
+	client := s.getClientSnapshot()
+	if client == nil {
+		result.toolContent = fmt.Sprintf("Error: LLM client not initialized, cannot call tool %q", tc.Function.Name)
+		return result
+	}
+
+	// 设置独立超时（复用 toolCallSearchTimeout=30s），避免某个慢 MCP 工具阻塞整个循环
+	toolCtx, toolCancel := context.WithTimeout(cancelCtx, toolCallSearchTimeout)
+	defer toolCancel()
+
+	// 序列化参数为 JSON RawMessage
+	paramsBytes, err := json.Marshal(args)
+	if err != nil {
+		result.toolContent = fmt.Sprintf("Error: failed to marshal arguments for tool %q: %v", tc.Function.Name, err)
+		return result
+	}
+
+	// 通过 llama-server /tools 端点调用工具（HTTP 代理到 MCP server 子进程）
+	respBody, err := client.CallTool(toolCtx, tc.Function.Name, paramsBytes)
 	if err != nil {
 		log.Warn().Err(err).Str("tool", tc.Function.Name).Msg("[chat] MCP 工具调用失败")
 		result.toolContent = fmt.Sprintf("Error: tool %q call failed: %v", tc.Function.Name, err)
 		return result
 	}
 
+	// 从响应中提取文本内容（兼容 MCP 标准格式和纯文本）
+	content := extractToolResponseContent(respBody)
 	if content == "" {
 		content = "(工具未返回内容)"
 	}
@@ -255,6 +278,52 @@ func (s *Service) executeMCPToolCall(cancelCtx context.Context, convID string, t
 	result.toolContent = content
 	log.Info().Str("tool", tc.Function.Name).Int("content_len", len(content)).Msg("[chat] MCP 工具调用完成")
 	return result
+}
+
+// isMCPTool 判断工具名是否为已缓存的 MCP 工具。
+// 通过比对 buildAvailableTools 拉取的工具列表（来自 llama-server /tools 端点）。
+// 生活类比：检查这道菜是不是外卖平台提供的——查一下自家菜单里有没有。
+func (s *Service) isMCPTool(name string) bool {
+	if name == "" || name == "search" {
+		return false
+	}
+	s.mcpToolsCacheMu.RLock()
+	defer s.mcpToolsCacheMu.RUnlock()
+	for _, t := range s.mcpToolsCache {
+		if t.Function.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// extractToolResponseContent 从 llama-server /tools POST 响应中提取工具返回的文本内容。
+// 兼容两种格式：
+// 1. MCP 标准格式：{"content":[{"type":"text","text":"..."}],"isError":false}
+// 2. 纯文本格式（容错）：直接返回原始字符串
+// 生活类比：拆快递——标准包裹有标签有内容（按标签找文本），散装包裹直接看里面装了什么。
+func extractToolResponseContent(body []byte) string {
+	// 尝试 MCP 标准格式
+	var mcpResp struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+		IsError bool `json:"isError"`
+	}
+	if err := json.Unmarshal(body, &mcpResp); err == nil && len(mcpResp.Content) > 0 {
+		var parts []string
+		for _, c := range mcpResp.Content {
+			if c.Type == "text" && c.Text != "" {
+				parts = append(parts, c.Text)
+			}
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, "\n")
+		}
+	}
+	// 容错：直接返回原始文本（可能是非标准响应）
+	return string(body)
 }
 
 // appendToolCallMessages 将 tool call 结果追加到 llmMessages 并持久化到 DB。
