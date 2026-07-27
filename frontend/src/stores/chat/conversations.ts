@@ -29,6 +29,8 @@ export interface ConversationDeps {
   lastError: Ref<string>
   /** 消息请求版本号（TOCTOU 防护）：用 ref 包装以便跨 composable 共享 */
   messagesRequestVersion: Ref<number>
+  /** 清理定时器回调（M3: 删除会话时清理孤儿定时器，防止内存泄漏） */
+  clearFlushTimer: (convId: string) => void
 }
 
 export function useConversations(deps: ConversationDeps) {
@@ -76,19 +78,25 @@ export function useConversations(deps: ConversationDeps) {
 
     // 递增版本号，使 handleTerminalAsync 中进行中的旧请求失效（M-前2 TOCTOU 防护）
     messagesRequestVersion.value++
+    const requestVersion = messagesRequestVersion.value
     currentConversationId.value = id
     try {
-      messages.value = await wails.getMessages(id)
+      const msgs = await wails.getMessages(id)
+      // P1 修复：await 返回后校验版本号，避免快速切换 A→B→C 时 B 的旧请求覆盖 C 的消息
+      if (requestVersion !== messagesRequestVersion.value) return
+      messages.value = msgs
     } catch (e) {
+      if (requestVersion !== messagesRequestVersion.value) return
       logError('加载消息失败', e)
       messages.value = []
     }
 
+    // P2 修复：只在切换到的会话正在生成时才更新 generatingConvId，
+    // 否则保留旧值（可能其他会话还在生成），避免破坏 M10 的"当前会话/生成会话"解耦设计。
+    // generatingConvId 的清空由 handleTerminalEvent 在生成结束时统一处理。
     const state = convStreamingStates.get(id)
-    if (state) {
-      generatingConvId.value = state.isGenerating ? id : ''
-    } else {
-      generatingConvId.value = ''
+    if (state && state.isGenerating) {
+      generatingConvId.value = id
     }
   }
 
@@ -116,6 +124,8 @@ export function useConversations(deps: ConversationDeps) {
       await wails.deleteConversation(id)
       conversations.value = conversations.value.filter((c: Conversation) => c.id !== id)
       convStreamingStates.delete(id)
+      // M3: 清理可能残留的 flush 定时器，防止孤儿定时器内存泄漏
+      deps.clearFlushTimer(id)
       if (generatingConvId.value === id) generatingConvId.value = ''
       if (currentConversationId.value === id) {
         currentConversationId.value = ''

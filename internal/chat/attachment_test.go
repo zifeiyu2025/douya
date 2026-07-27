@@ -19,7 +19,7 @@ func TestValidateAttachment_ValidImage(t *testing.T) {
 		MimeType: "image/png",
 		Data:     "data:image/png;base64,iVBORw0KGgo=",
 	}
-	decodedLen, ok := validateAttachment(att)
+	decodedLen, ok := validateAttachment(att, 0)
 	if !ok {
 		t.Error("合法图片应通过校验")
 	}
@@ -36,7 +36,7 @@ func TestValidateAttachment_InvalidMime(t *testing.T) {
 		MimeType: "application/x-msdownload",
 		Data:     "data:image/png;base64,iVBORw0KGgo=",
 	}
-	_, ok := validateAttachment(att)
+	_, ok := validateAttachment(att, 0)
 	if ok {
 		t.Error("非法 MIME 类型应被拒绝")
 	}
@@ -50,7 +50,7 @@ func TestValidateAttachment_EmptyMime(t *testing.T) {
 		MimeType: "", // 空 MIME
 		Data:     "data:image/png;base64,iVBORw0KGgo=",
 	}
-	_, ok := validateAttachment(att)
+	_, ok := validateAttachment(att, 0)
 	if !ok {
 		t.Error("空 MIME 应允许通过（兼容旧前端）")
 	}
@@ -68,7 +68,7 @@ func TestValidateAttachment_OversizedImage(t *testing.T) {
 		MimeType: "image/png",
 		Data:     hugeData,
 	}
-	_, ok := validateAttachment(att)
+	_, ok := validateAttachment(att, 0)
 	if ok {
 		t.Error("超过 200MB 的图片应被拒绝")
 	}
@@ -85,7 +85,7 @@ func TestValidateAttachment_ValidPDF(t *testing.T) {
 		MimeType: "application/pdf",
 		Data:     encoded,
 	}
-	decodedLen, ok := validateAttachment(att)
+	decodedLen, ok := validateAttachment(att, 0)
 	if !ok {
 		t.Error("合法 PDF 应通过校验")
 	}
@@ -102,13 +102,13 @@ func TestValidateAttachment_InvalidBase64PDF(t *testing.T) {
 		MimeType: "application/pdf",
 		Data:     "这不是有效的base64数据!!!",
 	}
-	_, ok := validateAttachment(att)
+	_, ok := validateAttachment(att, 0)
 	if ok {
 		t.Error("无效 base64 PDF 应被拒绝")
 	}
 }
 
-// TestValidateAttachment_UnknownType 验证未知类型返回 -1（非 base64）
+// TestValidateAttachment_UnknownType 验证未知类型被拒绝（SEC-007: 默认拒绝策略）
 func TestValidateAttachment_UnknownType(t *testing.T) {
 	att := Attachment{
 		Type:     "unknown",
@@ -116,12 +116,9 @@ func TestValidateAttachment_UnknownType(t *testing.T) {
 		MimeType: "text/plain",
 		Data:     "plain text data",
 	}
-	decodedLen, ok := validateAttachment(att)
-	if !ok {
-		t.Error("未知类型应通过校验（返回 -1）")
-	}
-	if decodedLen != -1 {
-		t.Errorf("未知类型 decodedLen 应为 -1，实际: %d", decodedLen)
+	_, ok := validateAttachment(att, 0)
+	if ok {
+		t.Error("未知类型应被拒绝（SEC-007: 默认拒绝策略）")
 	}
 }
 

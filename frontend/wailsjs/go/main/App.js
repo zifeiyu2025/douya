@@ -90,6 +90,10 @@ export function GetModelCapabilities() {
   return window['go']['main']['App']['GetModelCapabilities']();
 }
 
+export function GetMetrics() {
+  return window['go']['main']['App']['GetMetrics']();
+}
+
 export function GetServerLogs() {
   return window['go']['main']['App']['GetServerLogs']();
 }

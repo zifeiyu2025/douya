@@ -81,7 +81,7 @@
             <span class="action-label">复制</span>
           </button>
           <button
-            v-if="!isUser && !chatStore.isGenerating && isLastAIMessage"
+            v-if="!isUser && !chatStore.isAnyGenerating && isLastAIMessage"
             class="action-btn"
             title="重新生成"
             @click="regenerate"

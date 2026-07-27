@@ -229,6 +229,10 @@ func (a *App) startup(ctx context.Context) {
 		zlog.Error().Err(err).Msg("[startup] generate preset file failed")
 	}
 
+	// 同步 mcp_servers.json：让 llama-server 启动时通过 --mcp-servers-config 加载此文件，
+	// 启用 /tools 端点并管理所有 MCP 子进程。
+	a.ensureMcpServersFileExists()
+
 	cfg := a.getConfig()
 	a.client = llm.NewClient(cfg.APIBase, a.getServerAPIKey())
 
@@ -274,7 +278,9 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	// MCP 服务器：豆芽不再自行启动 MCP 子进程，而是将配置写入 mcp_servers.json，
-	// 由 llama-server 通过 --mcp-servers-config 参数加载并管理（见 app_server_config.go）。
+	// 由 llama-server 通过 --mcp-servers-config 参数加载并管理。
+	// mcp_servers.json 在 startup 时通过 ensureMcpServersFileExists() 自动同步，
+	// 用户在「设置 → MCP」修改配置时通过 SaveMCPServers() 重新生成。
 
 	// 创建日志 channel 和消费者 goroutine（trackedGo 跟踪）
 	// 生活类比：就像一个邮筒（logChan），邮递员（llama-server）把每封信（日志行）投进邮筒，

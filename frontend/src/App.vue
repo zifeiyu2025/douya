@@ -16,7 +16,11 @@
           >
             <Sidebar :collapsed="sidebarCollapsed" @toggle="sidebarCollapsed = !sidebarCollapsed" />
             <div class="main-area" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
-              <div class="main-header" style="--wails-draggable: drag">
+              <div
+                class="main-header"
+                style="--wails-draggable: drag"
+                @dblclick="handleHeaderDoubleClick"
+              >
                 <div class="main-header-left" style="--wails-draggable: no-drag">
                   <n-button
                     quaternary
@@ -371,7 +375,8 @@ const {
   getSwitchStageIndex
 } = useModelSwitch()
 
-const { isMaximized, handleMinimize, handleToggleMaximize, handleClose } = useWindowControls()
+const { isMaximized, handleMinimize, handleToggleMaximize, handleHeaderDoubleClick, handleClose } =
+  useWindowControls()
 
 const { showSplash, splashStage, splashModelName, splashProgress, showExitOverlay, exitProgress } =
   useAppLifecycle()

@@ -22,6 +22,7 @@ import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import { wails } from '../services/wails'
 import { discreteDialog, discreteMessage } from '../utils/discrete'
+import { logError } from '../utils/logger'
 import { classifyError } from '../utils/errorGuidance'
 import { formatModelName } from '../utils/model'
 // F-1.14：stageMap 抽取为常量，与 useModelSwitch.ts 共享
@@ -205,7 +206,7 @@ export function useAppLifecycle() {
         })
       }
     } catch (e) {
-      console.error('检查清理结果失败:', e)
+      logError('检查清理结果失败:', e)
     }
 
     // 退出进度事件监听：后端在优雅退出过程中推送进度，触发退出动效
@@ -234,7 +235,7 @@ export function useAppLifecycle() {
       try {
         unsubscribe?.()
       } catch (e) {
-        console.error('[useAppLifecycle] unsubscribe failed:', e)
+        logError('[useAppLifecycle] unsubscribe failed:', e)
       }
     }
 

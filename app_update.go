@@ -153,12 +153,19 @@ func (a *App) PerformUpdate(downloadURL string, latestVersion string) error {
 	}
 
 	// 退出当前应用，让更新脚本替换文件后重启
-	wailsRuntime.Quit(a.ctx)
+	// P0-1 修复：使用 GracefulExit 而非裸 wailsRuntime.Quit，
+	// 确保 exiting 标志被设置（避免 beforeClose 拦截）和 systray.Quit 被调用（避免托盘残留），
+	// 同时触发完整的资源清理（停 llama-server、关 DB），确保更新脚本能替换所有文件。
+	a.GracefulExit()
 
 	return nil
 }
 
 // downloadWithProgress 下载文件并报告进度
+// M19 修复：限制最大下载大小为 500MB，避免异常大响应耗尽磁盘
+// 生活类比：快递员收件时检查包裹大小，超过限制的拒收，避免仓库被撑爆
+const maxUpdatePackageSize = 500 * 1024 * 1024 // 500MB
+
 func (a *App) downloadWithProgress(downloadURL, destPath string) error {
 	// 安全：使用带超时的 HTTP 客户端，避免下载挂起耗尽资源
 	// 基于 GO-HTTPCLIENT-001 安全实践：大文件下载设置 10 分钟超时
@@ -171,6 +178,12 @@ func (a *App) downloadWithProgress(downloadURL, destPath string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("下载返回状态码 %d", resp.StatusCode)
+	}
+
+	// M19 修复：ContentLength 已知时预先校验大小
+	if resp.ContentLength > 0 && resp.ContentLength > maxUpdatePackageSize {
+		return fmt.Errorf("更新包大小 %dMB 超过限制 %dMB，拒绝下载",
+			resp.ContentLength/1024/1024, maxUpdatePackageSize/1024/1024)
 	}
 
 	// 创建目标文件
@@ -225,6 +238,12 @@ func (w *downloadProgressWriter) Write(p []byte) (int, error) {
 		return n, err
 	}
 	w.bytesWritten += int64(n)
+
+	// M19 修复：运行时大小检查，防止 ContentLength 未知或被篡改时下载无限增长
+	if w.bytesWritten > maxUpdatePackageSize {
+		return n, fmt.Errorf("下载大小超过限制 %dMB，已写入 %dMB",
+			maxUpdatePackageSize/1024/1024, w.bytesWritten/1024/1024)
+	}
 
 	// 每变化 5% 推送一次进度事件
 	if w.total > 0 {

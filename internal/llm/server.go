@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -198,7 +199,11 @@ type Server struct {
 	mu                  sync.RWMutex
 	job                 *JobObject
 	stderrBuf           *RingBuffer
-	mtpFallbackDisabled bool
+	// RF-3 修复：mtpFallbackDisabled 改用 atomic.Bool，消除 WatchWithCallback goroutine
+	// 与 buildStartArgs/GetSpecType 之间的数据竞争（goroutine 无锁写入 vs 持锁读取）。
+	// 生活类比：调度中心的总开关状态牌，任何值班员都能直接看/拨（atomic 操作），
+	// 不需要先去前台排队借钥匙（mu 锁），避免排班冲突。
+	mtpFallbackDisabled atomic.Bool
 	lastStartTime       time.Time
 	cmdEnv              []string          // 安全传递给子进程的环境变量（如 API Key）
 	onLog               func(line string) // 日志行回调（用于实时推送到前端）
@@ -638,10 +643,11 @@ func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(Serv
 
 			// 推测解码崩溃回退：若推测解码已启用且服务器崩溃，自动禁用推测解码
 			// 窗口设为 120 秒以覆盖大模型加载时间（加载期间崩溃也视为推测解码问题）
-			if !s.mtpFallbackDisabled && s.config.SpecType != "" {
+			// RF-3 修复：用 atomic.Load/Store 替代直接读写，消除数据竞争
+			if !s.mtpFallbackDisabled.Load() && s.config.SpecType != "" {
 				runDuration := time.Since(s.lastStartTime)
 				if runDuration < 120*time.Second {
-					s.mtpFallbackDisabled = true
+					s.mtpFallbackDisabled.Store(true)
 					log.Warn().
 						Dur("run_duration", runDuration).
 						Str("spec_type", s.config.SpecType).
@@ -749,7 +755,8 @@ func (s *Server) LastOutput() string {
 func (s *Server) GetSpecType() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.mtpFallbackDisabled {
+	// RF-3 修复：atomic.Bool 读取，无需持锁也是 race-free，这里 RLock 仅保护 s.config.SpecType
+	if s.mtpFallbackDisabled.Load() {
 		return ""
 	}
 	return s.config.SpecType

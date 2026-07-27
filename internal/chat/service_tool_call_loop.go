@@ -80,7 +80,12 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 
 		// 2. 将结果追加到 llmMessages 并持久化
 		prevMsgCount := len(llmMessages)
-		llmMessages = s.appendToolCallMessages(convID, llmMessages, acc, results)
+		// M17 修复：DB 写入失败时中断 tool call 循环，避免上下文与 DB 不一致
+		var appendErr error
+		llmMessages, appendErr = s.appendToolCallMessages(convID, llmMessages, acc, results)
+		if appendErr != nil {
+			return appendErr
+		}
 		state.updateTokenCount(llmMessages, prevMsgCount)
 
 		// 3. 预防性裁剪上下文
@@ -133,6 +138,18 @@ func (s *Service) executeToolCallsConcurrently(cancelCtx context.Context, convID
 		toolWg.Add(1)
 		go func(idx int, tc llm.ToolCall) {
 			defer toolWg.Done()
+			// C-1 修复：goroutine 内加 recover 防护，避免 panic 导致整个进程崩溃
+			// 生活类比：流水线工位配备应急停止按钮，单个工位出故障不会让整条生产线停摆
+			defer func() {
+				if r := recover(); r != nil {
+					log.Error().Interface("panic", r).Str("tool", tc.Function.Name).Int("idx", idx).Msg("[chat] executeSingleToolCall panic recovered")
+					toolResults[idx] = toolCallResult{
+						tc:           tc,
+						toolContent:  fmt.Sprintf(`{"error":"工具执行内部错误:%v"}`, r),
+						searchJSON:   "",
+					}
+				}
+			}()
 			result := s.executeSingleToolCall(cancelCtx, convID, tc, cfg)
 			// 按 idx 写入预分配的切片，不同 goroutine 写不同位置，无需加锁
 			toolResults[idx] = result
@@ -208,12 +225,15 @@ func (s *Service) executeSearchToolCall(cancelCtx context.Context, convID string
 	result.searchJSON = string(sj)
 	lang := detectLanguage(args.Query)
 	toolContent := formatSearchResultsWithLang(searchResp.Results, lang) + searchResultInstruction(lang)
-	// 截断搜索结果，防止上下文膨胀
+	// M7: 截断搜索结果，防止上下文膨胀
+	// tool call 循环中无法准确估算剩余预算，用 ctxSize/6 作为保守预算（与原行为一致）
+	// 生活类比：tool call 循环像快餐店出餐——按固定份量盛饭，不计算剩余空间，保证不出错
 	ctxSize := 0
 	if cfg != nil {
 		ctxSize = cfg.ContextSize
 	}
-	result.toolContent = truncateSearchContext(toolContent, ctxSize)
+	availableBudget := ctxSize / 6
+	result.toolContent = truncateSearchContext(toolContent, availableBudget)
 	return result
 }
 
@@ -275,6 +295,14 @@ func (s *Service) executeMCPToolCall(cancelCtx context.Context, convID string, t
 		content = "(工具未返回内容)"
 	}
 
+	// SEC-005: 限制 MCP 工具响应大小，防止超大响应撑爆上下文
+	// 上限 100KB：与搜索结果 snippet 限制同量级，足够容纳工具返回的结构化数据
+	const maxToolContentRunes = 100 * 1024 / 2 // 100KB 按 UTF-8 平均 2 字节/字符估算
+	if runes := []rune(content); len(runes) > maxToolContentRunes {
+		content = string(runes[:maxToolContentRunes]) + "\n[... 工具响应过长，已截断 ...]"
+		log.Warn().Str("tool", tc.Function.Name).Int("orig_len", len(runes)).Msg("[chat] MCP 工具响应已截断")
+	}
+
 	result.toolContent = content
 	log.Info().Str("tool", tc.Function.Name).Int("content_len", len(content)).Msg("[chat] MCP 工具调用完成")
 	return result
@@ -298,12 +326,21 @@ func (s *Service) isMCPTool(name string) bool {
 }
 
 // extractToolResponseContent 从 llama-server /tools POST 响应中提取工具返回的文本内容。
-// 兼容两种格式：
-// 1. MCP 标准格式：{"content":[{"type":"text","text":"..."}],"isError":false}
-// 2. 纯文本格式（容错）：直接返回原始字符串
+// 兼容三种格式（llama-server 实际响应格式取决于工具类型）：
+// 1. 纯文本格式（最常见）：{"plain_text_response":"Echo: hello"}
+// 2. MCP 标准格式（结构化）：{"content":[{"type":"text","text":"..."}],"isError":false}
+// 3. 兜底容错：直接返回原始字符串
 // 生活类比：拆快递——标准包裹有标签有内容（按标签找文本），散装包裹直接看里面装了什么。
 func extractToolResponseContent(body []byte) string {
-	// 尝试 MCP 标准格式
+	// 优先尝试 llama-server 常用的 plain_text_response 字段
+	var plainResp struct {
+		PlainTextResponse string `json:"plain_text_response"`
+	}
+	if err := json.Unmarshal(body, &plainResp); err == nil && plainResp.PlainTextResponse != "" {
+		return plainResp.PlainTextResponse
+	}
+
+	// 尝试 MCP 标准格式（content 数组）
 	var mcpResp struct {
 		Content []struct {
 			Type string `json:"type"`
@@ -329,7 +366,9 @@ func extractToolResponseContent(body []byte) string {
 // appendToolCallMessages 将 tool call 结果追加到 llmMessages 并持久化到 DB。
 // 每个结果生成两条消息：assistant（含 tool_calls）和 tool（含搜索结果）。
 // 跳过未填充的条目（非 search 类 tool call 的位置为零值）。
-func (s *Service) appendToolCallMessages(convID string, llmMessages []llm.ChatMessage, acc *StreamAccumulator, results []toolCallResult) []llm.ChatMessage {
+// M17 修复：DB 写入失败时返回 error，避免 LLM 上下文与 DB 不一致（刷新后 tool call 历史丢失）
+// 生活类比：仓库录入失败时停止后续入库，而不是让账本和实物对不上
+func (s *Service) appendToolCallMessages(convID string, llmMessages []llm.ChatMessage, acc *StreamAccumulator, results []toolCallResult) ([]llm.ChatMessage, error) {
 	for _, tr := range results {
 		if tr.tc.Function.Name == "" {
 			continue
@@ -344,6 +383,7 @@ func (s *Service) appendToolCallMessages(convID string, llmMessages []llm.ChatMe
 			ThinkingDuration: clampDuration(acc.FirstRoundThinkingDuration),
 		}, secrets.CipherKey(s.cipher)); err != nil {
 			log.Error().Err(err).Msg("save assistant tool call message")
+			return nil, apperror.Wrap(apperror.KindInternal, "save assistant tool call message", err)
 		}
 
 		llmMessages = append(llmMessages, llm.ChatMessage{
@@ -364,6 +404,7 @@ func (s *Service) appendToolCallMessages(convID string, llmMessages []llm.ChatMe
 			ToolCallID:     tr.tc.ID,
 		}, secrets.CipherKey(s.cipher)); err != nil {
 			log.Error().Err(err).Msg("save tool result message")
+			return nil, apperror.Wrap(apperror.KindInternal, "save tool result message", err)
 		}
 
 		llmMessages = append(llmMessages, llm.ChatMessage{
@@ -372,7 +413,7 @@ func (s *Service) appendToolCallMessages(convID string, llmMessages []llm.ChatMe
 			ToolCallID: tr.tc.ID,
 		})
 	}
-	return llmMessages
+	return llmMessages, nil
 }
 
 // compressContextIfNeeded 预防性裁剪上下文。
@@ -395,7 +436,9 @@ func (s *Service) compressContextIfNeeded(convID string, llmMessages []llm.ChatM
 	if convID != "" {
 		existingSummary, _ = store.GetConversationSummary(s.db, convID)
 	}
-	result := CompressContext(s.wailsCtx, llmMessages, contextLimit, existingSummary, nil, client, convID, s.db)
+	// M13 修复：wailsCtx 用 snapshot 读取避免数据竞争
+	wailsCtx := s.getWailsCtxSnapshot()
+	result := CompressContext(wailsCtx, llmMessages, contextLimit, existingSummary, nil, client, convID, s.db)
 	llmMessages = result.Messages
 	// 压缩后 llmMessages 发生变化，重新计算 totalTokens 以保持准确
 	state.totalTokens = estimateMessagesTokens(llmMessages)

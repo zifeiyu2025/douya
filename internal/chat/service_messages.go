@@ -134,16 +134,26 @@ func buildRAGContext(hybridResults []rag.HybridSearchResult) string {
 	return ragContext
 }
 
-func truncateSearchContext(searchContext string, ctxSize int) string {
-	if ctxSize <= 0 {
-		ctxSize = 4096
+// truncateSearchContext 根据剩余 token 预算裁剪搜索结果上下文。
+// M7: 改为接收 availableBudget（剩余 token 预算）而非 ctxSize，让搜索结果在剩余预算内自适应裁剪。
+// 生活类比：以前不管饭盒大小都盛固定一勺（ctxSize/6），现在根据饭盒剩余空间盛饭——饭盒快满就少盛，饭盒空就多盛。
+//
+// availableBudget 语义：
+//   - > 0：按实际预算裁剪，搜索结果不超过 availableBudget token
+//   - <= 0：表示未配置预算（如 tool call 场景 ctxSize=0），用默认值 512
+//
+// 注意：调用方应在 availableBudget 过小（如 < 64）时直接不注入搜索结果，
+// 避免在上下文已超限时还强行注入搜索结果加剧溢出。
+func truncateSearchContext(searchContext string, availableBudget int) string {
+	// 默认预算：512 token（约 256 个中文字符，覆盖 3-5 条搜索结果的核心摘要）
+	// 仅服务 tool call 场景（ctxSize=0 时 availableBudget=0）；buildLLMMessages 场景的负预算由调用方拦截
+	if availableBudget <= 0 {
+		availableBudget = 512
 	}
-	// 安全实践：中文 token 估算系数从 3 调整为 2，与 estimateTokensByLang 保持一致，避免过度截断丢失关键信息
+	// 安全实践：中文 token 估算系数取 2，与 estimateTokensByLang 保持一致
 	searchTokenEstimate := len([]rune(searchContext)) * 2
-	// 截断上限从 ctxSize/3 收紧到 ctxSize/6：搜索结果体积过大是"搜索后等好久才输出"的主因
-	// （prompt eval 耗时与 prompt 体积近似线性相关）。收紧到 ctxSize/6 可将 prompt eval 时间下降约 50%。
-	// 搜索结果只是辅助信息，不应占用过多上下文预算。
-	maxSearchTokens := ctxSize / 6
+	// 按实际预算裁剪，不再强制下限（避免预算不足时溢出）
+	maxSearchTokens := availableBudget
 	if searchTokenEstimate > maxSearchTokens {
 		runes := []rune(searchContext)
 		if maxSearchTokens/2 < len(runes) {
@@ -176,7 +186,13 @@ var allowedAttachmentMIMETypes = map[string]bool{
 
 // validateAttachment 校验聊天附件的 MIME 类型与解码后大小。
 // 返回解码后的字节数（若为 base64 编码类型）或 -1（非 base64 类型），以及校验是否通过。
-func validateAttachment(att Attachment) (decodedLen int, ok bool) {
+// C-2 优化：可选传入 decodedCache 和 idx，校验通过时缓存解码结果供后续复用
+// 生活类比：质检员检查包裹时顺手把拆开的包裹贴上编号放回，后续取货员凭编号直接取，不用再拆一次
+func validateAttachment(att Attachment, idx int, decodedCache ...map[int][]byte) (decodedLen int, ok bool) {
+	var cache map[int][]byte
+	if len(decodedCache) > 0 {
+		cache = decodedCache[0]
+	}
 	// MIME 白名单校验（空 MIME 允许通过，兼容旧前端）
 	if att.MimeType != "" && !allowedAttachmentMIMETypes[att.MimeType] {
 		log.Warn().Str("name", att.Name).Str("mime", att.MimeType).Msg("[chat] attachment rejected: MIME type not in whitelist")
@@ -200,10 +216,40 @@ func validateAttachment(att Attachment) (decodedLen int, ok bool) {
 			log.Warn().Str("name", att.Name).Int("decoded_bytes", len(decoded)).Msg("[chat] attachment rejected: exceeds 200MB limit")
 			return len(decoded), false
 		}
+		// C-2 优化：缓存解码结果，供 buildMessageFromAttachments 复用，避免重复解码
+		if cache != nil {
+			cache[idx] = decoded
+		}
 		return len(decoded), true
-	default:
+	case "text":
+		// 文本类型无需 base64 解码，直接放行（由 buildMessageFromAttachments 的 case "text" 处理）
 		return -1, true
+	default:
+		// SEC-007: 未知附件类型默认拒绝（最小权限原则）
+		// 原实现返回 true 放行，但 buildMessageFromAttachments 的 type switch 无 default 分支会静默丢弃，
+		// 改为拒绝后会在消息中明确提示"附件被拒绝"，行为更安全可追踪
+		log.Warn().Str("name", att.Name).Str("type", att.Type).Msg("[chat] attachment rejected: unknown type")
+		return 0, false
 	}
+}
+
+// getOrDecodeBase64 从缓存获取或解码 base64 字符串。
+// C-2 优化：复用 validateAttachment 已解码的字节，避免重复解码大附件
+// 生活类比：仓库管理员凭编号取已拆箱的货品，编号不存在时才拆新箱
+func getOrDecodeBase64(cache map[int][]byte, idx int, data string) ([]byte, error) {
+	if cache != nil {
+		if cached, ok := cache[idx]; ok {
+			return cached, nil
+		}
+	}
+	decoded, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		return nil, err
+	}
+	if cache != nil {
+		cache[idx] = decoded
+	}
+	return decoded, nil
 }
 
 func buildMessageFromAttachments(role, content string, attachments []Attachment) llm.ChatMessage {
@@ -212,9 +258,14 @@ func buildMessageFromAttachments(role, content string, attachments []Attachment)
 	var videos []llm.InputVideo
 	var textParts []string
 
-	for _, att := range attachments {
+	// C-2 修复：缓存已解码的 base64 字节，避免 validateAttachment 和 case 分支重复解码
+	// 生活类比：仓库收货时质检员已拆箱检查过，后续取货直接用，不用再拆一次
+	decodedCache := make(map[int][]byte, len(attachments))
+
+	for i, att := range attachments {
 		// 安全实践：入口处统一校验 MIME 白名单与 200MB 大小上限，与 RAG UploadDocument 对齐
-		if _, ok := validateAttachment(att); !ok {
+		// C-2 优化：传入 cache 让 validateAttachment 缓存解码结果，后续 case 分支复用
+		if _, ok := validateAttachment(att, i, decodedCache); !ok {
 			textParts = append(textParts, fmt.Sprintf("--- 附件: %s (%s) ---\n[附件被拒绝：类型或大小超出限制]\n--- 附件结束 ---", att.Name, att.MimeType))
 			continue
 		}
@@ -228,7 +279,8 @@ func buildMessageFromAttachments(role, content string, attachments []Attachment)
 			videos = append(videos, llm.InputVideo{URL: att.Data, Format: att.Format})
 		case "pdf":
 			// 前端传入的 att.Data 是 base64 编码字符串，必须先解码为 PDF 原始字节
-			pdfRaw, err := base64.StdEncoding.DecodeString(att.Data)
+			// C-2 优化：复用 validateAttachment 已解码的字节（通过缓存），避免重复解码
+			pdfRaw, err := getOrDecodeBase64(decodedCache, i, att.Data)
 			if err != nil {
 				log.Warn().Err(err).Str("name", att.Name).Msg("PDF base64 解码失败")
 				textParts = append(textParts, fmt.Sprintf("--- 附件: %s (%s) ---\n[PDF文件无法解析]\n--- 附件结束 ---", att.Name, att.MimeType))
@@ -239,7 +291,8 @@ func buildMessageFromAttachments(role, content string, attachments []Attachment)
 			textParts = append(textParts, fmt.Sprintf("--- 附件: %s (%s) ---\n%s\n--- 附件结束 ---", att.Name, att.MimeType, pdfText))
 		case "docx":
 			// 复用 RAG 的 parseDOCX（含 zip bomb 防御）
-			docxRaw, err := base64.StdEncoding.DecodeString(att.Data)
+			// C-2 优化：复用 validateAttachment 已解码的字节（通过缓存），避免重复解码
+			docxRaw, err := getOrDecodeBase64(decodedCache, i, att.Data)
 			if err != nil {
 				log.Warn().Err(err).Str("name", att.Name).Msg("DOCX base64 解码失败")
 				textParts = append(textParts, fmt.Sprintf("--- 附件: %s (%s) ---\n[DOCX文件无法解析]\n--- 附件结束 ---", att.Name, att.MimeType))
@@ -546,7 +599,9 @@ func (s *Service) retrieveRAGContext(ctx context.Context, cfg *config.Config, cu
 	}
 
 	// RAG rerank 重排序：当配置了 reranker 模型时，对 HybridSearch 结果进行重排序
-	if cfg != nil && cfg.RerankerModelPath != "" && s.llmClient != nil {
+	// M12 修复：用 getClientSnapshot() 加锁读取 llmClient，避免与 UpdateClient 数据竞争
+	llmClientSnap := s.getClientSnapshot()
+	if cfg != nil && cfg.RerankerModelPath != "" && llmClientSnap != nil {
 		rerankTopN := cfg.RerankTopN
 		if rerankTopN <= 0 {
 			rerankTopN = 5
@@ -556,7 +611,7 @@ func (s *Service) retrieveRAGContext(ctx context.Context, cfg *config.Config, cu
 			documents[i] = r.ChunkContent
 		}
 		rerankStart := time.Now()
-		rerankResults, rerankErr := s.llmClient.Rerank(ctxRag, currentUserContent, documents, rerankTopN)
+		rerankResults, rerankErr := llmClientSnap.Rerank(ctxRag, currentUserContent, documents, rerankTopN)
 		rerankElapsed := time.Since(rerankStart)
 		if rerankErr != nil {
 			log.Warn().Err(rerankErr).Int("before", len(hybridResults)).Msg("[rag] rerank failed, fallback to hybrid results")
@@ -577,8 +632,67 @@ func (s *Service) retrieveRAGContext(ctx context.Context, cfg *config.Config, cu
 	return buildRAGContext(hybridResults)
 }
 
+// buildHistoryUserMessage 构建历史 user 消息的 ChatMessage，处理附件/图片能力判定。
+// C-8 修复：提取 buildHistoryFromDB 中重复的 user 消息构建逻辑，消除 4 层嵌套条件和重复的 caps.ImageInput 分支
+// 生活类比：质检员把不同类型的客户委托（带附件/带图片/纯文本）统一分类处理，而不是每类都走一遍流程
+// 参数：
+//   - m: 数据库中的 user 消息
+//   - content: 已处理的正文（可能是 currentUserContent 或原 Content）
+//   - currentAttachments: 当前请求的附件（仅当 m 是 lastMsgID 时使用）
+//   - isLastMsg: 是否是当前请求的消息
+//   - caps: 模型能力（决定是否使用 vision 消息）
+func buildHistoryUserMessage(m *store.Message, content string, currentAttachments []Attachment, isLastMsg bool, caps llm.ModelCapabilities) llm.ChatMessage {
+	// 当前请求消息且有附件：直接用 buildMessageFromAttachments（已处理能力判定）
+	if isLastMsg && len(currentAttachments) > 0 {
+		return buildMessageFromAttachments(m.Role, content, currentAttachments)
+	}
+
+	// 历史消息有附件：解析后按模型能力选择 vision 或 text
+	if m.Attachments != "" {
+		var dbAttachments []Attachment
+		if err := json.Unmarshal([]byte(m.Attachments), &dbAttachments); err == nil && len(dbAttachments) > 0 {
+			// 检查所有附件是否都被模型支持
+			supportsAll := true
+			for _, att := range dbAttachments {
+				if att.Type == "image" && !caps.ImageInput {
+					supportsAll = false
+					break
+				}
+				if att.Type == "audio" && !caps.AudioInput {
+					supportsAll = false
+					break
+				}
+			}
+			if supportsAll {
+				return buildMessageFromAttachments(m.Role, content, dbAttachments)
+			}
+			return llm.NewTextMessage(m.Role, content)
+		}
+	}
+
+	// 历史消息有图片（旧格式 Images 字段）：按模型能力选择 vision 或 text
+	if m.Images != "" {
+		return buildVisionOrTextMessage(m.Role, content, m.Images, caps.ImageInput)
+	}
+
+	return llm.NewTextMessage(m.Role, content)
+}
+
+// buildVisionOrTextMessage 根据模型能力构建 vision 或 text 消息。
+// C-8 修复：提取重复的 "caps.ImageInput ? NewVisionMessage : NewTextMessage" 逻辑
+func buildVisionOrTextMessage(role, content, imagesJSON string, imageInputSupported bool) llm.ChatMessage {
+	if imageInputSupported {
+		var imageUrls []string
+		if err := json.Unmarshal([]byte(imagesJSON), &imageUrls); err == nil && len(imageUrls) > 0 {
+			return llm.NewVisionMessage(role, content, imageUrls)
+		}
+	}
+	return llm.NewTextMessage(role, content)
+}
+
 // buildHistoryFromDB 从数据库消息构建 LLM 历史消息列表。
 // 反向遍历 dbMsgs（从最新到最旧），逐条转换为 llm.ChatMessage，累计 tokens 超出预算则停止。
+// user 消息的附件/图片能力判定委托给 buildHistoryUserMessage，其他角色直接用 NewTextMessage。
 // 生活类比：像整理一摞聊天记录，从最新的往前翻，把每条翻译成 LLM 能懂的格式，
 // 翻到装不下为止，没翻完的就标记为"需要摘要"（trimmedMsgs）。
 //
@@ -654,54 +768,11 @@ func (s *Service) buildHistoryFromDB(dbMsgs []*store.Message, currentUserContent
 			}
 		}
 
+		// C-8 修复：用 buildHistoryUserMessage 统一处理 user 消息构建，消除 4 层嵌套条件和重复分支
+		// 生活类比：把杂乱的分类工作交给专门的质检员，主流程只管"是 user 就交给质检员，否则直接打包"
 		var msg llm.ChatMessage
-		if m.Role == "user" && m.ID == lastMsgID && len(currentAttachments) > 0 {
-			msg = buildMessageFromAttachments(m.Role, content, currentAttachments)
-		} else if m.Role == "user" && m.Attachments != "" {
-			var dbAttachments []Attachment
-			if err := json.Unmarshal([]byte(m.Attachments), &dbAttachments); err == nil && len(dbAttachments) > 0 {
-				// Phase1: Check model capabilities for historical attachments
-				supportsAll := true
-				for _, att := range dbAttachments {
-					if att.Type == "image" && !caps.ImageInput {
-						supportsAll = false
-						break
-					}
-					if att.Type == "audio" && !caps.AudioInput {
-						supportsAll = false
-						break
-					}
-				}
-				if supportsAll {
-					msg = buildMessageFromAttachments(m.Role, content, dbAttachments)
-				} else {
-					msg = llm.NewTextMessage(m.Role, content)
-				}
-			} else if m.Images != "" {
-				if caps.ImageInput {
-					var imageUrls []string
-					if err := json.Unmarshal([]byte(m.Images), &imageUrls); err == nil && len(imageUrls) > 0 {
-						msg = llm.NewVisionMessage(m.Role, content, imageUrls)
-					} else {
-						msg = llm.NewTextMessage(m.Role, content)
-					}
-				} else {
-					msg = llm.NewTextMessage(m.Role, content)
-				}
-			} else {
-				msg = llm.NewTextMessage(m.Role, content)
-			}
-		} else if m.Role == "user" && m.Images != "" {
-			if caps.ImageInput {
-				var imageUrls []string
-				if err := json.Unmarshal([]byte(m.Images), &imageUrls); err == nil && len(imageUrls) > 0 {
-					msg = llm.NewVisionMessage(m.Role, content, imageUrls)
-				} else {
-					msg = llm.NewTextMessage(m.Role, content)
-				}
-			} else {
-				msg = llm.NewTextMessage(m.Role, content)
-			}
+		if m.Role == "user" {
+			msg = buildHistoryUserMessage(m, content, currentAttachments, m.ID == lastMsgID, caps)
 		} else {
 			msg = llm.NewTextMessage(m.Role, content)
 		}
@@ -721,8 +792,8 @@ func (s *Service) buildHistoryFromDB(dbMsgs []*store.Message, currentUserContent
 func FormatSearchResults(results []search.SearchResult) string { // Exported for testing
 	return formatSearchResultsWithLang(results, "zh")
 }
-func TruncateSearchContext(searchContext string, ctxSize int) string { // Exported for testing
-	return truncateSearchContext(searchContext, ctxSize)
+func TruncateSearchContext(searchContext string, availableBudget int) string { // Exported for testing
+	return truncateSearchContext(searchContext, availableBudget)
 }
 func BuildLLMMessages(s *Service, dbMsgs []*store.Message, currentUserContent string, currentAttachments []Attachment) ([]llm.ChatMessage, error) {
 	msgs, _, err := s.buildLLMMessages(context.Background(), "", dbMsgs, currentUserContent, currentAttachments, "off", "")

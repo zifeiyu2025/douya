@@ -42,7 +42,9 @@ export function useMorphRender() {
 
   // stable blocks 缓存：token key → HTML
   // 绑定到组件实例，会话切换/组件销毁时自动清理
+  // M4: 加 LRU 上限防止长对话流式生成时缓存无限增长（生活类比：抽屉满了就扔最旧的）
   const blockCache = new Map<string, string>()
+  const BLOCK_CACHE_MAX_SIZE = 200
   let previousContent = ''
 
   /**
@@ -154,7 +156,21 @@ export function useMorphRender() {
       const key = tokenKey(token, i)
       let html = blockCache.get(key)
       if (!html) {
+        // M4: LRU 淘汰——超限时删除最旧的 key（Map 保留插入顺序，keys().next().value 即最旧）
+        // 生活类比：抽屉满了就把最早放进去的那样东西扔掉，再放新的
+        if (blockCache.size >= BLOCK_CACHE_MAX_SIZE) {
+          const oldestKey = blockCache.keys().next().value
+          if (oldestKey !== undefined) {
+            blockCache.delete(oldestKey)
+          }
+        }
         html = renderToken(token)
+        blockCache.set(key, html)
+      } else {
+        // P5 修复：cache hit 时 delete + set 把命中项移到 Map 末尾，实现真正的 LRU
+        // 修复前：只读不更新位置，频繁复用的早期 block 仍可能被当作"最旧"淘汰（实际是 FIFO）
+        // 生活类比：抽屉里常用的东西用完要放回最外面（最近使用），不常用的自然被挤到最里面（最早使用）
+        blockCache.delete(key)
         blockCache.set(key, html)
       }
       htmls.push(html)

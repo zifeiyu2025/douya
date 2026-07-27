@@ -23,7 +23,8 @@ func (s *Server) WaitForVRAMRelease() {
 	for time.Now().Before(deadline) {
 		free, err := checkVRAMFree()
 		if err != nil {
-			log.Error().Err(err).Msg("[VRAM] nvidia-smi not available (no NVIDIA GPU?), skip waiting")
+			// 无 NVIDIA GPU 是预期降级场景，用 Warn 而非 Error
+			log.Warn().Err(err).Msg("[VRAM] nvidia-smi not available (no NVIDIA GPU?), skip waiting")
 			return
 		}
 		if free {

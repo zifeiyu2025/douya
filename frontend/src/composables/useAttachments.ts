@@ -4,6 +4,7 @@
 import type { ShallowRef } from 'vue'
 import { processImagePipeline } from '../utils/imageProcess'
 import type { Attachment } from '../services/wails'
+import { logError } from '../utils/logger'
 
 // 文件大小限制（单位：MB）
 // 安全实践：上传文件大小限制，配合后端 200MB 总限制，防止超大文件导致 OOM 或 IPC 超时
@@ -224,7 +225,7 @@ export function useAttachments(attachments: ShallowRef<Attachment[]>, message: M
         }
       ]
     } catch (err) {
-      console.error('图片预处理失败:', err)
+      logError('图片预处理失败:', err)
       message.error('图片处理失败，请重试或更换图片')
     }
   }

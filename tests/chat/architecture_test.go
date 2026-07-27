@@ -108,8 +108,12 @@ func TestStreamAccumulator_ResetForNextCall_PreservesAccumulatedState(t *testing
 	if acc.FullContent.String() != "" {
 		t.Errorf("FullContent should be reset, got %q", acc.FullContent.String())
 	}
+	// H3 修复：FullThinking 保持累积（saveToolCallFinalMessage 需要所有轮次的思考内容）
 	if acc.FullThinking.String() != "first thinking" {
 		t.Errorf("FullThinking should be preserved across calls, got %q", acc.FullThinking.String())
+	}
+	if chat.GetFirstRoundThinking(acc) != "first thinking" {
+		t.Errorf("FirstRoundThinking should preserve first round thinking, got %q", chat.GetFirstRoundThinking(acc))
 	}
 	if acc.LastSearchJSON != `{"results":[1]}` {
 		t.Errorf("LastSearchJSON should be preserved across calls, got %q", acc.LastSearchJSON)

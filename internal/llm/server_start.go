@@ -83,7 +83,12 @@ func (s *Server) Start() error {
 
 // prepareProcessEnv 构建子进程环境变量。
 // 1. 将 runtimeDir 注入 PATH（确保 DLL 可被找到）
-// 2. 追加安全传递的环境变量（如 LLAMA_API_KEY）
+// 2. 过滤敏感环境变量（最小权限原则，防止泄露给子进程）
+// 3. 追加安全传递的环境变量（如 LLAMA_API_KEY）
+//
+// 安全实践（SEC-003）：原实现仅过滤 PATH，其余环境变量原样继承。
+// 改为黑名单过滤敏感前缀（*_SECRET/*_TOKEN/*_PASSWORD/*_CREDENTIAL/*_KEY），
+// 保留 LLAMA_API_KEY（llama-server 需要）和功能性变量（HOME/TEMP/SYSTEMROOT 等）。
 func prepareProcessEnv(runtimeDir string, cmdEnv []string) []string {
 	currentPath := os.Getenv("PATH")
 	newPath := runtimeDir
@@ -93,14 +98,70 @@ func prepareProcessEnv(runtimeDir string, cmdEnv []string) []string {
 	env := os.Environ()
 	filtered := make([]string, 0, len(env)+len(cmdEnv)+1)
 	for _, e := range env {
-		if !strings.HasPrefix(e, "PATH=") {
-			filtered = append(filtered, e)
+		// PATH 单独处理（注入 runtimeDir）
+		if strings.HasPrefix(e, "PATH=") {
+			continue
 		}
+		// 过滤敏感环境变量（按前缀匹配 KEY=VALUE 中的 KEY 部分）
+		if isSensitiveEnvVar(e) {
+			continue
+		}
+		filtered = append(filtered, e)
 	}
 	filtered = append(filtered, "PATH="+newPath)
-	// 追加安全传递的环境变量（如 API Key）
+	// 追加安全传递的环境变量（如 API Key，已由调用方显式传入）
 	filtered = append(filtered, cmdEnv...)
 	return filtered
+}
+
+// sensitiveEnvVarPrefixes 敏感环境变量前缀黑名单。
+// 命中任一前缀的环境变量不会传递给 llama-server 子进程。
+var sensitiveEnvVarPrefixes = []string{
+	"_SECRET=",
+	"_TOKEN=",
+	"_PASSWORD=",
+	"_CREDENTIAL=",
+	"_PASSPHRASE=",
+	"AWS_SECRET_ACCESS_KEY=",
+	"AWS_SESSION_TOKEN=",
+	"GH_TOKEN=",
+	"GITHUB_TOKEN=",
+	"GITLAB_TOKEN=",
+	"DOCKER_PASSWORD=",
+	"KUBE_TOKEN=",
+}
+
+// isSensitiveEnvVar 判断环境变量是否敏感（不传递给子进程）。
+// 特殊例外：LLAMA_API_KEY 是 llama-server 自身需要的，允许通过。
+func isSensitiveEnvVar(envEntry string) bool {
+	// 提取 KEY 部分（= 之前）
+	eqIdx := strings.Index(envEntry, "=")
+	if eqIdx <= 0 {
+		return false
+	}
+	key := envEntry[:eqIdx]
+
+	// 例外：LLAMA_API_KEY 允许通过
+	if key == "LLAMA_API_KEY" {
+		return false
+	}
+
+	// 黑名单：匹配 _SECRET/_TOKEN/_PASSWORD/_CREDENTIAL/_PASSPHRASE 后缀
+	upperKey := strings.ToUpper(key)
+	for _, suffix := range []string{"_SECRET", "_TOKEN", "_PASSWORD", "_CREDENTIAL", "_PASSPHRASE"} {
+		if strings.HasSuffix(upperKey, suffix) {
+			return true
+		}
+	}
+
+	// 精确匹配已知敏感变量
+	for _, prefix := range sensitiveEnvVarPrefixes {
+		if strings.HasPrefix(envEntry, prefix) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // bindProcessToJobObject 将子进程绑定到 Job Object。

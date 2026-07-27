@@ -375,7 +375,8 @@ func DeriveModelName(filename string) string {
 	name = strings.TrimSuffix(name, ".gguf")
 	name = strings.TrimSuffix(name, ".GGUF")
 
-	name = quantSuffixRe.ReplaceAllString(name, "")
+	// DC-1 修复：复用 StripQuantSuffix，消除重复的正则调用
+	name = StripQuantSuffix(name)
 
 	// Normalize "uncensored" markers: -U-, -U_, _U-, _U_
 	name = uncensoredRe.ReplaceAllString(name, "-")

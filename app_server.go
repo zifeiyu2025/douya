@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,7 +14,6 @@ import (
 	"douya/internal/apperror"
 	"douya/internal/chat"
 	"douya/internal/config"
-	"douya/internal/httputil"
 	"douya/internal/llm"
 	"douya/internal/logger"
 	"douya/internal/system"
@@ -216,6 +213,33 @@ func (a *App) GetServerStatus() llm.ServerStatus {
 	return llm.ServerStatus{Running: false, Error: "server not initialized"}
 }
 
+// GetMetrics 获取 llama-server 的 Prometheus 指标摘要。
+// 前提：配置中 Metrics=true（启动参数 --metrics 已启用 /metrics 端点）。
+// 生活类比：去医院体检拿到原始报告后，挑出关键指标整理成一页摘要给用户看。
+//
+// 豆芽使用 router 模式，/metrics 端点走 proxy_get，必须传 model 参数
+// 路由到对应子进程。这里自动获取当前已加载的模型名传递。
+// 返回解析后的结构化指标；若 /metrics 端点未启用或请求失败，返回错误。
+func (a *App) GetMetrics() (llm.MetricsSummary, error) {
+	if a.client == nil {
+		return llm.MetricsSummary{}, fmt.Errorf("客户端未初始化")
+	}
+	// router 模式下必须传 model 参数，否则返回 400 "model name is missing from the request"
+	a.currentModelMu.RLock()
+	modelName := a.currentModelName
+	a.currentModelMu.RUnlock()
+	if modelName == "" {
+		return llm.MetricsSummary{}, fmt.Errorf("当前无已加载模型，无法获取指标（router 模式需要 model 参数）")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutShort)
+	defer cancel()
+	text, err := a.client.GetMetrics(ctx, modelName)
+	if err != nil {
+		return llm.MetricsSummary{}, fmt.Errorf("获取指标失败: %w", err)
+	}
+	return llm.ParseMetrics(text), nil
+}
+
 func (a *App) runningStatus() llm.ServerStatus {
 	caps := a.service.GetModelCapabilities()
 	a.currentModelMu.RLock()
@@ -271,36 +295,22 @@ var validSlotActions = map[string]bool{
 
 // operateSlot 执行 slot 的 save/restore/erase 操作（v9744+ 新格式）。
 // 生活类比：就像文件夹的"另存为/打开/删除"三个按钮，背后都是调用同一个文件管理器，只是动作参数不同。
+// RF-1 修复：复用 client.OperateSlot，消除与 internal/llm/client.go 的重复实现，
+// 仅在此层追加中文错误描述和成功日志，保持用户可见行为不变。
 func (a *App) operateSlot(slotID int, action string) error {
-	// 入口白名单校验：非法 action 一律拒绝，防止后续 URL 拼接被注入
 	if !validSlotActions[action] {
 		return fmt.Errorf("非法操作: %s，仅支持 save/restore/erase", action)
 	}
 	if a.client == nil {
 		return fmt.Errorf("客户端未初始化")
 	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutMedium)
 	defer cancel()
 
-	// 使用 url.Values.Encode 对查询参数做转义，避免 action 含特殊字符造成 URL 参数注入
-	// （即便白名单已拦截非法值，转义仍是纵深防御，防止未来扩展 action 时遗漏）
-	query := url.Values{"action": {action}}.Encode()
-	reqURL := fmt.Sprintf("%s/slots/%d?%s", a.client.BaseURL(), slotID, query)
-	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, http.NoBody)
-	if err != nil {
-		return fmt.Errorf("创建%s slot 请求失败: %w", slotActionDesc[action], err)
-	}
-	a.client.SetAuthHeader(req)
-
-	resp, err := a.client.HTTPClient().Do(req)
-	if err != nil {
-		return fmt.Errorf("%s slot 请求失败: %w", slotActionDesc[action], err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := httputil.ReadBodyLimited(resp.Body, 1024*1024) // 限制 1MB，错误响应体通常很小
-		return fmt.Errorf("%s slot 返回状态 %d: %s", slotActionDesc[action], resp.StatusCode, string(body))
+	// 委托给 client.OperateSlot（已实现白名单校验、URL 转义、auth header、状态码判断）
+	if err := a.client.OperateSlot(ctx, slotID, action); err != nil {
+		return fmt.Errorf("%s slot 失败: %w", slotActionDesc[action], err)
 	}
 
 	zlog.Info().Int("slot_id", slotID).Str("action", action).Msg("[app] slot operation succeeded")
@@ -1042,6 +1052,33 @@ func (a *App) switchPrepare(modelName string) string {
 	return previousModel
 }
 
+// classifyWaitError 根据等待错误内容分类"模型崩溃"还是"加载超时"，并组装用户可见的错误消息。
+// RF-2 修复：抽取 switchLoadModel 中两处重复的字符串匹配 + 错误消息拼接逻辑。
+// 生活类比：客服收到投诉后先分类（是产品坏了还是物流慢了），再按类别套模板回复，而不是每次重新写。
+//   - waitErr: WaitForModelLoaded 返回的错误
+//   - stderrHint: 从 server stderr 提取的详细错误提示（可为空）
+// 返回非空字符串表示失败原因；空字符串表示未识别为错误（调用方不应进入此分支）。
+func (a *App) classifyWaitError(waitErr error, stderrHint string) string {
+	waitErrStr := waitErr.Error()
+	// 崩溃特征：进程退出、VRAM 释放、从模型列表消失
+	isCrash := strings.Contains(waitErrStr, "failed to load") ||
+		strings.Contains(waitErrStr, "crashed") ||
+		strings.Contains(waitErrStr, "exit_code") ||
+		strings.Contains(waitErrStr, "VRAM released") ||
+		strings.Contains(waitErrStr, "disappeared from model list")
+	if isCrash {
+		if stderrHint != "" {
+			return fmt.Sprintf("模型加载失败: %v\n\n详细信息: %s", waitErr, stderrHint)
+		}
+		return fmt.Sprintf("模型加载失败: %v", waitErr)
+	}
+	// 真正的超时
+	if stderrHint != "" {
+		return fmt.Sprintf("模型加载超时: %v\n\n详细信息: %s", waitErr, stderrHint)
+	}
+	return fmt.Sprintf("模型加载超时: %v", waitErr)
+}
+
 // switchLoadModel 加载模型，返回 (是否已运行, 错误消息)
 func (a *App) switchLoadModel(modelName string) (bool, string) {
 	loadTimeout := a.calculateLoadTimeout(modelName)
@@ -1061,25 +1098,8 @@ func (a *App) switchLoadModel(modelName string) (bool, string) {
 			if oomMsg := a.detectOOMError(); oomMsg != "" {
 				return false, oomMsg
 			}
-			waitErrStr := waitErr.Error()
-			stderrHint := a.getServerStderrHint()
-			// 根据错误内容分类：崩溃 vs 超时
-			isCrash := strings.Contains(waitErrStr, "failed to load") ||
-				strings.Contains(waitErrStr, "crashed") ||
-				strings.Contains(waitErrStr, "exit_code") ||
-				strings.Contains(waitErrStr, "VRAM released") ||
-				strings.Contains(waitErrStr, "disappeared from model list")
-			if isCrash {
-				if stderrHint != "" {
-					return false, fmt.Sprintf("模型加载失败: %v\n\n详细信息: %s", waitErr, stderrHint)
-				}
-				return false, fmt.Sprintf("模型加载失败: %v", waitErr)
-			}
-			// 真正的超时
-			if stderrHint != "" {
-				return false, fmt.Sprintf("模型加载超时: %v\n\n详细信息: %s", waitErr, stderrHint)
-			}
-			return false, fmt.Sprintf("模型加载超时: %v", waitErr)
+			// RF-2 修复：复用 classifyWaitError 统一分类"崩溃 vs 超时"
+			return false, a.classifyWaitError(waitErr, a.getServerStderrHint())
 		}
 		return false, ""
 	}
@@ -1093,23 +1113,8 @@ func (a *App) switchLoadModel(modelName string) (bool, string) {
 			if oomMsg := a.detectOOMError(); oomMsg != "" {
 				return false, oomMsg
 			}
-			waitErrStr := waitErr.Error()
-			stderrHint := a.getServerStderrHint()
-			isCrash := strings.Contains(waitErrStr, "failed to load") ||
-				strings.Contains(waitErrStr, "crashed") ||
-				strings.Contains(waitErrStr, "exit_code") ||
-				strings.Contains(waitErrStr, "VRAM released") ||
-				strings.Contains(waitErrStr, "disappeared from model list")
-			if isCrash {
-				if stderrHint != "" {
-					return false, fmt.Sprintf("模型加载失败: %v\n\n详细信息: %s", waitErr, stderrHint)
-				}
-				return false, fmt.Sprintf("模型加载失败: %v", waitErr)
-			}
-			if stderrHint != "" {
-				return false, fmt.Sprintf("模型加载超时: %v\n\n详细信息: %s", waitErr, stderrHint)
-			}
-			return false, fmt.Sprintf("模型加载超时: %v", waitErr)
+			// RF-2 修复：复用 classifyWaitError 统一分类"崩溃 vs 超时"
+			return false, a.classifyWaitError(waitErr, a.getServerStderrHint())
 		}
 		return true, ""
 	}

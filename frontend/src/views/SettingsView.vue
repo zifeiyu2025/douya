@@ -770,7 +770,10 @@ provide(SETTINGS_CONTEXT_KEY, settingsContext)
   scrollbar-color: var(--border-color) transparent;
 }
 
-/* WebKit 滚动条优化 */
+/* Q10: 设置面板的滚动条与全局 ::-webkit-scrollbar 有意不同
+ * 全局用 --scrollbar-thumb + 4px 圆角 + hover 时变主题色（显眼）
+ * 此处用 --border-color + 3px 圆角 + hover 时变 --text-tertiary（低调，不抢设置内容焦点）
+ * 不要强行统一，避免设置面板滚动条变得过于显眼影响阅读 */
 .settings-content::-webkit-scrollbar {
   width: 6px;
 }

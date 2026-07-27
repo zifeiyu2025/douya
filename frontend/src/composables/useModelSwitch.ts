@@ -19,6 +19,7 @@ import { formatModelName } from '../utils/model'
 import type { SwitchProgressStage } from '../types/settings'
 // F-1.14：stageMap 抽取为常量，与 useAppLifecycle.ts 共享
 import { STAGE_PERCENT_MAP } from './stageMap'
+import { logError } from '../utils/logger'
 
 export function useModelSwitch() {
   const settingsStore = useSettingsStore()
@@ -206,7 +207,7 @@ export function useModelSwitch() {
       try {
         unsubscribe?.()
       } catch (e) {
-        console.error('[useModelSwitch] unsubscribe failed:', e)
+        logError('[useModelSwitch] unsubscribe failed:', e)
       }
     }
   })

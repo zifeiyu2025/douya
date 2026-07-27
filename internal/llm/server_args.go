@@ -243,18 +243,20 @@ func (s *Server) appendSpeculativeArgs(args []string) []string {
 }
 
 // appendSpecBasicArgs 追加推测解码基础参数（spec-type、spec-draft-n-max/min、draft cache-type）。
+// RF-3 修复：mtpFallbackDisabled 改用 atomic.Bool.Load() 读取
 func (s *Server) appendSpecBasicArgs(args []string) []string {
-	if s.config.SpecType != "" && !s.mtpFallbackDisabled {
+	mtpDisabled := s.mtpFallbackDisabled.Load()
+	if s.config.SpecType != "" && !mtpDisabled {
 		args = append(args, "--spec-type", s.config.SpecType)
 	}
-	if s.config.SpecDraftNMax > 0 && !s.mtpFallbackDisabled {
+	if s.config.SpecDraftNMax > 0 && !mtpDisabled {
 		args = append(args, "--spec-draft-n-max", fmt.Sprintf("%d", s.config.SpecDraftNMax))
 	}
-	if s.config.SpecDraftNMin > 0 && !s.mtpFallbackDisabled {
+	if s.config.SpecDraftNMin > 0 && !mtpDisabled {
 		args = append(args, "--spec-draft-n-min", fmt.Sprintf("%d", s.config.SpecDraftNMin))
 	}
-	args = s.appendValidatedCacheTypeIf(args, "--spec-draft-type-k", s.config.CacheTypeKDraft, s.mtpFallbackDisabled)
-	args = s.appendValidatedCacheTypeIf(args, "--spec-draft-type-v", s.config.CacheTypeVDraft, s.mtpFallbackDisabled)
+	args = s.appendValidatedCacheTypeIf(args, "--spec-draft-type-k", s.config.CacheTypeKDraft, mtpDisabled)
+	args = s.appendValidatedCacheTypeIf(args, "--spec-draft-type-v", s.config.CacheTypeVDraft, mtpDisabled)
 	return args
 }
 
@@ -432,8 +434,9 @@ func (s *Server) appendAdvancedArgs(args []string) []string {
 
 // appendDraftGpuArgs 追加 Draft 模型 GPU 与推测解码参数。
 // mtpFallbackDisabled=true 时跳过所有参数。
+// RF-3 修复：mtpFallbackDisabled 改用 atomic.Bool.Load() 读取
 func (s *Server) appendDraftGpuArgs(args []string) []string {
-	if s.mtpFallbackDisabled {
+	if s.mtpFallbackDisabled.Load() {
 		return args
 	}
 	if s.config.SpecDraftNgl > 0 {
@@ -491,8 +494,9 @@ func (s *Server) appendMediaOfflineArgs(args []string) []string {
 
 // appendDraftThreadsArgs 追加 Draft 模型线程配置与默认推测解码开关。
 // mtpFallbackDisabled=true 时跳过线程参数。
+// RF-3 修复：mtpFallbackDisabled 改用 atomic.Bool.Load() 读取
 func (s *Server) appendDraftThreadsArgs(args []string) []string {
-	if !s.mtpFallbackDisabled {
+	if !s.mtpFallbackDisabled.Load() {
 		if s.config.SpecDraftThreads > 0 {
 			args = append(args, "--spec-draft-threads", fmt.Sprintf("%d", s.config.SpecDraftThreads))
 		}

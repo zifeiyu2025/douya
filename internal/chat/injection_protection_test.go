@@ -210,34 +210,34 @@ func TestTruncateRunes_NonPositiveMax(t *testing.T) {
 	}
 }
 
-// TestTruncateSearchContext_NewRatio 验证截断上限为 ctxSize/6（而非旧的 ctxSize/3）。
-// 这是"搜索后输出延迟"优化的核心：更小的搜索上下文 = 更快的 prompt eval。
-func TestTruncateSearchContext_NewRatio(t *testing.T) {
-	// 构造 1000 个中文字符的搜索上下文
-	runes := make([]rune, 1000)
+// TestTruncateSearchContext_DynamicBudget 验证按剩余 token 预算动态裁剪搜索结果。
+// M7 优化核心：搜索结果在剩余上下文空间内自适应，预算小则少盛，预算大则多盛。
+func TestTruncateSearchContext_DynamicBudget(t *testing.T) {
+	// 构造 2000 个中文字符的搜索上下文
+	runes := make([]rune, 2000)
 	for i := range runes {
 		runes[i] = '字'
 	}
 	searchCtx := string(runes)
 
-	// ctxSize=8192 → maxSearchTokens = 8192/6 = 1365
-	// searchTokenEstimate = 1000 * 2 = 2000 > 1365 → 触发截断
-	// 截断到 maxSearchTokens/2 = 682 个 rune + "\n..."
-	got := truncateSearchContext(searchCtx, 8192)
+	// availableBudget=1000 → maxSearchTokens = max(1000, 256) = 1000
+	// searchTokenEstimate = 2000 * 2 = 4000 > 1000 → 触发截断
+	// 截断到 maxSearchTokens/2 = 500 个 rune + "\n..."
+	got := truncateSearchContext(searchCtx, 1000)
 	gotRunes := []rune(got)
-	// 截断后应包含省略号标记，且 rune 数应明显小于原始 1000
+	// 截断后应包含省略号标记
 	if !strings.Contains(got, "...") {
 		t.Errorf("截断后应包含省略号，实际: %s(前30字符)", string(gotRunes[:min(30, len(gotRunes))]))
 	}
-	// 682 个内容 rune + "\n..."（3个rune）= 685
-	if len(gotRunes) > 690 {
-		t.Errorf("截断后 rune 数应约为 685，实际 %d", len(gotRunes))
+	// 500 个内容 rune + "\n..."（3个rune）= 503
+	if len(gotRunes) > 510 {
+		t.Errorf("截断后 rune 数应约为 503，实际 %d", len(gotRunes))
 	}
 }
 
 // TestTruncateSearchContext_SmallContextNotTruncated 验证小上下文不截断
 func TestTruncateSearchContext_SmallContextNotTruncated(t *testing.T) {
-	// 100 个中文字符，estimate=200，ctxSize=8192 时 maxSearchTokens=1365，不触发截断
+	// 100 个中文字符，estimate=200，availableBudget=8192 时 maxSearchTokens=8192，不触发截断
 	runes := make([]rune, 100)
 	for i := range runes {
 		runes[i] = '字'
@@ -249,9 +249,10 @@ func TestTruncateSearchContext_SmallContextNotTruncated(t *testing.T) {
 	}
 }
 
-// TestTruncateSearchContext_ZeroCtxSize 验证 ctxSize<=0 时使用默认值 4096
-func TestTruncateSearchContext_ZeroCtxSize(t *testing.T) {
-	// 4096/6 = 682，需要 estimate > 682 即 rune 数 > 341
+// TestTruncateSearchContext_ZeroBudget 验证 availableBudget<=0 时使用默认值 512
+func TestTruncateSearchContext_ZeroBudget(t *testing.T) {
+	// availableBudget=0 → 默认 512，maxSearchTokens = max(512, 256) = 512
+	// 500 个中文字符 estimate=1000 > 512 → 触发截断
 	runes := make([]rune, 500)
 	for i := range runes {
 		runes[i] = '字'
@@ -259,7 +260,29 @@ func TestTruncateSearchContext_ZeroCtxSize(t *testing.T) {
 	input := string(runes)
 	got := truncateSearchContext(input, 0)
 	if got == input {
-		t.Errorf("ctxSize=0 应使用默认 4096 并触发截断，但未被截断")
+		t.Errorf("availableBudget=0 应使用默认 512 并触发截断，但未被截断")
+	}
+}
+
+// TestTruncateSearchContext_SmallBudget 验证小预算时按实际预算裁剪（H4 修复）。
+// H4 修复前：max(availableBudget, 256) 在预算=100 时仍注入 256 token 导致溢出
+// H4 修复后：按实际预算 100 裁剪，maxSearchTokens=100，截断到 50 个 rune
+func TestTruncateSearchContext_SmallBudget(t *testing.T) {
+	// 200 个中文字符，estimate=400，availableBudget=100 → maxSearchTokens=100
+	// 400 > 100 → 触发截断，截断到 100/2 = 50 个 rune + "\n..."
+	runes := make([]rune, 200)
+	for i := range runes {
+		runes[i] = '字'
+	}
+	searchCtx := string(runes)
+	got := truncateSearchContext(searchCtx, 100)
+	if !strings.Contains(got, "...") {
+		t.Errorf("availableBudget=100 时应触发截断，实际未截断")
+	}
+	gotRunes := []rune(got)
+	// 50 个内容 rune + "\n..."（3个rune）= 53
+	if len(gotRunes) > 60 {
+		t.Errorf("H4 修复后应按实际预算 100 裁剪（约 53 rune），实际 %d", len(gotRunes))
 	}
 }
 

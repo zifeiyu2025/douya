@@ -80,6 +80,21 @@ func (s *Service) buildLLMMessages(ctx context.Context, convID string, dbMsgs []
 		}
 	}
 
+	// M7: 根据剩余 token 预算动态裁剪搜索结果，避免搜索结果撑爆上下文
+	// 剩余预算 = effectiveMax - 已用 token（system+history），让搜索结果在剩余空间内自适应
+	// 生活类比：饭盒装完主菜后看剩多少空间，再决定盛多少汤——空间小就少盛，空间大就多盛
+	// H4 修复：剩余预算过小（< 64 token）时直接不注入，避免强行注入导致上下文溢出
+	if searchContext != "" {
+		usedTokens := estimateMessagesTokens(messages)
+		availableBudget := effectiveMax - usedTokens
+		if availableBudget < 64 {
+			// 剩余预算极少（已超限或接近超限），不注入搜索结果避免溢出
+			log.Warn().Int("available_budget", availableBudget).Int("used_tokens", usedTokens).Int("effective_max", effectiveMax).Msg("[buildLLMMessages] 剩余预算不足，跳过搜索结果注入")
+			searchContext = ""
+		} else {
+			searchContext = truncateSearchContext(searchContext, availableBudget)
+		}
+	}
 	messages = appendAuxiliaryContext(messages, ragContext, searchContext, currentUserContent)
 	// 模型不支持 system role 时（如 Gemma 系列），把 system 消息内容合并到第一条 user 消息前
 	// 避免 llama.cpp 渲染模板时因不认识 system role 而报错
@@ -277,7 +292,9 @@ func (s *Service) buildOverflowMessages(systemContent string, dbMsgs []*store.Me
 		existingSummary, _ = store.GetConversationSummary(s.db, convID)
 	}
 	client := s.getClientSnapshot()
-	result := CompressContext(s.wailsCtx, baseMessages, maxContext, existingSummary, dbMsgs, client, convID, s.db)
+	// M13 修复：wailsCtx 用 snapshot 读取避免数据竞争；nil 时 CompressContext 内部会用 context.Background() 兜底
+	wailsCtx := s.getWailsCtxSnapshot()
+	result := CompressContext(wailsCtx, baseMessages, maxContext, existingSummary, dbMsgs, client, convID, s.db)
 	messages := result.Messages
 
 	// 如果 CompressContext 返回的消息仍然超限（极端情况），fallback 到只保留 system + 最后一条消息
@@ -304,7 +321,9 @@ func (s *Service) buildNormalMessages(systemContent string, dbMsgs []*store.Mess
 	if len(trimmedMsgs) > 0 && convID != "" {
 		existingSummary, _ := store.GetConversationSummary(s.db, convID)
 		client := s.getClientSnapshot()
-		result := CompressContext(s.wailsCtx, baseMessages, maxContext, existingSummary, trimmedMsgs, client, convID, s.db)
+		// M13 修复：wailsCtx 用 snapshot 读取避免数据竞争
+		wailsCtx := s.getWailsCtxSnapshot()
+		result := CompressContext(wailsCtx, baseMessages, maxContext, existingSummary, trimmedMsgs, client, convID, s.db)
 		messages = result.Messages
 		log.Info().Int("trimmed_count", result.TrimmedCount).Bool("summary_inserted", result.SummaryInserted).Str("convID", convID).Msg("[buildLLMMessages] 上下文已压缩")
 	} else {

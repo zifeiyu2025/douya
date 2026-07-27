@@ -41,6 +41,10 @@ function createEmptyStreamingState(): ConvStreamingState {
   })
 }
 
+// P4 修复：模块级空状态单例，避免 currentConvState/generatingConvState 每次重算都新建 shallowReactive 对象。
+// 安全前提：空状态是只读的"无状态"表示，不会被修改（clearConvState 只作用于 Map 中的实际 state 对象）。
+const EMPTY_STREAMING_STATE = createEmptyStreamingState()
+
 /** 清空流式状态（保留 contextTrimmed,contextTrimmed 是通知性事件） */
 function clearConvState(state: ConvStreamingState) {
   state.isGenerating = false
@@ -151,17 +155,35 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  // M10: 解耦"当前查看会话状态"与"正在生成会话状态"，避免切会话时 UI 状态串台
+  // 生活类比：客厅电视（currentConvState）显示你正在看的频道，厨房摄像头（generatingConvState）显示正在炒的菜。
+  // 切换客厅频道不会让厨房的菜跑到客厅屏幕上。
+  // currentConvState：当前查看会话的状态，消息流相关 UI（占位气泡、流式内容、速度显示）使用
   const currentConvState = computed<ConvStreamingState>(() => {
-    const id = generatingConvId.value || currentConversationId.value
+    const id = currentConversationId.value
     const state = id ? convStreamingStates.get(id) : undefined
     if (state) return state
-    if (generatingConvId.value === '' && convStreamingStates.has('')) {
+    // 没有当前会话时，fallback 到空会话状态（用于"无选中会话但能生成"的场景，如未选中会话时直接发消息）
+    if (convStreamingStates.has('')) {
       return convStreamingStates.get('')!
     }
-    return createEmptyStreamingState()
+    return EMPTY_STREAMING_STATE
   })
 
+  // generatingConvState：正在生成会话的状态，全局生成控制 UI（禁用发送按钮、停止按钮）使用
+  const generatingConvState = computed<ConvStreamingState>(() => {
+    const id = generatingConvId.value
+    if (!id) return EMPTY_STREAMING_STATE
+    const state = convStreamingStates.get(id)
+    if (state) return state
+    return EMPTY_STREAMING_STATE
+  })
+
+  // isGenerating：当前查看会话是否在生成（消息流相关 UI 使用）
   const isGenerating = computed(() => currentConvState.value.isGenerating)
+  // isAnyGenerating：全局是否有会话在生成（ChatInput 禁用发送、store 并发守卫使用）
+  // 防止 A 生成中切到 B 时，B 的 isGenerating=false 误判为可发消息导致并发生成状态混乱
+  const isAnyGenerating = computed(() => generatingConvState.value.isGenerating)
   const streamingContent = computed(() => currentConvState.value.streamingContent)
   const thinkingContent = computed(() => currentConvState.value.thinkingContent)
   const searchResults = computed(() => currentConvState.value.searchResults)
@@ -261,7 +283,8 @@ export const useChatStore = defineStore('chat', () => {
     convStreamingStates,
     isLoadingConversations,
     lastError,
-    messagesRequestVersion
+    messagesRequestVersion,
+    clearFlushTimer
   })
 
   // 切换对话时重置 lastPromptTokens（新对话的已用 token 数未知，显示 0 直到下次请求完成）
@@ -285,7 +308,11 @@ export const useChatStore = defineStore('chat', () => {
       wails
         .getLastPromptTokens()
         .then(n => {
-          lastPromptTokens.value = n || 0
+          // P3 修复：校验当前会话是否仍是生成结束时的会话，
+          // 避免 A 生成结束→用户切到 B→A 的 promise 返回→B 的 TokenCounter 显示 A 的 token 数
+          if (currentConversationId.value === convId) {
+            lastPromptTokens.value = n || 0
+          }
         })
         .catch(() => {})
     }
@@ -721,19 +748,32 @@ export const useChatStore = defineStore('chat', () => {
         }
       }
 
+      // C-3 修复：保存原始消息用于回滚，避免后端删除失败时 UI 与 DB 不一致
+      // 生活类比：仓库销毁货品前先拍照存档，销毁失败时凭照片恢复记录
+      const originalMessages = messages.value
       messages.value = messages.value.filter((m: Message) => !idsToRemove.has(m.id))
-      await wails.deleteMessage(id)
+      try {
+        await wails.deleteMessage(id)
+      } catch (e) {
+        // 后端删除失败：回滚 UI 到删除前状态
+        messages.value = originalMessages
+        throw e
+      }
     } catch (e) {
       logError('删除消息失败', e)
     }
   }
 
   async function regenerateMessage(userMessageID: string, searchMode: string) {
-    if (isGenerating.value) return
+    // M10: 用 isAnyGenerating 防止 A 生成中切到 B 时误判可发消息导致并发生成
+    if (isAnyGenerating.value) return
 
     const convId = currentConversationId.value
     if (!convId) return
 
+    // C-3 修复：保存原始消息用于回滚，避免后端调用失败时 UI 与 DB 不一致
+    // 生活类比：重新做菜前先备份原菜品，做砸了还能上原菜
+    const originalMessages = messages.value
     // 删除用户消息之后的所有回复，保留到用户消息为止
     const userMsgIdx = messages.value.findIndex((m: Message) => m.id === userMessageID)
     if (userMsgIdx >= 0) {
@@ -757,6 +797,8 @@ export const useChatStore = defineStore('chat', () => {
       clearFlushTimer(convId)
       clearConvState(state)
       generatingConvId.value = ''
+      // 后端调用失败：回滚 UI 到重新生成前状态
+      messages.value = originalMessages
       logError('重新生成失败', e)
     }
   }
@@ -767,7 +809,8 @@ export const useChatStore = defineStore('chat', () => {
     images?: string[],
     attachments?: Attachment[]
   ) {
-    if (isGenerating.value) return
+    // M10: 用 isAnyGenerating 防止 A 生成中切到 B 时误判可发消息导致并发生成
+    if (isAnyGenerating.value) return
 
     const convId = currentConversationId.value
     generatingConvId.value = convId || ''
@@ -855,6 +898,11 @@ export const useChatStore = defineStore('chat', () => {
     return () => {
       unsubscribe()
       clearTimers()
+      // P7 修复：清理所有 pending 的 flush 定时器，避免应用退出时残留回调
+      flushTimers.forEach((t, k) => {
+        clearTimeout(t)
+        flushTimers.delete(k)
+      })
     }
   }
 
@@ -864,6 +912,7 @@ export const useChatStore = defineStore('chat', () => {
     messages,
     convStreamingStates,
     isGenerating,
+    isAnyGenerating,
     streamingContent,
     thinkingContent,
     searchResults,

@@ -300,7 +300,10 @@ func (s *Service) updateConversationTitleIfNeeded(convID string, titleContent st
 		title := generateConversationTitle(titleContent)
 		conv.Title = title
 		if err := store.UpdateConversation(s.db, conv, secrets.CipherKey(s.cipher)); err != nil {
+			// M18 修复：DB 更新失败时不 emit 新标题，避免前端显示新标题但刷新后回退到旧标题
+			// 生活类比：仓库标签打印机故障时，不能让前台显示新货位，否则客户找不到货
 			log.Error().Err(err).Str("convID", convID).Msg("[chat] 更新会话标题失败")
+			return
 		}
 	}
 	s.emitForConv(convID, "conversation_updated", &Conversation{

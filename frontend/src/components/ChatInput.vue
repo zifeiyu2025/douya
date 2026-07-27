@@ -353,7 +353,7 @@
           <button
             v-if="settingsStore.config.slot_save_enabled"
             class="kv-btn kv-save-btn"
-            :disabled="chatStore.isGenerating"
+            :disabled="chatStore.isAnyGenerating"
             title="保存 KV 缓存"
             @click="handleSaveKV"
           >
@@ -384,7 +384,7 @@
 
         <div class="right-buttons">
           <button
-            v-if="chatStore.isGenerating"
+            v-if="chatStore.isAnyGenerating"
             class="stop-btn"
             @click="chatStore.stopGeneration()"
           >
@@ -613,7 +613,7 @@ async function handleThinkClick() {
 }
 
 async function handleSaveKV() {
-  if (chatStore.isGenerating) return
+  if (chatStore.isAnyGenerating) return
   try {
     await wails.saveSlot(0)
     showSuccess(message, 'KV 缓存已保存')
@@ -866,7 +866,7 @@ function handleFileSelect(e: Event) {
 function handleSend() {
   const text = inputText.value.trim()
   if (!text && attachments.value.length === 0) return
-  if (chatStore.isGenerating) return
+  if (chatStore.isAnyGenerating) return
   if (isSwitching.value) return
 
   if (isListening.value) {
@@ -1057,10 +1057,10 @@ onUnmounted(() => {
   margin: 0 0 4px;
   background: var(--bg-secondary);
   border-radius: var(--border-radius-md);
-  animation: fadeIn 0.2s ease;
+  animation: chat-input-fade-in 0.2s ease;
 }
 
-@keyframes fadeIn {
+@keyframes chat-input-fade-in {
   from {
     opacity: 0;
     transform: translateY(4px);
@@ -1086,10 +1086,12 @@ onUnmounted(() => {
   inset: 0;
   border-radius: 50%;
   background: var(--accent-r-soft);
-  animation: pulse 1.5s ease-in-out infinite;
+  animation: pulse-ring 1.5s ease-in-out infinite;
 }
 
-@keyframes pulse {
+/* Q10: 重命名为 pulse-ring 避免与全局 style.css 的 @keyframes pulse（透明度脉冲）冲突
+ * Vue scoped 不隔离 @keyframes，同名定义会覆盖全局，导致全局 animation: pulse 行为被污染 */
+@keyframes pulse-ring {
   0% {
     transform: scale(1);
     opacity: 0.6;
@@ -1533,11 +1535,11 @@ onUnmounted(() => {
   inset: 0;
   border-radius: inherit;
   background: var(--bg-tertiary);
-  animation: ripple 0.5s ease-out;
+  animation: chat-input-ripple 0.5s ease-out;
   pointer-events: none;
 }
 
-@keyframes ripple {
+@keyframes chat-input-ripple {
   0% {
     transform: scale(0);
     opacity: 1;

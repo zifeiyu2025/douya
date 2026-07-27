@@ -1149,6 +1149,173 @@ func TestGetServerProps_WithoutModelName(t *testing.T) {
 	}
 }
 
+func TestGetMetrics_EndpointSuccess(t *testing.T) {
+	// 模拟 llama-server /metrics 端点返回 Prometheus 格式文本
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/metrics" {
+			t.Errorf("expected path /metrics, got %s", r.URL.Path)
+		}
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET method, got %s", r.Method)
+		}
+		// router 模式下应携带 model 查询参数
+		if r.URL.Query().Get("model") != "test-model" {
+			t.Errorf("expected model=test-model query param, got %q", r.URL.Query().Get("model"))
+		}
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		fmt.Fprint(w, samplePrometheusText())
+	}))
+	defer server.Close()
+
+	client := llm.NewClient(server.URL, "")
+	text, err := client.GetMetrics(context.Background(), "test-model")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(text, "llamacpp:tokens_predicted_total") {
+		t.Errorf("expected text to contain llamacpp:tokens_predicted_total, got: %s", text)
+	}
+}
+
+func TestGetMetrics_NoModelParam(t *testing.T) {
+	// 不传 model 参数时，URL 不应包含 ?model= 查询串
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "" {
+			t.Errorf("expected no query params, got %s", r.URL.RawQuery)
+		}
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		fmt.Fprint(w, samplePrometheusText())
+	}))
+	defer server.Close()
+
+	client := llm.NewClient(server.URL, "")
+	_, err := client.GetMetrics(context.Background(), "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestGetMetrics_Non200Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client := llm.NewClient(server.URL, "")
+	_, err := client.GetMetrics(context.Background(), "test-model")
+	if err == nil {
+		t.Fatal("expected error for 404 response")
+	}
+}
+
+func TestParseMetrics_BasicExtraction(t *testing.T) {
+	summary := llm.ParseMetrics(samplePrometheusText())
+
+	if summary.TokensPredictedTotal != 150 {
+		t.Errorf("TokensPredictedTotal: expected 150, got %f", summary.TokensPredictedTotal)
+	}
+	if summary.TokensPromptTotal != 80 {
+		t.Errorf("TokensPromptTotal: expected 80, got %f", summary.TokensPromptTotal)
+	}
+	if summary.PromptSecondsTotal != 2.0 {
+		t.Errorf("PromptSecondsTotal: expected 2.0, got %f", summary.PromptSecondsTotal)
+	}
+	if summary.PredictedSecondsTotal != 3.0 {
+		t.Errorf("PredictedSecondsTotal: expected 3.0, got %f", summary.PredictedSecondsTotal)
+	}
+	// 速度是 gauge，直接读取，不是计算得出
+	if summary.PredictTokensPerSecond != 45.5 {
+		t.Errorf("PredictTokensPerSecond: expected 45.5, got %f", summary.PredictTokensPerSecond)
+	}
+	if summary.PromptTokensPerSecond != 40.0 {
+		t.Errorf("PromptTokensPerSecond: expected 40.0, got %f", summary.PromptTokensPerSecond)
+	}
+	if summary.NDecodeTotal != 200 {
+		t.Errorf("NDecodeTotal: expected 200, got %f", summary.NDecodeTotal)
+	}
+	if summary.NTokensMax != 1024 {
+		t.Errorf("NTokensMax: expected 1024, got %f", summary.NTokensMax)
+	}
+	if summary.ProcessingRequests != 2 {
+		t.Errorf("ProcessingRequests: expected 2, got %d", summary.ProcessingRequests)
+	}
+	if summary.DeferredRequests != 0 {
+		t.Errorf("DeferredRequests: expected 0, got %d", summary.DeferredRequests)
+	}
+	if summary.BusySlotsPerDecode != 0.95 {
+		t.Errorf("BusySlotsPerDecode: expected 0.95, got %f", summary.BusySlotsPerDecode)
+	}
+}
+
+func TestParseMetrics_LabelsStripped(t *testing.T) {
+	// 带 label 的指标行：{slot="0"} 部分应被剥离
+	text := "llamacpp:requests_processing{slot=\"0\"} 3\n"
+	summary := llm.ParseMetrics(text)
+	if summary.ProcessingRequests != 3 {
+		t.Errorf("ProcessingRequests: expected 3, got %d", summary.ProcessingRequests)
+	}
+}
+
+func TestParseMetrics_EmptyText(t *testing.T) {
+	summary := llm.ParseMetrics("")
+	if summary != (llm.MetricsSummary{}) {
+		t.Errorf("expected zero-value MetricsSummary for empty text, got %+v", summary)
+	}
+}
+
+func TestParseMetrics_IgnoresCommentsAndInvalidLines(t *testing.T) {
+	text := "" +
+		"# HELP llamacpp:tokens_predicted_total Number of tokens predicted\n" +
+		"# TYPE llamacpp:tokens_predicted_total counter\n" +
+		"\n" +
+		"not a valid line\n" +
+		"llamacpp:tokens_predicted_total 100\n"
+	summary := llm.ParseMetrics(text)
+	if summary.TokensPredictedTotal != 100 {
+		t.Errorf("TokensPredictedTotal: expected 100, got %f", summary.TokensPredictedTotal)
+	}
+}
+
+// samplePrometheusText 返回用于测试的 Prometheus 格式样本文本。
+// 格式对齐 llama.cpp tools/server/server-context.cpp 的 get_metrics 实现，
+// 指标名带 "llamacpp:" 前缀（冒号是 Prometheus namespace 分隔符）。
+func samplePrometheusText() string {
+	return "" +
+		"# HELP llamacpp:prompt_tokens_total Number of prompt tokens processed.\n" +
+		"# TYPE llamacpp:prompt_tokens_total counter\n" +
+		"llamacpp:prompt_tokens_total 80\n" +
+		"# HELP llamacpp:prompt_seconds_total Prompt process time\n" +
+		"# TYPE llamacpp:prompt_seconds_total counter\n" +
+		"llamacpp:prompt_seconds_total 2.0\n" +
+		"# HELP llamacpp:tokens_predicted_total Number of generation tokens processed.\n" +
+		"# TYPE llamacpp:tokens_predicted_total counter\n" +
+		"llamacpp:tokens_predicted_total 150\n" +
+		"# HELP llamacpp:tokens_predicted_seconds_total Predict process time\n" +
+		"# TYPE llamacpp:tokens_predicted_seconds_total counter\n" +
+		"llamacpp:tokens_predicted_seconds_total 3.0\n" +
+		"# HELP llamacpp:n_decode_total Total number of llama_decode() calls\n" +
+		"# TYPE llamacpp:n_decode_total counter\n" +
+		"llamacpp:n_decode_total 200\n" +
+		"# HELP llamacpp:n_tokens_max Largest observed n_tokens.\n" +
+		"# TYPE llamacpp:n_tokens_max counter\n" +
+		"llamacpp:n_tokens_max 1024\n" +
+		"# HELP llamacpp:prompt_tokens_seconds Average prompt throughput in tokens/s.\n" +
+		"# TYPE llamacpp:prompt_tokens_seconds gauge\n" +
+		"llamacpp:prompt_tokens_seconds 40.0\n" +
+		"# HELP llamacpp:predicted_tokens_seconds Average generation throughput in tokens/s.\n" +
+		"# TYPE llamacpp:predicted_tokens_seconds gauge\n" +
+		"llamacpp:predicted_tokens_seconds 45.5\n" +
+		"# HELP llamacpp:requests_processing Number of requests processing.\n" +
+		"# TYPE llamacpp:requests_processing gauge\n" +
+		"llamacpp:requests_processing 2\n" +
+		"# HELP llamacpp:requests_deferred Number of requests deferred.\n" +
+		"# TYPE llamacpp:requests_deferred gauge\n" +
+		"llamacpp:requests_deferred 0\n" +
+		"# HELP llamacpp:n_busy_slots_per_decode Average number of busy slots per llama_decode() call\n" +
+		"# TYPE llamacpp:n_busy_slots_per_decode gauge\n" +
+		"llamacpp:n_busy_slots_per_decode 0.95\n"
+}
+
 func TestWaitForModelLoaded_ImmediateLoaded(t *testing.T) {
 	// 模型立即返回 loaded 状态，WaitForModelLoaded 应该在 2 秒内完成
 	callCount := 0

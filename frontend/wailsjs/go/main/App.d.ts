@@ -51,6 +51,8 @@ export function GetMessages(arg1:string):Promise<Array<chat.Message>>;
 
 export function GetModelCapabilities():Promise<llm.ModelCapabilities>;
 
+export function GetMetrics():Promise<llm.MetricsSummary>;
+
 export function GetServerLogs():Promise<string>;
 
 export function GetTerminalHistory():Promise<string>;

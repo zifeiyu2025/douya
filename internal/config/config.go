@@ -352,12 +352,16 @@ func Load(path string) (*Config, error) {
 			if unquoteErr := json.Unmarshal(data, &inner); unquoteErr == nil {
 				if innerErr := json.Unmarshal([]byte(inner), cfg); innerErr == nil {
 					cfg.migrate([]byte(inner))
-					_ = Save(path, cfg)
+					if saveErr := Save(path, cfg); saveErr != nil {
+						log.Warn().Err(saveErr).Msg("[config] 保存迁移后配置失败")
+					}
 					// 校验配置，若失败则回退到默认配置并写盘，避免每次启动都告警
 					if validateErr := cfg.Validate(); validateErr != nil {
 						log.Warn().Err(validateErr).Msg("[config] 配置校验失败，回退到默认配置并写盘")
 						fallback := DefaultConfig()
-						_ = Save(path, fallback)
+						if saveErr := Save(path, fallback); saveErr != nil {
+							log.Warn().Err(saveErr).Msg("[config] 保存回退配置失败")
+						}
 						return fallback, nil
 					}
 					return cfg, nil
@@ -382,11 +386,15 @@ func Load(path string) (*Config, error) {
 			// 修复后仍校验失败（理论上不应发生），回退到默认配置保底
 			log.Error().Err(reValidateErr).Msg("[config] 修复后仍校验失败，回退到默认配置")
 			fallback := DefaultConfig()
-			_ = Save(path, fallback)
+			if saveErr := Save(path, fallback); saveErr != nil {
+				log.Warn().Err(saveErr).Msg("[config] 保存回退配置失败")
+			}
 			return fallback, nil
 		}
 		// 修复后校验通过，保存修复后的配置
-		_ = Save(path, cfg)
+		if saveErr := Save(path, cfg); saveErr != nil {
+			log.Warn().Err(saveErr).Msg("[config] 保存修复后配置失败")
+		}
 	}
 	// 补全缺失的配置项（新增字段），值用 cfg 当前值（含迁移结果），保留用户已有值
 	ensureConfigFields(path, data, cfg)
@@ -435,7 +443,9 @@ func ensureConfigFields(path string, userData []byte, cfg *Config) {
 
 	if missing {
 		if merged, err := json.MarshalIndent(userMap, "", "  "); err == nil {
-			_ = os.WriteFile(path, merged, 0o644)
+			if writeErr := os.WriteFile(path, merged, 0o644); writeErr != nil {
+				log.Warn().Err(writeErr).Msg("[config] 写入补全字段后的配置失败")
+			}
 		}
 	}
 }

@@ -5,6 +5,7 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -299,3 +300,71 @@ func TestToolCallTimeoutNotBlockingOthers(t *testing.T) {
 		t.Errorf("goroutine B 耗时 %v，被 goroutine A 阻塞", results[1].elapsed)
 	}
 }
+
+// TestParseMcpToolsResponse 验证 llama-server /tools 端点返回的工具列表能被正确解析。
+//
+// llama-server 实际响应格式（与 OpenAI tools 字段不同）：
+//
+//	[{"display_name":"echo_echo","tool":"echo_echo","type":"mcp",
+//	  "definition":{"type":"function","function":{"name":"echo_echo",...}}}]
+//
+// 豆芽内部使用 OpenAI ToolDefinition 格式（顶层 {type, function:{...}}），
+// refreshMcpToolsCache 需要把 definition 内的内容提到顶层。
+func TestParseMcpToolsResponse(t *testing.T) {
+	// 模拟 llama-server /tools 端点真实响应（来自实测）
+	body := []byte(`[{"display_name":"echo_echo","tool":"echo_echo","type":"mcp","permissions":{"write":false},"definition":{"type":"function","function":{"name":"echo_echo","description":"Echo back the input text","parameters":{"type":"object","properties":{"text":{"type":"string","description":"Text to echo"}},"required":["text"]}}}}]`)
+
+	var rawTools []struct {
+		Type       string `json:"type"`
+		Tool       string `json:"tool"`
+		Definition struct {
+			Type     string          `json:"type"`
+			Function llm.FunctionDef `json:"function"`
+		} `json:"definition"`
+	}
+	if err := json.Unmarshal(body, &rawTools); err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if len(rawTools) != 1 {
+		t.Fatalf("期望 1 个工具，实际 %d", len(rawTools))
+	}
+	if rawTools[0].Definition.Function.Name != "echo_echo" {
+		t.Errorf("期望工具名 echo_echo，实际 %s", rawTools[0].Definition.Function.Name)
+	}
+	if rawTools[0].Definition.Function.Description != "Echo back the input text" {
+		t.Errorf("description 不匹配: %s", rawTools[0].Definition.Function.Description)
+	}
+	if rawTools[0].Type != "mcp" {
+		t.Errorf("期望顶层 type=mcp，实际 %s", rawTools[0].Type)
+	}
+}
+
+// TestExtractToolResponseContent_PlainText 验证纯文本格式响应解析。
+// llama-server /tools POST 端点实际返回 {"plain_text_response":"Echo: hello"}。
+func TestExtractToolResponseContent_PlainText(t *testing.T) {
+	body := []byte(`{"plain_text_response":"Echo: hello"}`)
+	got := extractToolResponseContent(body)
+	if got != "Echo: hello" {
+		t.Errorf("期望 'Echo: hello'，实际 %q", got)
+	}
+}
+
+// TestExtractToolResponseContent_MCPStandard 验证 MCP 标准格式响应解析。
+func TestExtractToolResponseContent_MCPStandard(t *testing.T) {
+	body := []byte(`{"content":[{"type":"text","text":"line1"},{"type":"text","text":"line2"}],"isError":false}`)
+	got := extractToolResponseContent(body)
+	if got != "line1\nline2" {
+		t.Errorf("期望 'line1\\nline2'，实际 %q", got)
+	}
+}
+
+// TestExtractToolResponseContent_Empty 验证空响应兜底。
+func TestExtractToolResponseContent_Empty(t *testing.T) {
+	body := []byte(`{"plain_text_response":""}`)
+	got := extractToolResponseContent(body)
+	// plain_text_response 为空时回退到原始字符串
+	if got != `{"plain_text_response":""}` {
+		t.Errorf("空 plain_text_response 应回退到原始字符串，实际 %q", got)
+	}
+}
+

@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -401,6 +402,124 @@ func (c *Client) HealthCheck(ctx context.Context) error {
 func (c *Client) healthCheckOnce(ctx context.Context, endpoint string) error {
 	_, err := c.doSimpleJSONRequest(ctx, http.MethodGet, c.baseURL+endpoint, nil, "health check", false)
 	return err
+}
+
+// GetMetrics 获取 llama-server /metrics 端点的 Prometheus 格式指标文本。
+// 前提：llama-server 启动时已通过 --metrics 参数启用指标端点。
+// 生活类比：去医院体检，/metrics 就像是打印出来的体检报告原始数据，
+// 后续由调用方解析提取关心的指标（如血压、心率）展示给用户。
+//
+// 参数 modelName：在 router 模式下为必填，路由器需要根据 model 参数
+// 将请求代理到对应的子进程；非 router 模式下可传空字符串。
+// 豆芽默认使用 router 模式，因此调用方应传入当前已加载的模型名。
+// 返回原始 Prometheus 文本（text/plain; version=0.0.4）。
+func (c *Client) GetMetrics(ctx context.Context, modelName string) (string, error) {
+	metricsURL := c.baseURL + "/metrics"
+	// router 模式下 /metrics 走 proxy_get，必须带 model 查询参数，
+	// 否则 router_validate_model 返回 400 "model name is missing from the request"
+	if modelName != "" {
+		metricsURL += "?model=" + url.QueryEscape(modelName)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, metricsURL, http.NoBody)
+	if err != nil {
+		return "", err
+	}
+	c.setAuthHeader(httpReq)
+	// /metrics 端点返回 text/plain，不是 JSON，无需设置 Accept: application/json
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch /metrics: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("metrics endpoint returned status %d", resp.StatusCode)
+	}
+
+	body, err := readBody(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return string(body), nil
+}
+
+// MetricsSummary 是从 Prometheus /metrics 文本中提取的关键指标摘要。
+// 生活类比：体检报告里挑出最重要的几项指标做成一页摘要，方便快速了解健康状况。
+//
+// 字段对应 llama.cpp tools/server/server-context.cpp 中 get_metrics 生成的指标，
+// 指标名带 "llamacpp:" 前缀（注意是冒号，不是下划线）。
+type MetricsSummary struct {
+	TokensPromptTotal     float64 `json:"tokens_prompt_total"`      // 已处理的 prompt token 总数（llamacpp:prompt_tokens_total）
+	PromptSecondsTotal    float64 `json:"prompt_seconds_total"`     // 处理 prompt 总耗时（秒）（llamacpp:prompt_seconds_total）
+	TokensPredictedTotal  float64 `json:"tokens_predicted_total"`   // 已生成的 token 总数（llamacpp:tokens_predicted_total）
+	PredictedSecondsTotal float64 `json:"predicted_seconds_total"`  // 生成 token 总耗时（秒）（llamacpp:tokens_predicted_seconds_total）
+	NDecodeTotal          float64 `json:"n_decode_total"`           // llama_decode() 调用总次数（llamacpp:n_decode_total）
+	NTokensMax            float64 `json:"n_tokens_max"`             // 观察到的最大 n_tokens（llamacpp:n_tokens_max）
+	PromptTokensPerSecond float64 `json:"prompt_tokens_per_second"` // prompt 处理速度（token/s，gauge，llamacpp:prompt_tokens_seconds）
+	PredictTokensPerSecond float64 `json:"predict_tokens_per_second"` // 生成速度（token/s，gauge，llamacpp:predicted_tokens_seconds）
+	ProcessingRequests    int     `json:"processing_requests"`      // 处理中的请求数（llamacpp:requests_processing）
+	DeferredRequests      int     `json:"deferred_requests"`        // 排队中的请求数（llamacpp:requests_deferred）
+	BusySlotsPerDecode    float64 `json:"busy_slots_per_decode"`    // 每次 decode 平均繁忙 slot 数（llamacpp:n_busy_slots_per_decode）
+}
+
+// ParseMetrics 解析 Prometheus 格式文本，提取关键指标。
+// 生活类比：从一堆体检数据中挑出关心的几项，填到摘要表格里。
+// 解析逻辑：逐行扫描，匹配 "metric_name value" 格式的行（忽略 # 开头的注释行）。
+//
+// llama.cpp 生成的指标名带 "llamacpp:" 前缀（冒号是 Prometheus 的 namespace 分隔符），
+// 例如 "llamacpp:tokens_predicted_total 150"。
+// 解析时直接用完整名匹配，不做前缀处理，避免误匹配其他指标。
+func ParseMetrics(text string) MetricsSummary {
+	var s MetricsSummary
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		// Prometheus 格式：metric_name [labels] value
+		// 简化解析：按空白分割，第一段是名称（可能含 label），最后一段是数值
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		name := parts[0]
+		// 去掉 label 部分：如 llamacpp:kv_cache_usage_ratio{slot="0"} -> llamacpp:kv_cache_usage_ratio
+		if idx := strings.Index(name, "{"); idx >= 0 {
+			name = name[:idx]
+		}
+		valueStr := parts[len(parts)-1]
+		value, err := strconv.ParseFloat(valueStr, 64)
+		if err != nil {
+			continue
+		}
+		switch name {
+		case "llamacpp:prompt_tokens_total":
+			s.TokensPromptTotal = value
+		case "llamacpp:prompt_seconds_total":
+			s.PromptSecondsTotal = value
+		case "llamacpp:tokens_predicted_total":
+			s.TokensPredictedTotal = value
+		case "llamacpp:tokens_predicted_seconds_total":
+			s.PredictedSecondsTotal = value
+		case "llamacpp:n_decode_total":
+			s.NDecodeTotal = value
+		case "llamacpp:n_tokens_max":
+			s.NTokensMax = value
+		case "llamacpp:prompt_tokens_seconds":
+			s.PromptTokensPerSecond = value
+		case "llamacpp:predicted_tokens_seconds":
+			s.PredictTokensPerSecond = value
+		case "llamacpp:requests_processing":
+			s.ProcessingRequests = int(value)
+		case "llamacpp:requests_deferred":
+			s.DeferredRequests = int(value)
+		case "llamacpp:n_busy_slots_per_decode":
+			s.BusySlotsPerDecode = value
+		}
+	}
+	return s
 }
 
 // StopThinking 发送 POST /v1/chat/completions/control 请求，强制结束当前思考块。

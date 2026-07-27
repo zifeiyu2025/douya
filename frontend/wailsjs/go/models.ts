@@ -339,6 +339,38 @@ export namespace llm {
 	        this.cache_shift = source["cache_shift"];
 	    }
 	}
+	export class MetricsSummary {
+	    tokens_prompt_total: number;
+	    prompt_seconds_total: number;
+	    tokens_predicted_total: number;
+	    predicted_seconds_total: number;
+	    n_decode_total: number;
+	    n_tokens_max: number;
+	    prompt_tokens_per_second: number;
+	    predict_tokens_per_second: number;
+	    processing_requests: number;
+	    deferred_requests: number;
+	    busy_slots_per_decode: number;
+
+	    static createFrom(source: any = {}) {
+	        return new MetricsSummary(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.tokens_prompt_total = source["tokens_prompt_total"];
+	        this.prompt_seconds_total = source["prompt_seconds_total"];
+	        this.tokens_predicted_total = source["tokens_predicted_total"];
+	        this.predicted_seconds_total = source["predicted_seconds_total"];
+	        this.n_decode_total = source["n_decode_total"];
+	        this.n_tokens_max = source["n_tokens_max"];
+	        this.prompt_tokens_per_second = source["prompt_tokens_per_second"];
+	        this.predict_tokens_per_second = source["predict_tokens_per_second"];
+	        this.processing_requests = source["processing_requests"];
+	        this.deferred_requests = source["deferred_requests"];
+	        this.busy_slots_per_decode = source["busy_slots_per_decode"];
+	    }
+	}
 	export class ModelCapabilities {
 	    image_input: boolean;
 	    audio_input: boolean;

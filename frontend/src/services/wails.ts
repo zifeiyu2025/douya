@@ -17,6 +17,7 @@ import {
   GetCleanupResult,
   UpdateConfig,
   GetServerStatus,
+  GetMetrics,
   DeleteMessage,
   CompressConversation,
   RegenerateMessage,
@@ -78,6 +79,7 @@ import type {
   SendMessageParams,
   Config,
   ServerStatus,
+  MetricsSummary,
   ModelOption,
   SwitchResult,
   StreamEvent,
@@ -101,6 +103,7 @@ export type {
   SendMessageParams,
   Config,
   ServerStatus,
+  MetricsSummary,
   ModelOption,
   SwitchResult,
   StreamEvent,
@@ -367,6 +370,9 @@ export const wails = {
   },
   getServerStatus: async (): Promise<ServerStatus> => {
     return (await GetServerStatus()) as ServerStatus
+  },
+  getMetrics: async (): Promise<MetricsSummary> => {
+    return (await GetMetrics()) as MetricsSummary
   },
   deleteMessage: async (id: string): Promise<void> => {
     await DeleteMessage(id)

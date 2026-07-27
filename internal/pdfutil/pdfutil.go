@@ -110,14 +110,26 @@ var (
 	arrayTextRe = regexp.MustCompile(`\[(.*?)\]`)
 )
 
+// maxRegexExtractSize 限制正则提取的输入大小（50MB）。
+// 安全实践（SEC-001）：防止超大 PDF 导致内存放大或 ReDoS。
+// 超过此大小的 PDF 回退到截断处理，仍能提取前 50MB 的文本。
+const maxRegexExtractSize = 50 * 1024 * 1024
+
+// maxRegexMatches 限制正则匹配结果数量，防止极端输入产生过多匹配导致内存膨胀。
+const maxRegexMatches = 5000
+
 func extractWithRegex(data []byte) string {
+	// SEC-001: 超大 PDF 截断后再正则处理，防止内存放大
+	if len(data) > maxRegexExtractSize {
+		data = data[:maxRegexExtractSize]
+	}
 	text := string(data)
 
 	text = streamRe.ReplaceAllString(text, "")
 	text = binaryRe.ReplaceAllString(text, "")
 
 	var texts []string
-	matches := parenTextRe.FindAllStringSubmatch(text, -1)
+	matches := parenTextRe.FindAllStringSubmatch(text, maxRegexMatches)
 	for _, m := range matches {
 		if len(m) > 1 {
 			cleaned := strings.TrimSpace(m[1])
@@ -127,7 +139,7 @@ func extractWithRegex(data []byte) string {
 		}
 	}
 
-	arrayMatches := arrayTextRe.FindAllStringSubmatch(text, -1)
+	arrayMatches := arrayTextRe.FindAllStringSubmatch(text, maxRegexMatches)
 	for _, m := range arrayMatches {
 		if len(m) > 1 {
 			parenMatches := parenTextRe.FindAllStringSubmatch(m[1], -1)

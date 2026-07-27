@@ -238,19 +238,31 @@ const thinkingAsContent = computed(() => {
 // 渲染思考内容为 HTML（仅在思考结束且无正文时触发，此时思考已完成，直接全量渲染）。
 // renderMarkdown 是 async 函数返回 Promise<string>，不能用 computed（v-html 会渲染成 [object Promise]），
 // 改用 ref + watch 异步模式，与 MessageItem.vue 的 renderedContent 写法一致。
+// M20 修复：使用 onCleanup 取消前一次渲染，避免快速变化时旧 Promise 覆盖新结果
+// 生活类比：厨师接到新订单时取消上一份未完成的菜，避免上错菜
 const renderedThinkingAsContent = ref('')
 watch(
   [thinkingAsContent, thinkingContent],
-  async () => {
+  async (_newVal, _oldVal, onCleanup) => {
     if (!thinkingAsContent.value || !thinkingContent.value) {
       renderedThinkingAsContent.value = ''
       return
     }
+    let cancelled = false
+    onCleanup(() => {
+      cancelled = true
+    })
     try {
-      renderedThinkingAsContent.value = await renderMarkdown(thinkingContent.value)
+      const html = await renderMarkdown(thinkingContent.value)
+      // 校验：渲染期间若 thinkingContent 已变化，丢弃本次结果
+      if (!cancelled) {
+        renderedThinkingAsContent.value = html
+      }
     } catch (_) {
       // 渲染失败时转义后作为纯文本显示，避免直接赋值原始未消毒内容到 v-html（XSS 防护）
-      renderedThinkingAsContent.value = escapeHtml(thinkingContent.value)
+      if (!cancelled) {
+        renderedThinkingAsContent.value = escapeHtml(thinkingContent.value)
+      }
     }
   },
   { immediate: true }
@@ -354,12 +366,15 @@ const handleLinkClick = (e: MouseEvent) => {
   }
 }
 
+// P6 修复：保存 setupCodeCopyDelegation 的 cleanup 函数，避免潜在的事件监听器泄漏
+let cleanupCodeCopyDelegation: (() => void) | null = null
+
 onMounted(() => {
   const el = messageListRef.value
   if (el) {
     // 事件委托：只在容器绑定一次，动态新增按钮自动响应
     // 虚拟模式下 DynamicScroller 的子项也在 .message-list 内，事件仍可冒泡到此
-    setupCodeCopyDelegation(el)
+    cleanupCodeCopyDelegation = setupCodeCopyDelegation(el)
     // 安全实践（#17）：委托 markdown-body 中的链接点击，走系统默认浏览器
     el.addEventListener('click', handleLinkClick)
   }
@@ -370,6 +385,11 @@ onUnmounted(() => {
   const el = messageListRef.value
   if (el) {
     el.removeEventListener('click', handleLinkClick)
+  }
+  // P6 修复：清理代码复制的事件委托监听器
+  if (cleanupCodeCopyDelegation) {
+    cleanupCodeCopyDelegation()
+    cleanupCodeCopyDelegation = null
   }
 })
 
@@ -459,7 +479,10 @@ watch(
 
 .message-bubble {
   padding: 14px 20px;
-  /* 与 MessageItem.vue .ai-bubble 一致：对称大圆角，右上角小 */
+  /* Q10: 与 MessageItem.vue .ai-bubble 一致：对称大圆角，右上角小
+   * 此处是流式占位气泡的样式，与 MessageItem.vue 的 .message-bubble 基础规则有意不同
+   *（MessageItem.vue 的 .message-bubble 只定义 box-sizing/position/line-height，padding/border-radius 由 .ai-bubble/.user-bubble 提供）
+   * 不要强行合并，避免破坏占位气泡的视觉 */
   border-radius: var(--border-radius-lg) 4px var(--border-radius-lg) var(--border-radius-lg);
   box-shadow: none;
   box-sizing: border-box;
@@ -467,8 +490,10 @@ watch(
 }
 
 .ai-bubble {
-  /* 自适应宽度：与 MessageItem.vue 的 .ai-bubble 保持一致
-     流式期间气泡随内容增长由窄变宽，视觉更自然 */
+  /* Q10: 自适应宽度：与 MessageItem.vue 的 .ai-bubble 有意不同
+   * MessageItem.vue 的 .ai-bubble 是 width:100%（消息已落库，撑满气泡）
+   * 此处是 width:auto（流式期间气泡随内容增长由窄变宽，视觉更自然）
+   * 不要强行合并，避免流式气泡变成 100% 宽度出现空白天窗 */
   width: auto;
   max-width: 100%;
   min-width: 0;

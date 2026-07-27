@@ -64,9 +64,11 @@ type Service struct {
 	// 懒加载：第一次 buildAvailableTools 时拉取，之后用缓存；
 	// 用户改 MCP 配置 + llama-server 重启后可通过 RefreshMcpToolsCache 强制刷新。
 	// mcpToolsInitialized 区分"未初始化"和"已初始化但为空"，避免空缓存反复触发拉取。
+	// mcpToolsOnce 确保并发 getMcpTools 只触发一次拉取（M2: 防止启动阶段重复拉取）。
 	mcpToolsCache        []llm.ToolDefinition
 	mcpToolsCacheMu      sync.RWMutex
 	mcpToolsInitialized  bool
+	mcpToolsOnce         sync.Once
 }
 
 func NewService(llmClient *llm.Client, searchChain *search.SearchChain, db *sql.DB, cfg *config.Config, cipher secrets.Cipher, appDir string) *Service {
@@ -82,7 +84,52 @@ func NewService(llmClient *llm.Client, searchChain *search.SearchChain, db *sql.
 }
 
 func (s *Service) SetContext(ctx context.Context) {
+	// M11 修复：wailsCtx 加锁保护，避免与 emit/emitForConv 并发读取产生数据竞争
+	// 生活类比：调度中心更新电话总机时，要先锁住操作台，避免接线员同时读半更新的号码
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 	s.wailsCtx = ctx
+}
+
+// getWailsCtxSnapshot 在读锁保护下获取 wailsCtx 快照，避免数据竞争。
+// 返回 nil 表示 SetContext 尚未调用（如初始化期间或测试环境），调用方需自行兜底。
+func (s *Service) getWailsCtxSnapshot() context.Context {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+	return s.wailsCtx
+}
+
+// beginGeneration 统一处理"开始新一轮生成"的锁与取消逻辑，消除 SendMessage 和 RegenerateMessage 的重复代码。
+// 流程：加锁 → 读取旧 cancel/convID → 创建新 cancelCtx → 赋值 currentCancel/currentConvID → 解锁 →
+// 取消旧 cancel + emit stopped → 返回 cancelCtx 和 cleanup（defer 调用清空 currentCancel/currentConvID）
+// initialConvID: 立即设置的 currentConvID；传 "" 表示延迟设置（RegenerateMessage 场景，由调用方后续赋值）
+// 生活类比：调度中心接新单时的标准流程——记录旧单、派发新单号、通知旧单停止、清理台面
+func (s *Service) beginGeneration(parentCtx context.Context, initialConvID string) (context.Context, func()) {
+	s.mutex.Lock()
+	var oldCancel context.CancelFunc
+	var oldConvID string
+	if s.currentCancel != nil {
+		oldCancel = s.currentCancel
+		oldConvID = s.currentConvID
+	}
+	cancelCtx, cancel := context.WithCancel(parentCtx)
+	s.currentCancel = cancel
+	s.currentConvID = initialConvID
+	s.mutex.Unlock()
+
+	if oldCancel != nil {
+		oldCancel()
+		if oldConvID != "" {
+			s.emitForConv(oldConvID, "stopped", nil)
+		}
+	}
+
+	return cancelCtx, func() {
+		s.mutex.Lock()
+		s.currentCancel = nil
+		s.currentConvID = ""
+		s.mutex.Unlock()
+	}
 }
 
 // LastPromptTokens 返回最近一次请求的 prompt_tokens（来自 llama-server usage）。
@@ -120,12 +167,22 @@ func (s *Service) UpdateSearchChain(chain *search.SearchChain) {
 	s.searchChain = chain
 }
 
+// defaultConfigSnapshot 是 config.Config 的零值单例，用于 s.config 为 nil 时的兜底返回。
+// 零值 Config 会被各处默认逻辑处理（如 ContextSize=0 → 4096），不会导致 panic。
+// 不可变对象，多处共享安全。
+var defaultConfigSnapshot = &config.Config{}
+
 // getConfigSnapshot 在读锁保护下获取配置快照，避免数据竞争。
 // 升级为 RWMutex 后，多个并发请求读取 config 可并行，不再串行化。
+// H1/H2 修复：永不返回 nil，s.config 为 nil 时返回零值单例，避免调用方 nil panic。
 // 生活类比：就像在图书馆查阅共享资料时，多人可同时阅读（读锁），只有修改时才独占（写锁）。
+// 即使资料架上暂时没有书（s.config 为 nil），也会给一本空白手册（零值单例），让大家不至于空手发呆。
 func (s *Service) getConfigSnapshot() *config.Config {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
+	if s.config == nil {
+		return defaultConfigSnapshot
+	}
 	return s.config
 }
 
@@ -166,8 +223,10 @@ func (s *Service) SetRAGEnabled(enabled bool) {
 }
 
 func (s *Service) emit(eventType string, content any) {
-	if s.wailsCtx != nil {
-		runtime.EventsEmit(s.wailsCtx, "chat:stream", StreamEvent{
+	// M11 修复：通过 snapshot 读取 wailsCtx，避免与 SetContext 数据竞争
+	ctx := s.getWailsCtxSnapshot()
+	if ctx != nil {
+		runtime.EventsEmit(ctx, "chat:stream", StreamEvent{
 			Type:    eventType,
 			Content: content,
 		})
@@ -175,8 +234,10 @@ func (s *Service) emit(eventType string, content any) {
 }
 
 func (s *Service) emitForConv(convID string, eventType string, content any) {
-	if s.wailsCtx != nil {
-		runtime.EventsEmit(s.wailsCtx, "chat:stream", StreamEvent{
+	// M11 修复：通过 snapshot 读取 wailsCtx，避免与 SetContext 数据竞争
+	ctx := s.getWailsCtxSnapshot()
+	if ctx != nil {
+		runtime.EventsEmit(ctx, "chat:stream", StreamEvent{
 			Type:           eventType,
 			Content:        content,
 			ConversationID: convID,
@@ -287,7 +348,13 @@ func (s *Service) CompressConversation(convID string) (*CompressResult, error) {
 
 	// 6. 同步生成新短期摘要
 	// 超时设为 summaryTimeoutSec*2+10s，与 CompressContext 一致，留出短期+长期两次 LLM 调用时间
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(summaryTimeoutSec*2+10)*time.Second)
+	// M15 修复：用 wailsCtx 作为父 context，应用关闭时能立即取消，避免阻塞退出最长 70+ 秒
+	// 生活类比：加班任务要挂在公司总机下，公司下班时能一起切断，而不是独立电话线永远占线
+	parentCtx := s.getWailsCtxSnapshot()
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parentCtx, time.Duration(summaryTimeoutSec*2+10)*time.Second)
 	defer cancel()
 
 	// P3-C2: 判断是否触发周期性重置（与 CompressContext 保持一致）

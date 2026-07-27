@@ -47,6 +47,21 @@ export function useWindowControls() {
     updateMaximizedState()
   }
 
+  // 双击标题栏切换最大化/还原。
+  // 生活类比：双击桌面空白处会打开"显示设置"，但双击桌面上的图标不会——
+  // 所以只检查 target 是否落在真正的交互元素上，不命中才触发最大化。
+  // 这样双击菜单按钮/模型选择器/窗口控制按钮不会误触发，双击标题文字或元素间空隙会触发。
+  function handleHeaderDoubleClick(e: MouseEvent) {
+    const target = e.target as HTMLElement | null
+    if (!target) return
+    if (
+      target.closest('button, .n-select, .n-base-selection, input, a, [role="button"], .win-btn')
+    ) {
+      return
+    }
+    handleToggleMaximize()
+  }
+
   async function handleClose() {
     const action = await wails.handleCloseRequest()
     if (action === 'exit') {
@@ -107,6 +122,7 @@ export function useWindowControls() {
     isMaximized: readonly(isMaximized), // Readonly<Ref<boolean>>：外部只读，内部可变
     handleMinimize, // () => void
     handleToggleMaximize, // () => void
+    handleHeaderDoubleClick, // (e: MouseEvent) => void
     handleClose // () => void
   }
 }

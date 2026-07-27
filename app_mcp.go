@@ -106,7 +106,38 @@ func writeMcpServersFile(path string, servers []config.MCPServerConfig) error {
 	if err != nil {
 		return fmt.Errorf("序列化 mcp_servers.json 失败: %w", err)
 	}
-	return os.WriteFile(path, data, 0o644)
+	// RF-4 修复：MCP 配置的 Env 字段可能含 API token 等敏感信息，收紧文件权限到 0o600
+	// 仅文件所有者可读写，避免同机其他用户读取明文环境变量
+	return os.WriteFile(path, data, 0o600)
+}
+
+// ensureMcpServersFileExists 启动时确保 mcp_servers.json 与 config.json 同步。
+// 每次 startup 都重新生成，确保配置一致（与 generatePresetFile 风格一致）。
+//
+// 作用：让 llama-server 启动时通过 --mcp-servers-config 加载此文件，启用 /tools 端点
+// 并管理所有 MCP 子进程。若文件不存在，llama-server 不会传 --mcp-servers-config，
+// /tools 端点会被禁用（返回 403 feature_disabled），MCP 工具列表与调用均不可用。
+//
+// 生活类比：餐厅开门前先确认菜单是否就位——根据数据库（config.json）重新打印一份
+// 给调度中心（llama-server）使用，确保菜单与数据库一致。
+func (a *App) ensureMcpServersFileExists() {
+	cfg := a.getConfig()
+	if cfg == nil {
+		return
+	}
+	mcpConfigPath := filepath.Join(appDir(), "mcp_servers.json")
+	if err := writeMcpServersFile(mcpConfigPath, cfg.MCPServers); err != nil {
+		zlog.Warn().Err(err).Msg("[startup] 生成 mcp_servers.json 失败")
+		return
+	}
+	enabledCount := 0
+	for _, s := range cfg.MCPServers {
+		if s.Enabled && s.Command != "" {
+			enabledCount++
+		}
+	}
+	zlog.Info().Str("path", mcpConfigPath).Int("enabled", enabledCount).
+		Msg("[startup] mcp_servers.json 已同步")
 }
 
 // GetMCPStatus 返回每个 MCP 服务器的运行时状态。

@@ -31,6 +31,12 @@ var (
 const (
 	videoTokenEstimate = 5000 // 视频附件 token 估算值
 	audioTokenEstimate = 500  // 音频附件 token 估算值
+
+	// Q2: 消息裁剪相关的魔法数字抽为常量，提升可读性
+	minEffectiveTokens    = 100  // TrimMessagesToFit 的最小有效 token 数，防止 reserve 过大导致负数
+	maxImportantBudget    = 1000 // 高分历史消息预算上限
+	minImportantBudget    = 200  // 高分历史消息预算下限
+	importantBudgetRatio  = 5    // 高分历史消息预算 = contextSize / importantBudgetRatio
 )
 
 // imageTokenEstimate 图片附件 token 估算值，默认 3500（覆盖多数模型默认值）。
@@ -479,6 +485,33 @@ func estimateMessagesTokens(messages []llm.ChatMessage) int {
 //     继续删除直到遇到非 tool 消息，避免 API 报错
 //  2. 移除孤立的 assistant 消息（带有 tool_calls 但后面没有对应的 tool 消息），
 //     这种消息会导致 API 报错，需要清理
+// ensureStartsWithUserOrSystem 跳过开头的非 system/user 消息，确保消息列表以 system 或 user 开头。
+// Jinja 模板要求消息列表不能以 assistant/tool 开头，否则会触发模板渲染错误。
+// C-10 修复：提取 TrimMessagesToFit 和 CompressContext 中重复的"确保以 user 开头"逻辑
+// 生活类比：快递装车时，第一件必须是发件单（system）或客户委托（user），不能是快递员备注（assistant/tool）
+func ensureStartsWithUserOrSystem(messages []llm.ChatMessage) []llm.ChatMessage {
+	for len(messages) > 0 && messages[0].Role != "system" && messages[0].Role != "user" {
+		messages = messages[1:]
+	}
+	return messages
+}
+
+// computeMustKeepBudget 计算必保消息的索引和总 token 数。
+// 必保消息（评分>=5，如含代码块或用户明确指令）强制保留，即使超预算（丢失重要决策代价更大）。
+// C-12 修复：提取 TrimMessagesToFit 和 selectImportantMessages 中重复的必保预算计算逻辑
+// 生活类比：装车时先标记必须发的重要件并计算总重量，剩余重量再分配给普通件
+// 返回：mustKeepIndices（必保消息在原切片中的索引，升序），mustKeepTokens（必保消息总 token 数）
+func computeMustKeepBudget(msgs []llm.ChatMessage) (mustKeepIndices []int, mustKeepTokens int) {
+	scores := ScoreChatMessages(msgs)
+	for i := range msgs {
+		if IsMustKeep(scores[i]) {
+			mustKeepIndices = append(mustKeepIndices, i)
+			mustKeepTokens += estimateChatMessageTokens(msgs[i])
+		}
+	}
+	return mustKeepIndices, mustKeepTokens
+}
+
 func cleanToolCallPairs(messages []llm.ChatMessage) []llm.ChatMessage {
 	// 1. 删除开头的孤立 tool 消息
 	for len(messages) > 0 && messages[0].Role == "tool" {
@@ -513,7 +546,7 @@ func TrimMessagesToFit(messages []llm.ChatMessage, maxTokens int, reserve int) [
 	if len(messages) <= 2 {
 		return messages
 	}
-	effectiveMax := max(maxTokens-reserve, 100)
+	effectiveMax := max(maxTokens-reserve, minEffectiveTokens)
 
 	total := 0
 	for _, msg := range messages {
@@ -555,14 +588,11 @@ func TrimMessagesToFit(messages []llm.ChatMessage, maxTokens int, reserve int) [
 	// P1-B1: 引入消息重要性评分，避免机械裁剪丢失关键决策/代码。
 	// 策略：必保消息（评分>=5，如含代码块或用户明确指令）强制保留；
 	//       非必保消息按原"从后向前 break"逻辑填充至剩余预算。
-	scores := ScoreChatMessages(rest)
+	// C-12 修复：复用 computeMustKeepBudget 计算必保消息，消除重复逻辑
+	mustKeepIndices, mustKeepTokens := computeMustKeepBudget(rest)
 	keepDecision := make([]bool, len(rest))
-	mustKeepTokens := 0
-	for i := range rest {
-		if IsMustKeep(scores[i]) {
-			keepDecision[i] = true
-			mustKeepTokens += estimateChatMessageTokens(rest[i])
-		}
+	for _, idx := range mustKeepIndices {
+		keepDecision[idx] = true
 	}
 	// 非必保消息的预算 = 总剩余预算 - 必保消息已占用
 	// 注意：必保消息即使超预算也保留（丢失重要决策的代价 >> 超预算的代价）
@@ -591,9 +621,8 @@ func TrimMessagesToFit(messages []llm.ChatMessage, maxTokens int, reserve int) [
 	kept = cleanToolCallPairs(kept)
 
 	// 确保以 user 消息开头（Jinja 模板要求）
-	for len(kept) > 0 && kept[0].Role != "user" {
-		kept = kept[1:]
-	}
+	// C-10 修复：复用 ensureStartsWithUserOrSystem，消除重复逻辑
+	kept = ensureStartsWithUserOrSystem(kept)
 
 	var result []llm.ChatMessage
 	if systemMsg != nil {
@@ -671,35 +700,30 @@ func selectImportantMessages(msgs []llm.ChatMessage, budget int) []llm.ChatMessa
 	}
 
 	// 1. 计算每条消息评分和 token
+	// C-12 修复：复用 computeMustKeepBudget 计算必保消息，消除重复逻辑
 	type msgMeta struct {
 		index    int
 		score    int
 		tokens   int
 		mustKeep bool
 	}
+	mustKeepIndices, mustKeepTokens := computeMustKeepBudget(msgs)
 	metas := make([]msgMeta, len(msgs))
-	mustKeepTokens := 0
 	for i := range msgs {
 		score := ScoreChatMessage(msgs[i])
 		tokens := estimateChatMessageTokens(msgs[i])
-		mustKeep := IsMustKeep(score)
 		metas[i] = msgMeta{
 			index:    i,
 			score:    score,
 			tokens:   tokens,
-			mustKeep: mustKeep,
-		}
-		if mustKeep {
-			mustKeepTokens += tokens
+			mustKeep: IsMustKeep(score),
 		}
 	}
 
 	// 2. 必保消息全部选中（即使超预算，丢失重要决策代价更大）
 	selected := make([]bool, len(msgs))
-	for i := range metas {
-		if metas[i].mustKeep {
-			selected[i] = true
-		}
+	for _, idx := range mustKeepIndices {
+		selected[idx] = true
 	}
 
 	// 3. 非必保消息按"分数降序+索引升序"排序后贪心填充剩余预算
@@ -789,7 +813,7 @@ func CompressContext(
 	// P3-B2: 3a. 从被裁剪消息中回收高分历史消息
 	// 高分历史预算 = 上下文大小的 20%（上限 1000，下限 200），避免挤占最近窗口
 	// 生活类比：像从旧书堆里挑几本"必藏经典"放到书桌显眼处，而不是全扔进仓库
-	importantBudget := max(min(contextSize/5, 1000), 200)
+	importantBudget := max(min(contextSize/importantBudgetRatio, maxImportantBudget), minImportantBudget)
 	importantMsgs := selectImportantMessages(trimmed, importantBudget)
 
 	// 4. 构建结果消息列表
@@ -836,9 +860,8 @@ func CompressContext(
 	result = cleanToolCallPairs(result)
 
 	// 8. 确保以 user 消息开头（Jinja 模板要求）
-	for len(result) > 0 && result[0].Role != "system" && result[0].Role != "user" {
-		result = result[1:]
-	}
+	// C-10 修复：复用 ensureStartsWithUserOrSystem，消除重复逻辑
+	result = ensureStartsWithUserOrSystem(result)
 
 	// P1-C1: 9. 异步生成分层摘要（短期 + 长期）
 	// 短期摘要：每次压缩都更新（基于被裁剪的消息）

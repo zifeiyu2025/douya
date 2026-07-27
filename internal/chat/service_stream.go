@@ -7,7 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -89,8 +91,10 @@ func (s *Service) getMcpTools() []llm.ToolDefinition {
 	}
 	s.mcpToolsCacheMu.RUnlock()
 
-	// 慢速路径：未初始化，尝试拉取一次
-	s.refreshMcpToolsCache()
+	// 慢速路径：未初始化，用 sync.Once 确保并发只拉取一次（M2）
+	s.mcpToolsOnce.Do(func() {
+		s.refreshMcpToolsCache()
+	})
 
 	s.mcpToolsCacheMu.RLock()
 	defer s.mcpToolsCacheMu.RUnlock()
@@ -101,11 +105,13 @@ func (s *Service) getMcpTools() []llm.ToolDefinition {
 
 // RefreshMcpToolsCache 强制刷新 MCP 工具缓存。
 // 公开方法：供 app 层在 llama-server 启动/重启后或用户改 MCP 配置后调用。
-// 会重置初始化标志，允许下次 getMcpTools 重新拉取。
+// 会重置初始化标志和 sync.Once，允许下次 getMcpTools 重新拉取。
 func (s *Service) RefreshMcpToolsCache() {
 	s.mcpToolsCacheMu.Lock()
 	s.mcpToolsInitialized = false
 	s.mcpToolsCacheMu.Unlock()
+	// 重置 sync.Once，允许下次 getMcpTools 慢速路径重新触发拉取
+	s.mcpToolsOnce = sync.Once{}
 	s.refreshMcpToolsCache()
 }
 
@@ -160,20 +166,53 @@ func (s *Service) refreshMcpToolsCache() {
 		return
 	}
 
-	// llama-server /tools 返回的是 []ToolDefinition 直接数组（与 OpenAI tools 字段格式一致）
-	var tools []llm.ToolDefinition
-	if err := json.Unmarshal(body, &tools); err != nil {
+	// llama-server /tools 端点返回格式（与 OpenAI tools 字段略有不同）：
+	// [
+	//   {
+	//     "display_name": "echo_echo",
+	//     "tool": "echo_echo",
+	//     "type": "mcp",
+	//     "permissions": {"write": false},
+	//     "definition": {            <-- 工具定义嵌套在 definition 字段下
+	//       "type": "function",
+	//       "function": {"name": "...", "description": "...", "parameters": {...}}
+	//     }
+	//   }, ...
+	// ]
+	// 豆芽内部使用 OpenAI ToolDefinition 格式（{type, function:{...}} 顶层），
+	// 这里做一次字段提取，把 definition 内的内容提到顶层。
+	var rawTools []struct {
+		Type       string `json:"type"`       // 顶层 type（"mcp" 或 "function"）
+		Tool       string `json:"tool"`       // 工具名（与 function.name 相同）
+		Definition struct {
+			Type     string `json:"type"`
+			Function llm.FunctionDef `json:"function"`
+		} `json:"definition"`
+	}
+	if err := json.Unmarshal(body, &rawTools); err != nil {
 		log.Warn().Err(err).Str("body_preview", truncateForLog(string(body), 200)).Msg("[chat] 解析 MCP 工具列表失败")
 		return
 	}
 
-	// 过滤掉 "search" 工具（豆芽自己实现，避免与 llama-server 内置 search 冲突）
-	filtered := make([]llm.ToolDefinition, 0, len(tools))
-	for _, t := range tools {
-		if t.Function.Name == "search" {
+	// 转换为豆芽内部 ToolDefinition 格式，过滤 "search"（豆芽自实现，避免与 llama-server 内置 search 冲突）
+	filtered := make([]llm.ToolDefinition, 0, len(rawTools))
+	for _, t := range rawTools {
+		fn := t.Definition.Function
+		if fn.Name == "" {
+			// 兜底：definition.function.name 缺失时用顶层 tool 字段
+			fn.Name = t.Tool
+		}
+		if fn.Name == "search" {
 			continue
 		}
-		filtered = append(filtered, t)
+		toolType := t.Definition.Type
+		if toolType == "" {
+			toolType = "function"
+		}
+		filtered = append(filtered, llm.ToolDefinition{
+			Type:     toolType,
+			Function: fn,
+		})
 	}
 
 	s.mcpToolsCacheMu.Lock()
@@ -381,19 +420,32 @@ func (a *StreamAccumulator) toolCalls() []llm.ToolCall {
 	if len(a.ToolCallMap) == 0 {
 		return nil
 	}
+	// M1 修复：按 Index 升序排序，避免 map 迭代顺序随机导致 tool call 顺序不确定
+	// 生活类比：快递员按订单编号顺序派送，而不是谁先抢到谁先送
+	indices := make([]int, 0, len(a.ToolCallMap))
+	for idx := range a.ToolCallMap {
+		indices = append(indices, idx)
+	}
+	sort.Ints(indices)
 	result := make([]llm.ToolCall, 0, len(a.ToolCallMap))
-	for _, tc := range a.ToolCallMap {
-		result = append(result, *tc)
+	for _, idx := range indices {
+		result = append(result, *a.ToolCallMap[idx])
 	}
 	return result
 }
 
 func (a *StreamAccumulator) resetForNextCall() {
-	if a.FullThinking.Len() > 0 {
+	// H3 修复：只在 FirstRoundThinking 为空时保存，避免被后续轮次的思考内容覆盖。
+	// FullThinking 不清空——saveToolCallFinalMessage 需要所有轮次的累积思考内容。
+	// 生活类比：FirstRoundThinking 像第一张照片的底片，洗出来后就不该再覆盖；
+	// FullThinking 像一本持续记录的日记，每轮都往后追加，最终整本保存。
+	if a.FullThinking.Len() > 0 && a.FirstRoundThinking == "" {
 		a.FirstRoundThinking = a.FullThinking.String()
 		a.FirstRoundThinkingDuration = a.ThinkingDuration
 	}
 	a.FullContent.Reset()
+	a.TokenBuf.Reset()       // L5 修复：重置 token 缓冲，避免异常中断后的残留影响下一轮首 token 判断
+	a.LastTokenEmit = time.Time{} // L5 修复：重置发射时间，避免下一轮 time.Since 偏大提前触发批量发送
 	a.FinishReason = ""
 	a.ToolCallMap = make(map[int]*llm.ToolCall)
 	a.PendingBytes = ""
@@ -636,29 +688,9 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 		Int("attachments", len(params.Attachments)).
 		Int("images", len(params.Images)).
 		Msg("[chat] SendMessage 入口")
-	s.mutex.Lock()
-	var oldCancel context.CancelFunc
-	var oldConvID string
-	if s.currentCancel != nil {
-		oldCancel = s.currentCancel
-		oldConvID = s.currentConvID
-	}
-	cancelCtx, cancel := context.WithCancel(ctx)
-	s.currentCancel = cancel
-	s.currentConvID = params.ConversationID
-	s.mutex.Unlock()
-	if oldCancel != nil {
-		oldCancel()
-		if oldConvID != "" {
-			s.emitForConv(oldConvID, "stopped", nil)
-		}
-	}
-	defer func() {
-		s.mutex.Lock()
-		s.currentCancel = nil
-		s.currentConvID = ""
-		s.mutex.Unlock()
-	}()
+	// C-7 修复：用 beginGeneration 统一锁/取消逻辑，消除与 RegenerateMessage 的重复代码
+	cancelCtx, cleanup := s.beginGeneration(ctx, params.ConversationID)
+	defer cleanup()
 
 	convID := params.ConversationID
 	if convID == "" {
@@ -727,19 +759,15 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 	var searchContext string
 	var searchResp *search.SearchResponse
 	caps := s.GetModelCapabilities()
-	cfg := s.getConfigSnapshot()
 	// 不支持 tool call 的模型，在 "auto" 和 "on" 模式下都预搜索
+	// 注：搜索结果的 token 裁剪已移至 buildLLMMessages 内部，根据剩余 token 预算动态裁剪
 	if (params.SearchMode == "auto" || params.SearchMode == "on") && !caps.ToolCallSupport {
 		s.emitForConv(convID, "search_start", userContent)
 		searchResp = s.doSearch(cancelCtx, userContent)
 		if searchResp != nil && len(searchResp.Results) > 0 {
 			s.emitForConv(convID, "search_result", searchResp.Results)
 			searchContext = formatSearchResultsWithLang(searchResp.Results, detectLanguage(userContent))
-			ctxSize := 0
-			if cfg != nil {
-				ctxSize = cfg.ContextSize
-			}
-			searchContext = truncateSearchContext(searchContext, ctxSize)
+			// M7: 裁剪移到 buildLLMMessages 内部，根据剩余 token 预算动态裁剪
 		} else {
 			s.emitForConv(convID, "search_result", []search.SearchResult{})
 			if searchResp != nil && searchResp.Error != "" && len(searchResp.Results) == 0 {

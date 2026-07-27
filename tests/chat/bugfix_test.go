@@ -75,7 +75,7 @@ func TestResetForNextCall_ClearsAllFields(t *testing.T) {
 		t.Errorf("fullContent not reset, got %q", acc.FullContent.String())
 	}
 	if acc.FullThinking.String() != "think" {
-		t.Errorf("fullThinking should NOT be reset (it accumulates across calls), got %q", acc.FullThinking.String())
+		t.Errorf("fullThinking should NOT be reset (it accumulates across calls for saveToolCallFinalMessage), got %q", acc.FullThinking.String())
 	}
 	if acc.FinishReason != "" {
 		t.Errorf("finishReason not reset, got %q", acc.FinishReason)
@@ -128,8 +128,41 @@ func TestResetForNextCall_EmptyThinkingDoesNotOverwriteFirstRound(t *testing.T) 
 	if chat.GetFirstRoundThinking(acc) != "original thinking" {
 		t.Errorf("FirstRoundThinking should remain %q when FullThinking is empty, got %q", "original thinking", chat.GetFirstRoundThinking(acc))
 	}
-	if acc.FirstRoundThinkingDuration != 3.0 {
-		t.Errorf("FirstRoundThinkingDuration should remain 3.0 when FullThinking is empty, got %f", acc.FirstRoundThinkingDuration)
+}
+
+// TestResetForNextCall_DoesNotOverwriteFirstRoundThinking 验证 H3 修复：
+// 多轮 tool call 时，第二轮 resetForNextCall 不应用累积的 FullThinking 覆盖 FirstRoundThinking。
+// 修复前：每轮 reset 都会覆盖 FirstRoundThinking，导致它变成"第一轮+第二轮"的累积内容
+// 修复后：只在 FirstRoundThinking 为空时才设置，保证它始终只保存第一轮的思考内容
+func TestResetForNextCall_DoesNotOverwriteFirstRoundThinking(t *testing.T) {
+	acc := chat.NewStreamAccumulator("", func(string, any) {}, func(string, string, any) {})
+
+	// 模拟第一轮：FullThinking 累积了第一轮思考内容
+	acc.FullThinking.WriteString("第一轮思考")
+	acc.ThinkingDuration = 5.0
+	chat.ResetForNextCall(acc)
+
+	// 第一轮后，FirstRoundThinking 应为"第一轮思考"
+	if chat.GetFirstRoundThinking(acc) != "第一轮思考" {
+		t.Errorf("第一轮后 FirstRoundThinking 应为 '第一轮思考'，实际 %q", chat.GetFirstRoundThinking(acc))
+	}
+
+	// 模拟第二轮：FullThinking 累积了第一轮+第二轮思考内容
+	acc.FullThinking.WriteString("第二轮思考")
+	acc.ThinkingDuration = 3.0
+	chat.ResetForNextCall(acc)
+
+	// 第二轮后，FirstRoundThinking 应仍为"第一轮思考"（不被覆盖）
+	if chat.GetFirstRoundThinking(acc) != "第一轮思考" {
+		t.Errorf("H3 修复：第二轮后 FirstRoundThinking 应仍为 '第一轮思考'，实际 %q", chat.GetFirstRoundThinking(acc))
+	}
+	// FirstRoundThinkingDuration 也应保持第一轮的值
+	if acc.FirstRoundThinkingDuration != 5.0 {
+		t.Errorf("FirstRoundThinkingDuration 应保持第一轮的 5.0，实际 %f", acc.FirstRoundThinkingDuration)
+	}
+	// FullThinking 应保持累积（saveToolCallFinalMessage 需要全部思考内容）
+	if acc.FullThinking.String() != "第一轮思考第二轮思考" {
+		t.Errorf("FullThinking 应累积所有轮次思考内容，实际 %q", acc.FullThinking.String())
 	}
 }
 

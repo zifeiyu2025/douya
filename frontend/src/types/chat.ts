@@ -630,6 +630,21 @@ export interface ServerStatus {
   capabilities?: ModelCapabilities
 }
 
+/** llama-server /metrics 端点的关键指标摘要 */
+export interface MetricsSummary {
+  tokens_prompt_total: number
+  prompt_seconds_total: number
+  tokens_predicted_total: number
+  predicted_seconds_total: number
+  n_decode_total: number
+  n_tokens_max: number
+  prompt_tokens_per_second: number
+  predict_tokens_per_second: number
+  processing_requests: number
+  deferred_requests: number
+  busy_slots_per_decode: number
+}
+
 export interface ModelOption {
   name: string
   model_path: string

@@ -147,6 +147,11 @@ func containsCJK(s string) bool {
 	return false
 }
 
+// maxBingHTMLSize 限制 Bing HTML 响应体的最大大小（5MB）。
+// 安全实践（SEC-002）：纵深防御，防止异常大响应导致 html.Parse 内存暴涨。
+// doSearch 已限制 10MB，此处再收紧到 5MB 作为独立函数级自我保护。
+const maxBingHTMLSize = 5 * 1024 * 1024
+
 // parseBingResults 从 Bing HTML 响应中解析搜索结果
 // 核心逻辑：找 <li class="b_algo">，在每个块内提取 <h2><a> 的标题和 URL，
 // 以及 <div class="b_caption"><p> 的摘要。
@@ -154,6 +159,10 @@ func containsCJK(s string) bool {
 // 关键：标题只从 <h2> 内的 <a> 提取，跳过 b_tpcn 里的缩略图链接（避免 <cite> 域名污染）
 func parseBingResults(htmlStr string) []SearchResult {
 	if strings.TrimSpace(htmlStr) == "" {
+		return nil
+	}
+	// SEC-002: 纵深防御，超大响应直接返回空结果
+	if len(htmlStr) > maxBingHTMLSize {
 		return nil
 	}
 

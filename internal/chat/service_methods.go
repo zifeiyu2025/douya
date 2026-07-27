@@ -170,9 +170,12 @@ func (s *Service) DeleteMessage(id string) error {
 	}
 
 	// 批量删除消息（修复 N+1 问题：原实现循环调用 DeleteMessage，每条独立事务）
+	// M16 修复：删除失败时不 emit 事件，避免前端 UI 移除消息但 DB 仍保留导致刷新后"复活"
+	// 生活类比：仓库销毁清单执行失败时，不能让前台把货品从目录划掉，否则客户下单会找不到货
 	if len(deletedIDs) > 0 {
 		if delErr := store.DeleteMessagesBatch(s.db, deletedIDs); delErr != nil {
 			log.Error().Err(delErr).Msg("[chat] batch delete messages failed")
+			return apperror.Wrap(apperror.KindInternal, "batch delete messages", delErr)
 		}
 		for _, delID := range deletedIDs {
 			s.emitForConv(convID, "message_deleted", delID)
@@ -184,28 +187,18 @@ func (s *Service) DeleteMessage(id string) error {
 
 // RegenerateMessage regenerates the last assistant message in a conversation.
 func (s *Service) RegenerateMessage(msgID string, searchMode string) error {
-	s.mutex.Lock()
-	var oldCancel context.CancelFunc
-	var oldConvID string
-	if s.currentCancel != nil {
-		oldCancel = s.currentCancel
-		oldConvID = s.currentConvID
+	// C-7 修复：用 beginGeneration 统一锁/取消逻辑，消除与 SendMessage 的重复代码
+	// M14 修复：wailsCtx 可能为 nil（初始化期间或测试环境），用 context.Background() 兜底
+	// 生活类比：快递员找不到调度总机时，用离线模式继续工作，而不是当场罢工
+	parentCtx := s.getWailsCtxSnapshot()
+	if parentCtx == nil {
+		parentCtx = context.Background()
 	}
-	cancelCtx, cancel := context.WithCancel(s.wailsCtx)
-	s.currentCancel = cancel
-	s.mutex.Unlock()
-	if oldCancel != nil {
-		oldCancel()
-		if oldConvID != "" {
-			s.emitForConv(oldConvID, "stopped", nil)
-		}
-	}
-	defer func() {
-		s.mutex.Lock()
-		s.currentCancel = nil
-		s.currentConvID = ""
-		s.mutex.Unlock()
-	}()
+	// M3 修复：initialConvID 传 ""，立即清空 currentConvID，避免"获取 targetMsg 前的窗口期"内
+	// StopGeneration 读到旧 convID 向错误会话发 "stopped" 事件。
+	// 获取到 targetMsg 后再设置正确值（见下方 s.currentConvID = convID）。
+	cancelCtx, cleanup := s.beginGeneration(parentCtx, "")
+	defer cleanup()
 
 	targetMsg, err := store.GetMessage(s.db, msgID, secrets.CipherKey(s.cipher))
 	if err != nil {
@@ -213,6 +206,12 @@ func (s *Service) RegenerateMessage(msgID string, searchMode string) error {
 	}
 
 	convID := targetMsg.ConversationID
+
+	// M3 修复：尽早设置 currentConvID，缩短窗口期
+	// 此后任何错误返回前，StopGeneration 都能正确针对当前会话操作
+	s.mutex.Lock()
+	s.currentConvID = convID
+	s.mutex.Unlock()
 
 	msgs, err := store.GetMessagesByConversation(s.db, convID, secrets.CipherKey(s.cipher))
 	if err != nil {
@@ -241,18 +240,18 @@ func (s *Service) RegenerateMessage(msgID string, searchMode string) error {
 		}
 	}
 	// 批量删除消息（修复 N+1 问题：原实现循环调用 DeleteMessage，每条独立事务）
+	// M16 修复：删除失败时返回错误，避免后续基于错误状态继续生成
+	deletedSet := make(map[string]bool, len(assistantMsgIDs))
 	if len(assistantMsgIDs) > 0 {
 		if delErr := store.DeleteMessagesBatch(s.db, assistantMsgIDs); delErr != nil {
 			log.Error().Err(delErr).Msg("batch delete assistant messages for regeneration")
+			return apperror.Wrap(apperror.KindInternal, "batch delete assistant messages", delErr)
 		}
 		for _, id := range assistantMsgIDs {
+			deletedSet[id] = true
 			s.emitForConv(convID, "message_deleted", id)
 		}
 	}
-
-	s.mutex.Lock()
-	s.currentConvID = convID
-	s.mutex.Unlock()
 
 	var userContent string
 	var userAttachments []Attachment
@@ -265,9 +264,12 @@ func (s *Service) RegenerateMessage(msgID string, searchMode string) error {
 		}
 	}
 
-	dbMsgs, err := store.GetMessagesByConversation(s.db, convID, secrets.CipherKey(s.cipher))
-	if err != nil {
-		return apperror.Wrap(apperror.KindInternal, "reload messages", err)
+	// M5: 复用第一次查询结果，本地过滤已删除的 assistant 消息，省掉一次数据库查询
+	dbMsgs := make([]*store.Message, 0, len(msgs))
+	for _, m := range msgs {
+		if !deletedSet[m.ID] {
+			dbMsgs = append(dbMsgs, m)
+		}
 	}
 
 	llmMessages, _, err := s.buildLLMMessages(cancelCtx, convID, dbMsgs, userContent, userAttachments, searchMode, "")
