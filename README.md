@@ -7,7 +7,7 @@
 **隐私优先的本地 AI 桌面助手 · 基于 llama.cpp · 完全离线**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.10.9-blue.svg)](https://github.com/zifeiyu2025/douya/releases)
+[![Version](https://img.shields.io/badge/version-v0.11.3-blue.svg)](https://github.com/zifeiyu2025/douya/releases)
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![Vue](https://img.shields.io/badge/Vue-3-42b883?logo=vue.js&logoColor=white)](https://vuejs.org/)
 [![Wails](https://img.shields.io/badge/Wails-v2-red.svg)](https://wails.io/)
@@ -35,7 +35,9 @@
 ## ✨ 核心特性
 
 ### 🧠 本地推理引擎
-- **llama.cpp Router 模式** + **CUDA GPU 加速**，开箱即用
+- **多后端支持**：CUDA（NVIDIA）/ HIP（AMD）/ SYCL（Intel）/ Vulkan（跨厂商）/ OpenVINO / CPU，按 GPU 厂商自动推荐
+- **后端在线下载**：从 llama.cpp GitHub Releases 自动下载对应后端运行时，按需解压，无需手动配置
+- **GPU 微架构检测**：识别 Blackwell / Ada / Ampere / Turing，针对 RTX 50 系等新架构调优量化策略
 - **智能硬件检测**：自动识别 GPU 型号与 VRAM，计算最优 GPU 层数、线程数、KV Cache 策略
 - **GGUF 元数据解析**：按模型规模分级调优（block_count、embedding_length、chat_template）
 - **高级优化**：Flash Attention、KV Cache 量化（Q4_0 / Q8_0）、mlock、DRY 采样器
@@ -163,7 +165,7 @@ wails dev
 |------|------|
 | 桌面框架 | Go 1.25 + [Wails v2](https://wails.io/) |
 | 前端 | Vue 3 + TypeScript + [Naive UI](https://www.naiveui.com/) + Pinia v4 |
-| 推理引擎 | [llama.cpp](https://github.com/ggml-org/llama.cpp)（CUDA, Router 模式） |
+| 推理引擎 | [llama.cpp](https://github.com/ggml-org/llama.cpp)（多后端：CUDA/HIP/SYCL/Vulkan/OpenVINO/CPU，Router 模式） |
 | 向量存储 | [BadgerDB v4](https://github.com/dgraph-io/badger)（HNSW 索引） |
 | 数据库 | SQLite3 |
 | PDF 解析 | [ledongthuc/pdf](https://github.com/ledongthuc/pdf) |
@@ -182,7 +184,7 @@ douya/
 ├── internal/
 │   ├── chat/                   # 对话服务：消息构建、流式生成、搜索集成、RAG
 │   ├── config/                 # 配置管理：JSON 持久化、参数验证
-│   ├── llm/                    # LLM 控制层：client / server / preset / vram / ringbuffer
+│   ├── llm/                    # LLM 控制层：client / server / backend / preset / vram / ringbuffer
 │   ├── rag/                    # RAG 知识库：vector_store / bm25 / document_pipeline
 │   ├── search/                 # 搜索引擎：Tavily / Ollama / Bing（步降式）
 │   ├── secrets/                # AES-GCM 加密
@@ -213,6 +215,8 @@ douya/
 
 ### 架构亮点
 
+**多后端管理**：运行时按后端类型分子目录（`runtime/cuda/`、`runtime/vulkan/` 等），切换后端时按需从 llama.cpp GitHub Releases 下载解压。`backend_type=auto` 时根据 GPU 厂商（NVIDIA/AMD/Intel）自动推荐最合适的原生后端，无 GPU 时回退 CPU。
+
 **Router 模式模型切换**：利用 llama.cpp Router 的 LRU 自动卸载机制，切换模型无需手动 `UnloadModel` + 等待 VRAM 释放。Sleep-Idle 让空闲模型自动休眠，新请求自动唤醒。启动加 `--no-models-autoload` 避免与显式 `/models/load` 冲突。
 
 **智能参数计算**：解析 GGUF 元数据 → 估算模型规模等级（Tiny/Small/Medium/Large/XL）→ 结合 GPU VRAM 自动计算 GPU 层数、KV Cache 量化、Flash Attention。VRAM/模型 ≤0.7 → q8_0/q4_0；0.7~1.5 → q8_0/turbo3；>1.5 → turbo3/turbo2。
@@ -236,6 +240,7 @@ douya/
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
 | `model_path` | 默认模型路径 | （空） |
+| `backend_type` | 计算后端（auto / cuda / hip / sycl / vulkan / openvino / cpu） | `"auto"` |
 | `context_size` | 上下文窗口大小 | `8192` |
 | `port` | llama-server 端口 | `8080` |
 | `expose_server` | 暴露服务器地址（局域网访问） | `false` |
@@ -333,7 +338,8 @@ Douya-vX.X.X/
 ├── docs/
 │   └── external-tools-access.md
 ├── models/                     # 模型文件目录（需自行放入 GGUF）
-└── runtime/                    # llama-server.exe + CUDA DLL
+└── runtime/                    # llama-server.exe + 后端 DLL（按后端分子目录）
+    └── cuda/                   # CUDA 后端运行时（首次切换其他后端时自动下载）
 ```
 
 ---
