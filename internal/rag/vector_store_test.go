@@ -1577,3 +1577,273 @@ func TestDeleteDocument_DocIDPrefixNoFalseMatch(t *testing.T) {
 		t.Errorf("删除 'doc' 后 BM25 应仍能找到 'doc_1_0'，但未找到。结果: %v", results)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// 任务 5: VectorStore.Close 后并发调用不 panic，返回 ErrClosed
+// ---------------------------------------------------------------------------
+
+// TestClose_AddVectorsReturnsErrClosed 验证任务 5：
+// Close 后调用 AddVectors 应返回 ErrClosed，而不是对 nil map 写入导致 panic。
+// 生活类比：图书馆闭馆后，新书入库申请应在门口就被婉拒，而不是走到已锁的库房才发现进不去。
+func TestClose_AddVectorsReturnsErrClosed(t *testing.T) {
+	dir := t.TempDir()
+	vs, err := NewVectorStore(dir)
+	if err != nil {
+		t.Fatalf("NewVectorStore: %v", err)
+	}
+	if err := vs.CreateCollection("c", 4); err != nil {
+		t.Fatalf("CreateCollection: %v", err)
+	}
+	if err := vs.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	err = vs.AddVectors("c", []string{"v1"}, [][]float64{{1.0, 0.0, 0.0, 0.0}})
+	if !errors.Is(err, ErrClosed) {
+		t.Fatalf("期望 ErrClosed，实际 %v", err)
+	}
+}
+
+// TestClose_SearchReturnsErrClosed 验证任务 5：
+// Close 后调用 Search 应返回 ErrClosed，而不是在 collectionLock/getOrLoadIndex 中 panic。
+func TestClose_SearchReturnsErrClosed(t *testing.T) {
+	dir := t.TempDir()
+	vs, err := NewVectorStore(dir)
+	if err != nil {
+		t.Fatalf("NewVectorStore: %v", err)
+	}
+	if err := vs.CreateCollection("c", 4); err != nil {
+		t.Fatalf("CreateCollection: %v", err)
+	}
+	if err := vs.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	_, err = vs.Search(context.Background(), "c", []float64{1.0, 0.0, 0.0, 0.0}, 5)
+	if !errors.Is(err, ErrClosed) {
+		t.Fatalf("期望 ErrClosed，实际 %v", err)
+	}
+}
+
+// TestClose_DeleteDocumentReturnsErrClosed 验证任务 5：
+// Close 后调用 DeleteDocument 应返回 ErrClosed，而不是在 collectionLock/索引清理中 panic。
+func TestClose_DeleteDocumentReturnsErrClosed(t *testing.T) {
+	dir := t.TempDir()
+	vs, err := NewVectorStore(dir)
+	if err != nil {
+		t.Fatalf("NewVectorStore: %v", err)
+	}
+	if err := vs.CreateCollection("c", 4); err != nil {
+		t.Fatalf("CreateCollection: %v", err)
+	}
+	if err := vs.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	err = vs.DeleteDocument("c", "doc1")
+	if !errors.Is(err, ErrClosed) {
+		t.Fatalf("期望 ErrClosed，实际 %v", err)
+	}
+}
+
+// TestClose_DeleteCollectionReturnsErrClosed 验证任务 5：
+// Close 后调用 DeleteCollection 应返回 ErrClosed，而不是在 delete(vs.indexes, ...) 中 panic。
+func TestClose_DeleteCollectionReturnsErrClosed(t *testing.T) {
+	dir := t.TempDir()
+	vs, err := NewVectorStore(dir)
+	if err != nil {
+		t.Fatalf("NewVectorStore: %v", err)
+	}
+	if err := vs.CreateCollection("c", 4); err != nil {
+		t.Fatalf("CreateCollection: %v", err)
+	}
+	if err := vs.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	err = vs.DeleteCollection("c")
+	if !errors.Is(err, ErrClosed) {
+		t.Fatalf("期望 ErrClosed，实际 %v", err)
+	}
+}
+
+// TestClose_HybridSearchReturnsErrClosed 验证任务 5：
+// Close 后调用 HybridSearch 应返回 ErrClosed，而不是在 getOrCreateBM25 中对 nil map 写入 panic。
+func TestClose_HybridSearchReturnsErrClosed(t *testing.T) {
+	dir := t.TempDir()
+	vs, err := NewVectorStore(dir)
+	if err != nil {
+		t.Fatalf("NewVectorStore: %v", err)
+	}
+	if err := vs.CreateCollection("c", 4); err != nil {
+		t.Fatalf("CreateCollection: %v", err)
+	}
+	if err := vs.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	_, err = vs.HybridSearch(context.Background(), "c", []float64{1.0, 0.0, 0.0, 0.0}, "query", 5, 0.0)
+	if !errors.Is(err, ErrClosed) {
+		t.Fatalf("期望 ErrClosed，实际 %v", err)
+	}
+}
+
+// TestClose_CollectionLockNoPanic 验证任务 5：
+// Close 后并发 goroutine 调用 collectionLock 不应 panic（返回临时 mutex）。
+// 这是任务 5 的核心场景：Close 把 vs.locks 置 nil，若并发 goroutine 此时写入会 panic。
+func TestClose_CollectionLockNoPanic(t *testing.T) {
+	dir := t.TempDir()
+	vs, err := NewVectorStore(dir)
+	if err != nil {
+		t.Fatalf("NewVectorStore: %v", err)
+	}
+	if err := vs.CreateCollection("c", 4); err != nil {
+		t.Fatalf("CreateCollection: %v", err)
+	}
+	if err := vs.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// collectionLock 在 closed 时应返回新 mutex，不写入 nil map，不 panic
+	mu := vs.collectionLock("c")
+	if mu == nil {
+		t.Fatal("collectionLock 返回 nil，期望非 nil mutex")
+	}
+	// 加解锁应正常工作
+	mu.Lock()
+	mu.Unlock()
+}
+
+// TestClose_ConcurrentNoPanic 验证任务 5：
+// 在并发场景下 Close 与 AddVectors/Search 同时调用不会 panic。
+// 通过 race detector 捕获数据竞争，通过 recover 捕获 panic。
+func TestClose_ConcurrentNoPanic(t *testing.T) {
+	dir := t.TempDir()
+	vs, err := NewVectorStore(dir)
+	if err != nil {
+		t.Fatalf("NewVectorStore: %v", err)
+	}
+	if err := vs.CreateCollection("c", 4); err != nil {
+		t.Fatalf("CreateCollection: %v", err)
+	}
+	if err := vs.AddVectors("c", []string{"v1"}, [][]float64{{1.0, 0.0, 0.0, 0.0}}); err != nil {
+		t.Fatalf("AddVectors: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	panicCh := make(chan any, 4)
+
+	// 并发 Close
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				panicCh <- r
+			}
+		}()
+		_ = vs.Close()
+	}()
+
+	// 并发 AddVectors / Search / DeleteDocument
+	for range 3 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					panicCh <- r
+				}
+			}()
+			_ = vs.AddVectors("c", []string{"v2"}, [][]float64{{1.0, 0.0, 0.0, 0.0}})
+			_, _ = vs.Search(context.Background(), "c", []float64{1.0, 0.0, 0.0, 0.0}, 5)
+			_ = vs.DeleteDocument("c", "v2")
+		}()
+	}
+
+	wg.Wait()
+	close(panicCh)
+	for r := range panicCh {
+		t.Fatalf("并发 Close 场景下发生 panic: %v", r)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 任务 8: updateCollectionDim 校验 dim > 0
+// ---------------------------------------------------------------------------
+
+// TestUpdateCollectionDim_ZeroDimRejected 验证任务 8（P2-4）：
+// updateCollectionDim 传入 dim=0 应返回 ErrZeroDimension，不应写入 Badger。
+// 生活类比：量尺寸时如果尺子读数是 0 或负数，显然是错的，应该当场拒绝，
+// 而不是把这个错误尺寸记到档案里，导致后续所有按尺寸裁剪的操作都出错。
+func TestUpdateCollectionDim_ZeroDimRejected(t *testing.T) {
+	vs, cleanup := newTestStore(t)
+	defer cleanup()
+
+	if err := vs.CreateCollection("dim_test", 4); err != nil {
+		t.Fatalf("CreateCollection: %v", err)
+	}
+
+	err := vs.updateCollectionDim("dim_test", 0)
+	if !errors.Is(err, ErrZeroDimension) {
+		t.Fatalf("期望 ErrZeroDimension，实际 %v", err)
+	}
+
+	// 验证 dim 未被修改（仍为创建时的 4）
+	meta, err := vs.getCollectionMeta("dim_test")
+	if err != nil {
+		t.Fatalf("getCollectionMeta: %v", err)
+	}
+	if meta.Dim != 4 {
+		t.Errorf("dim 应保持 4 不变，实际 %d", meta.Dim)
+	}
+}
+
+// TestUpdateCollectionDim_NegativeDimRejected 验证任务 8：
+// updateCollectionDim 传入负数 dim 也应返回 ErrZeroDimension。
+func TestUpdateCollectionDim_NegativeDimRejected(t *testing.T) {
+	vs, cleanup := newTestStore(t)
+	defer cleanup()
+
+	if err := vs.CreateCollection("neg_dim_test", 4); err != nil {
+		t.Fatalf("CreateCollection: %v", err)
+	}
+
+	err := vs.updateCollectionDim("neg_dim_test", -8)
+	if !errors.Is(err, ErrZeroDimension) {
+		t.Fatalf("期望 ErrZeroDimension，实际 %v", err)
+	}
+
+	// 验证 dim 未被修改
+	meta, err := vs.getCollectionMeta("neg_dim_test")
+	if err != nil {
+		t.Fatalf("getCollectionMeta: %v", err)
+	}
+	if meta.Dim != 4 {
+		t.Errorf("dim 应保持 4 不变，实际 %d", meta.Dim)
+	}
+}
+
+// TestUpdateCollectionDim_PositiveDimOK 验证任务 8：
+// updateCollectionDim 传入合法 dim 仍能正常更新（回归测试，确保校验不影响正常路径）。
+func TestUpdateCollectionDim_PositiveDimOK(t *testing.T) {
+	vs, cleanup := newTestStore(t)
+	defer cleanup()
+
+	if err := vs.CreateCollection("ok_dim_test", 4); err != nil {
+		t.Fatalf("CreateCollection: %v", err)
+	}
+
+	err := vs.updateCollectionDim("ok_dim_test", 8)
+	if err != nil {
+		t.Fatalf("合法 dim 不应报错，实际 %v", err)
+	}
+
+	meta, err := vs.getCollectionMeta("ok_dim_test")
+	if err != nil {
+		t.Fatalf("getCollectionMeta: %v", err)
+	}
+	if meta.Dim != 8 {
+		t.Errorf("dim 期望 8，实际 %d", meta.Dim)
+	}
+}

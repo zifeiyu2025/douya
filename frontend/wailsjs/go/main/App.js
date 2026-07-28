@@ -138,6 +138,10 @@ export function GracefulExit() {
   return window['go']['main']['App']['GracefulExit']();
 }
 
+export function RestartApp() {
+  return window['go']['main']['App']['RestartApp']();
+}
+
 export function IsRAGEnabled() {
   return window['go']['main']['App']['IsRAGEnabled']();
 }
@@ -280,4 +284,20 @@ export function GetBackendStatus() {
 
 export function SwitchBackend(arg1) {
   return window['go']['main']['App']['SwitchBackend'](arg1);
+}
+
+export function DownloadBackend(arg1) {
+  return window['go']['main']['App']['DownloadBackend'](arg1);
+}
+
+export function GetAppVersion() {
+  return window['go']['main']['App']['GetAppVersion']();
+}
+
+export function CheckUpdate() {
+  return window['go']['main']['App']['CheckUpdate']();
+}
+
+export function PerformUpdate(arg1, arg2) {
+  return window['go']['main']['App']['PerformUpdate'](arg1, arg2);
 }

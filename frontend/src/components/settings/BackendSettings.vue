@@ -84,7 +84,7 @@
     <template #label>
       已安装后端
       <HelpTip
-        content="runtime 目录中已存在 llama-server.exe 的后端。未安装的后端在首次切换时会自动解压"
+        content="runtime 目录中已存在 llama-server.exe 的后端。未安装的后端可点击下方下载按钮从 GitHub 获取"
       />
     </template>
     <div class="installed-backends">
@@ -102,13 +102,110 @@
       </span>
     </div>
   </n-form-item>
+
+  <!-- 下载缺失后端 -->
+  <n-form-item>
+    <template #label>
+      下载后端
+      <HelpTip
+        content="从 GitHub llama.cpp releases 下载缺失的后端 zip 包，下载后自动解压安装。需重启应用生效"
+      />
+    </template>
+    <div class="download-row">
+      <n-select
+        v-model:value="selectedDownloadBackend"
+        :options="downloadOptions"
+        :disabled="downloading"
+        placeholder="选择要下载的后端"
+        class="download-select"
+      />
+      <n-button
+        type="primary"
+        size="small"
+        ghost
+        :loading="downloading"
+        :disabled="!canDownload"
+        @click="handleDownload"
+      >
+        下载
+      </n-button>
+    </div>
+  </n-form-item>
+
+  <!-- 下载进度对话框 -->
+  <n-modal
+    v-model:show="showProgressDialog"
+    :mask-closable="false"
+    :close-on-esc="false"
+    preset="card"
+    :title="progressDialogTitle"
+    style="width: 480px; max-width: 90vw"
+  >
+    <div class="progress-content">
+      <n-progress
+        type="line"
+        :percentage="Math.round(downloadProgress.Percent)"
+        :status="progressStatus"
+        :indicator-placement="'inside'"
+        processing
+      />
+      <div class="progress-info">
+        <span v-if="downloadProgress.Status === 'downloading'" class="progress-detail">
+          {{ formatBytes(downloadProgress.Downloaded) }} /
+          {{ formatBytes(downloadProgress.TotalBytes) }} （{{ downloadProgress.AssetName }}）
+        </span>
+        <span v-else-if="downloadProgress.Status === 'installing'" class="progress-detail">
+          正在解压安装...
+        </span>
+        <span
+          v-else-if="downloadProgress.Status === 'completed'"
+          class="progress-detail success-text"
+        >
+          下载完成！
+        </span>
+        <span v-else-if="downloadProgress.Status === 'failed'" class="progress-detail error-text">
+          下载失败：{{ downloadProgress.Error }}
+        </span>
+      </div>
+      <div v-if="downloadProgress.Status === 'completed'" class="progress-hint">
+        后端已下载并安装完成，请重启应用使其生效。
+      </div>
+    </div>
+    <template #footer>
+      <div class="progress-footer">
+        <n-button
+          v-if="downloadProgress.Status === 'completed' || downloadProgress.Status === 'failed'"
+          size="small"
+          @click="closeProgressDialog"
+        >
+          关闭
+        </n-button>
+      </div>
+    </template>
+  </n-modal>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { NFormItem, NSelect, NButton, NTag, NCard, NIcon, useDialog, useMessage } from 'naive-ui'
+import {
+  NFormItem,
+  NSelect,
+  NButton,
+  NTag,
+  NCard,
+  NIcon,
+  NModal,
+  NProgress,
+  useDialog,
+  useMessage
+} from 'naive-ui'
 import { HardwareChipOutline, SpeedometerOutline, ServerOutline } from '@vicons/ionicons5'
-import { wails, type BackendStatus } from '../../services/wails'
+import {
+  wails,
+  type BackendStatus,
+  type BackendDownloadProgress,
+  type BackendDownloadComplete
+} from '../../services/wails'
 import { logError } from '../../utils/logger'
 import HelpTip from '../ui/HelpTip.vue'
 
@@ -130,6 +227,22 @@ const backendStatus = ref<BackendStatus>({
 const selectedBackend = ref<string>('auto')
 const loading = ref(false)
 const switching = ref(false)
+
+// ===== 下载后端相关状态 =====
+const selectedDownloadBackend = ref<string>('')
+const downloading = ref(false)
+const showProgressDialog = ref(false)
+const downloadProgress = ref<BackendDownloadProgress>({
+  Backend: '',
+  AssetName: '',
+  TagName: '',
+  TotalBytes: 0,
+  Downloaded: 0,
+  Percent: 0,
+  Status: '',
+  Error: '',
+  Label: ''
+})
 
 // 后端类型 -> 中文显示名映射（对齐 Go GetBackendInfo.DisplayName）
 const backendDisplayNames: Record<string, string> = {
@@ -209,6 +322,94 @@ const canApply = computed(() => {
   return selectedBackend.value !== backendStatus.value.config_backend && !switching.value
 })
 
+/** 下载选项：排除 auto，仅显示具体后端 */
+const downloadOptions = computed(() => {
+  const allBackends = backendStatus.value.available_backends.filter(bt => bt !== 'auto')
+  return allBackends.map(bt => ({
+    label: backendStatusLabel(bt),
+    value: bt
+  }))
+})
+
+/** 是否可以点击下载：选择了后端且不在下载中 */
+const canDownload = computed(() => {
+  return selectedDownloadBackend.value !== '' && !downloading.value
+})
+
+/** 进度对话框标题 */
+const progressDialogTitle = computed(() => {
+  const bt = downloadProgress.value.Backend
+  return bt ? `下载 ${backendStatusLabel(bt)} 后端` : '下载后端'
+})
+
+/** n-progress 状态 */
+const progressStatus = computed<'success' | 'error' | 'default'>(() => {
+  const s = downloadProgress.value.Status
+  if (s === 'completed') return 'success'
+  if (s === 'failed') return 'error'
+  return 'default'
+})
+
+/** 格式化字节数为可读字符串 */
+function formatBytes(bytes: number): string {
+  if (!bytes || bytes <= 0) return '0 B'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+/** 处理下载按钮点击 */
+function handleDownload() {
+  const target = selectedDownloadBackend.value
+  if (!target) return
+
+  dialog.warning({
+    title: '下载显卡后端',
+    content: `即将从 GitHub 下载 ${backendStatusLabel(target)} 后端 zip 包，\n下载完成后自动解压安装。\n\n是否继续？`,
+    positiveText: '确认下载',
+    negativeText: '取消',
+    onPositiveClick: () => {
+      doDownloadBackend(target)
+    }
+  })
+}
+
+/** 执行后端下载 */
+async function doDownloadBackend(target: string) {
+  downloading.value = true
+  showProgressDialog.value = true
+  // 重置进度
+  downloadProgress.value = {
+    Backend: target,
+    AssetName: '',
+    TagName: '',
+    TotalBytes: 0,
+    Downloaded: 0,
+    Percent: 0,
+    Status: 'downloading',
+    Error: '',
+    Label: ''
+  }
+  try {
+    await wails.downloadBackend(target)
+    // 下载启动成功，等待进度事件更新 UI
+  } catch (e) {
+    logError('Failed to start backend download', e)
+    message.error(`下载启动失败：${e instanceof Error ? e.message : String(e)}`)
+    downloading.value = false
+    showProgressDialog.value = false
+  }
+}
+
+/** 关闭进度对话框 */
+function closeProgressDialog() {
+  showProgressDialog.value = false
+  downloading.value = false
+  // 刷新状态
+  loadBackendStatus()
+}
+
 /** 加载后端状态 */
 async function loadBackendStatus() {
   loading.value = true
@@ -266,6 +467,10 @@ async function doSwitchBackend(target: string) {
 
 // 监听后端切换事件（后端推送状态更新时刷新前端显示）
 let unsubscribeBackendSwitched: (() => void) | null = null
+// 监听后端下载进度事件
+let unsubscribeDownloadProgress: (() => void) | null = null
+// 监听后端下载完成事件
+let unsubscribeDownloadComplete: (() => void) | null = null
 
 onMounted(() => {
   loadBackendStatus()
@@ -273,12 +478,64 @@ onMounted(() => {
     backendStatus.value = status
     selectedBackend.value = status.config_backend || 'auto'
   })
+  // 下载进度事件：实时更新进度对话框
+  unsubscribeDownloadProgress = wails.subscribeBackendDownloadProgress(
+    (progress: BackendDownloadProgress) => {
+      downloadProgress.value = progress
+      // 如果是完成或失败状态，恢复 downloading 标志（允许关闭对话框）
+      if (progress.Status === 'completed' || progress.Status === 'failed') {
+        downloading.value = false
+      }
+    }
+  )
+  // 下载完成事件：显示结果并刷新状态
+  unsubscribeDownloadComplete = wails.subscribeBackendDownloadComplete(
+    (result: BackendDownloadComplete) => {
+      if (result.success) {
+        // 更新进度到完成状态，避免进度条卡在中间值
+        downloadProgress.value = {
+          ...downloadProgress.value,
+          Backend: result.backend,
+          Status: 'completed',
+          Percent: 100,
+          Label: '下载完成'
+        }
+        downloading.value = false
+        message.success(`${backendStatusLabel(result.backend)} 后端下载安装完成，请重启应用生效`, {
+          duration: 5000
+        })
+      } else {
+        // 更新进度到失败状态
+        downloadProgress.value = {
+          ...downloadProgress.value,
+          Backend: result.backend,
+          Status: 'failed',
+          Error: result.error || '未知错误'
+        }
+        downloading.value = false
+        message.error(
+          `${backendStatusLabel(result.backend)} 后端安装失败：${result.error || '未知错误'}`,
+          { duration: 8000 }
+        )
+      }
+      // 下载完成后刷新后端状态
+      loadBackendStatus()
+    }
+  )
 })
 
 onUnmounted(() => {
   if (unsubscribeBackendSwitched) {
     unsubscribeBackendSwitched()
     unsubscribeBackendSwitched = null
+  }
+  if (unsubscribeDownloadProgress) {
+    unsubscribeDownloadProgress()
+    unsubscribeDownloadProgress = null
+  }
+  if (unsubscribeDownloadComplete) {
+    unsubscribeDownloadComplete()
+    unsubscribeDownloadComplete = null
   }
 })
 </script>
@@ -386,5 +643,55 @@ onUnmounted(() => {
   .backend-gpu-info {
     grid-template-columns: 1fr;
   }
+}
+
+/* 下载后端选择行 */
+.download-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.download-select {
+  flex: 1;
+  max-width: 320px;
+}
+
+/* 下载进度对话框 */
+.progress-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.progress-info {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.progress-detail {
+  word-break: break-all;
+}
+
+.progress-detail.success-text {
+  color: var(--n-color-success, #18a058);
+}
+
+.progress-detail.error-text {
+  color: var(--n-color-error, #d03050);
+}
+
+.progress-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 8px 12px;
+  background: var(--n-color-target, rgba(255, 255, 255, 0.06));
+  border-radius: 4px;
+}
+
+.progress-footer {
+  display: flex;
+  justify-content: flex-end;
 }
 </style>

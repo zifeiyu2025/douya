@@ -21,6 +21,7 @@ import { computed, onMounted, onUnmounted, readonly, ref, watch } from 'vue'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import { wails } from '../services/wails'
+import type { ServerWarningEvent } from '../services/wails'
 import { discreteDialog, discreteMessage } from '../utils/discrete'
 import { logError } from '../utils/logger'
 import { classifyError } from '../utils/errorGuidance'
@@ -51,13 +52,30 @@ export function useAppLifecycle() {
    */
   const modelLoadTimeout = computed(() => settingsStore.switchState.phase === 'timeout')
 
+  // ===== 启动阶段后端下载状态 =====
+  // 当 runtime 缺失时，用户同意下载后后端会推送 downloadStart / downloadProgress / downloadComplete 事件，
+  // 前端据此在启动动效中展示下载进度，而非无限转圈。
+  // 生活类比：启动屏原本只是"加载中"转圈，下载阶段改为显示"正在下载 xxx 45%"的进度条。
+  const isDownloading = ref(false)
+  const downloadInfo = ref({
+    name: '',
+    percent: 0,
+    status: '',
+    error: '',
+    assetName: '',
+    label: ''
+  })
+
   /**
    * 是否显示启动屏（对应原 App.vue 中的 showSplash）
+   * - 下载阶段：强制显示（展示下载进度）
    * - 首次启动彻底失败：仍显示启动屏展示错误（不转圈）
    * - 首次加载未就绪：显示 splash（失败/超时也仍显示，由 SplashScreen 组件决定是否转圈）
    * - 已就绪后：无论是否超时都不显示 splash
    */
   const showSplash = computed(() => {
+    // 下载阶段强制显示启动屏
+    if (isDownloading.value) return true
     // 首次启动已彻底失败，仍显示启动屏展示错误（但不转圈）
     if (settingsStore.switchState.phase === 'first_load_failed') return true
     // 首次加载未就绪时显示 splash（无论 failed 还是 timeout 都仍显示）
@@ -70,19 +88,33 @@ export function useAppLifecycle() {
 
   /**
    * 启动屏阶段（对应原 App.vue 中的 splashStage）
+   * - 下载阶段 → 'downloading'（展示下载进度条）
+   * - 安装中 → 'downloading'（进度100%，展示"安装中"文字）
+   * - 下载失败 → 'failed'
    * - first_load_failed → 'failed'（停止转圈，展示错误）
    * - 其他 → 透传 store.switchProgress.stage
    */
   const splashStage = computed(() => {
+    // 下载阶段优先：展示下载进度条而非模型加载转圈
+    if (isDownloading.value) {
+      if (downloadInfo.value.status === 'failed') return 'failed'
+      return 'downloading'
+    }
     if (settingsStore.switchState.phase === 'first_load_failed') return 'failed'
     return settingsStore.switchProgress.stage
   })
 
   /**
    * 启动屏上显示的模型名（对应原 App.vue 中的 splashModelName）
-   * 优先用 switchProgress.targetModel，其次用 store.currentModel
+   * 下载阶段显示当前下载内容的描述（如"推理后端"、"cudart 依赖包"），其他阶段显示模型名
    */
   const splashModelName = computed(() => {
+    // 下载阶段显示当前下载内容的 label（如"推理后端"、"cudart 依赖包"、"安装中"）
+    if (isDownloading.value) {
+      if (downloadInfo.value.label) return downloadInfo.value.label
+      if (downloadInfo.value.name) return downloadInfo.value.name
+      return ''
+    }
     const name = settingsStore.switchProgress.targetModel || settingsStore.currentModel
     if (!name) return ''
     return formatModelName(name).display
@@ -90,9 +122,14 @@ export function useAppLifecycle() {
 
   /**
    * 启动屏进度百分比（对应原 App.vue 中的 splashProgress）
-   * 优先用后端推送的真实加载进度，无进度时用阶段映射兜底
+   * - 下载阶段：使用下载百分比
+   * - 其他：优先用后端推送的真实加载进度，无进度时用阶段映射兜底
    */
   const splashProgress = computed(() => {
+    // 下载阶段使用下载百分比
+    if (isDownloading.value) {
+      return Math.max(0, Math.min(100, Math.round(downloadInfo.value.percent)))
+    }
     // 优先使用后端推送的真实加载进度
     const modelLoadProgress = settingsStore.modelLoadProgress
     if (modelLoadProgress && modelLoadProgress.status === 'loading') {
@@ -118,6 +155,66 @@ export function useAppLifecycle() {
     unsubscribers.push(settingsStore.registerStatusListener())
     unsubscribers.push(settingsStore.registerMmprojUnavailableListener())
     unsubscribers.push(settingsStore.registerSearchAutoDisabledListener())
+
+    // 启动阶段后端下载事件监听：runtime 缺失时用户同意下载后，后端推送进度到启动屏
+    // 三个事件：downloadStart（开始）→ downloadProgress（进度，多次）→ downloadComplete（完成/失败）
+    unsubscribers.push(
+      wails.subscribeBackendDownloadStart((info: { backend: string; name: string }) => {
+        isDownloading.value = true
+        downloadInfo.value = {
+          name: info.name,
+          percent: 0,
+          status: 'downloading',
+          error: '',
+          assetName: '',
+          label: '推理后端'
+        }
+      })
+    )
+    unsubscribers.push(
+      wails.subscribeBackendDownloadProgress(progress => {
+        // 下载进度事件：更新百分比、状态和标签
+        // status 可能是 downloading / completed / failed / installing / retrying
+        // label 可能是"推理后端"、"cudart 依赖包"、"安装中"
+        if (!isDownloading.value) isDownloading.value = true
+        downloadInfo.value = {
+          name: downloadInfo.value.name,
+          percent: progress.Percent,
+          status: progress.Status,
+          error: progress.Error,
+          assetName: progress.AssetName,
+          label: progress.Label || downloadInfo.value.label
+        }
+      })
+    )
+    unsubscribers.push(
+      wails.subscribeBackendDownloadComplete(
+        (result: { backend: string; success: boolean; error?: string }) => {
+          if (result.success) {
+            // 下载+解压完成：后端会自动推送"重启中"状态并触发重启
+            // 前端不弹窗，直接显示"重启中"状态，等待后端自动重启
+            downloadInfo.value = {
+              ...downloadInfo.value,
+              status: 'completed',
+              percent: 100,
+              label: '重启中'
+            }
+          } else {
+            // 下载失败：保持 isDownloading=true，状态改为 failed，展示错误
+            downloadInfo.value = {
+              ...downloadInfo.value,
+              status: 'failed',
+              error: result.error || '未知错误'
+            }
+            discreteDialog.error({
+              title: '下载失败',
+              content: `推理后端下载失败：${result.error || '未知错误'}\n\n请检查网络连接后重启应用重试，或在「设置 → 后端」中手动下载。`,
+              positiveText: '知道了'
+            })
+          }
+        }
+      )
+    )
 
     // 2. 所有 watch 必须在 await 之前注册
     //    原因：await 期间后端可能已推送状态变化，延迟注册会错过首次事件导致无限转圈或会话列表不加载
@@ -187,8 +284,12 @@ export function useAppLifecycle() {
     await settingsStore.loadConfig()
 
     // 异常清理事件监听：后端检测到无有效消息的会话时主动推送
+    // M4 修复：用标志位记录是否已显示清理提示，避免事件 + getCleanupResult 轮询重复弹窗
+    let abnormalCleanupShown = false
     unsubscribers.push(
       wails.subscribeAbnormalCleanup(data => {
+        if (abnormalCleanupShown) return
+        abnormalCleanupShown = true
         chatStore.loadConversations()
         discreteMessage.info(`已自动清理 ${data.count} 个异常会话（无有效消息）`, {
           duration: 5000
@@ -197,9 +298,11 @@ export function useAppLifecycle() {
     )
 
     // 启动时检查是否有清理结果（后端在应用启动前可能已清理过异常会话）
+    // M4 修复：如果事件监听已显示过提示，跳过此处轮询，避免重复弹窗
     try {
       const result = await wails.getCleanupResult()
-      if (result && result.length > 0) {
+      if (result && result.length > 0 && !abnormalCleanupShown) {
+        abnormalCleanupShown = true
         chatStore.loadConversations()
         discreteMessage.info(`已自动清理 ${result.length} 个异常会话（无有效消息）`, {
           duration: 5000
@@ -214,6 +317,15 @@ export function useAppLifecycle() {
       wails.subscribeShutdownProgress((progress: { stage: string; message: string }) => {
         isExiting.value = true
         exitMessage.value = progress.message
+      })
+    )
+
+    // 服务器警告事件监听（M1 修复）：
+    // 后端在 preset 文件生成失败等非致命问题发生时推送 server:warning 事件，
+    // 前端显示 warning 提示让用户知道模型加载可能使用默认参数。
+    unsubscribers.push(
+      wails.subscribeServerWarning((data: ServerWarningEvent) => {
+        discreteMessage.warning(data.message, { duration: 8000 })
       })
     )
 

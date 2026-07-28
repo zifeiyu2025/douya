@@ -45,6 +45,7 @@ import {
   HandleCloseRequest,
   SetCloseAction,
   GracefulExit,
+  RestartApp,
   StopThinking,
   RerankEnabled,
   SaveSlot,
@@ -70,7 +71,11 @@ import {
   GetMCPStatus,
   ListMCPTools,
   RefreshMcpTools,
-  SwitchBackend
+  SwitchBackend,
+  DownloadBackend,
+  GetAppVersion,
+  CheckUpdate,
+  PerformUpdate
 } from '../../wailsjs/go/main/App'
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
 import { chat as ChatModel } from '../../wailsjs/go/models'
@@ -144,10 +149,43 @@ export interface ModelLoadProgressEvent {
   progress: number
 }
 
+/** 后端下载进度事件 */
+export interface BackendDownloadProgress {
+  Backend: string
+  AssetName: string
+  TagName: string
+  TotalBytes: number
+  Downloaded: number
+  Percent: number
+  Status: string
+  Error: string
+  Label: string
+}
+
+// BackendDownloadStart 启动阶段下载开始时推送的信息
+export interface BackendDownloadStart {
+  backend: string
+  name: string
+}
+
+/** 后端下载完成事件 */
+export interface BackendDownloadComplete {
+  backend: string
+  success: boolean
+  error?: string
+  server_path?: string
+}
+
 /** 异常清理事件 */
 export interface AbnormalCleanupEvent {
   count: number
   removed: Array<{ id: string; title: string; reason: string }>
+}
+
+/** 服务器警告事件（如 preset 文件生成失败） */
+export interface ServerWarningEvent {
+  type: string
+  message: string
 }
 
 /** 清理结果 */
@@ -324,6 +362,10 @@ export const wails = {
   gracefulExit: async (): Promise<void> => {
     await GracefulExit()
   },
+  // 重启应用：启动新进程后退出当前进程（用于下载完成后自动重启）
+  restartApp: async (): Promise<void> => {
+    await RestartApp()
+  },
   stopThinking: async (): Promise<void> => {
     await StopThinking()
   },
@@ -413,6 +455,14 @@ export const wails = {
   subscribeAbnormalCleanup: (callback: (data: AbnormalCleanupEvent) => void): (() => void) => {
     EventsOn('chat:abnormal_cleanup', callback)
     return () => EventsOff('chat:abnormal_cleanup')
+  },
+  subscribeServerWarning: (callback: (data: ServerWarningEvent) => void): (() => void) => {
+    EventsOn('server:warning', callback)
+    return () => EventsOff('server:warning')
+  },
+  subscribeCloseRequest: (callback: () => void): (() => void) => {
+    EventsOn('window:closeRequest', callback)
+    return () => EventsOff('window:closeRequest')
   },
   subscribeSwitchProgress: (callback: (progress: SwitchProgressEvent) => void): (() => void) => {
     EventsOn('server:switchProgress', callback)
@@ -506,16 +556,15 @@ export const wails = {
   selectImageFile: async (): Promise<string> => {
     return (await SelectImageFile()) as string
   },
-  // 更新相关方法：wailsjs 绑定（App.d.ts）未生成 GetAppVersion/CheckUpdate/PerformUpdate，
-  // 这些函数在运行时通过 window.go.main.App.XXX 动态注入，因此保留 (window as any) 用法（任务 28.1）
+  // 更新相关方法：通过 wailsjs 绑定调用 Go 端
   getAppVersion: async (): Promise<string> => {
-    return (window as any)['go']['main']['App']['GetAppVersion']()
+    return await GetAppVersion()
   },
   checkUpdate: async (): Promise<UpdateInfo> => {
-    return (await (window as any)['go']['main']['App']['CheckUpdate']()) as UpdateInfo
+    return (await CheckUpdate()) as UpdateInfo
   },
   performUpdate: async (downloadURL: string, latestVersion: string): Promise<void> => {
-    await (window as any)['go']['main']['App']['PerformUpdate'](downloadURL, latestVersion)
+    await PerformUpdate(downloadURL, latestVersion)
   },
   subscribeUpdateProgress: (callback: (progress: UpdateProgressEvent) => void): (() => void) => {
     EventsOn('update:progress', callback)
@@ -554,10 +603,33 @@ export const wails = {
   switchBackend: async (backendType: string): Promise<void> => {
     await SwitchBackend(backendType)
   },
+  // 从 GitHub 下载指定后端的 zip 包并自动解压安装（异步，进度通过事件推送）
+  downloadBackend: async (backendType: string): Promise<void> => {
+    await DownloadBackend(backendType)
+  },
   // 监听后端切换事件：切换配置后后端会推送最新状态，前端据此刷新显示
   subscribeBackendSwitched: (callback: (status: BackendStatus) => void): (() => void) => {
     EventsOn('backend:switched', callback)
     return () => EventsOff('backend:switched')
+  },
+  // 监听后端下载开始事件：启动阶段用户同意下载后推送，前端据此切换 splash 到下载阶段
+  subscribeBackendDownloadStart: (callback: (info: BackendDownloadStart) => void): (() => void) => {
+    EventsOn('backend:downloadStart', callback)
+    return () => EventsOff('backend:downloadStart')
+  },
+  // 监听后端下载进度事件：下载过程中实时推送进度信息
+  subscribeBackendDownloadProgress: (
+    callback: (progress: BackendDownloadProgress) => void
+  ): (() => void) => {
+    EventsOn('backend:downloadProgress', callback)
+    return () => EventsOff('backend:downloadProgress')
+  },
+  // 监听后端下载完成事件：下载和安装完成后推送结果
+  subscribeBackendDownloadComplete: (
+    callback: (result: BackendDownloadComplete) => void
+  ): (() => void) => {
+    EventsOn('backend:downloadComplete', callback)
+    return () => EventsOff('backend:downloadComplete')
   }
 } as const
 

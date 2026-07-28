@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"douya/internal/search"
-	"douya/internal/store"
 )
 
 // GetSearchAPIKeys 返回搜索 API Key 的设置状态，不暴露实际密钥值
@@ -23,10 +22,7 @@ func (a *App) SetSearchAPIKeys(keys SearchAPIKeys) error {
 		if value == "" {
 			return nil
 		}
-		if a.encKey != nil {
-			return store.SetEncryptedSetting(a.db, dbKey, value, a.encKey)
-		}
-		return store.SetSetting(a.db, dbKey, value)
+		return a.service.SetEncryptedSetting(dbKey, value)
 	}
 	if err := setFn("search_ollama_api_key", keys.OllamaAPIKey); err != nil {
 		return fmt.Errorf("save ollama api key: %w", err)
@@ -47,10 +43,7 @@ func (a *App) loadSearchAPIKeys() SearchAPIKeys {
 func (a *App) loadSearchAPIKeysFromDB() SearchAPIKeys {
 	keys := SearchAPIKeys{}
 	getFn := func(key string) (string, error) {
-		if a.encKey != nil {
-			return store.GetEncryptedSetting(a.db, key, a.encKey)
-		}
-		return store.GetSetting(a.db, key)
+		return a.service.GetEncryptedSetting(key)
 	}
 	if v, err := getFn("search_ollama_api_key"); err == nil {
 		keys.OllamaAPIKey = v
@@ -72,8 +65,9 @@ func (a *App) applyEnvOverrides(keys *SearchAPIKeys) {
 }
 
 // buildSearchChain 根据当前 API Key 配置构建搜索链
-// 搜索源优先级：Tavily（高质量） > Ollama > Bing（免 Key 兜底）
-// Bing 作为兜底搜索引擎，即使未配置任何 API Key 也能提供基础搜索能力
+// 搜索源优先级：Tavily（高质量） > Ollama
+// 仅保留使用 API Key 的搜索引擎，不再使用免 Key 兜底（移除 Bing HTML 兜底）
+// 若两个 API Key 均未配置，搜索链为空，调用方需自行处理无可用引擎的情况
 func (a *App) buildSearchChain() *search.SearchChain {
 	var searchProviders []search.CategorizedProvider
 	keys := a.loadSearchAPIKeys()
@@ -84,8 +78,5 @@ func (a *App) buildSearchChain() *search.SearchChain {
 	if keys.OllamaAPIKey != "" {
 		searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewOllamaProvider(keys.OllamaAPIKey), Categories: []string{"general", "code"}})
 	}
-	// Bing 作为免 API Key 兜底搜索引擎，始终加入链尾
-	// 覆盖 general 和 code 两个分类，确保任何查询都有搜索引擎可用
-	searchProviders = append(searchProviders, search.CategorizedProvider{Provider: search.NewBingProvider(), Categories: []string{"general", "code"}})
 	return search.NewCategorizedSearchChain(searchProviders)
 }

@@ -4,6 +4,7 @@
 package llm_test
 
 import (
+	"strings"
 	"testing"
 
 	"douya/internal/llm"
@@ -80,23 +81,59 @@ func TestGetBackendInfo_AllTypes(t *testing.T) {
 //
 // CUDA 后端是唯一需要厂商运行时 DLL 的后端（cudart/cublas/cublasLt），
 // 这些 DLL 随 NVIDIA 驱动分发，缺失会导致启动失败。
+//
+// VendorDLLs 使用 glob 模式（cudart64_*.dll 等），同时兼容 CUDA 12 和 CUDA 13：
+//   - CUDA 12：cudart64_12.dll / cublas64_12.dll / cublasLt64_12.dll
+//   - CUDA 13：cudart64_13.dll / cublas64_13.dll / cublasLt64_13.dll
+// validatePaths 中对 VendorDLLs 仅做警告级检查（缺失不阻断启动），
+// 因为这些 DLL 可能存在于系统 PATH（NVIDIA 驱动自带）而非 runtime 目录。
 func TestGetBackendInfo_CUDA_VendorDLLs(t *testing.T) {
 	info := llm.GetBackendInfo(llm.BackendCUDA)
 
-	expectedVendors := []string{
-		"cudart64_13.dll",
-		"cublas64_13.dll",
-		"cublasLt64_13.dll",
+	// 期望的 glob 模式条目
+	expectedVendorGlobs := []string{
+		"cudart64_*.dll",
+		"cublas64_*.dll",
+		"cublasLt64_*.dll",
 	}
-	for _, dll := range expectedVendors {
+	for _, dll := range expectedVendorGlobs {
 		if !contains(info.VendorDLLs, dll) {
-			t.Errorf("CUDA VendorDLLs 缺少 %q", dll)
+			t.Errorf("CUDA VendorDLLs 缺少 glob 条目 %q", dll)
+		}
+	}
+
+	// 确保不再硬编码 _13 后缀（已改为 glob）
+	for _, dll := range info.VendorDLLs {
+		if strings.HasSuffix(dll, "_13.dll") {
+			t.Errorf("CUDA VendorDLLs 不应再硬编码 _13 后缀（应使用 glob）, got %q", dll)
 		}
 	}
 
 	// CUDA 专属的 ggml-cuda.dll 必须在 RequiredDLLs 中
 	if !contains(info.RequiredDLLs, "ggml-cuda.dll") {
 		t.Error("CUDA RequiredDLLs 缺少 ggml-cuda.dll")
+	}
+}
+
+// TestGetBackendInfo_CoreDLLs_GlobPattern 验证 coreDLLs 中 ggml-cpu 条目使用 glob 模式。
+//
+// 新版官方预编译包把 ggml-cpu.dll 拆分为架构特定的 ggml-cpu-haswell.dll 等 14 个 DLL，
+// 自编译版仍产出统一的 ggml-cpu.dll。coreDLLs 用 "ggml-cpu*.dll" glob 模式同时兼容两种布局，
+// 此测试确保该 glob 条目存在于所有具体后端的 RequiredDLLs 中。
+//
+// 生活类比：检查清单上写的是"任一款 CPU 轮胎"（通配符），而不是某个固定型号，
+// 这样不管厂家发的是通用胎还是按车型发的专用胎，只要有一款就能通过检查。
+func TestGetBackendInfo_CoreDLLs_GlobPattern(t *testing.T) {
+	// 所有具体后端（非 auto）都应包含 ggml-cpu*.dll glob 条目
+	concreteBackends := []llm.BackendType{
+		llm.BackendCUDA, llm.BackendHIP, llm.BackendSYCL,
+		llm.BackendVulkan, llm.BackendOpenVINO, llm.BackendCPU,
+	}
+	for _, bt := range concreteBackends {
+		info := llm.GetBackendInfo(bt)
+		if !contains(info.RequiredDLLs, "ggml-cpu*.dll") {
+			t.Errorf("后端 %s 的 RequiredDLLs 应包含 glob 条目 ggml-cpu*.dll", bt.String())
+		}
 	}
 }
 

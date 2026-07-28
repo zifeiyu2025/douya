@@ -61,7 +61,11 @@
             :content="message.thinking_content"
             :duration="message.thinking_duration"
           />
-          <div class="markdown-body" v-html="renderedContent" />
+          <div
+            v-memo="[props.message.content, props.message.thinking_content, renderedContent]"
+            class="markdown-body"
+            v-html="renderedContent"
+          />
           <SearchStatus
             v-if="hasSearchResults"
             :searching="false"

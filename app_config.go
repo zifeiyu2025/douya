@@ -8,7 +8,6 @@ import (
 
 	"douya/internal/config"
 	"douya/internal/llm"
-	"douya/internal/store"
 )
 
 // getConfig 在读锁保护下获取 config 指针快照，调用方仅用于读取字段，不应修改返回值。
@@ -72,14 +71,14 @@ func (a *App) getServerAPIKey() string {
 	if !a.getConfig().ServerAPIKeyEnabled {
 		return ""
 	}
+	// 优先尝试加密读取（兼容已加密数据），失败时回退到明文读取（兼容旧版明文数据）
+	// 生活类比：先试着用钥匙打开加密快递柜，没钥匙或柜里没东西时，再去普通货架找
 	var value string
-	if a.encKey != nil {
-		if v, err := store.GetEncryptedSetting(a.db, "server_api_key", a.encKey); err == nil {
-			value = v
-		}
+	if v, err := a.service.GetEncryptedSetting("server_api_key"); err == nil {
+		value = v
 	}
 	if value == "" {
-		if v, err := store.GetSetting(a.db, "server_api_key"); err == nil {
+		if v, err := a.service.GetSetting("server_api_key"); err == nil {
 			value = v
 		}
 	}
@@ -87,10 +86,7 @@ func (a *App) getServerAPIKey() string {
 }
 
 func (a *App) SetServerAPIKey(key string) error {
-	if a.encKey != nil {
-		return store.SetEncryptedSetting(a.db, "server_api_key", key, a.encKey)
-	}
-	return store.SetSetting(a.db, "server_api_key", key)
+	return a.service.SetEncryptedSetting("server_api_key", key)
 }
 
 // PathCheckResult 启动路径检查的结构化结果
@@ -160,31 +156,32 @@ func (a *App) validatePaths() PathCheckResult {
 		// 生活类比：不同型号的发动机需要的零件不同，按型号清单逐一检查
 		backendInfo := llm.GetBackendInfo(resolvedBackend)
 
-		// 确定 DLL 检查目录：
-		// - 优先检查 runtime/{subdir}/（新版布局）
-		// - 如果子目录不存在，回退到 runtime/（兼容 CUDA 旧版扁平布局）
-		// 生活类比：新版发动机装在专门的车位（子目录），老版直接摆在车库正中间（根目录）
+		// DLL 检查目录：runtime/{subdir}/（每个后端都在自己的子目录下）
+		// 生活类比：每种发动机都有自己的专属车位，去对应车位检查零件即可
 		dllDir := runtimeDir
 		if backendInfo.Subdir != "" {
-			subdirPath := filepath.Join(runtimeDir, backendInfo.Subdir)
-			if _, err := os.Stat(subdirPath); err == nil {
-				dllDir = subdirPath
-			}
+			dllDir = filepath.Join(runtimeDir, backendInfo.Subdir)
 		}
 
-		// 校验 RequiredDLLs（核心 DLL + 后端专属 DLL）
+		// 校验 RequiredDLLs（核心 DLL + 后端专属 DLL）—— 阻断级检查
+		// 注意：coreDLLs 中含 glob 模式条目（如 ggml-cpu*.dll），用于同时适配
+		// 自编译版（ggml-cpu.dll）和官方预编译包（ggml-cpu-haswell.dll 等架构特定 DLL）。
+		// 含 "*" 的条目用 checkDLLFound 检查至少匹配一个文件，缺失则加入 RuntimeMissing 阻断启动。
 		for _, dll := range backendInfo.RequiredDLLs {
-			dllPath := filepath.Join(dllDir, dll)
-			if _, err := os.Stat(dllPath); err != nil {
-				result.RuntimeMissing = append(result.RuntimeMissing, fmt.Sprintf("后端DLL: %s", dllPath))
+			if !checkDLLFound(dllDir, dll) {
+				result.RuntimeMissing = append(result.RuntimeMissing, fmt.Sprintf("后端DLL: %s", filepath.Join(dllDir, dll)))
 			}
 		}
 
-		// 校验 VendorDLLs（厂商运行时 DLL，如 CUDA 的 cudart/cublas）
+		// 校验 VendorDLLs（厂商运行时 DLL，如 CUDA 的 cudart/cublas）—— 阻断级检查
+		// 这些 DLL 来自官方预编译包附带（zip 包内含完整运行时），缺失说明后端包不完整。
+		// 生活类比：快递箱里没附电池，说明包裹不完整，直接重新下单（下载），
+		// 不去隔壁仓库（系统 PATH）翻找，逻辑简单直接。
+		// VendorDLLs 同样支持 glob 模式（如 cudart64_*.dll 兼容 CUDA 12/13）。
 		for _, dll := range backendInfo.VendorDLLs {
-			dllPath := filepath.Join(dllDir, dll)
-			if _, err := os.Stat(dllPath); err != nil {
-				result.RuntimeMissing = append(result.RuntimeMissing, fmt.Sprintf("厂商DLL: %s", dllPath))
+			if !checkDLLFound(dllDir, dll) {
+				result.RuntimeMissing = append(result.RuntimeMissing,
+					fmt.Sprintf("厂商DLL: %s", filepath.Join(dllDir, dll)))
 			}
 		}
 	}
@@ -214,3 +211,30 @@ func (a *App) validatePaths() PathCheckResult {
 
 	return result
 }
+
+// checkDLLFound 检查指定目录下是否存在某个 DLL 文件，支持 glob 模式。
+//
+// 生活类比：仓库管理员查货——清单上写的可能是精确型号（"M8 螺丝"），
+// 也可能是通配型号（"M* 螺丝"，匹配 M6/M8/M10 等）。精确型号直接找，
+// 通配型号只要找到任意一款就算通过。
+//
+// 规则：
+//   - 名称含 "*"：用 filepath.Glob 匹配，至少一个结果即视为找到
+//   - 名称不含 "*"：用 os.Stat 精确匹配
+//
+// 参数：
+//   - dir: 目标目录
+//   - name: DLL 文件名（可含 glob 通配符 *）
+//
+// 返回：找到返回 true，未找到返回 false
+func checkDLLFound(dir, name string) bool {
+	fullPath := filepath.Join(dir, name)
+	if strings.Contains(name, "*") {
+		// glob 模式：至少匹配一个文件
+		matches, err := filepath.Glob(fullPath)
+		return err == nil && len(matches) > 0
+	}
+	_, err := os.Stat(fullPath)
+	return err == nil
+}
+

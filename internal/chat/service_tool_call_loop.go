@@ -209,11 +209,19 @@ func (s *Service) executeSearchToolCall(cancelCtx context.Context, convID string
 	// 检查是否超时：doSearch 不返回 error，需通过 toolCtx.Err() 判断
 	if toolCtx.Err() == context.DeadlineExceeded {
 		result.toolContent = "搜索超时（30s），请稍后重试"
+		s.emitForConv(convID, EventSearchError, "搜索超时（30s），请稍后重试")
 		return result
 	}
 
 	if searchResp == nil || len(searchResp.Results) == 0 {
 		result.toolContent = "No results found. Use your own knowledge."
+		// 搜索失败时把实际原因通过 search_error 事件推给前端，让用户看到具体问题
+		// 区分"无结果"和"出错"：searchResp.Error 非空表示 provider 出错，空表示正常无匹配
+		if searchResp != nil && searchResp.Error != "" {
+			if hint := formatSearchErrorHint(searchResp.Error); hint != "" {
+				s.emitForConv(convID, EventSearchError, hint)
+			}
+		}
 		return result
 	}
 

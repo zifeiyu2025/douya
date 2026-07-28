@@ -562,6 +562,29 @@ export namespace main {
 	        this.installed_backends = source["installed_backends"];
 	        this.available_backends = source["available_backends"];
 	    }
+}
+
+	export class UpdateInfo {
+	    has_update: boolean;
+	    latest_version: string;
+	    current_version: string;
+	    download_url: string;
+	    release_notes: string;
+	    published_at: string;
+
+	    static createFrom(source: any = {}) {
+	        return new UpdateInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.has_update = source["has_update"];
+	        this.latest_version = source["latest_version"];
+	        this.current_version = source["current_version"];
+	        this.download_url = source["download_url"];
+	        this.release_notes = source["release_notes"];
+	        this.published_at = source["published_at"];
+	    }
 	}
 
 }

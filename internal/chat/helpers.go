@@ -458,9 +458,12 @@ func estimateChatMessageTokens(msg llm.ChatMessage) int {
 		}
 	}
 	for _, tc := range msg.ToolCalls {
-		b, _ := json.Marshal(tc)
-		lang := detectLanguage(string(b))
-		total += estimateTokensByLang(string(b), lang)
+		// PERF-3: 用字段拼接模拟 JSON Marshal 输出，避免反射+序列化开销
+		// 生活类比：以前为了知道一个快递有多重，把整箱打包好再称；现在按清单格式直接拼出"等效重量"。
+		// 保留 JSON 结构字符（如 {"index":0,"id":"...","function":{...}}）以保持与 json.Marshal 近似的结果
+		text := `{"index":0,"id":"` + tc.ID + `","type":"` + tc.Type + `","function":{"name":"` + tc.Function.Name + `","arguments":"` + tc.Function.Arguments + `"}}`
+		lang := detectLanguage(text)
+		total += estimateTokensByLang(text, lang)
 	}
 	// chat template 开销：每条消息的 <|im_start|>role\n...<|im_end|> 约占 3-10 tokens
 	total += 10
@@ -942,6 +945,88 @@ func DetectLanguage(content string) string { return detectLanguage(content) }
 func SearchResultInstruction(lang string) string { return searchResultInstruction(lang) }
 func IsCodeRelated(query string) bool            { return isCodeRelated(query) }     // Exported for testing
 func EstimateMessageTokens(m *store.Message) int { return estimateMessageTokens(m) } // Exported for testing
+// formatSearchErrorHint 把 SearchChain 返回的 Error 字段转成用户友好的中文提示。
+//
+// SearchChain 在所有 provider 都失败时会返回形如：
+//   "all search providers failed: tavily: <err>; ollama: <err>"
+// 或在无可用 provider 时返回：
+//   "no providers available"
+//
+// 本函数解析这些错误，归类为以下几种用户可理解的情况：
+//   1. 未配置任何 API Key（搜索链为空）
+//   2. Tavily / Ollama API Key 认证失败（401/403）
+//   3. 网络超时
+//   4. 网络连接错误
+//   5. 其他未知错误（回退到原始错误摘要）
+//
+// 生活类比：像快递客服把一堆物流异常码翻译成客户能听懂的话——
+// "DN02" 变成 "地址无人签收"，而不是让客户看原始编码。
+func formatSearchErrorHint(errMsg string) string {
+	if errMsg == "" {
+		return ""
+	}
+	lower := strings.ToLower(errMsg)
+
+	// 1. 无可用 provider：搜索链为空（两个 API Key 都未配置）
+	if strings.Contains(lower, "no providers available") {
+		return "未配置搜索 API Key，请在设置中配置 Tavily 或 Ollama API Key 后重试"
+	}
+
+	// 收集每个 provider 的具体错误，分别给出针对性提示
+	var hints []string
+
+	// 2. Tavily 相关错误
+	if strings.Contains(lower, "tavily") {
+		switch {
+		case strings.Contains(lower, "401") || strings.Contains(lower, "unauthorized") || strings.Contains(lower, "api key"):
+			hints = append(hints, "Tavily API Key 无效或已过期，请在设置中重新填写")
+		case strings.Contains(lower, "timeout") || strings.Contains(lower, "timed out"):
+			hints = append(hints, "Tavily 搜索超时，请稍后重试")
+		case strings.Contains(lower, "connection refused") || strings.Contains(lower, "no such host") || strings.Contains(lower, "dial"):
+			hints = append(hints, "Tavily 网络连接失败，请检查网络后重试")
+		case strings.Contains(lower, "empty results"):
+			// 空结果不算错误，不提示
+		default:
+			hints = append(hints, "Tavily 搜索失败")
+		}
+	}
+
+	// 3. Ollama 相关错误
+	if strings.Contains(lower, "ollama") {
+		switch {
+		case strings.Contains(lower, "401") || strings.Contains(lower, "unauthorized") || strings.Contains(lower, "api key"):
+			hints = append(hints, "Ollama API Key 无效或已过期，请在设置中重新填写")
+		case strings.Contains(lower, "timeout") || strings.Contains(lower, "timed out"):
+			hints = append(hints, "Ollama 搜索超时，请稍后重试")
+		case strings.Contains(lower, "connection refused") || strings.Contains(lower, "no such host") || strings.Contains(lower, "dial"):
+			hints = append(hints, "Ollama 网络连接失败，请检查网络后重试")
+		case strings.Contains(lower, "empty results"):
+			// 空结果不算错误，不提示
+		default:
+			hints = append(hints, "Ollama 搜索失败")
+		}
+	}
+
+	// 4. 兜底：未能识别具体 provider，检查通用错误类型
+	if len(hints) == 0 {
+		switch {
+		case strings.Contains(lower, "timeout") || strings.Contains(lower, "timed out"):
+			return "搜索超时，请检查网络连接后重试"
+		case strings.Contains(lower, "connection refused") || strings.Contains(lower, "no such host") || strings.Contains(lower, "dial"):
+			return "搜索网络连接失败，请检查网络后重试"
+		default:
+			// 截断原始错误，避免过长
+			snippet := errMsg
+			if len(snippet) > 120 {
+				snippet = snippet[:120] + "..."
+			}
+			return "搜索失败：" + snippet
+		}
+	}
+
+	return strings.Join(hints, "；")
+}
+
 func (s *Service) doSearch(ctx context.Context, query string) *search.SearchResponse {
 	// 在锁保护下获取搜索链快照，避免数据竞争
 	chain := s.getSearchChainSnapshot()

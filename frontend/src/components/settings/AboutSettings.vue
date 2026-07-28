@@ -154,11 +154,12 @@ import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime'
 import { wails, type UpdateInfo } from '../../services/wails'
 import appIcon from '../../assets/images/appicon.png'
 import llamaIcon from '../../assets/images/llama-icon.png'
+import pkg from '../../../package.json'
 
 const GITHUB_URL = 'https://github.com/zifeiyu2025/douya'
 
 const message = useMessage()
-const currentVersion = ref('0.11.1')
+const currentVersion = ref(pkg.version)
 const updateStatus = ref<
   'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'installing' | 'error'
 >('idle')
@@ -170,8 +171,8 @@ async function loadVersion() {
   try {
     currentVersion.value = await wails.getAppVersion()
   } catch {
-    // 后端方法未就绪时使用 package.json 中的版本
-    currentVersion.value = '0.11.1'
+    // 后端方法未就绪时使用 package.json 中的版本（构建时注入，无需手动维护）
+    currentVersion.value = pkg.version
   }
 }
 

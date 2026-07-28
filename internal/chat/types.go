@@ -68,6 +68,7 @@ const (
 	EventToolCallStart       = "tool_call_start"      // 工具调用开始，content: ToolCallStartContent
 	EventSearchStart         = "search_start"         // 搜索开始，content: string
 	EventSearchResult        = "search_result"        // 搜索结果，content: []search.SearchResult
+	EventSearchError         = "search_error"         // 搜索失败，content: string（用户友好的错误提示）
 	EventTokenSpeed          = "token_speed"          // 生成速度，content: TokenSpeedContent
 	EventPromptProgress      = "prompt_progress"      // 提示词进度，content: PromptProgressContent
 	EventContextTrimmed      = "context_trimmed"      // 上下文裁剪，content: ContextTrimmedContent

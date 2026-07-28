@@ -210,8 +210,23 @@ func SearchMessages(db *sql.DB, query string, encKey []byte) ([]*Message, error)
 		// 在内存中匹配：扩展匹配字段到 content / thinking_content / search_results / tool_calls，
 		// 让搜索能命中思考过程、RAG 检索结果、工具调用等扩展内容，而非仅限正文。
 		// 生活类比：以前只在"正文"里找关键词，现在也会翻"草稿纸（思考）"、"参考资料（RAG）"、"工具记录"一起找。
-		haystack := strings.ToLower(msg.Content + " " + msg.ThinkingContent + " " + msg.SearchResults + " " + msg.ToolCalls)
-		if strings.Contains(haystack, lowerQuery) {
+		//
+		// 性能优化（PERF-1）：原实现先把 4 个字段拼接成一个大字符串再做 ToLower，
+		// 每条消息产生 1 次大字符串分配 + 1 次完整小写化拷贝。
+		// 现改为逐字段单独 Contains 并短路退出，命中任一字段即停止后续字段检查，
+		// 避免大字符串拼接，同时减少不必要的 ToLower 拷贝（空字段直接跳过）。
+		// 注意：空 query 时 strings.Contains(_, "") 永远返回 true，保持原有"匹配所有消息"的行为。
+		matched := false
+		for _, field := range []string{msg.Content, msg.ThinkingContent, msg.SearchResults, msg.ToolCalls} {
+			if field == "" {
+				continue
+			}
+			if strings.Contains(strings.ToLower(field), lowerQuery) {
+				matched = true
+				break
+			}
+		}
+		if matched {
 			msgs = append(msgs, msg)
 		}
 	}

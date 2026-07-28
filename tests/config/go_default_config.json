@@ -5,6 +5,7 @@
   "mmproj_offload": true,
   "llama_server_path": "runtime/llama-server.exe",
   "backend_type": "auto",
+  "last_successful_backend": "",
   "api_base": "http://127.0.0.1:8080",
   "port": 8080,
   "context_size": 8192,

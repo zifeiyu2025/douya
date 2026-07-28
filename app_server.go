@@ -1058,8 +1058,29 @@ func (a *App) switchPrepare(modelName string) string {
 //   - waitErr: WaitForModelLoaded 返回的错误
 //   - stderrHint: 从 server stderr 提取的详细错误提示（可为空）
 // 返回非空字符串表示失败原因；空字符串表示未识别为错误（调用方不应进入此分支）。
+//
+// B-1 增强：检测栈溢出崩溃（0xC0000409），Vulkan 后端时给出后端切换建议。
 func (a *App) classifyWaitError(waitErr error, stderrHint string) string {
 	waitErrStr := waitErr.Error()
+
+	// B-1：优先检测栈溢出崩溃，给出针对性诊断
+	if isStackOverflowCrash(waitErrStr) {
+		currentBackend := ""
+		if a.resolvedBackend != "" {
+			currentBackend = string(a.resolvedBackend)
+		}
+		hint := "模型加载失败: 栈溢出崩溃（0xC0000409）。\n"
+		if currentBackend == "vulkan" {
+			hint += "Vulkan 后端对该模型兼容性较差，请在「设置 → 显卡后端」切换到 CUDA 或 CPU 后端后重启应用。"
+		} else {
+			hint += "建议：1) 减小 gpu_layers；2) 减小 ctx-size；3) 切换到 CPU 后端。"
+		}
+		if stderrHint != "" {
+			hint += fmt.Sprintf("\n\n详细信息: %s", stderrHint)
+		}
+		return hint
+	}
+
 	// 崩溃特征：进程退出、VRAM 释放、从模型列表消失
 	isCrash := strings.Contains(waitErrStr, "failed to load") ||
 		strings.Contains(waitErrStr, "crashed") ||

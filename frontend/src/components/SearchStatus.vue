@@ -3,6 +3,10 @@
     <n-spin size="small" />
     <span>{{ query ? `正在搜索: ${query}` : '正在搜索...' }}</span>
   </div>
+  <div v-else-if="error" class="search-error-block">
+    <n-icon size="16" class="search-error-icon"><AlertCircleOutline /></n-icon>
+    <span class="search-error-text">{{ error }}</span>
+  </div>
   <div v-else-if="resultItems.length > 0" class="search-results-block">
     <div class="search-results-header" @click="toggleExpand">
       <n-icon size="18" :class="{ rotated: expanded }">
@@ -34,7 +38,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { NIcon, NSpin } from 'naive-ui'
-import { ChevronForwardOutline, SearchOutline } from '@vicons/ionicons5'
+import { ChevronForwardOutline, SearchOutline, AlertCircleOutline } from '@vicons/ionicons5'
 import { isSafeUrl } from '../utils/lightSanitize'
 // F-1.13：openExternal 抽取到 utils/externalLink.ts，消除两处重复定义
 import { openExternal } from '../utils/externalLink'
@@ -50,6 +54,7 @@ const props = defineProps<{
   results: string
   defaultExpanded?: boolean
   query?: string
+  error?: string
 }>()
 
 const expanded = ref(props.defaultExpanded ?? false)
@@ -140,6 +145,30 @@ onUnmounted(() => {
   border: 1px solid var(--border-color);
   overflow: hidden;
   background: var(--bg-secondary);
+}
+
+/* 搜索错误提示块：红色调警告条，提示用户搜索功能出问题的具体原因 */
+.search-error-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: var(--border-radius-sm);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  font-size: 13px;
+  color: #ef4444;
+}
+
+.search-error-icon {
+  flex-shrink: 0;
+  color: #ef4444;
+}
+
+.search-error-text {
+  line-height: 1.5;
+  word-break: break-word;
 }
 
 .search-results-header {

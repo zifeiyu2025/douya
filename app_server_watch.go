@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	zlog "github.com/rs/zerolog/log"
@@ -57,27 +58,40 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 
 // startServerAndWaitReady 启动引擎并等待就绪。
 // 启动失败或等待就绪超时均返回 error，调用方根据返回值决定是否继续后续流程。
+//
+// 失败处理统一流程（C2+M2+M3 修复）：
+//   - 回退成功：先回退配置 → 推送"已回退"状态 → 弹窗提示 → forceQuit 退出
+//   - 回退失败：弹 ErrorDialog → forceQuit 退出（避免应用处于不可用状态）
+//
+// 为什么所有失败路径都 forceQuit：
+//   服务器未启动时应用无法对话，继续运行只会让用户面对一个不可用的界面。
+//   统一 forceQuit 让用户重启后走完整启动流程，避免半死不活的状态。
 func (a *App) startServerAndWaitReady(srv *llm.Server, ctx context.Context) error {
 	if err := srv.Start(); err != nil {
 		zlog.Error().Err(err).Msg("start llama-server failed")
-		a.emitErrorStatus(ctx, fmt.Sprintf("启动 llama-server 失败: %v", err))
-		// 配置类错误（如局域网暴露未配置 API Key）弹出对话框，确保用户立即感知
-		_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-			Type:    runtime.ErrorDialog,
-			Title:   "启动失败",
-			Message: fmt.Sprintf("启动 llama-server 失败: %v", err),
-		})
+		a.handleBackendStartupFailure(ctx, "启动 llama-server", err)
 		return err
 	}
 
 	if err := srv.WaitForReady(60e9); err != nil {
 		zlog.Error().Err(err).Msg("wait for server ready failed")
-		a.emitErrorStatus(ctx, fmt.Sprintf("llama-server 未就绪: %v", err))
+		a.handleBackendStartupFailure(ctx, "llama-server 就绪", err)
 		return err
 	}
 
+	// 启动成功：清空回退备份（撕掉旧照片，避免下次正常启动被误判为需要回退）
+	a.clearBackendRollback()
+
 	// 推送首次启动进度：引擎已就绪，准备加载模型
 	a.emitSwitchProgressCtx(ctx, "loading", "", nil)
+
+	// F-3 修复：preset 文件生成失败时通知前端显示警告横幅
+	if a.presetGenFailed {
+		runtime.EventsEmit(ctx, "server:warning", map[string]any{
+			"type":    "preset_failed",
+			"message": "预设文件生成失败，模型加载可能使用默认参数。如遇异常请在设置中检查预设配置。",
+		})
+	}
 
 	// llama-server 就绪后异步刷新 MCP 工具缓存。
 	// /tools 端点由 llama-server 提供，不依赖模型加载，可在模型加载前并行拉取。
@@ -221,11 +235,41 @@ func (a *App) handleModelLoadSuccess(_ context.Context, modelForDetect string, l
 }
 
 // handleModelLoadFailure 处理模型加载失败：先尝试去掉 mmproj 重试，
-// 若不适用或重试失败，则启动后台 goroutine 继续等待（依赖 WatchWithCallback 检测崩溃）。
+// 若不适用或重试失败，检测栈溢出崩溃并提示后端切换，最后启动后台 goroutine 继续等待。
+//
+// B-1 增强：检测 0xC0000409（栈缓冲区溢出）退出码，若当前是 Vulkan 后端，
+// 提示用户切换到 CPU/CUDA 后端避免反复崩溃。
+// 生活类比：新车发动机启动后冒黑烟（栈溢出），技师发现是发动机型号不匹配（Vulkan 不兼容），
+// 直接建议换回旧发动机（CUDA/CPU），而不是反复尝试点火。
 func (a *App) handleModelLoadFailure(ctx context.Context, modelForDetect string, err error, progressCallback func(int, string)) {
 	// 加载失败，尝试去掉 mmproj 重试（mmproj 不兼容会导致子进程崩溃）
 	if a.tryReloadWithoutMmproj(ctx, modelForDetect, progressCallback) {
 		// 重试成功
+		return
+	}
+
+	// B-1：检测栈溢出崩溃，给出后端切换建议
+	// 0xC0000409 = -1073740791，Vulkan 后端加载大模型时常见
+	errStr := err.Error()
+	currentBackend := ""
+	if a.resolvedBackend != "" {
+		currentBackend = string(a.resolvedBackend)
+	}
+	if isStackOverflowCrash(errStr) {
+		zlog.Error().Err(err).Str("model", modelForDetect).Str("backend", currentBackend).
+			Msg("[server] model load failed with stack overflow crash")
+
+		hint := "检测到模型加载时发生栈溢出崩溃（0xC0000409）。\n\n"
+		if currentBackend == "vulkan" {
+			hint += "Vulkan 后端对该模型的兼容性较差，建议切换后端：\n"
+			hint += "  - NVIDIA 显卡：切换到 CUDA 后端（性能最佳）\n"
+			hint += "  - 其他显卡：切换到 CPU 后端（兼容性最好，速度较慢）\n"
+			hint += "\n可在「设置 → 显卡后端」中切换，切换后需重启应用生效。"
+		} else {
+			hint += "可能原因：gpu_layers 过大、ctx-size 过大、或模型架构不兼容。\n"
+			hint += "建议：1) 减小 gpu_layers；2) 减小 ctx-size；3) 切换到 CPU 后端。"
+		}
+		a.emitErrorStatus(ctx, hint)
 		return
 	}
 
@@ -251,6 +295,16 @@ func (a *App) handleModelLoadFailure(ctx context.Context, modelForDetect string,
 		// EventsEmit 仍用原始 ctx（Wails ctx），与 SSE goroutine 保持一致。
 		if bgErr := a.client.WaitForModelLoaded(bgCtx, modelForDetect, loadTimeoutMax, progressCallback); bgErr != nil {
 			zlog.Error().Err(bgErr).Str("model", modelForDetect).Msg("[server] auto-load default model background wait also failed")
+
+			// B-1：后台等待失败也检测栈溢出，给出同样建议
+			if isStackOverflowCrash(bgErr.Error()) {
+				hint := "检测到模型加载时发生栈溢出崩溃（0xC0000409）。"
+				if currentBackend == "vulkan" {
+					hint += "\n\nVulkan 后端对该模型兼容性较差，请在「设置 → 显卡后端」切换到 CUDA 或 CPU 后端后重启应用。"
+				}
+				a.emitErrorStatus(ctx, hint)
+				return
+			}
 			// 修复：将 Running 改为 false，与 Error 字段保持语义一致
 			// 此前 Running: true 会导致前端 `!status.running && status.error` 条件失效，错误被静默丢弃
 			a.emitErrorStatus(ctx, fmt.Sprintf("默认模型加载失败: %v（可手动切换模型）", bgErr))
@@ -258,6 +312,16 @@ func (a *App) handleModelLoadFailure(ctx context.Context, modelForDetect string,
 		}
 		a.handleModelLoadSuccess(ctx, modelForDetect, "[server] default model loaded and ready (background)")
 	})
+}
+
+// isStackOverflowCrash 检测错误信息是否包含栈溢出崩溃特征
+// 0xC0000409 (STATUS_STACK_BUFFER_OVERRUN) = -1073740791
+// 0xC00000FD (STATUS_STACK_OVERFLOW) = -1073741571
+func isStackOverflowCrash(errStr string) bool {
+	return strings.Contains(errStr, "exit_code=-1073740791") ||
+		strings.Contains(errStr, "exit_code: 3221226507") ||
+		strings.Contains(errStr, "exit_code=-1073741571") ||
+		strings.Contains(errStr, "exit_code: 3221225725")
 }
 
 // startServerWatcher 启动状态监控和健康检查两个长生命周期 goroutine。
@@ -277,6 +341,51 @@ func (a *App) startServerWatcher(srv *llm.Server, ctx context.Context) {
 	// health 监控是长生命周期 goroutine，纳入 trackedGo 跟踪；
 	// 依赖 watchCtx.Done() 退出，shutdownInternal 会通过 watchCancel 触发。
 	a.trackedGo(func() { a.watchServerHealth(ctx, watchCtx) })
+}
+
+// handleBackendStartupFailure 统一处理后端启动失败（C2+M2+M3 修复）。
+//
+// 生活类比：新发动机打不着火后的标准处理流程——
+// 1. 如果有旧发动机照片（LastSuccessfulBackend），按照片装回去，告知用户"已回退，请重启"
+// 2. 没有照片（首次启动或已回退过），直接告知用户失败原因并退出
+//
+// 统一行为：无论哪种失败，最终都 forceQuit 退出应用。
+// 原因：服务器未启动时应用无法对话，继续运行只会让用户面对不可用的界面。
+//
+// 参数：
+//   - phase: 失败阶段描述（"启动 llama-server" 或 "llama-server 就绪"）
+//   - err: 具体错误
+func (a *App) handleBackendStartupFailure(ctx context.Context, phase string, err error) {
+	// 先尝试回退到上一次成功的后端配置
+	if a.tryRollbackBackend() {
+		// 回退成功：推送"已回退"状态（而非"启动失败"），避免前端启动屏和后端弹窗信息不一致
+		// C2 修复：之前此处推送的是"启动失败"，与后端弹窗"已自动回退"矛盾
+		a.emitErrorStatus(ctx, fmt.Sprintf("后端启动失败，已自动回退到上一次配置：%v（请重启应用）", err))
+
+		_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+			Type:  runtime.WarningDialog,
+			Title: "后端启动失败，已自动回退",
+			Message: fmt.Sprintf(
+				"%s失败：%v\n\n"+
+					"已自动回退到上一次成功的后端配置。\n"+
+					"点击「确定」后应用将退出，请重新启动应用使回退配置生效。",
+				phase, err),
+		})
+		a.forceQuit()
+		return
+	}
+
+	// 无可回退配置：推送错误状态 + 弹窗 + forceQuit
+	// M2+M3 修复：之前此路径只弹窗不退出，应用处于不可用状态；
+	// 且 WaitForReady 超时此路径无弹窗，与 Start 失败不一致。
+	a.emitErrorStatus(ctx, fmt.Sprintf("%s失败：%v", phase, err))
+
+	_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+		Type:    runtime.ErrorDialog,
+		Title:   "启动失败",
+		Message: fmt.Sprintf("%s失败：%v\n\n应用将退出，请检查配置或后端文件后重新启动。", phase, err),
+	})
+	a.forceQuit()
 }
 
 // makeStatusCallback 创建服务器状态变化回调。

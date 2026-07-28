@@ -283,58 +283,130 @@ func (a *App) launchUpdateScript(zipPath string, tempDir string) error {
 	}
 
 	// 生成 PowerShell 更新脚本
+	// P0-2 修复：采用"备份→替换→验证→成功删备份/失败回滚"策略，确保更新失败时应用可恢复
+	// bin/ 和 runtime/ 统一采用 Rename-Item 整体替换（而非逐文件 Copy-Item -Force），
+	// 确保新版本目录只包含新文件，旧文件自动清理。
+	// runtime/ 替换后从备份恢复用户下载的 *.zip 包（后端下载功能产生的文件）。
+	// 失败时写错误日志到 %TEMP%\douya-update-error.log，并尝试启动旧版本。
 	script := fmt.Sprintf(`$ErrorActionPreference = "Stop"
 $appDir = "%s"
 $zipPath = "%s"
 $tempExtract = "%s"
 $exePath = "%s"
+$logFile = Join-Path $env:TEMP "douya-update-error.log"
 
-# Wait for Douya.exe to exit
-Write-Host "Waiting for Douya to exit..."
-$process = Get-Process -Name "Douya" -ErrorAction SilentlyContinue
-if ($process) {
-    $process.WaitForExit()
-    Start-Sleep -Seconds 2
+function Write-UpdateLog($msg) {
+    $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Add-Content -Path $logFile -Value "[$ts] $msg"
 }
 
-# Extract zip
-Write-Host "Extracting update..."
-Expand-Archive -Path $zipPath -DestinationPath $tempExtract -Force
-
-# Replace bin/ directory
-Write-Host "Updating bin/..."
-if (Test-Path "$tempExtract\bin") {
-    Copy-Item "$tempExtract\bin\*" "$appDir\bin\" -Recurse -Force
-}
-
-# Replace runtime/ directory (including deleting old files)
-Write-Host "Updating runtime/..."
-if (Test-Path "$tempExtract\runtime") {
-    # Get list of files in new runtime
-    $newFiles = Get-ChildItem "$tempExtract\runtime" -File -Recurse | ForEach-Object {
-        $_.FullName.Substring("$tempExtract\runtime\".Length)
+function Restore-Backup($dirName) {
+    $bakDir = Join-Path $appDir "${dirName}_bak"
+    $curDir = Join-Path $appDir $dirName
+    if (Test-Path $bakDir) {
+        if (Test-Path $curDir) {
+            Remove-Item $curDir -Recurse -Force
+        }
+        Rename-Item $bakDir $dirName
+        Write-Host "  Rolled back $dirName from backup"
     }
-    # Delete old runtime files not in new version
-    Get-ChildItem "$appDir\runtime" -File -Recurse | ForEach-Object {
-        $relPath = $_.FullName.Substring("$appDir\runtime\".Length)
-        if ($newFiles -notcontains $relPath) {
-            Remove-Item $_.FullName -Force
-            Write-Host "  Removed old file: $relPath"
+}
+
+try {
+    # Step 1: Wait for Douya.exe to exit
+    Write-Host "Waiting for Douya to exit..."
+    $process = Get-Process -Name "Douya" -ErrorAction SilentlyContinue
+    if ($process) {
+        $process.WaitForExit()
+        Start-Sleep -Seconds 2
+    }
+
+    # Step 2: Extract zip
+    Write-Host "Extracting update..."
+    Expand-Archive -Path $zipPath -DestinationPath $tempExtract -Force
+
+    # Step 3: Backup and replace bin/
+    if (Test-Path "$tempExtract\bin") {
+        Write-Host "Updating bin/..."
+        $binBak = Join-Path $appDir "bin_bak"
+        if (Test-Path $binBak) { Remove-Item $binBak -Recurse -Force }
+        if (Test-Path "$appDir\bin") {
+            Rename-Item "$appDir\bin" "bin_bak"
+        }
+        try {
+            New-Item -ItemType Directory -Path "$appDir\bin" -Force | Out-Null
+            Copy-Item "$tempExtract\bin\*" "$appDir\bin\" -Recurse -Force
+        } catch {
+            Write-UpdateLog "bin/ replace failed: $($_.Exception.Message)"
+            Restore-Backup "bin"
+            throw
         }
     }
-    # Copy new runtime files
-    Copy-Item "$tempExtract\runtime\*" "$appDir\runtime\" -Recurse -Force
+
+    # Step 4: Backup and replace runtime/
+    if (Test-Path "$tempExtract\runtime") {
+        Write-Host "Updating runtime/..."
+        $rtBak = Join-Path $appDir "runtime_bak"
+        if (Test-Path $rtBak) { Remove-Item $rtBak -Recurse -Force }
+        if (Test-Path "$appDir\runtime") {
+            Rename-Item "$appDir\runtime" "runtime_bak"
+        }
+        try {
+            New-Item -ItemType Directory -Path "$appDir\runtime" -Force | Out-Null
+            Copy-Item "$tempExtract\runtime\*" "$appDir\runtime\" -Recurse -Force
+            # Preserve user-downloaded backend zip packages
+            if (Test-Path "$appDir\runtime_bak") {
+                Get-ChildItem "$appDir\runtime_bak" -Filter "*.zip" -File | ForEach-Object {
+                    Copy-Item $_.FullName "$appDir\runtime\" -Force
+                    Write-Host "  Preserved user zip: $($_.Name)"
+                }
+            }
+        } catch {
+            Write-UpdateLog "runtime/ replace failed: $($_.Exception.Message)"
+            Restore-Backup "runtime"
+            # Also restore bin if it was already replaced
+            Restore-Backup "bin"
+            throw
+        }
+    }
+
+    # Step 5: Verify critical files exist
+    if (-not (Test-Path "$appDir\bin\Douya.exe")) {
+        Write-UpdateLog "Verification failed: bin\Douya.exe not found after update"
+        Restore-Backup "runtime"
+        Restore-Backup "bin"
+        throw "Verification failed: Douya.exe not found"
+    }
+
+    # Step 6: Success - remove backups
+    Write-Host "Verification passed, cleaning up backups..."
+    if (Test-Path "$appDir\bin_bak") { Remove-Item "$appDir\bin_bak" -Recurse -Force }
+    if (Test-Path "$appDir\runtime_bak") { Remove-Item "$appDir\runtime_bak" -Recurse -Force }
+
+    # Step 7: Start new version
+    Write-Host "Starting Douya..."
+    Start-Process $exePath
+
+    # Step 8: Cleanup temp files
+    Start-Sleep -Seconds 3
+    Remove-Item $tempExtract -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+    Write-Host "Update complete!"
+
+} catch {
+    $errMsg = $_.Exception.Message
+    $stack = $_.ScriptStackTrace
+    Write-UpdateLog "Update FAILED: $errMsg"
+    Write-UpdateLog "Stack: $stack"
+    # Try to start old version if it still exists
+    if (Test-Path $exePath) {
+        Write-Host "Attempting to start previous version..."
+        Start-Process $exePath
+    }
+    # Cleanup temp files
+    Remove-Item $tempExtract -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
 }
-
-# Start new version
-Write-Host "Starting Douya..."
-Start-Process $exePath
-
-# Cleanup
-Start-Sleep -Seconds 3
-Remove-Item $tempExtract -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-Write-Host "Update complete!"
 `, psEscape(appDirPath), psEscape(zipPath), psEscape(tempExtract), psEscape(exePath))
 
 	// 写入脚本文件（UTF-8 BOM 编码）
@@ -445,6 +517,22 @@ func validateUpdateURL(rawURL string) error {
 	hostname := parsed.Hostname()
 	if !allowedHosts[hostname] {
 		return fmt.Errorf("仅允许 GitHub 官方域名，当前: %s", hostname)
+	}
+
+	// P0-3 修复：校验 URL 路径前缀，防止前端传入其他 GitHub 仓库的 URL。
+	// 生活类比：不仅检查快递是不是从官方仓库发出的，还要检查收件地址是不是自家的，
+	// 防止有人把别家的包裹发过来冒充更新包。
+	// github.com 域名下的 release 下载 URL 形如：
+	//   /{owner}/{repo}/releases/download/{tag}/{asset}
+	// 必须匹配本项目的 owner/repo 路径前缀。
+	// objects.githubusercontent.com 和 release-assets.githubusercontent.com 是 GitHub CDN，
+	// 路径不包含 owner/repo，跳过此校验。
+	if hostname == "github.com" {
+		expectedPrefix := fmt.Sprintf("/%s/%s/", version.GitHubOwner, version.GitHubRepo)
+		if !strings.HasPrefix(parsed.Path, expectedPrefix) {
+			return fmt.Errorf("URL 路径不匹配本项目仓库，预期前缀: %s，当前路径: %s",
+				expectedPrefix, parsed.Path)
+		}
 	}
 
 	// 解析 DNS 并拒绝内网/本地地址（防止 DNS 重绑定攻击）

@@ -15,6 +15,7 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dgraph-io/badger/v4"
@@ -41,6 +42,10 @@ var ErrEmptyCollectionName = errors.New("collection name cannot be empty")
 
 // ErrInvalidCollectionName is returned when collection name contains invalid characters.
 var ErrInvalidCollectionName = errors.New("collection name contains invalid characters")
+
+// ErrClosed is returned when operating on a closed vector store.
+// 用于防止 Close 后并发 goroutine 对 nil map 写入导致 panic（任务 5）。
+var ErrClosed = errors.New("vector store is closed")
 
 // SearchResult represents a single search result.
 type SearchResult struct {
@@ -92,6 +97,11 @@ type VectorStore struct {
 	locks         map[string]*sync.Mutex  // collection name → lock
 	indexes       map[string]vectorIndex  // collection name → 索引（memIndex 或 badgerIndex，nil until first load）
 	badgerIndexes map[string]*badgerIndex // collection name → badgerIndex 缓存（避免重复构造）
+
+	// closed 标记 store 是否已 Close（任务 5）。
+	// 用 atomic.Bool 使并发 goroutine 无需加锁即可安全读取，
+	// 避免 Close 后对 nil map（locks/bm25Indexes 等）写入导致 panic。
+	closed atomic.Bool
 }
 
 // vectorIndex 抽象向量索引的检索能力（任务 30）。
@@ -724,9 +734,19 @@ func bytesToVector(b []byte, dim int) ([]float64, error) {
 }
 
 // collectionLock returns the mutex for a collection, creating it if needed.
+// 任务 5：若 store 已 Close（vs.locks 为 nil），写入会 panic。
+// 此时返回一个新的临时 mutex（不写入 map），调用方加锁/解锁仍能正常工作，
+// 后续对 vs.db 的操作会因 db 已关闭而返回错误，从而安全失败而非 panic。
 func (vs *VectorStore) collectionLock(name string) *sync.Mutex {
+	if vs.closed.Load() {
+		return &sync.Mutex{}
+	}
 	vs.mu.Lock()
 	defer vs.mu.Unlock()
+	if vs.locks == nil {
+		// 双重检查：Close 可能在 atomic.Load 之后、加锁之前发生
+		return &sync.Mutex{}
+	}
 	if vs.locks[name] == nil {
 		vs.locks[name] = &sync.Mutex{}
 	}
@@ -866,7 +886,12 @@ func (vs *VectorStore) getCollectionMeta(name string) (collectionMeta, error) {
 }
 
 // updateCollectionDim updates the dimension of an existing collection.
+// 任务 8（P2-4）：校验 dim > 0，防止 0 或负数被写入 collectionMeta，
+// 否则后续 bytesToVector(dim*8) 会按错误维度解码，导致检索结果错乱。
 func (vs *VectorStore) updateCollectionDim(name string, dim int32) error {
+	if dim <= 0 {
+		return ErrZeroDimension
+	}
 	return vs.db.Update(func(txn *badger.Txn) error {
 		item, err := txn.Get(collectionKey(name))
 		if err != nil {
@@ -937,6 +962,10 @@ func (vs *VectorStore) CreateCollection(name string, dim int) error {
 // 以保证 memIndex 插入与并发 Search/DeleteDocument 互斥。IngestDocumentWithMeta
 // 在已持有 collectionLock 的场景下应直接调用 addVectorsCore，避免重复加锁导致死锁。
 func (vs *VectorStore) AddVectors(collection string, ids []string, vectors [][]float64) error {
+	// 任务 5：Close 后 locks/bm25Indexes 等已被置 nil，直接操作会 panic。
+	if vs.closed.Load() {
+		return ErrClosed
+	}
 	mu := vs.collectionLock(collection)
 	mu.Lock()
 	defer mu.Unlock()
@@ -1063,6 +1092,10 @@ func (vs *VectorStore) addVectorsCore(collection string, ids []string, vectors [
 // Returns ErrCollectionNotFound or ErrVectorDimMismatch.
 // ctx 用于传播取消信号（如用户关闭应用、取消请求），检索仍受 5 秒上限保护
 func (vs *VectorStore) Search(ctx context.Context, collection string, query []float64, topK int) ([]SearchResult, error) {
+	// 任务 5：Close 后 collectionLock/getOrLoadIndex 会因 nil map panic。
+	if vs.closed.Load() {
+		return nil, ErrClosed
+	}
 	if len(query) == 0 {
 		return nil, ErrEmptyVector
 	}
@@ -1198,6 +1231,10 @@ func deleteByPrefix(txn *badger.Txn, prefix []byte) (int, error) {
 }
 
 func (vs *VectorStore) DeleteCollection(name string) error {
+	// 任务 5：Close 后 delete(vs.indexes, ...) 等会因 nil map panic。
+	if vs.closed.Load() {
+		return ErrClosed
+	}
 	_, err := vs.getCollectionMeta(name)
 	if err != nil {
 		return err
@@ -1286,6 +1323,10 @@ func (vs *VectorStore) ListCollections() ([]CollectionInfo, error) {
 // but only returns results with a cosine similarity score >= minScore.
 // ctx 用于传播取消信号
 func (vs *VectorStore) SearchWithThreshold(ctx context.Context, collection string, query []float64, topK int, minScore float64) ([]SearchResult, error) {
+	// 任务 5：Close 后委托的 Search 会返回 ErrClosed，此处前置检查避免无谓调用。
+	if vs.closed.Load() {
+		return nil, ErrClosed
+	}
 	all, err := vs.Search(ctx, collection, query, topK)
 	if err != nil {
 		return nil, err
@@ -1315,6 +1356,10 @@ func (vs *VectorStore) SearchWithThreshold(ctx context.Context, collection strin
 //     是另一 docID 的前缀时（如 "doc" 和 "doc_1"），删除 "doc" 会误删 "doc_1" 的
 //     所有 chunk。改为用 parseChunkID 精确提取 chunk ID 所属的 docID 后再比对。
 func (vs *VectorStore) DeleteDocument(collection string, docID string) error {
+	// 任务 5：Close 后 collectionLock/索引清理会因 nil map panic。
+	if vs.closed.Load() {
+		return ErrClosed
+	}
 	// 任务 13：获取 collectionLock，与 IngestDocumentWithMeta 互斥，
 	// 避免并发摄入与删除产生孤立数据（向量无对应文本 或 文本无对应向量）
 	mu := vs.collectionLock(collection)
@@ -1478,6 +1523,9 @@ func (vs *VectorStore) WithTx(fn func(*badger.Txn) error) error {
 }
 
 func (vs *VectorStore) Close() error {
+	// 任务 5：先标记 closed，使并发 goroutine 在 collectionLock / 公共方法入口
+	// 检测到 closed 后短路返回，避免对随后被置 nil 的 map 写入导致 panic。
+	vs.closed.Store(true)
 	vs.mu.Lock()
 	// 任务 15:关闭所有 index 资源(memIndex 无外部资源,badgerIndex 也为 no-op,
 	// 但通过接口统一调用 Close 确保未来扩展时资源不泄漏)

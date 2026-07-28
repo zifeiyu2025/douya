@@ -5,7 +5,6 @@ package llm
 
 import (
 	"archive/zip"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -25,14 +24,6 @@ var procGetDiskFreeSpaceExW = syscall.NewLazyDLL("kernel32.dll").NewProc("GetDis
 // llamaServerExe 是 llama.cpp 服务端可执行文件名。
 const llamaServerExe = "llama-server.exe"
 
-// errCUDAFlatLayout 表示 CUDA 后端使用旧版扁平布局，
-// 即 llama-server.exe 直接解压在 runtime 根目录，而非 cuda 子目录。
-//
-// 生活类比：就像有些老型号发动机直接摆在车库正中间（不分车位），
-// 旧版 CUDA 后端也是直接把文件铺在 runtime/ 根目录里，没有单独的 cuda/ 子目录。
-// 这不是真正的错误，而是一种兼容旧版的特殊情况，调用方应据此走根目录路径。
-var errCUDAFlatLayout = errors.New("CUDA 后端使用旧版扁平布局（直接解压在 runtime 根目录）")
-
 // EnsureBackendInstalled 确保指定后端已安装到 runtime 目录，返回 llama-server.exe 的绝对路径。
 //
 // 生活类比：就像提车前要确认发动机已经装好——如果装好了直接开走（返回路径），
@@ -40,19 +31,19 @@ var errCUDAFlatLayout = errors.New("CUDA 后端使用旧版扁平布局（直接
 //
 // 流程：
 //  1. 如果 bt == BackendAuto，返回错误（应先调用 ResolveBackendType 解析成具体后端）
-//  2. 检查目标目录是否已有 llama-server.exe（幂等：已安装则直接返回路径）
-//  3. 对于 CUDA，额外检查 runtime 根目录的旧版扁平布局
-//  4. 若未安装，查找对应 zip 包
-//  5. 检查磁盘空间（估算：zip 大小 × 2）
-//  6. 解压 zip 到目标子目录
-//  7. 验证解压后 llama-server.exe 存在
+//  2. 检查目标子目录是否已有 llama-server.exe（幂等：已安装则直接返回路径）
+//  3. 若未安装，查找对应 zip 包
+//  4. 检查磁盘空间（估算：zip 大小 × 2）
+//  5. 解压 zip 到目标子目录
+//  6. 验证解压后 llama-server.exe 存在
 //
 // 参数：
 //   - bt: 后端类型（不能是 BackendAuto）
 //   - runtimeDir: runtime 目录的绝对路径
+//   - progressCB: 解压进度回调（可为 nil）
 //
 // 返回：llama-server.exe 的绝对路径，或错误
-func EnsureBackendInstalled(bt BackendType, runtimeDir string) (string, error) {
+func EnsureBackendInstalled(bt BackendType, runtimeDir string, progressCB ExtractProgressFunc) (string, error) {
 	// auto 后端未解析前没有具体路径信息，拒绝处理
 	if bt == BackendAuto {
 		return "", fmt.Errorf("BackendAuto 需先通过 ResolveBackendType 解析成具体后端")
@@ -62,7 +53,7 @@ func EnsureBackendInstalled(bt BackendType, runtimeDir string) (string, error) {
 	destDir := filepath.Join(runtimeDir, info.Subdir)
 	serverPath := filepath.Join(destDir, llamaServerExe)
 
-	// 步骤 2：幂等检查——目标目录已有 llama-server.exe，直接返回
+	// 步骤 2：幂等检查——目标子目录已有 llama-server.exe，直接返回
 	if _, err := os.Stat(serverPath); err == nil {
 		log.Debug().
 			Str("backend", bt.String()).
@@ -71,32 +62,13 @@ func EnsureBackendInstalled(bt BackendType, runtimeDir string) (string, error) {
 		return serverPath, nil
 	}
 
-	// 步骤 3：CUDA 旧版扁平布局兼容——runtime 根目录直接有 llama-server.exe
-	if bt == BackendCUDA {
-		rootServerPath := filepath.Join(runtimeDir, llamaServerExe)
-		if _, err := os.Stat(rootServerPath); err == nil {
-			log.Info().
-				Str("path", rootServerPath).
-				Msg("[backend] CUDA 使用旧版扁平布局（runtime 根目录），直接复用")
-			return rootServerPath, nil
-		}
-	}
-
-	// 步骤 4：查找 zip 包
+	// 步骤 3：查找 zip 包
 	zipPath, err := findBackendZip(bt, runtimeDir)
 	if err != nil {
-		if errors.Is(err, errCUDAFlatLayout) {
-			// CUDA 旧版扁平布局：findBackendZip 已确认根目录有 llama-server.exe
-			rootServerPath := filepath.Join(runtimeDir, llamaServerExe)
-			log.Info().
-				Str("path", rootServerPath).
-				Msg("[backend] CUDA zip 包缺失但根目录已有 llama-server.exe，复用旧版布局")
-			return rootServerPath, nil
-		}
 		return "", fmt.Errorf("查找 %s 后端 zip 包失败: %w", info.DisplayName, err)
 	}
 
-	// 步骤 5：检查磁盘空间（估算：zip 大小 × 2）
+	// 步骤 4：检查磁盘空间（估算：zip 大小 × 2）
 	zipInfo, err := os.Stat(zipPath)
 	if err != nil {
 		return "", fmt.Errorf("读取 zip 文件信息失败: %w", err)
@@ -106,19 +78,38 @@ func EnsureBackendInstalled(bt BackendType, runtimeDir string) (string, error) {
 		return "", fmt.Errorf("磁盘空间不足，无法解压 %s: %w", info.DisplayName, err)
 	}
 
-	// 步骤 6：解压
+	// 步骤 5：解压（带进度回调）
 	log.Info().
 		Str("backend", bt.String()).
 		Str("zip", zipPath).
 		Str("dest", destDir).
 		Msg("[backend] 开始解压后端 zip 包")
-	if err := extractBackendZip(zipPath, destDir); err != nil {
-		return "", fmt.Errorf("解压 %s 失败: %w", zipPath, err)
+	if err := extractBackendZip(zipPath, destDir, progressCB); err != nil {
+		// F-4 修复：解压失败时删除损坏的 zip 文件，避免下次启动反复尝试解压同一文件。
+		// 生活类比：收到一个破损的快递包裹，拆不开就扔掉，下次重新下单，
+		// 而不是每次经过仓库都尝试拆同一个破损包裹。
+		log.Warn().
+			Err(err).
+			Str("zip", zipPath).
+			Msg("[backend] 解压失败，删除可能损坏的 zip 文件")
+		if removeErr := os.Remove(zipPath); removeErr != nil {
+			log.Error().Err(removeErr).Str("zip", zipPath).Msg("[backend] 删除损坏 zip 文件失败")
+		}
+		return "", fmt.Errorf("解压 %s 失败（zip 包可能已损坏，已自动删除，请重新下载）: %w", filepath.Base(zipPath), err)
 	}
 
-	// 步骤 7：验证 llama-server.exe 存在
+	// 步骤 6：验证 llama-server.exe 存在
 	if _, err := os.Stat(serverPath); err != nil {
-		return "", fmt.Errorf("解压完成但 %s 不存在，zip 包可能损坏", serverPath)
+		// 同样删除不完整的 zip 包
+		log.Warn().
+			Err(err).
+			Str("zip", zipPath).
+			Str("expected", serverPath).
+			Msg("[backend] 解压后 llama-server.exe 不存在，zip 包可能不完整，删除 zip 文件")
+		if removeErr := os.Remove(zipPath); removeErr != nil {
+			log.Error().Err(removeErr).Str("zip", zipPath).Msg("[backend] 删除不完整 zip 文件失败")
+		}
+		return "", fmt.Errorf("解压完成但 %s 不存在，zip 包可能损坏（已自动删除，请重新下载）", serverPath)
 	}
 
 	log.Info().
@@ -137,9 +128,6 @@ func EnsureBackendInstalled(bt BackendType, runtimeDir string) (string, error) {
 //   - 使用 filepath.Glob 匹配 GetBackendInfo(bt).ZipPattern
 //   - 匹配到多个时，按文件名排序取第一个（版本排序由文件名前缀保证）
 //   - 没匹配到时返回明确错误
-//
-// CUDA 特殊处理：如果 zip 包不存在但 runtime 根目录已有 llama-server.exe
-// （旧版直接解压的情况），返回 errCUDAFlatLayout 标记，调用方据此走根目录路径。
 func findBackendZip(bt BackendType, runtimeDir string) (string, error) {
 	info := GetBackendInfo(bt)
 	if info.ZipPattern == "" {
@@ -153,16 +141,6 @@ func findBackendZip(bt BackendType, runtimeDir string) (string, error) {
 	}
 
 	if len(matches) == 0 {
-		// CUDA 旧版扁平布局兼容：zip 包缺失但根目录已有 llama-server.exe
-		if bt == BackendCUDA {
-			rootServerPath := filepath.Join(runtimeDir, llamaServerExe)
-			if _, statErr := os.Stat(rootServerPath); statErr == nil {
-				log.Info().
-					Str("runtime", runtimeDir).
-					Msg("[backend] CUDA zip 包缺失，检测到根目录已有 llama-server.exe（旧版扁平布局）")
-				return "", errCUDAFlatLayout
-			}
-		}
 		return "", fmt.Errorf("未找到 %s 后端的 zip 包，请从官方发布页下载", info.DisplayName)
 	}
 
@@ -238,6 +216,10 @@ func isRedundantFile(filename string) bool {
 	return false
 }
 
+// ExtractProgressFunc 是解压进度回调函数类型。
+// current 是已解压文件数，total 是总文件数（不含冗余跳过的文件）。
+type ExtractProgressFunc func(current, total int)
+
 // extractBackendZip 将 zip 包解压到 destDir。
 //
 // 生活类比：打开零件箱，把里面的零件一个个摆放到指定位置（destDir），
@@ -252,7 +234,8 @@ func isRedundantFile(filename string) bool {
 // 参数：
 //   - zipPath: zip 文件路径
 //   - destDir: 解压目标目录（不存在时会创建）
-func extractBackendZip(zipPath, destDir string) error {
+//   - progressCB: 解压进度回调（可为 nil），按文件数计算百分比
+func extractBackendZip(zipPath, destDir string, progressCB ExtractProgressFunc) error {
 	// 打开 zip 文件
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
@@ -268,9 +251,22 @@ func extractBackendZip(zipPath, destDir string) error {
 	// 清理 destDir 路径，用于后续 zip slip 检查
 	cleanDest := filepath.Clean(destDir)
 
+	// 第一遍遍历：统计需要解压的文件总数（排除冗余和目录）
+	totalFiles := 0
+	for _, f := range r.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		if isRedundantFile(f.Name) {
+			continue
+		}
+		totalFiles++
+	}
+
 	// skippedRedundant 统计本次解压跳过的冗余文件数
 	// 生活类比：搬家时记一下扔掉了多少件旧物，事后心里有数
 	skippedRedundant := 0
+	extractedFiles := 0
 
 	for _, f := range r.File {
 		// 跳过目录条目（MkdirAll 已保证目录存在）
@@ -300,6 +296,7 @@ func extractBackendZip(zipPath, destDir string) error {
 				log.Debug().
 					Str("file", f.Name).
 					Msg("[backend] 文件已存在且大小相同，跳过")
+				extractedFiles++
 				continue
 			}
 		}
@@ -307,6 +304,12 @@ func extractBackendZip(zipPath, destDir string) error {
 		// 解压并写入文件
 		if err := extractZipFile(f, destPath); err != nil {
 			return fmt.Errorf("解压 %s 失败: %w", f.Name, err)
+		}
+		extractedFiles++
+
+		// 推送解压进度（按文件数计算）
+		if progressCB != nil && totalFiles > 0 {
+			progressCB(extractedFiles, totalFiles)
 		}
 	}
 
@@ -406,12 +409,9 @@ func checkDiskSpace(path string, requiredBytes int64) error {
 
 // IsBackendInstalled 检查指定后端是否已安装到 runtime 目录。
 //
-// 生活类比：检查发动机是不是已经装在车上了——看子目录有没有 llama-server.exe，
-// 对于 CUDA 旧版还要看根目录是不是直接放着。
+// 生活类比：检查发动机是不是已经装在车位上了——看对应子目录有没有 llama-server.exe。
 //
-// 检查位置：
-//   - 标准布局：{runtimeDir}/{subdir}/llama-server.exe
-//   - CUDA 旧版扁平布局：{runtimeDir}/llama-server.exe
+// 检查位置：{runtimeDir}/{subdir}/llama-server.exe
 func IsBackendInstalled(bt BackendType, runtimeDir string) bool {
 	info := GetBackendInfo(bt)
 	// auto 后端没有具体子目录，视为未安装
@@ -419,19 +419,86 @@ func IsBackendInstalled(bt BackendType, runtimeDir string) bool {
 		return false
 	}
 
-	// 标准布局：检查子目录下的 llama-server.exe
+	// 检查子目录下的 llama-server.exe
 	subdirPath := filepath.Join(runtimeDir, info.Subdir, llamaServerExe)
 	if _, err := os.Stat(subdirPath); err == nil {
 		return true
 	}
 
-	// CUDA 旧版扁平布局：检查根目录的 llama-server.exe
-	if bt == BackendCUDA {
-		rootPath := filepath.Join(runtimeDir, llamaServerExe)
-		if _, err := os.Stat(rootPath); err == nil {
-			return true
-		}
+	return false
+}
+
+// cudartZipPattern 匹配 CUDA 后端附带的 cudart zip 包文件名。
+// 例如：cudart-llama-bin-win-cuda-13.3-x64.zip
+const cudartZipPattern = "cudart-llama-bin-win-cuda-1[3-9]*-x64.zip"
+
+// EnsureCudartInstalled 确保 cudart 包已解压到 runtime/cuda/ 目录。
+//
+// CUDA 后端需要主包（llama-server.exe 等）和 cudart 包（cudart64_*.dll 等厂商 DLL）一起才能运行。
+// 主包通过 EnsureBackendInstalled 解压，cudart 包通过本函数解压到同一目录。
+//
+// 幂等：如果 cudart64_*.dll 已存在，说明 cudart 包已解压，直接返回。
+//
+// 生活类比：买了电脑后又买了套外设配件包，开机前要先把配件包拆开装上键盘鼠标，
+// 否则电脑开机后发现缺键盘鼠标又让你重新买——其实配件就在快递盒里没拆。
+//
+// 参数：
+//   - runtimeDir: runtime 目录的绝对路径
+//   - progressCB: 解压进度回调（可为 nil）
+func EnsureCudartInstalled(runtimeDir string, progressCB ExtractProgressFunc) error {
+	cudaSubdir := filepath.Join(runtimeDir, "cuda")
+
+	// 幂等检查：如果 cudart64_*.dll 已存在，说明 cudart 包已解压
+	matches, _ := filepath.Glob(filepath.Join(cudaSubdir, "cudart64_*.dll"))
+	if len(matches) > 0 {
+		log.Debug().Str("dir", cudaSubdir).Msg("[backend] cudart 包已解压，跳过")
+		return nil
 	}
 
-	return false
+	// 查找 cudart zip 包
+	pattern := filepath.Join(runtimeDir, cudartZipPattern)
+	zipMatches, err := filepath.Glob(pattern)
+	if err != nil {
+		return fmt.Errorf("glob 匹配 cudart 包失败 (%s): %w", pattern, err)
+	}
+	if len(zipMatches) == 0 {
+		return fmt.Errorf("未找到 cudart zip 包，请从官方发布页下载")
+	}
+
+	zipPath := zipMatches[0]
+
+	// 解压到 cuda 子目录（与主包相同的目录）
+	log.Info().
+		Str("zip", zipPath).
+		Str("dest", cudaSubdir).
+		Msg("[backend] 开始解压 cudart zip 包")
+	if err := extractBackendZip(zipPath, cudaSubdir, progressCB); err != nil {
+		// F-4 修复：解压失败时删除损坏的 zip 文件，避免下次启动反复尝试解压同一文件
+		log.Warn().
+			Err(err).
+			Str("zip", zipPath).
+			Msg("[backend] cudart 解压失败，删除可能损坏的 zip 文件")
+		if removeErr := os.Remove(zipPath); removeErr != nil {
+			log.Error().Err(removeErr).Str("zip", zipPath).Msg("[backend] 删除损坏 cudart zip 文件失败")
+		}
+		return fmt.Errorf("解压 cudart 包失败（zip 包可能已损坏，已自动删除）: %w", err)
+	}
+
+	// 验证 cudart64_*.dll 存在
+	matches, _ = filepath.Glob(filepath.Join(cudaSubdir, "cudart64_*.dll"))
+	if len(matches) == 0 {
+		log.Warn().
+			Str("zip", zipPath).
+			Str("dest", cudaSubdir).
+			Msg("[backend] 解压后 cudart64_*.dll 不存在，zip 包可能不完整")
+		if removeErr := os.Remove(zipPath); removeErr != nil {
+			log.Error().Err(removeErr).Str("zip", zipPath).Msg("[backend] 删除不完整 cudart zip 文件失败")
+		}
+		return fmt.Errorf("解压完成但 cudart64_*.dll 不存在，zip 包可能损坏（已自动删除）")
+	}
+
+	log.Info().
+		Str("dir", cudaSubdir).
+		Msg("[backend] cudart 包安装完成")
+	return nil
 }

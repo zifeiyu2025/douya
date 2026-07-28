@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"strings"
+	"time"
 
 	"douya/internal/apperror"
 	"douya/internal/llm"
@@ -28,9 +29,13 @@ type Config struct {
 	// auto 表示根据硬件自动检测最合适的后端，其他值明确指定后端类型。
 	// 生活类比：就像选发动机型号——auto 是"让系统帮你选"，其他是明确指定用哪种发动机。
 	BackendType string `json:"backend_type"`
-	APIBase     string `json:"api_base"`
-	Port        int    `json:"port"`
-	ContextSize int    `json:"context_size"`
+	// LastSuccessfulBackend 上一次成功启动的后端类型（用于启动失败时回退）。
+	// 生活类比：换发动机前先给现在的发动机舱拍张照，新发动机打不着火就按照片装回去。
+	// 非空表示用户切换过后端但新后端尚未通过启动验证；启动成功后会被清空。
+	LastSuccessfulBackend string `json:"last_successful_backend"`
+	APIBase               string `json:"api_base"`
+	Port                  int    `json:"port"`
+	ContextSize           int    `json:"context_size"`
 	// ProactiveCompressThreshold 主动压缩阈值：当估算 token 占比 >= 该阈值时，
 	// 提前触发上下文压缩（不等溢出），为后续对话留出空间。
 	// 默认 0.8（80%），范围 0.5-0.95。值越小越激进（更早压缩）。
@@ -374,8 +379,21 @@ func Load(path string) (*Config, error) {
 				}
 			}
 		}
-		log.Error().Err(err).Msg("[config] 解析配置文件失败")
-		return nil, fmt.Errorf("解析配置文件失败: %w", err)
+		// F-1 修复：配置文件损坏时，备份原文件后用默认配置启动，避免用户完全无法进入应用。
+		// 生活类比：菜谱被水泡模糊了，先把旧菜谱收起来（备份），用标准菜谱继续营业，
+		// 用户可以再自己调整口味。
+		log.Error().Err(err).Msg("[config] 解析配置文件失败，备份原文件后用默认配置启动")
+		backupPath := path + ".corrupt-" + time.Now().Format("20060102-150405")
+		if backupErr := os.WriteFile(backupPath, data, 0o644); backupErr != nil {
+			log.Warn().Err(backupErr).Msg("[config] 备份损坏的配置文件失败")
+		} else {
+			log.Info().Str("backup", backupPath).Msg("[config] 已备份损坏的配置文件")
+		}
+		fallback := DefaultConfig()
+		if saveErr := Save(path, fallback); saveErr != nil {
+			log.Warn().Err(saveErr).Msg("[config] 保存默认配置失败")
+		}
+		return fallback, nil
 	}
 
 	cfg.migrate(data)
@@ -554,6 +572,55 @@ func Save(path string, cfg *Config) error {
 	return nil
 }
 
+// intFieldRule 描述一个 int 字段的校验规则，由 repairInvalidFields 与 Validate 共享，
+// 消除两份重复的字段表（QUAL-2）。
+// 生活类比：像一份通用体检项目表，复查（修复）和初检（报错）都照着同一张表逐项核对。
+type intFieldRule struct {
+	name   string
+	get    func(*Config) int
+	min    int
+	max    int
+	set    func(*Config, int)
+	errMsg string // fmt.Sprintf 模板，参数为当前值
+}
+
+// floatFieldRule 描述一个 float64 字段的校验规则，由 repairInvalidFields 与 Validate 共享。
+type floatFieldRule struct {
+	name   string
+	get    func(*Config) float64
+	min    float64
+	max    float64
+	set    func(*Config, float64)
+	errMsg string
+}
+
+// intFieldRules 是所有 int 字段的校验规则表。
+// 默认值不在表中硬编码，而是通过 get(DefaultConfig()) 动态获取，保证与 DefaultConfig 单一来源。
+var intFieldRules = []intFieldRule{
+	{"port", func(c *Config) int { return c.Port }, 1, 65535, func(c *Config, v int) { c.Port = v }, "invalid port: %d (must be 1-65535)"},
+	{"context_size", func(c *Config) int { return c.ContextSize }, 1, 131072, func(c *Config, v int) { c.ContextSize = v }, "invalid context_size: %d (must be 1-131072)"},
+	{"top_k", func(c *Config) int { return c.TopK }, 0, math.MaxInt32, func(c *Config, v int) { c.TopK = v }, "invalid top_k: %d (必须 >= 0)"},
+	{"dry_allowed_length", func(c *Config) int { return c.DryAllowedLength }, 0, math.MaxInt32, func(c *Config, v int) { c.DryAllowedLength = v }, "invalid dry_allowed_length: %d (必须 >= 0)"},
+	{"rag_top_k", func(c *Config) int { return c.RAGTopK }, 1, math.MaxInt32, func(c *Config, v int) { c.RAGTopK = v }, "invalid rag_top_k: %d (必须 > 0)"},
+	{"threads", func(c *Config) int { return c.Threads }, 0, math.MaxInt32, func(c *Config, v int) { c.Threads = v }, "invalid threads: %d (threads 不能为负数)"},
+	{"batch_size", func(c *Config) int { return c.BatchSize }, 0, math.MaxInt32, func(c *Config, v int) { c.BatchSize = v }, "invalid batch_size: %d (batch_size 不能为负数)"},
+	{"gpu_layers", func(c *Config) int { return c.GPULayers }, 0, math.MaxInt32, func(c *Config, v int) { c.GPULayers = v }, "invalid gpu_layers: %d (gpu_layers 不能为负数)"},
+	{"cache_ram", func(c *Config) int { return c.CacheRAM }, 0, math.MaxInt32, func(c *Config, v int) { c.CacheRAM = v }, "invalid cache_ram: %d (cache_ram 不能为负数)"},
+	{"rerank_top_n", func(c *Config) int { return c.RerankTopN }, 1, math.MaxInt32, func(c *Config, v int) { c.RerankTopN = v }, "invalid rerank_top_n: %d (rerank_top_n 必须 > 0)"},
+}
+
+// floatFieldRules 是所有 float64 字段的校验规则表。
+var floatFieldRules = []floatFieldRule{
+	{"temperature", func(c *Config) float64 { return c.Temperature }, 0, 2, func(c *Config, v float64) { c.Temperature = v }, "invalid temperature: %.2f (must be 0-2)"},
+	{"top_p", func(c *Config) float64 { return c.TopP }, 0, 1, func(c *Config, v float64) { c.TopP = v }, "invalid top_p: %.2f (must be 0-1)"},
+	{"min_p", func(c *Config) float64 { return c.MinP }, 0, 1, func(c *Config, v float64) { c.MinP = v }, "invalid min_p: %.2f (必须为 0-1)"},
+	{"repeat_penalty", func(c *Config) float64 { return c.RepeatPenalty }, 0, math.MaxFloat64, func(c *Config, v float64) { c.RepeatPenalty = v }, "invalid repeat_penalty: %.2f (must be >= 0)"},
+	{"chat_background_opacity", func(c *Config) float64 { return c.ChatBackgroundOpacity }, 0, 1, func(c *Config, v float64) { c.ChatBackgroundOpacity = v }, "invalid chat_background_opacity: %.2f (must be 0-1)"},
+	{"dry_multiplier", func(c *Config) float64 { return c.DryMultiplier }, 0, math.MaxFloat64, func(c *Config, v float64) { c.DryMultiplier = v }, "invalid dry_multiplier: %.2f (必须 >= 0)"},
+	{"dry_base", func(c *Config) float64 { return c.DryBase }, 0, math.MaxFloat64, func(c *Config, v float64) { c.DryBase = v }, "invalid dry_base: %.2f (必须 >= 0)"},
+	{"rag_min_score", func(c *Config) float64 { return c.RAGMinScore }, 0, 1, func(c *Config, v float64) { c.RAGMinScore = v }, "invalid rag_min_score: %.2f (必须为 0-1)"},
+}
+
 // repairInvalidFields 逐字段修复无效值为默认值，保留有效字段的用户设置
 // 生活类比：像体检复查，只治疗异常指标，不把健康人送进ICU
 // 返回已修复字段的描述列表，便于日志记录
@@ -561,55 +628,19 @@ func (c *Config) repairInvalidFields() []string {
 	repaired := []string{}
 	defaults := DefaultConfig()
 
-	// int 字段范围检查与修复
-	intFields := []struct {
-		name    string
-		val     int
-		min     int
-		max     int
-		defVal  int
-		setFunc func(int)
-	}{
-		{"port", c.Port, 1, 65535, defaults.Port, func(v int) { c.Port = v }},
-		{"context_size", c.ContextSize, 1, 131072, defaults.ContextSize, func(v int) { c.ContextSize = v }},
-		{"top_k", c.TopK, 0, math.MaxInt32, defaults.TopK, func(v int) { c.TopK = v }},
-		{"dry_allowed_length", c.DryAllowedLength, 0, math.MaxInt32, defaults.DryAllowedLength, func(v int) { c.DryAllowedLength = v }},
-		{"rag_top_k", c.RAGTopK, 1, math.MaxInt32, defaults.RAGTopK, func(v int) { c.RAGTopK = v }},
-		{"threads", c.Threads, 0, math.MaxInt32, defaults.Threads, func(v int) { c.Threads = v }},
-		{"batch_size", c.BatchSize, 0, math.MaxInt32, defaults.BatchSize, func(v int) { c.BatchSize = v }},
-		{"gpu_layers", c.GPULayers, 0, math.MaxInt32, defaults.GPULayers, func(v int) { c.GPULayers = v }},
-		{"cache_ram", c.CacheRAM, 0, math.MaxInt32, defaults.CacheRAM, func(v int) { c.CacheRAM = v }},
-		{"rerank_top_n", c.RerankTopN, 1, math.MaxInt32, defaults.RerankTopN, func(v int) { c.RerankTopN = v }},
-	}
-	for _, f := range intFields {
-		if f.val < f.min || f.val > f.max {
-			repaired = append(repaired, fmt.Sprintf("%s: %d -> %d", f.name, f.val, f.defVal))
-			f.setFunc(f.defVal)
+	// int / float 字段范围检查与修复（与 Validate 共享 intFieldRules / floatFieldRules）
+	for _, r := range intFieldRules {
+		if val := r.get(c); val < r.min || val > r.max {
+			defVal := r.get(defaults)
+			repaired = append(repaired, fmt.Sprintf("%s: %d -> %d", r.name, val, defVal))
+			r.set(c, defVal)
 		}
 	}
-
-	// float64 字段范围检查与修复
-	floatFields := []struct {
-		name    string
-		val     float64
-		min     float64
-		max     float64
-		defVal  float64
-		setFunc func(float64)
-	}{
-		{"temperature", c.Temperature, 0, 2, defaults.Temperature, func(v float64) { c.Temperature = v }},
-		{"top_p", c.TopP, 0, 1, defaults.TopP, func(v float64) { c.TopP = v }},
-		{"min_p", c.MinP, 0, 1, defaults.MinP, func(v float64) { c.MinP = v }},
-		{"repeat_penalty", c.RepeatPenalty, 0, math.MaxFloat64, defaults.RepeatPenalty, func(v float64) { c.RepeatPenalty = v }},
-		{"chat_background_opacity", c.ChatBackgroundOpacity, 0, 1, defaults.ChatBackgroundOpacity, func(v float64) { c.ChatBackgroundOpacity = v }},
-		{"dry_multiplier", c.DryMultiplier, 0, math.MaxFloat64, defaults.DryMultiplier, func(v float64) { c.DryMultiplier = v }},
-		{"dry_base", c.DryBase, 0, math.MaxFloat64, defaults.DryBase, func(v float64) { c.DryBase = v }},
-		{"rag_min_score", c.RAGMinScore, 0, 1, defaults.RAGMinScore, func(v float64) { c.RAGMinScore = v }},
-	}
-	for _, f := range floatFields {
-		if f.val < f.min || f.val > f.max {
-			repaired = append(repaired, fmt.Sprintf("%s: %.2f -> %.2f", f.name, f.val, f.defVal))
-			f.setFunc(f.defVal)
+	for _, r := range floatFieldRules {
+		if val := r.get(c); val < r.min || val > r.max {
+			defVal := r.get(defaults)
+			repaired = append(repaired, fmt.Sprintf("%s: %.2f -> %.2f", r.name, val, defVal))
+			r.set(c, defVal)
 		}
 	}
 
@@ -659,50 +690,15 @@ func (c *Config) Validate() error {
 	// B-3.10: 表驱动化校验，减少重复 if 分支
 	// 生活类比：像安检清单，逐项核对，不合格直接报错
 	// 无上限的字段使用 math.MaxInt32 / math.MaxFloat64 作为哨兵值
-
-	// int 字段范围检查
-	intChecks := []struct {
-		val    int
-		min    int
-		max    int
-		errMsg string // fmt.Sprintf 模板，参数为 val
-	}{
-		{c.Port, 1, 65535, "invalid port: %d (must be 1-65535)"},
-		{c.ContextSize, 1, 131072, "invalid context_size: %d (must be 1-131072)"},
-		{c.TopK, 0, math.MaxInt32, "invalid top_k: %d (必须 >= 0)"},
-		{c.DryAllowedLength, 0, math.MaxInt32, "invalid dry_allowed_length: %d (必须 >= 0)"},
-		{c.RAGTopK, 1, math.MaxInt32, "invalid rag_top_k: %d (必须 > 0)"},
-		{c.Threads, 0, math.MaxInt32, "invalid threads: %d (threads 不能为负数)"},
-		{c.BatchSize, 0, math.MaxInt32, "invalid batch_size: %d (batch_size 不能为负数)"},
-		{c.GPULayers, 0, math.MaxInt32, "invalid gpu_layers: %d (gpu_layers 不能为负数)"},
-		{c.CacheRAM, 0, math.MaxInt32, "invalid cache_ram: %d (cache_ram 不能为负数)"},
-		{c.RerankTopN, 1, math.MaxInt32, "invalid rerank_top_n: %d (rerank_top_n 必须 > 0)"},
-	}
-	for _, chk := range intChecks {
-		if chk.val < chk.min || chk.val > chk.max {
-			return apperror.Newf(apperror.KindInvalidConfig, chk.errMsg, chk.val)
+	// int / float 字段范围检查与 repairInvalidFields 共享同一字段规则表（QUAL-2）
+	for _, r := range intFieldRules {
+		if val := r.get(c); val < r.min || val > r.max {
+			return apperror.Newf(apperror.KindInvalidConfig, r.errMsg, val)
 		}
 	}
-
-	// float64 字段范围检查
-	floatChecks := []struct {
-		val    float64
-		min    float64
-		max    float64
-		errMsg string
-	}{
-		{c.Temperature, 0, 2, "invalid temperature: %.2f (must be 0-2)"},
-		{c.TopP, 0, 1, "invalid top_p: %.2f (must be 0-1)"},
-		{c.MinP, 0, 1, "invalid min_p: %.2f (必须为 0-1)"},
-		{c.RepeatPenalty, 0, math.MaxFloat64, "invalid repeat_penalty: %.2f (must be >= 0)"},
-		{c.ChatBackgroundOpacity, 0, 1, "invalid chat_background_opacity: %.2f (must be 0-1)"},
-		{c.DryMultiplier, 0, math.MaxFloat64, "invalid dry_multiplier: %.2f (必须 >= 0)"},
-		{c.DryBase, 0, math.MaxFloat64, "invalid dry_base: %.2f (必须 >= 0)"},
-		{c.RAGMinScore, 0, 1, "invalid rag_min_score: %.2f (必须为 0-1)"},
-	}
-	for _, chk := range floatChecks {
-		if chk.val < chk.min || chk.val > chk.max {
-			return apperror.Newf(apperror.KindInvalidConfig, chk.errMsg, chk.val)
+	for _, r := range floatFieldRules {
+		if val := r.get(c); val < r.min || val > r.max {
+			return apperror.Newf(apperror.KindInvalidConfig, r.errMsg, val)
 		}
 	}
 

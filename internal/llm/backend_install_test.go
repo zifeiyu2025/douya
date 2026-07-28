@@ -35,6 +35,10 @@ func TestIsRedundantFile_LlamaServerExe(t *testing.T) {
 // TestIsRedundantFile_LlamaDLL 验证 llama.dll 等核心 DLL 不是冗余文件。
 //
 // 这些是 llama-server 运行必需的动态库，误删会导致启动失败。
+//
+// 特别注意：新版官方预编译包把 ggml-cpu.dll 拆分为架构特定的
+// ggml-cpu-haswell.dll、ggml-cpu-alderlake.dll 等，这些也必须保留，
+// 不能被冗余过滤逻辑误删。
 func TestIsRedundantFile_LlamaDLL(t *testing.T) {
 	coreFiles := []string{
 		"llama.dll",
@@ -42,11 +46,19 @@ func TestIsRedundantFile_LlamaDLL(t *testing.T) {
 		"llama-common.dll",
 		"ggml.dll",
 		"ggml-base.dll",
-		"ggml-cpu.dll",
 		"ggml-cuda.dll",
 		"ggml-hip.dll",
 		"ggml-vulkan.dll",
 		"mtmd.dll",
+		// 自编译版产出的统一 CPU 库
+		"ggml-cpu.dll",
+		// 官方预编译包产出的架构特定 CPU 库（共 14 个，列举部分代表）
+		"ggml-cpu-haswell.dll",
+		"ggml-cpu-alderlake.dll",
+		"ggml-cpu-sse42.dll",
+		"ggml-cpu-zen4.dll",
+		"ggml-cpu-skylakex.dll",
+		"ggml-cpu-sapphirerapids.dll",
 	}
 	for _, f := range coreFiles {
 		if isRedundantFile(f) {
@@ -155,7 +167,7 @@ func TestExtractBackendZip_NormalExtraction(t *testing.T) {
 		t.Fatalf("创建测试 zip 失败: %v", err)
 	}
 
-	if err := extractBackendZip(zipPath, destDir); err != nil {
+	if err := extractBackendZip(zipPath, destDir, nil); err != nil {
 		t.Fatalf("extractBackendZip 失败: %v", err)
 	}
 
@@ -196,7 +208,7 @@ func TestExtractBackendZip_RedundantSkipped(t *testing.T) {
 		t.Fatalf("创建测试 zip 失败: %v", err)
 	}
 
-	if err := extractBackendZip(zipPath, destDir); err != nil {
+	if err := extractBackendZip(zipPath, destDir, nil); err != nil {
 		t.Fatalf("extractBackendZip 失败: %v", err)
 	}
 
@@ -238,7 +250,7 @@ func TestExtractBackendZip_Idempotent(t *testing.T) {
 	}
 
 	// 第一次解压
-	if err := extractBackendZip(zipPath, destDir); err != nil {
+	if err := extractBackendZip(zipPath, destDir, nil); err != nil {
 		t.Fatalf("第一次解压失败: %v", err)
 	}
 
@@ -257,7 +269,7 @@ func TestExtractBackendZip_Idempotent(t *testing.T) {
 	}
 
 	// 第二次解压：文件大小相同，应跳过不解压
-	if err := extractBackendZip(zipPath, destDir); err != nil {
+	if err := extractBackendZip(zipPath, destDir, nil); err != nil {
 		t.Fatalf("第二次解压失败: %v", err)
 	}
 
@@ -289,7 +301,7 @@ func TestExtractBackendZip_ZipSlip(t *testing.T) {
 		t.Fatalf("创建恶意 zip 失败: %v", err)
 	}
 
-	err := extractBackendZip(zipPath, destDir)
+	err := extractBackendZip(zipPath, destDir, nil)
 	if err == nil {
 		t.Fatal("zip slip 攻击应被拦截并返回错误，但 extractBackendZip 返回 nil")
 	}
@@ -321,7 +333,7 @@ func TestExtractBackendZip_NestedDirectories(t *testing.T) {
 		t.Fatalf("创建测试 zip 失败: %v", err)
 	}
 
-	if err := extractBackendZip(zipPath, destDir); err != nil {
+	if err := extractBackendZip(zipPath, destDir, nil); err != nil {
 		t.Fatalf("extractBackendZip 失败: %v", err)
 	}
 
@@ -342,7 +354,7 @@ func TestExtractBackendZip_NestedDirectories(t *testing.T) {
 // auto 后端需要先通过 ResolveBackendType 解析成具体后端，直接调用 EnsureBackendInstalled 应报错。
 func TestEnsureBackendInstalled_AutoRejected(t *testing.T) {
 	tmpDir := t.TempDir()
-	_, err := EnsureBackendInstalled(BackendAuto, tmpDir)
+	_, err := EnsureBackendInstalled(BackendAuto, tmpDir, nil)
 	if err == nil {
 		t.Error("BackendAuto 应被拒绝，返回错误")
 	}
@@ -366,7 +378,7 @@ func TestEnsureBackendInstalled_AlreadyInstalled(t *testing.T) {
 		t.Fatalf("创建文件失败: %v", err)
 	}
 
-	got, err := EnsureBackendInstalled(BackendCPU, tmpDir)
+	got, err := EnsureBackendInstalled(BackendCPU, tmpDir, nil)
 	if err != nil {
 		t.Fatalf("已安装的 CPU 后端应直接返回, got error: %v", err)
 	}
@@ -375,24 +387,28 @@ func TestEnsureBackendInstalled_AlreadyInstalled(t *testing.T) {
 	}
 }
 
-// TestEnsureBackendInstalled_CUDAFlatLayout 验证 CUDA 旧版扁平布局兼容。
+// TestEnsureBackendInstalled_CUDAStandardLayout 验证 CUDA 标准布局（runtime/cuda/子目录）。
 //
-// 旧版 CUDA 后端直接解压在 runtime 根目录（无 cuda/ 子目录），
-// EnsureBackendInstalled 应识别并复用根目录的 llama-server.exe。
-func TestEnsureBackendInstalled_CUDAFlatLayout(t *testing.T) {
+// 新版目录结构：所有后端都在各自子目录下，CUDA 后端位于 runtime/cuda/。
+// EnsureBackendInstalled 应识别 cuda/ 子目录下的 llama-server.exe 并返回路径。
+func TestEnsureBackendInstalled_CUDAStandardLayout(t *testing.T) {
 	tmpDir := t.TempDir()
-	// 模拟旧版扁平布局：llama-server.exe 直接在 runtime 根目录
-	rootServerPath := filepath.Join(tmpDir, "llama-server.exe")
-	if err := os.WriteFile(rootServerPath, []byte("fake exe"), 0o644); err != nil {
+	// 模拟标准布局：llama-server.exe 在 runtime/cuda/ 子目录
+	cudaDir := filepath.Join(tmpDir, "cuda")
+	if err := os.MkdirAll(cudaDir, 0o755); err != nil {
+		t.Fatalf("创建目录失败: %v", err)
+	}
+	cudaServerPath := filepath.Join(cudaDir, "llama-server.exe")
+	if err := os.WriteFile(cudaServerPath, []byte("fake exe"), 0o644); err != nil {
 		t.Fatalf("创建文件失败: %v", err)
 	}
 
-	got, err := EnsureBackendInstalled(BackendCUDA, tmpDir)
+	got, err := EnsureBackendInstalled(BackendCUDA, tmpDir, nil)
 	if err != nil {
-		t.Fatalf("CUDA 旧版扁平布局应被兼容, got error: %v", err)
+		t.Fatalf("CUDA 标准布局应直接返回, got error: %v", err)
 	}
-	if got != rootServerPath {
-		t.Errorf("返回路径 = %q, want %q（根目录）", got, rootServerPath)
+	if got != cudaServerPath {
+		t.Errorf("返回路径 = %q, want %q", got, cudaServerPath)
 	}
 }
 
@@ -402,7 +418,7 @@ func TestEnsureBackendInstalled_CUDAFlatLayout(t *testing.T) {
 func TestEnsureBackendInstalled_ZipMissing(t *testing.T) {
 	tmpDir := t.TempDir()
 	// 不放任何 zip 包，也不放 llama-server.exe
-	_, err := EnsureBackendInstalled(BackendCPU, tmpDir)
+	_, err := EnsureBackendInstalled(BackendCPU, tmpDir, nil)
 	if err == nil {
 		t.Error("zip 包缺失应返回错误")
 	}
@@ -427,7 +443,7 @@ func TestEnsureBackendInstalled_FromZip(t *testing.T) {
 		t.Fatalf("创建测试 zip 失败: %v", err)
 	}
 
-	got, err := EnsureBackendInstalled(BackendCPU, tmpDir)
+	got, err := EnsureBackendInstalled(BackendCPU, tmpDir, nil)
 	if err != nil {
 		t.Fatalf("从 zip 解压安装失败: %v", err)
 	}
@@ -479,18 +495,42 @@ func TestIsBackendInstalled(t *testing.T) {
 	}
 }
 
-// TestIsBackendInstalled_CUDAFlatLayout 验证 CUDA 旧版扁平布局检测。
-func TestIsBackendInstalled_CUDAFlatLayout(t *testing.T) {
+// TestIsBackendInstalled_CUDAStandardLayout 验证 CUDA 标准布局检测。
+//
+// 新版目录结构：CUDA 后端在 runtime/cuda/ 子目录下。
+func TestIsBackendInstalled_CUDAStandardLayout(t *testing.T) {
 	tmpDir := t.TempDir()
-	// 在 runtime 根目录直接放 llama-server.exe（旧版扁平布局）
+	// 在 runtime/cuda/ 子目录放 llama-server.exe（标准布局）
+	cudaDir := filepath.Join(tmpDir, "cuda")
+	if err := os.MkdirAll(cudaDir, 0o755); err != nil {
+		t.Fatalf("创建目录失败: %v", err)
+	}
+	cudaServerPath := filepath.Join(cudaDir, "llama-server.exe")
+	if err := os.WriteFile(cudaServerPath, []byte("fake"), 0o644); err != nil {
+		t.Fatalf("创建文件失败: %v", err)
+	}
+
+	// CUDA 后端应识别标准布局为已安装
+	if !IsBackendInstalled(BackendCUDA, tmpDir) {
+		t.Error("CUDA 标准布局（runtime/cuda/ 有 llama-server.exe）应返回 true")
+	}
+}
+
+// TestIsBackendInstalled_RootNotRecognized 验证根目录的 llama-server.exe 不再被识别为已安装。
+//
+// 旧版扁平布局已废弃：根目录有 llama-server.exe 但子目录没有时，应返回 false。
+// 这确保用户必须把后端文件放到对应子目录下。
+func TestIsBackendInstalled_RootNotRecognized(t *testing.T) {
+	tmpDir := t.TempDir()
+	// 在 runtime 根目录直接放 llama-server.exe（旧版扁平布局，已废弃）
 	rootServerPath := filepath.Join(tmpDir, "llama-server.exe")
 	if err := os.WriteFile(rootServerPath, []byte("fake"), 0o644); err != nil {
 		t.Fatalf("创建文件失败: %v", err)
 	}
 
-	// CUDA 后端应识别旧版扁平布局为已安装
-	if !IsBackendInstalled(BackendCUDA, tmpDir) {
-		t.Error("CUDA 旧版扁平布局（根目录有 llama-server.exe）应返回 true")
+	// CUDA 后端不应再识别根目录的 llama-server.exe 为已安装
+	if IsBackendInstalled(BackendCUDA, tmpDir) {
+		t.Error("CUDA 后端不应再识别根目录的 llama-server.exe（扁平布局已废弃）")
 	}
 }
 

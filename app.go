@@ -56,6 +56,8 @@ type App struct {
 	// resolvedServerPath 是 startup 中 EnsureBackendInstalled 返回的 llama-server.exe 绝对路径。
 	// 为空表示未缓存，调用方应回退到配置中的 LlamaServerPath。
 	resolvedServerPath string
+	// presetGenFailed 标记 preset 文件生成是否失败，用于启动后通知前端显示警告
+	presetGenFailed bool
 	ready              atomic.Bool
 	serverReady        atomic.Bool
 	watchCancel        context.CancelFunc
@@ -131,8 +133,16 @@ func appDir() string {
 }
 
 // resolveAppDir 查找并缓存应用根目录。
-// 生活类比：就像搬家后找"哪个房间放了配置文件"——先查当前目录，再往上找，
-// 最后实在找不到就在当前目录新建一份默认配置。
+//
+// 设计原则：配置和数据必须限制在 exe 所在目录及其直接上级目录，不允许读写到其他目录。
+// 这样确保 release 目录和项目目录完全隔离，互不影响。
+//
+// 查找优先级：
+//  1. exe 同目录（便携模式：exe 直接放在 release/ 下）
+//  2. exe 直接上级目录（发布模式：exe 在 release/bin/ 下，配置在 release/）
+//
+// 不再向上查找多层，避免触及项目根目录（如 release/bin/ 向上 2 层会到达项目目录）。
+// 不再使用 %APPDATA%/douya 兜底，避免读写到用户目录。
 func resolveAppDir() string {
 	exePath, err := os.Executable()
 	if err != nil {
@@ -141,31 +151,15 @@ func resolveAppDir() string {
 	}
 	exeDir := filepath.Dir(exePath)
 
-	// 查找应用根目录的优先级：
-	// 1. 可执行文件同目录（便携模式 / 开发模式）
-	// 2. 可执行文件的上层目录（发布构建：exe 在 bin/ 下，资源在上层）
-	// 3. 用户数据目录（标准安装模式，如 %APPDATA%/douya）
+	// 候选目录：exe 同目录 + 直接上级目录（最多 2 个候选）
 	searchDirs := []string{exeDir}
-
-	// 向上查找最多 3 层（覆盖 release/bin/ → release/ 这类结构）
-	dir := exeDir
-	for range 3 {
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
+	parent := filepath.Dir(exeDir)
+	if parent != exeDir {
 		searchDirs = append(searchDirs, parent)
-		dir = parent
-	}
-
-	// 用户数据目录
-	if userDir, err := os.UserConfigDir(); err == nil {
-		searchDirs = append(searchDirs, filepath.Join(userDir, "douya"))
 	}
 
 	// 优先查找 config.json。
 	// 只要 config.json 能正常 JSON 解析就信任，不基于字段内容判断有效性。
-	// 之前基于 model_path 空值判断"默认配置"的逻辑已移除（DefaultConfig 的 ModelPath 本就是空字符串）。
 	isValidConfig := func(d string) bool {
 		cfgPath := filepath.Join(d, "config.json")
 		data, err := os.ReadFile(cfgPath)
@@ -189,7 +183,6 @@ func resolveAppDir() string {
 				return true // 解析失败时保守信任
 			}
 		}
-		// 只要 config.json 能正常解析就信任，不基于 model_path 判断
 		return true
 	}
 
@@ -197,7 +190,7 @@ func resolveAppDir() string {
 		cfgPath := filepath.Join(d, "config.json")
 		if _, err := os.Stat(cfgPath); err == nil {
 			if !isValidConfig(d) {
-				zlog.Info().Str("dir", d).Msg("[appDir] 跳过自动生成的默认配置")
+				zlog.Info().Str("dir", d).Msg("[appDir] 跳过无效配置文件")
 				continue
 			}
 			zlog.Info().Str("dir", d).Msg("[appDir] 找到配置文件目录")
@@ -218,14 +211,21 @@ func resolveAppDir() string {
 		}
 	}
 
-	// 均未找到，在可执行文件目录创建默认配置
-	zlog.Info().Str("dir", exeDir).Msg("[appDir] 未找到配置文件或资源目录，在可执行文件目录创建默认配置")
+	// 均未找到，在 exe 直接上级目录创建默认配置（发布模式：exe 在 bin/ 下，配置在上级）
+	// 如果 exe 没有上级目录（在根目录），则在 exe 同目录创建
+	targetDir := parent
+	if targetDir == exeDir {
+		targetDir = exeDir
+	}
+	zlog.Info().Str("dir", targetDir).Msg("[appDir] 未找到配置文件或资源目录，在上级目录创建默认配置")
 	defaultCfg := config.DefaultConfig()
-	cfgPath := filepath.Join(exeDir, "config.json")
+	cfgPath := filepath.Join(targetDir, "config.json")
 	if err := config.Save(cfgPath, defaultCfg); err != nil {
 		zlog.Error().Err(err).Msg("[appDir] 创建默认配置失败")
+		// 创建失败时回退到 exe 同目录
+		return exeDir
 	}
-	return exeDir
+	return targetDir
 }
 
 func resolvePath(p string) string {

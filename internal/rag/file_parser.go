@@ -156,18 +156,24 @@ var (
 	xmlTagRe       = regexp.MustCompile(`<[^>]+>`)
 	multiSpaceRe   = regexp.MustCompile(`[^\S\n]+`)
 	multiNewlineRe = regexp.MustCompile(`\n{3,}`)
+	// xmlEntityReplacer 一次性替换所有 XML 预定义实体，避免多次 strings.ReplaceAll 重复扫描整段字符串（QUAL-5）。
+	// Replacer 单趟扫描且不会对替换结果再次替换，符合 XML 实体解码语义（&amp;lt; 应解码为 &lt; 而非 <）。
+	xmlEntityReplacer = strings.NewReplacer(
+		"&amp;", "&",
+		"&lt;", "<",
+		"&gt;", ">",
+		"&quot;", "\"",
+		"&apos;", "'",
+		"&#10;", "\n",
+		"&#13;", "\r",
+		"&#9;", "\t",
+	)
 )
 
 func stripXMLTags(xml string) string {
+	// 先用正则去除标签（正则无法用 Replacer 替代），再用 Replacer 单次扫描解码所有实体
 	text := xmlTagRe.ReplaceAllString(xml, " ")
-	text = strings.ReplaceAll(text, "&amp;", "&")
-	text = strings.ReplaceAll(text, "&lt;", "<")
-	text = strings.ReplaceAll(text, "&gt;", ">")
-	text = strings.ReplaceAll(text, "&quot;", "\"")
-	text = strings.ReplaceAll(text, "&apos;", "'")
-	text = strings.ReplaceAll(text, "&#10;", "\n")
-	text = strings.ReplaceAll(text, "&#13;", "\r")
-	text = strings.ReplaceAll(text, "&#9;", "\t")
+	text = xmlEntityReplacer.Replace(text)
 	return text
 }
 

@@ -1,25 +1,27 @@
 package search
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"time"
 )
 
+// OllamaProvider 使用 Ollama API 的搜索 Provider。
+//
+// 通过嵌入 BaseHTTPSearchProvider 复用 "marshal 请求 → 鉴权 → doSearch → unmarshal" 通用流程，
+// 仅定义差异部分：搜索 URL、请求体字段、响应字段映射、HTTP 超时。
 type OllamaProvider struct {
-	BaseProvider
-	apiKey string
+	BaseHTTPSearchProvider
 }
 
 func NewOllamaProvider(apiKey string) *OllamaProvider {
 	return &OllamaProvider{
-		BaseProvider: BaseProvider{
-			httpClient: newSearchHTTPClient(20 * time.Second),
+		BaseHTTPSearchProvider: BaseHTTPSearchProvider{
+			BaseProvider: BaseProvider{
+				httpClient: newSearchHTTPClient(20 * time.Second),
+			},
+			apiKey: apiKey,
 		},
-		apiKey: apiKey,
 	}
 }
 
@@ -45,19 +47,6 @@ func (p *OllamaProvider) Search(ctx context.Context, query string) (*SearchRespo
 	}
 
 	reqBody := map[string]string{"query": query}
-	body, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("ollama marshal request: %w", err)
-	}
-
-	headers := map[string]string{
-		"Content-Type":  "application/json",
-		"Authorization": "Bearer " + p.apiKey,
-	}
-	respBody, err := p.doSearch(ctx, http.MethodPost, "https://ollama.com/api/web_search", bytes.NewReader(body), headers)
-	if err != nil {
-		return nil, fmt.Errorf("ollama: %w", err)
-	}
 
 	var result struct {
 		Results []struct {
@@ -66,8 +55,8 @@ func (p *OllamaProvider) Search(ctx context.Context, query string) (*SearchRespo
 			Content string `json:"content"`
 		} `json:"results"`
 	}
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("ollama unmarshal response: %w", err)
+	if err := p.doSearchJSON(ctx, "https://ollama.com/api/web_search", reqBody, &result); err != nil {
+		return nil, fmt.Errorf("ollama: %w", err)
 	}
 
 	searchResp := &SearchResponse{Engine: p.Name()}

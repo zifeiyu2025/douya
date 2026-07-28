@@ -111,6 +111,12 @@ func (a *App) SwitchBackend(bt string) error {
 	cfg := a.getConfig()
 	// 采用"复制→修改副本→替换指针"模式，避免直接修改 a.config 字段破坏快照语义
 	newCfg := *cfg
+	// 回退机制：把当前的后端类型存入 LastSuccessfulBackend（拍照片）。
+	// 下次启动时若新后端启动失败，会根据该字段恢复旧后端（按照片装回去）。
+	// 仅当新旧后端不同时才记录，避免重复切换写入相同值导致回退失效。
+	if cfg.BackendType != bt {
+		newCfg.LastSuccessfulBackend = cfg.BackendType
+	}
 	newCfg.BackendType = bt
 	if err := newCfg.Validate(); err != nil {
 		return fmt.Errorf("配置校验失败: %w", err)
@@ -124,15 +130,20 @@ func (a *App) SwitchBackend(bt string) error {
 		return fmt.Errorf("保存配置失败: %w", err)
 	}
 
+	if newCfg.LastSuccessfulBackend != "" {
+		zlog.Info().Str("from", newCfg.LastSuccessfulBackend).Str("to", bt).
+			Msg("[backend] 已记录旧后端，新后端启动失败时将自动回退")
+	}
+
 	// 步骤 3：如果选了具体后端（非 auto），确保后端已安装
 	if bt != string(llm.BackendAuto) {
 		runtimeDir := filepath.Join(appDir(), "runtime")
-		if _, err := llm.EnsureBackendInstalled(llm.BackendType(bt), runtimeDir); err != nil {
-			// 后端安装失败：不回滚配置（用户可手动再切换或重启应用）
-			// 但要推送错误状态让前端知道
+		if _, err := llm.EnsureBackendInstalled(llm.BackendType(bt), runtimeDir, nil); err != nil {
+			// M6 修复：后端安装失败时不推送 backend:switched 事件。
+			// 之前推送了 switched 事件，但此时 ConfigBackend 已改为新值，
+			// 前端会误以为切换成功。改为只返回 error，由前端 catch 处理失败提示，
+			// 并在前端刷新状态时通过 GetBackendStatus 重新获取真实状态。
 			zlog.Error().Err(err).Str("backend", bt).Msg("[backend] 后端安装失败")
-			status := a.GetBackendStatus()
-			wailsruntime.EventsEmit(a.ctx, "backend:switched", status)
 			return fmt.Errorf("后端 %s 安装失败: %w", bt, err)
 		}
 	}
@@ -144,4 +155,180 @@ func (a *App) SwitchBackend(bt string) error {
 
 	zlog.Info().Str("backend", bt).Msg("[backend] 显卡后端切换成功（需重启应用生效）")
 	return nil
+}
+
+// DownloadBackend 从 GitHub 下载指定后端的 zip 包并自动解压安装。
+//
+// 生活类比：驾驶员发现车上没装某款发动机，直接在仪表盘上点"下单购买"——
+// 应用自动从 GitHub 仓库下载对应后端，运到本地车库（runtime 目录），
+// 然后自动拆箱安装（解压）。全程通过事件推送进度，驾驶员只需等待。
+//
+// 该方法是异步的：立即返回 nil，下载和安装过程在后台 goroutine 中执行。
+// 下载进度通过 "backend:downloadProgress" 事件推送到前端，
+// 下载和安装完成后通过 "backend:downloadComplete" 事件通知前端。
+//
+// 参数：
+//   - bt: 后端类型字符串（cuda/hip/sycl/vulkan/openvino/cpu，不能是 auto）
+func (a *App) DownloadBackend(bt string) error {
+	// 步骤 1：校验后端类型合法性（auto 不可下载，需先解析成具体后端）
+	if !llm.IsValidBackendType(bt) || bt == string(llm.BackendAuto) {
+		return fmt.Errorf("无效的后端类型: %q（合法值: cuda/hip/sycl/vulkan/openvino/cpu）", bt)
+	}
+
+	zlog.Info().Str("backend", bt).Msg("[backend] 开始从 GitHub 下载后端")
+
+	// 步骤 2：异步下载+安装（goroutine），通过事件推送进度
+	go func() {
+		runtimeDir := filepath.Join(appDir(), "runtime")
+		backendType := llm.BackendType(bt)
+
+		// 下载 zip 包，进度通过事件推送
+		zipPath, err := llm.DownloadBackendZip(backendType, runtimeDir, func(p llm.DownloadProgress) {
+			wailsruntime.EventsEmit(a.ctx, "backend:downloadProgress", p)
+		})
+		if err != nil {
+			zlog.Error().Err(err).Str("backend", bt).Msg("[backend] 下载后端 zip 包失败")
+			// 推送失败进度
+			wailsruntime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+				Backend: backendType,
+				Status:  "failed",
+				Error:   err.Error(),
+			})
+			return
+		}
+
+		// 解压安装（推送按文件数的解压进度）
+		zlog.Info().Str("backend", bt).Str("zip", zipPath).Msg("[backend] 下载完成，开始解压安装")
+		wailsruntime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+			Backend:   backendType,
+			Status:    "installing",
+			Label:     "解压安装中",
+			Percent:   0,
+			AssetName: filepath.Base(zipPath),
+		})
+
+		serverPath, installErr := llm.EnsureBackendInstalled(backendType, runtimeDir, func(current, total int) {
+			percent := 0.0
+			if total > 0 {
+				percent = float64(current) / float64(total) * 100
+			}
+			wailsruntime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+				Backend: backendType,
+				Status:  "installing",
+				Label:   "解压安装中",
+				Percent: percent,
+			})
+		})
+
+		// 推送最终完成事件
+		completePayload := map[string]any{
+			"backend": bt,
+			"success": installErr == nil,
+		}
+		if installErr != nil {
+			completePayload["error"] = installErr.Error()
+		} else {
+			completePayload["server_path"] = serverPath
+		}
+		wailsruntime.EventsEmit(a.ctx, "backend:downloadComplete", completePayload)
+
+		// 推送 completed 状态的进度事件，让前端进度条更新到100%
+		if installErr == nil {
+			wailsruntime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+				Backend: backendType,
+				Status:  "completed",
+				Label:   "下载完成",
+				Percent: 100,
+			})
+		}
+
+		// 刷新后端状态并推送（更新已安装后端列表）
+		status := a.GetBackendStatus()
+		wailsruntime.EventsEmit(a.ctx, "backend:switched", status)
+
+		if installErr != nil {
+			zlog.Error().Err(installErr).Str("backend", bt).Msg("[backend] 解压安装失败")
+		} else {
+			zlog.Info().Str("backend", bt).Str("path", serverPath).Msg("[backend] 下载并安装完成")
+		}
+	}()
+
+	return nil
+}
+
+// tryRollbackBackend 在后端启动失败时尝试回退到上一次成功的后端配置。
+//
+// 生活类比：新发动机打不着火，按照之前拍的照片把旧发动机装回去。
+//
+// 触发条件（同时满足才回退）：
+//  1. LastSuccessfulBackend 非空（说明用户切换过后端，备份存在）
+//  2. LastSuccessfulBackend 是合法后端类型
+//  3. LastSuccessfulBackend 与当前 BackendType 不同（否则回退无意义）
+//
+// 回退行为：
+//  - 将 BackendType 恢复为 LastSuccessfulBackend
+//  - 清空 LastSuccessfulBackend（避免下次启动再次回退，形成死循环）
+//  - 持久化到磁盘
+//  - 返回 true 表示已执行回退，调用方应退出应用让用户重启
+//
+// 返回 false 表示未执行回退（无备份或不满足条件），调用方按原错误流程处理。
+func (a *App) tryRollbackBackend() bool {
+	cfg := a.getConfig()
+	prev := cfg.LastSuccessfulBackend
+	if prev == "" {
+		return false
+	}
+	if !llm.IsValidBackendType(prev) {
+		zlog.Warn().Str("prev", prev).Msg("[backend-rollback] 备份后端类型非法，放弃回退")
+		return false
+	}
+	if prev == cfg.BackendType {
+		// 新旧相同说明已回退过一次，清空备份避免循环
+		zlog.Warn().Msg("[backend-rollback] 备份与当前后端相同，清空备份")
+		a.clearBackendRollback()
+		return false
+	}
+
+	zlog.Warn().Str("from", cfg.BackendType).Str("to", prev).
+		Msg("[backend-rollback] 检测到启动失败，回退到上一次成功的后端")
+
+	// 恢复旧后端配置，并清空 LastSuccessfulBackend（避免下次启动再次回退）
+	newCfg := *cfg
+	newCfg.BackendType = prev
+	newCfg.LastSuccessfulBackend = ""
+	if err := newCfg.Validate(); err != nil {
+		zlog.Error().Err(err).Msg("[backend-rollback] 配置校验失败，放弃回退")
+		return false
+	}
+	a.setConfig(&newCfg)
+
+	cfgPath := filepath.Join(appDir(), "config.json")
+	if err := config.Save(cfgPath, &newCfg); err != nil {
+		zlog.Error().Err(err).Msg("[backend-rollback] 保存回退配置失败")
+		return false
+	}
+
+	zlog.Info().Str("backend", prev).Msg("[backend-rollback] 配置已回退，需重启应用生效")
+	return true
+}
+
+// clearBackendRollback 清空 LastSuccessfulBackend 字段（启动成功后调用）。
+//
+// 生活类比：新发动机成功打着火了，之前拍的照片就可以撕掉了，
+// 避免下次正常启动时被误判为"需要回退"。
+func (a *App) clearBackendRollback() {
+	cfg := a.getConfig()
+	if cfg.LastSuccessfulBackend == "" {
+		return
+	}
+	newCfg := *cfg
+	newCfg.LastSuccessfulBackend = ""
+	a.setConfig(&newCfg)
+
+	cfgPath := filepath.Join(appDir(), "config.json")
+	if err := config.Save(cfgPath, &newCfg); err != nil {
+		zlog.Warn().Err(err).Msg("[backend] 清空回退备份失败（不影响运行）")
+	} else {
+		zlog.Info().Msg("[backend] 新后端启动成功，已清空回退备份")
+	}
 }

@@ -16,12 +16,13 @@ import (
 // BM25Index 实现轻量级 BM25 关键词检索
 // 用于与向量检索混合，提升精确关键词匹配的召回率
 type BM25Index struct {
-	documents []bm25Doc          // 文档集合
-	avgDL     float64            // 平均文档长度
-	k1        float64            // 词频饱和参数（默认 1.5）
-	b         float64            // 文档长度归一化参数（默认 0.75）
-	idf       map[string]float64 // 逆文档频率
-	mu        sync.RWMutex       // 保护 documents/avgDL/idf 的并发读写
+	documents     []bm25Doc          // 文档集合
+	avgDL         float64            // 平均文档长度
+	k1            float64            // 词频饱和参数（默认 1.5）
+	b             float64            // 文档长度归一化参数（默认 0.75）
+	idf           map[string]float64 // 逆文档频率
+	invertedIndex map[string]map[int]bool // 倒排索引：token -> 文档在 documents 数组中的索引集合
+	mu            sync.RWMutex       // 保护 documents/avgDL/idf/invertedIndex 的并发读写
 }
 
 type bm25Doc struct {
@@ -34,9 +35,10 @@ type bm25Doc struct {
 // NewBM25Index 创建空的 BM25 索引
 func NewBM25Index() *BM25Index {
 	return &BM25Index{
-		k1:  1.5,
-		b:   0.75,
-		idf: make(map[string]float64),
+		k1:            1.5,
+		b:             0.75,
+		idf:           make(map[string]float64),
+		invertedIndex: make(map[string]map[int]bool),
 	}
 }
 
@@ -78,6 +80,67 @@ func tokenize(text string) []string {
 	return tokens
 }
 
+// addToInvertedIndex 将单个文档的所有 token 加入倒排索引
+// 调用前提：已持有 idx.mu 写锁
+// docIdx 是文档在 idx.documents 中的索引位置
+// 同一文档的相同 token 只记录一次（用 seen 去重，与 recomputeIDF 的 df 计算口径一致）
+func (idx *BM25Index) addToInvertedIndex(docIdx int, tokens []string) {
+	seen := make(map[string]bool, len(tokens))
+	for _, t := range tokens {
+		if seen[t] {
+			continue
+		}
+		seen[t] = true
+		if idx.invertedIndex[t] == nil {
+			idx.invertedIndex[t] = make(map[int]bool)
+		}
+		idx.invertedIndex[t][docIdx] = true
+	}
+}
+
+// rebuildInvertedIndex 整体重建倒排索引
+// 在删除文档导致 documents 数组重排时调用：删除会让文档索引位置变化，
+// 增量维护既容易出错又复杂，整体重建是简洁安全的做法
+// 调用前提：已持有 idx.mu 写锁
+// 生活类比：抽屉里的卡片位置全乱了，与其一张一张挪（容易漏掉），
+// 不如全部倒出来按当前顺序重新插一遍
+func (idx *BM25Index) rebuildInvertedIndex() {
+	idx.invertedIndex = make(map[string]map[int]bool)
+	for i, doc := range idx.documents {
+		idx.addToInvertedIndex(i, doc.tokens)
+	}
+}
+
+// collectCandidates 通过倒排索引收集候选文档索引集合
+// 对所有 query token 求并集，返回去重后的候选文档索引列表
+// 兼容性回退：若倒排索引为空但 documents 不为空（理论上不应发生，但防御旧数据），
+// 退化为全文档扫描，保证正确性
+func (idx *BM25Index) collectCandidates(queryTokens []string) []int {
+	// 回退：倒排索引为空但 documents 不为空
+	if len(idx.invertedIndex) == 0 && len(idx.documents) > 0 {
+		all := make([]int, len(idx.documents))
+		for i := range idx.documents {
+			all[i] = i
+		}
+		return all
+	}
+	seen := make(map[int]bool)
+	var candidates []int
+	for _, qt := range queryTokens {
+		docs, ok := idx.invertedIndex[qt]
+		if !ok {
+			continue
+		}
+		for docIdx := range docs {
+			if !seen[docIdx] {
+				seen[docIdx] = true
+				candidates = append(candidates, docIdx)
+			}
+		}
+	}
+	return candidates
+}
+
 // recomputeAvgDLAndIDF 重新计算 avgDL 和 IDF
 // 安全实践（基于 B-1.22/B-1.23）：统一 AddDocument/AddDocuments/RemoveByPrefix/RemoveDocument/RemoveDocuments
 // 五处重复的 avgDL 重算逻辑，避免维护时漏改某处导致数据不一致
@@ -113,6 +176,8 @@ func (idx *BM25Index) AddDocument(id string, text string) {
 		tf:     tf,
 		dl:     len(tokens),
 	})
+	// 增量更新倒排索引：新文档索引为 len-1
+	idx.addToInvertedIndex(len(idx.documents)-1, tokens)
 
 	// 重算 avgDL 和 IDF（统一调用 recomputeAvgDLAndIDF）
 	idx.recomputeAvgDLAndIDF()
@@ -146,6 +211,8 @@ func (idx *BM25Index) AddDocuments(docs []BM25DocInput) {
 			tf:     tf,
 			dl:     len(tokens),
 		})
+		// 增量更新倒排索引：新文档索引为 len-1
+		idx.addToInvertedIndex(len(idx.documents)-1, tokens)
 	}
 
 	// 单次重算 avgDL 和 IDF（统一调用 recomputeAvgDLAndIDF）
@@ -178,6 +245,8 @@ func (idx *BM25Index) RemoveByPrefix(prefix string) int {
 	if removed > 0 {
 		// 重算 avgDL 和 IDF（统一调用 recomputeAvgDLAndIDF）
 		idx.recomputeAvgDLAndIDF()
+		// 原地复用底层数组使文档索引重排，整体重建倒排索引以保持一致
+		idx.rebuildInvertedIndex()
 	}
 	return removed
 }
@@ -198,6 +267,8 @@ func (idx *BM25Index) RemoveDocument(id string) bool {
 			idx.documents = append(idx.documents[:i], idx.documents[i+1:]...)
 			// 重算 avgDL 和 IDF（统一调用 recomputeAvgDLAndIDF）
 			idx.recomputeAvgDLAndIDF()
+			// splice 删除会使 i 之后的文档索引前移，整体重建倒排索引以保持一致
+			idx.rebuildInvertedIndex()
 			return true
 		}
 	}
@@ -228,11 +299,16 @@ func (idx *BM25Index) RemoveDocuments(idSet map[string]bool) int {
 	if removed > 0 {
 		// 重算 avgDL 和 IDF（统一调用 recomputeAvgDLAndIDF）
 		idx.recomputeAvgDLAndIDF()
+		// 原地复用底层数组使文档索引重排，整体重建倒排索引以保持一致
+		idx.rebuildInvertedIndex()
 	}
 	return removed
 }
 
 // recomputeIDF 重新计算所有词的 IDF
+// 重建 map 而非增量更新：避免已删除文档的词残留导致 idf map 持续增长（内存泄漏）
+// 生活类比：与其在一本旧通讯录上涂涂改改（删除条目后空白页仍占地方），
+// 不如直接拿一本新本子重新抄写当前还在用的联系人——彻底回收旧空间
 func (idx *BM25Index) recomputeIDF() {
 	n := float64(len(idx.documents))
 	df := make(map[string]int) // 文档频率
@@ -246,14 +322,24 @@ func (idx *BM25Index) recomputeIDF() {
 		}
 	}
 
+	// 重建 idf map，仅包含当前 df 中存在的词，彻底清除已删除文档的历史词条目
+	newIDF := make(map[string]float64, len(df))
 	for t, freq := range df {
 		// 使用 log(1 + ...) 形式的 IDF，保证始终为正
 		// 避免高频词在文档数较少时 IDF 为负导致所有得分为 0
-		idx.idf[t] = math.Log(1 + (n-float64(freq)+0.5)/(float64(freq)+0.5))
+		newIDF[t] = math.Log(1 + (n-float64(freq)+0.5)/(float64(freq)+0.5))
 	}
+	idx.idf = newIDF
 }
 
 // Search 使用 BM25 算法检索与查询最相关的 topK 个文档
+//
+// 性能优化（PERF-4）：通过倒排索引收集候选文档集合，只对包含任一 query token 的文档
+// 计算 BM25 分数，避免遍历全部文档。文档量大时（>1万 chunk）显著降低检索延迟。
+// 复杂度：原 O(文档数 × 查询token数) → 现 O(候选文档数 × 查询token数)
+// 候选文档数通常远小于总文档数（仅命中查询词的文档）
+//
+// 兼容性：若倒排索引为空但 documents 不为空（旧数据），collectCandidates 会回退到全文档扫描
 func (idx *BM25Index) Search(query string, topK int) []BM25Result {
 	if topK <= 0 {
 		topK = 10
@@ -265,9 +351,12 @@ func (idx *BM25Index) Search(query string, topK int) []BM25Result {
 	}
 
 	queryTokens := tokenize(query)
-	scores := make(map[string]float64)
+	// 通过倒排索引收集候选文档索引（仅包含至少一个 query token 的文档）
+	candidateIdxs := idx.collectCandidates(queryTokens)
+	scores := make(map[string]float64, len(candidateIdxs))
 
-	for _, doc := range idx.documents {
+	for _, docIdx := range candidateIdxs {
+		doc := idx.documents[docIdx]
 		var score float64
 		for _, qt := range queryTokens {
 			tf := float64(doc.tf[qt])
@@ -322,6 +411,10 @@ type HybridSearchResult struct {
 // HybridSearch 执行混合检索：向量检索 + BM25 关键词检索，RRF 融合
 // ctx 用于传播取消信号到向量检索
 func (vs *VectorStore) HybridSearch(ctx context.Context, collection string, query []float64, queryText string, topK int, minScore float64) ([]HybridSearchResult, error) {
+	// 任务 5：Close 后 getOrCreateBM25 会因 nil map 写入 panic，Search 也会返回 ErrClosed。
+	if vs.closed.Load() {
+		return nil, ErrClosed
+	}
 	log.Info().
 		Str("collection", collection).
 		Int("topK", topK).

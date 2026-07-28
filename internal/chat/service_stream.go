@@ -254,6 +254,7 @@ type StreamAccumulator struct {
 	OnPromptProgress           func(progress llm.SSEPromptProgress) // 当收到 prompt_progress 数据时的回调
 	TokenBuf                   strings.Builder                      // token 批量化累积缓冲（减少 IPC 频率）
 	LastTokenEmit              time.Time                            // 上次 token 发射时间（用于时间触发 flush）
+	FirstTokenSent             bool                                 // 首 token 是否已发送（避免首个 chunk 经 UTF8 处理后为空时误判为首 token）
 }
 
 // 流式响应缓冲区最大大小（10MB）
@@ -393,8 +394,11 @@ func (a *StreamAccumulator) callback() func(llm.SSEChunk) error {
 // 首 token 立即发送（消除首字延迟）；后续累积到 tokenBatchSize 字符或 tokenBatchInterval 间隔再发射
 // 减少高频 IPC 跨进程调用，避免长内容时前端 IPC 队列积压
 func (a *StreamAccumulator) emitTokenBatched(fixed string) {
-	// 首 token：FullContent 刚写入，长度等于本次 fixed 长度（首字延迟是用户感知最强的卡顿源，不降频）
-	if a.FullContent.Len() == len(fixed) {
+	// 首 token：未发送过且本次有非空内容时立即发送（首字延迟是用户感知最强的卡顿源，不降频）
+	// 用 FirstTokenSent 标志替代 FullContent.Len()==len(fixed) 判断：
+	// 后者在首个 chunk 经 UTF8 处理后为空时会误判（FullContent.Len()=0==len(fixed)=0），导致发送空 token
+	if !a.FirstTokenSent && fixed != "" {
+		a.FirstTokenSent = true
 		a.EmitForConvFn(a.ConvID, "token", fixed)
 		a.LastTokenEmit = time.Now()
 		return
@@ -446,6 +450,7 @@ func (a *StreamAccumulator) resetForNextCall() {
 	a.FullContent.Reset()
 	a.TokenBuf.Reset()       // L5 修复：重置 token 缓冲，避免异常中断后的残留影响下一轮首 token 判断
 	a.LastTokenEmit = time.Time{} // L5 修复：重置发射时间，避免下一轮 time.Since 偏大提前触发批量发送
+	a.FirstTokenSent = false      // 重置首 token 标志，确保下一轮首 token 仍能立即发送
 	a.FinishReason = ""
 	a.ToolCallMap = make(map[int]*llm.ToolCall)
 	a.PendingBytes = ""
@@ -770,8 +775,13 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 			// M7: 裁剪移到 buildLLMMessages 内部，根据剩余 token 预算动态裁剪
 		} else {
 			s.emitForConv(convID, "search_result", []search.SearchResult{})
+			// 搜索失败时把实际原因通过 search_error 事件推给前端，让用户看到具体问题
+			// （之前只 log.Info，用户看到"正在搜索..."消失后没有任何提示）
 			if searchResp != nil && searchResp.Error != "" && len(searchResp.Results) == 0 {
 				log.Info().Str("error", searchResp.Error).Msg("[search] 搜索未返回结果")
+				if hint := formatSearchErrorHint(searchResp.Error); hint != "" {
+					s.emitForConv(convID, EventSearchError, hint)
+				}
 			}
 		}
 	}

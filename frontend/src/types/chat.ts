@@ -90,6 +90,12 @@ export interface SearchResultEvent extends StreamEventBase {
   content: { tool_call_id: string; results: SearchResult[] } | SearchResult[]
 }
 
+/** 搜索失败（content 为用户友好的错误提示字符串） */
+export interface SearchErrorEvent extends StreamEventBase {
+  type: 'search_error'
+  content: string
+}
+
 /** 生成速度（content 为速度统计） */
 export interface TokenSpeedEvent extends StreamEventBase {
   type: 'token_speed'
@@ -187,6 +193,7 @@ export type StreamEvent =
   | ToolCallStartEvent
   | SearchStartEvent
   | SearchResultEvent
+  | SearchErrorEvent
   | TokenSpeedEvent
   | PromptProgressEvent
   | ContextTrimmedEvent
@@ -684,6 +691,7 @@ export interface ConvStreamingState {
   thinkingStartTime: number
   thinkingDuration: number
   searchQuery: string
+  searchError: string // 搜索失败的友好错误提示（空字符串表示无错误）
   contextTrimmed: {
     reason: string
     promptTokens?: number

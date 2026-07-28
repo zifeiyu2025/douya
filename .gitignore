@@ -14,6 +14,7 @@ frontend/dist/
 data/
 config.json
 router-preset.ini
+mcp_servers.json
 
 # Runtime binaries (keep structure txt files)
 runtime/*.exe
@@ -44,6 +45,12 @@ Thumbs.db
 coverage
 *_cov
 cover.txt
+cover_*
+coverage_*
+tests/**/bing_network_summary.txt
+tests/config/go_default_config.json
+tests/screenshots/*.png
+!tests/screenshots/home.png
 
 # Misc
 *.md5

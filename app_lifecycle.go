@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"douya/internal/chat"
 	"douya/internal/config"
@@ -31,12 +33,69 @@ func (a *App) startup(ctx context.Context) {
 	// 必须在任何 trackedGo 调用之前完成初始化。
 	a.rootCtx, a.rootCancel = context.WithCancel(context.Background())
 
+	a.cleanupOrphanProcesses()
+	a.initHardware()
+
+	cfgPath, err := a.loadAndValidateConfig(ctx)
+	if err != nil {
+		a.forceQuit()
+		return
+	}
+
+	runtimeDir, _ := a.ensureDirectories()
+
+	if a.installBackend(ctx, runtimeDir) {
+		return
+	}
+
+	a.handleMissingModels(ctx)
+
+	dbPath := filepath.Join(appDir(), "data", "douya.db")
+
+	if err := a.loadSecrets(ctx); err != nil {
+		a.forceQuit()
+		return
+	}
+
+	if err := a.initDatabase(ctx, dbPath); err != nil {
+		a.forceQuit()
+		return
+	}
+
+	// 提前创建 chat.Service（用 nil client/searchChain 占位），供后续 getServerAPIKey /
+	// buildSearchChain 等通过 service 访问 settings，避免 App 层直接 import store（QUAL-3）。
+	// 后续 UpdateClient / UpdateSearchChain 会填充真实依赖。
+	a.service = chat.NewService(nil, nil, a.db, a.getConfig(), secrets.NewCipher(a.encKey), appDir())
+	a.service.SetContext(ctx)
+
+	a.migrateSearchEngines(cfgPath)
+
+	a.buildService(ctx)
+
+	a.cleanupOrphanSessions(ctx)
+
+	// startServerAndWatch 是一次性启动流程（同步执行模型检测/加载后返回），
+	// 内部会通过 trackedGo 启动 watcher/health 等长生命周期 goroutine。
+	// 此处不直接 trackedGo：它使用 Wails ctx 而非 rootCtx，且 shutdown 不必等待模型加载完成。
+	go a.startServerAndWatch(a.server, ctx)
+}
+
+// ===== startup 子函数：将原超长 startup 拆分为职责单一的子函数 =====
+
+// cleanupOrphanProcesses 清理上次进程残留的孤儿 llama-server。
+// 生活类比：开店前先清理前一天遗留的垃圾，避免影响今天的运营。
+func (a *App) cleanupOrphanProcesses() {
 	llm.KillOrphanLlamaServers()
+}
 
+// initHardware 检测硬件信息（CPU/GPU/内存等），供后续选择推理后端使用。
+func (a *App) initHardware() {
 	a.hwInfo = system.DetectHardware()
+}
 
-	var err error
-
+// loadAndValidateConfig 加载配置文件，失败时弹窗提示并返回 error。
+// 返回 cfgPath 供后续迁移使用，配置已通过 setConfig 缓存到 App。
+func (a *App) loadAndValidateConfig(ctx context.Context) (string, error) {
 	cfgPath := filepath.Join(appDir(), "config.json")
 	loadedCfg, err := config.Load(cfgPath)
 	if err != nil {
@@ -46,27 +105,44 @@ func (a *App) startup(ctx context.Context) {
 			Title:   "配置加载失败",
 			Message: fmt.Sprintf("加载配置文件失败: %v", err),
 		})
-		// startup 中的 return 只会结束启动函数，必须主动退出应用。
-		// 见 forceQuit 注释：需先设置 exiting 标志绕过 beforeClose 拦截，再退出 Wails + 托盘。
-		a.forceQuit()
-		return
+		return "", err
 	}
 	a.setConfig(loadedCfg)
+	return cfgPath, nil
+}
 
-	// 解析后端类型并确保后端已安装（在 validatePaths 之前完成，供其校验 DLL）。
-	// 生活类比：提车前先确定用什么发动机，并确保发动机已装好，然后再检查零件是否齐全。
-	// 流程：
-	//   1. 根据硬件和配置解析 auto 为具体后端（如 cuda/hip/cpu）
-	//   2. EnsureBackendInstalled 确保后端已解压到 runtime 目录（幂等：已安装则直接返回路径）
-	//   3. 如果安装失败，尝试回退到 CPU 后端
-	//   4. 将解析结果缓存到 App 结构体，供 validatePaths 和 buildServerConfig 复用
-	runtimeDir := filepath.Join(appDir(), "runtime")
-	resolvedBackend := llm.ResolveBackendType(a.hwInfo, loadedCfg.BackendType)
-	serverPath, err := llm.EnsureBackendInstalled(resolvedBackend, runtimeDir)
+// ensureDirectories 确保 models 和 runtime 目录存在（不存在则自动创建）。
+// 返回 runtimeDir 和 modelsDir 路径，供后续流程使用。
+// 生活类比：开门营业前先确保仓库（runtime）和展厅（models）建好，
+// 即使是空仓也能让后续流程正常运转（后端按需下载、模型稍后放入）。
+func (a *App) ensureDirectories() (runtimeDir, modelsDir string) {
+	runtimeDir = filepath.Join(appDir(), "runtime")
+	modelsDir = filepath.Join(appDir(), "models")
+	for _, dir := range []string{runtimeDir, modelsDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			zlog.Warn().Err(err).Str("dir", dir).Msg("[startup] 创建目录失败")
+		}
+	}
+	return
+}
+
+// installBackend 解析并安装推理后端，处理 runtime 缺失时的下载弹窗。
+// 返回 shouldReturn：true 表示 startup 应直接返回（用户取消下载或已触发异步下载）。
+//
+// 流程：
+//  1. 根据硬件和配置解析 auto 为具体后端（如 cuda/hip/cpu）
+//  2. EnsureBackendInstalled 确保后端已解压到 runtime 目录（幂等：已安装则直接返回路径）
+//  3. 如果安装失败，尝试回退到 CPU 后端
+//  4. 将解析结果缓存到 App 结构体，供 validatePaths 和 buildServerConfig 复用
+//  5. 若 runtime 缺失，弹窗询问用户是否下载；用户选「是」则异步下载并返回 true
+func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
+	cfg := a.getConfig()
+	resolvedBackend := llm.ResolveBackendType(a.hwInfo, cfg.BackendType)
+	serverPath, err := llm.EnsureBackendInstalled(resolvedBackend, runtimeDir, nil)
 	if err != nil {
 		zlog.Warn().Err(err).Str("backend", resolvedBackend.String()).Msg("[startup] 后端安装失败，尝试回退到 CPU")
 		if resolvedBackend != llm.BackendCPU {
-			fallbackPath, cpuErr := llm.EnsureBackendInstalled(llm.BackendCPU, runtimeDir)
+			fallbackPath, cpuErr := llm.EnsureBackendInstalled(llm.BackendCPU, runtimeDir, nil)
 			if cpuErr != nil {
 				// CPU 后端也失败：不终止启动，validatePaths 会报告缺失文件
 				zlog.Error().Err(cpuErr).Msg("[startup] CPU 后端也安装失败，validatePaths 将报告缺失文件")
@@ -76,115 +152,170 @@ func (a *App) startup(ctx context.Context) {
 			}
 		}
 	}
+
 	a.resolvedBackend = resolvedBackend
 	a.resolvedServerPath = serverPath
 
-	if checkResult := a.validatePaths(); checkResult.HasRuntimeIssues() || checkResult.HasModelIssues() {
-		// ===== 分层提示：runtime 问题（致命）和 models 问题（警告）分开处理 =====
-
-		// 1. runtime 目录不完整 —— 致命错误，必须终止启动
-		if checkResult.HasRuntimeIssues() {
-			var msg strings.Builder
-			msg.WriteString("⚠️ AI 推理引擎（runtime 目录）不完整，无法启动应用。\n\n")
-			msg.WriteString("缺失的文件：\n")
-			for _, p := range checkResult.RuntimeMissing {
-				msg.WriteString("  ❌ ")
-				msg.WriteString(p)
-				msg.WriteString("\n")
-			}
-			msg.WriteString("\n")
-			msg.WriteString("【这是什么】\n")
-			msg.WriteString("runtime 目录包含 AI 推理引擎（llama-server.exe）和配套的 DLL 动态库，\n")
-			msg.WriteString("是应用运行的核心依赖。基础发布包已内置 CPU 和 Vulkan 后端（位于 runtime/cpu/\n")
-			msg.WriteString("和 runtime/vulkan/），应用启动时会自动解压；若检测到 NVIDIA/AMD/Intel 显卡，\n")
-			msg.WriteString("还会自动从 runtime/ 中的对应 zip 包解压厂商后端（CUDA/HIP/SYCL 等）。\n\n")
-			msg.WriteString("【如何修复】\n")
-			msg.WriteString("1. 当前缺失的是基础后端核心文件，请重新下载完整的官方发布包：\n")
-			msg.WriteString("   https://github.com/ggml-org/llama.cpp/releases\n")
-			msg.WriteString("   下载对应显卡的后端版本（如 llama-bXXXX-bin-win-cuda-cu13.x.zip）\n")
-			msg.WriteString("2. 如果只是厂商后端（CUDA/HIP/SYCL 等）zip 包缺失，可继续使用内置的\n")
-			msg.WriteString("   CPU/Vulkan 后端（降级模式），或手动下载对应 zip 包放入 runtime/ 目录，\n")
-			msg.WriteString("   重启应用后会自动解压启用。\n")
-			msg.WriteString("3. 完整的 runtime 目录应包含：\n")
-			msg.WriteString("   - llama-server.exe + llama.dll / ggml.dll 等（核心引擎库）\n")
-			msg.WriteString("   - cpu/ 和 vulkan/ 子目录（基础后端，已解压）\n")
-			msg.WriteString("   - 各厂商 zip 包（cuda/hip/sycl 等，按需解压）\n\n")
-			fmt.Fprintf(&msg, "【应用根目录】\n%s", appDir())
-
-			zlog.Error().Strs("runtime_missing", checkResult.RuntimeMissing).Msg("[startup] runtime incomplete, aborting")
-			_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-				Type:    runtime.ErrorDialog,
-				Title:   "AI 推理引擎不完整",
-				Message: msg.String(),
-			})
-			// 通知前端启动失败
-			runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
-				Running:    false,
-				ModelReady: false,
-				Error:      "runtime 目录不完整，请检查 AI 推理引擎文件",
-			})
-			// startup 中的 return 只会结束启动函数，必须主动退出应用。
-			// 见 forceQuit 注释：需先设置 exiting 标志绕过 beforeClose 拦截，再退出 Wails + 托盘。
-			a.forceQuit()
-			return
-		}
-
-		// 2. models 目录为空或不存在 —— 致命错误，必须终止启动
-		// 生活类比：车没有引擎再豪华也跑不起来——模型文件就是 AI 的引擎，
-		// 缺了它应用启动了也没意义，不如直接停在车库里等用户把引擎装好。
-		if checkResult.HasModelIssues() {
-			var msg strings.Builder
-			msg.WriteString("⚠️ 模型目录为空，无法启动应用。\n\n")
-			if checkResult.ModelsDirMissing {
-				fmt.Fprintf(&msg, "模型目录不存在：%s\n", checkResult.ModelsDir)
-			} else {
-				fmt.Fprintf(&msg, "模型目录：%s\n", checkResult.ModelsDir)
-				msg.WriteString("该目录下未找到任何 .gguf 模型文件。\n")
-			}
-			msg.WriteString("\n")
-			msg.WriteString("【这是什么】\n")
-			msg.WriteString("模型文件（.gguf）是 AI 的「大脑」，没有模型文件应用无法进行对话。\n")
-			msg.WriteString("应用本身不内置模型，需要您自行下载。\n\n")
-			msg.WriteString("【如何获取模型】\n")
-			msg.WriteString("1. 访问 HuggingFace 搜索 GGUF 格式的模型：\n")
-			msg.WriteString("   https://huggingface.co/models?other=gguf\n")
-			msg.WriteString("2. 推荐的入门模型（Q4_K_M 量化，平衡速度与效果）：\n")
-			msg.WriteString("   - Qwen3-8B（通义千问，中文友好）\n")
-			msg.WriteString("   - Gemma-3-4B（轻量，适合低配机器）\n")
-			msg.WriteString("3. 下载 .gguf 文件后放入上面的模型目录\n")
-			msg.WriteString("4. 重新启动应用，在顶部模型下拉框选择刚放入的模型\n\n")
-			msg.WriteString("【提示】\n")
-			msg.WriteString("点击「确定」后应用将退出，请按上述步骤准备好模型文件后再次启动。")
-
-			zlog.Error().Str("models_dir", checkResult.ModelsDir).
-				Bool("dir_missing", checkResult.ModelsDirMissing).
-				Bool("empty", checkResult.ModelsEmpty).
-				Msg("[startup] models directory empty, aborting")
-			_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-				Type:    runtime.ErrorDialog,
-				Title:   "模型目录为空，无法启动应用",
-				Message: msg.String(),
-			})
-			// 通知前端启动失败
-			runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
-				Running:    false,
-				ModelReady: false,
-				Error:      "模型目录为空，请下载 .gguf 模型文件后放入 models 目录",
-			})
-			// startup 中的 return 只会结束启动函数，必须主动退出应用。
-			// 见 forceQuit 注释：需先设置 exiting 标志绕过 beforeClose 拦截，再退出 Wails + 托盘。
-			a.forceQuit()
-			return
+	// CUDA 后端：确保 cudart 包也已解压（幂等）
+	// 主包已安装但 cudart 包未解压时，validatePaths 会检测到厂商 DLL 缺失，
+	// 导致无限提示下载。此处主动解压已有的 cudart zip 包，避免重复下载。
+	// 生活类比：电脑装好了但外设配件包还没拆，开机前先把配件包装好。
+	if resolvedBackend == llm.BackendCUDA && serverPath != "" {
+		if cudartErr := llm.EnsureCudartInstalled(runtimeDir, nil); cudartErr != nil {
+			zlog.Warn().Err(cudartErr).Msg("[startup] cudart 包未安装，validatePaths 将报告缺失")
 		}
 	}
 
-	dbPath := filepath.Join(appDir(), "data", "douya.db")
+	// ===== 统一 runtime 完整性检测（合并原两处弹窗为一个） =====
+	// 原逻辑中存在两处弹窗：serverPath 为空时弹一次，validatePaths 报告缺失时再弹一次。
+	// 现合并为单次弹窗：只要 serverPath 为空 或 validatePaths 报告 runtime 缺失，统一询问用户。
+	// 生活类比：提车前只做一次全面检查，发现问题一次性告知，不会先问"发动机没装要不要装"，
+	// 紧接着又问"变速箱也缺要不要买"——那样会让顾客被反复打断。
+	checkResult := a.validatePaths()
+	needDownload := serverPath == "" || checkResult.HasRuntimeIssues()
 
-	// 加载加密密钥，用于对话内容和 API Key 等敏感数据的加密存储
-	// 注意：若密钥文件已损坏（长度不为 32 字节），LoadOrCreateKey 会返回错误而不是静默覆盖，
-	// 因为覆盖会导致所有用旧密钥加密的历史数据永久无法解密。此时必须阻止启动，由用户手动处理。
+	if !needDownload {
+		return false
+	}
+
+	info := llm.GetBackendInfo(resolvedBackend)
+	gpuName := "未知"
+	if a.hwInfo != nil && a.hwInfo.GPUName != "" {
+		gpuName = a.hwInfo.GPUName
+	}
+
+	// 构造缺失文件清单：validatePaths 有结果时用其清单，否则用通用提示
+	var missingMsg strings.Builder
+	if checkResult.HasRuntimeIssues() {
+		for _, p := range checkResult.RuntimeMissing {
+			missingMsg.WriteString("  ❌ ")
+			missingMsg.WriteString(p)
+			missingMsg.WriteString("\n")
+		}
+	} else {
+		missingMsg.WriteString("  ❌ 推理引擎（llama-server.exe）及依赖文件缺失\n")
+	}
+
+	askMsg := fmt.Sprintf(
+		"检测到您的显卡：%s\n"+
+			"推荐后端：%s\n\n"+
+			"runtime 目录缺少以下文件：\n%s\n"+
+			"是否从 GitHub 自动下载并安装？\n"+
+			"（来源：https://github.com/ggml-org/llama.cpp/releases）\n\n"+
+			"点击「是」将在启动界面显示下载进度，完成后自动重启应用。\n"+
+			"点击「否」将直接退出应用。",
+		gpuName, info.DisplayName, missingMsg.String())
+
+	dlResult, _ := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+		Type:    runtime.QuestionDialog,
+		Title:   "缺少推理后端，是否下载？",
+		Message: askMsg,
+		Buttons: []string{"是", "否"},
+	})
+
+	// 记录返回值用于调试（Wails MessageDialog 在不同 Windows 版本下返回值可能有编码差异）
+	zlog.Info().Str("dlResult", dlResult).Msg("[startup] MessageDialog 返回值")
+
+	// Windows 上 QuestionDialog 默认显示"是/否"按钮：
+	//   - 点"是" → 下载（默认行为，也兼容"Yes"、"下载"等返回值）
+	//   - 点"否" → 退出（明确匹配"否"、"No"、"退出"等）
+	// 逻辑采用"白名单退出"：只有明确选择否定意图才退出，避免编码不匹配导致误退出
+	if dlResult == "否" || dlResult == "No" || dlResult == "退出" || dlResult == "Cancel" {
+		zlog.Info().Msg("[startup] 用户取消下载，退出应用")
+		a.forceQuit()
+		return true
+	}
+
+	// 用户选择「是」：异步下载+安装（带重试 3 次），startup 直接返回
+	// 下载进度通过事件推送到前端，在启动动效中展示
+	zlog.Info().Str("backend", resolvedBackend.String()).Msg("[startup] 用户选择从 GitHub 下载后端")
+
+	// 通知前端进入下载阶段（splashScreen 将切换到 downloading 阶段并显示进度条）
+	runtime.EventsEmit(ctx, "backend:downloadStart", map[string]any{
+		"backend": resolvedBackend.String(),
+		"name":    info.DisplayName,
+	})
+
+	a.resolvedBackend = resolvedBackend
+	a.resolvedServerPath = ""
+
+	// 异步下载+安装（CUDA 额外下载 cudart 包，失败重试最多 3 次）
+	backendToDownload := resolvedBackend
+	go func() {
+		if dlErr := a.downloadBackendWithRetry(backendToDownload, runtimeDir, 3); dlErr != nil {
+			zlog.Error().Err(dlErr).Str("backend", backendToDownload.String()).Msg("[startup] 下载后端失败（已重试 3 次）")
+			runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+				Backend: backendToDownload,
+				Status:  "failed",
+				Error:   fmt.Sprintf("已重试 3 次仍失败：%v", dlErr),
+			})
+		}
+	}()
+
+	// startup 直接返回，跳过后续流程（数据库/llama-server 启动等）
+	// 应用窗口正常显示，前端监听下载事件展示进度，完成后提示用户重启
+	return true
+}
+
+// handleMissingModels 检查 models 目录，若为空则弹窗提示用户下载模型。
+// 不阻塞启动，用户点击「确定」后继续进入界面。
+//
+// runtime 已完整时才检查 models，避免与 runtime 弹窗叠加。
+func (a *App) handleMissingModels(ctx context.Context) {
+	checkResult := a.validatePaths()
+	if !checkResult.HasModelIssues() {
+		return
+	}
+
+	var msg strings.Builder
+	msg.WriteString("⚠️ 还没有可用的 AI 模型，暂时无法对话。\n\n")
+	if checkResult.ModelsDirMissing {
+		fmt.Fprintf(&msg, "模型目录（将自动创建）：%s\n", checkResult.ModelsDir)
+	} else {
+		fmt.Fprintf(&msg, "模型目录：%s\n", checkResult.ModelsDir)
+		msg.WriteString("该目录下还没有 .gguf 模型文件。\n")
+	}
+	msg.WriteString("\n")
+	msg.WriteString("【如何下载模型】\n")
+	msg.WriteString("豆芽使用 GGUF 格式的模型文件，推荐从以下站点下载（国内访问快）：\n\n")
+	msg.WriteString("1. ModelScope（魔搭社区，阿里出品，中文友好）\n")
+	msg.WriteString("   https://www.modelscope.cn/\n")
+	msg.WriteString("   搜索关键词：GGUF\n\n")
+	msg.WriteString("2. HF 镜像（HuggingFace 国内镜像站）\n")
+	msg.WriteString("   https://hf-mirror.com/\n")
+	msg.WriteString("   搜索关键词：gguf\n\n")
+	msg.WriteString("【推荐的入门模型】（选 Q4_K_M 量化，速度与效果均衡）\n")
+	msg.WriteString("   - Qwen3-8B（通义千问，中文最强入门）\n")
+	msg.WriteString("   - Gemma-3-4B（轻量，适合低配机器）\n")
+	msg.WriteString("   - Llama-3.1-8B（Meta 出品，英文能力强）\n\n")
+	msg.WriteString("【下载后如何使用】\n")
+	msg.WriteString("   1. 下载 .gguf 文件（通常 3~6 GB）\n")
+	msg.WriteString("   2. 将文件放入上面的模型目录\n")
+	msg.WriteString("   3. 重启豆芽，在顶部模型下拉框选择即可\n\n")
+	msg.WriteString("点击「确定」先进入界面，模型文件可以稍后再放入。")
+
+	zlog.Warn().Str("models_dir", checkResult.ModelsDir).
+		Bool("dir_missing", checkResult.ModelsDirMissing).
+		Bool("empty", checkResult.ModelsEmpty).
+		Msg("[startup] models directory empty, continuing startup")
+	_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+		Type:    runtime.WarningDialog,
+		Title:   "模型目录为空",
+		Message: msg.String(),
+	})
+	runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+		Running:    false,
+		ModelReady: false,
+		Error:      "模型目录为空，请下载 .gguf 模型文件后放入 models 目录",
+	})
+}
+
+// loadSecrets 加载加密密钥，用于对话内容和 API Key 等敏感数据的加密存储。
+// 若密钥文件已损坏（长度不为 32 字节），返回 error 阻止启动——
+// 因为覆盖会导致所有用旧密钥加密的历史数据永久无法解密，此时必须由用户手动处理。
+func (a *App) loadSecrets(ctx context.Context) error {
 	keyPath := filepath.Join(appDir(), "data", ".enc_key")
-	a.encKey, err = secrets.LoadOrCreateKey(keyPath)
+	key, err := secrets.LoadOrCreateKey(keyPath)
 	if err != nil {
 		zlog.Error().Err(err).Msg("[startup] load encryption key failed")
 		_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
@@ -192,13 +323,15 @@ func (a *App) startup(ctx context.Context) {
 			Title:   "加密密钥加载失败",
 			Message: fmt.Sprintf("加载加密密钥失败：\n%v\n\n请按上述提示处理后重新启动应用。", err),
 		})
-		// startup 中的 return 只会结束启动函数，必须主动退出应用。
-		// 见 forceQuit 注释：需先设置 exiting 标志绕过 beforeClose 拦截，再退出 Wails + 托盘。
-		a.forceQuit()
-		return
+		return err
 	}
+	a.encKey = key
+	return nil
+}
 
-	a.db, err = store.Init(dbPath, a.encKey)
+// initDatabase 初始化数据库，失败时弹窗提示并返回 error。
+func (a *App) initDatabase(ctx context.Context, dbPath string) error {
+	db, err := store.Init(dbPath, a.encKey)
 	if err != nil {
 		zlog.Error().Err(err).Msg("init database failed")
 		_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
@@ -206,117 +339,103 @@ func (a *App) startup(ctx context.Context) {
 			Title:   "数据库初始化失败",
 			Message: fmt.Sprintf("初始化数据库失败: %v", err),
 		})
-		// startup 中的 return 只会结束启动函数，必须主动退出应用。
-		// 见 forceQuit 注释：需先设置 exiting 标志绕过 beforeClose 拦截，再退出 Wails + 托盘。
-		a.forceQuit()
+		return err
+	}
+	a.db = db
+	return nil
+}
+
+// migrateSearchEngines 将 config.json 中的搜索引擎 API Key 迁移到数据库。
+// 幂等：仅在数据库中不存在对应 key 时迁移。
+func (a *App) migrateSearchEngines(cfgPath string) {
+	raw, rawErr := config.LoadRaw(cfgPath)
+	if rawErr != nil {
 		return
 	}
-
-	if raw, rawErr := config.LoadRaw(cfgPath); rawErr == nil {
-		if se, ok := raw["search_engines"]; ok {
-			if seMap, ok := se.(map[string]any); ok {
-				migrated := false
-				setFn := func(key, value string) error {
-					if a.encKey != nil {
-						return store.SetEncryptedSetting(a.db, key, value, a.encKey)
-					}
-					return store.SetSetting(a.db, key, value)
-				}
-				getFn := func(key string) string {
-					if a.encKey != nil {
-						v, _ := store.GetEncryptedSetting(a.db, key, a.encKey)
-						return v
-					}
-					v, _ := store.GetSetting(a.db, key)
-					return v
-				}
-				if v, ok := seMap["ollama_api_key"]; ok && v != "" {
-					if existing := getFn("search_ollama_api_key"); existing == "" {
-						_ = setFn("search_ollama_api_key", fmt.Sprintf("%v", v))
-						migrated = true
-					}
-				}
-				if v, ok := seMap["tavily_api_key"]; ok && v != "" {
-					if existing := getFn("search_tavily_api_key"); existing == "" {
-						_ = setFn("search_tavily_api_key", fmt.Sprintf("%v", v))
-						migrated = true
-					}
-				}
-				if migrated {
-					zlog.Info().Msg("[startup] migrated search API keys from config.json to database")
-					// 保存前校验，失败记录日志但不阻塞保存（避免阻塞搜索引擎迁移功能）
-					if err := a.getConfig().Validate(); err != nil {
-						zlog.Warn().Err(err).Msg("[startup] 配置校验失败（搜索引擎迁移），仍保存")
-					}
-					if err := config.Save(cfgPath, a.getConfig()); err != nil {
-						zlog.Warn().Err(err).Msg("[startup] 保存配置失败（搜索引擎迁移）")
-					}
-				}
-			}
+	se, ok := raw["search_engines"]
+	if !ok {
+		return
+	}
+	seMap, ok := se.(map[string]any)
+	if !ok {
+		return
+	}
+	migrated := false
+	setFn := func(key, value string) error {
+		return a.service.SetEncryptedSetting(key, value)
+	}
+	getFn := func(key string) string {
+		v, _ := a.service.GetEncryptedSetting(key)
+		return v
+	}
+	if v, ok := seMap["ollama_api_key"]; ok && v != "" {
+		if existing := getFn("search_ollama_api_key"); existing == "" {
+			_ = setFn("search_ollama_api_key", fmt.Sprintf("%v", v))
+			migrated = true
 		}
 	}
-
-	if err := a.generatePresetFile(); err != nil {
-		zlog.Error().Err(err).Msg("[startup] generate preset file failed")
+	if v, ok := seMap["tavily_api_key"]; ok && v != "" {
+		if existing := getFn("search_tavily_api_key"); existing == "" {
+			_ = setFn("search_tavily_api_key", fmt.Sprintf("%v", v))
+			migrated = true
+		}
 	}
+	if migrated {
+		zlog.Info().Msg("[startup] migrated search API keys from config.json to database")
+		// 保存前校验，失败记录日志但不阻塞保存（避免阻塞搜索引擎迁移功能）
+		if err := a.getConfig().Validate(); err != nil {
+			zlog.Warn().Err(err).Msg("[startup] 配置校验失败（搜索引擎迁移），仍保存")
+		}
+		if err := config.Save(cfgPath, a.getConfig()); err != nil {
+			zlog.Warn().Err(err).Msg("[startup] 保存配置失败（搜索引擎迁移）")
+		}
+	}
+}
 
-	// 同步 mcp_servers.json：让 llama-server 启动时通过 --mcp-servers-config 加载此文件，
-	// 启用 /tools 端点并管理所有 MCP 子进程。
-	a.ensureMcpServersFileExists()
-
-	cfg := a.getConfig()
-	a.client = llm.NewClient(cfg.APIBase, a.getServerAPIKey())
-
-	searchChain := a.buildSearchChain()
-
-	a.service = chat.NewService(a.client, searchChain, a.db, cfg, secrets.NewCipher(a.encKey), appDir())
-	a.service.SetContext(ctx)
-
-	// Initialize RAG (Badger-backed vector store + LLM embedder)
+// initRAG 初始化 RAG（Badger-backed 向量存储 + LLM embedder）。
+// 初始化失败时禁用 RAG 但不阻止启动。
+func (a *App) initRAG(ctx context.Context, cfg *config.Config) {
 	ragDir := filepath.Join(appDir(), "data", "rag")
 	ragVS, err := rag.NewVectorStore(ragDir)
 	if err != nil {
 		zlog.Error().Err(err).Msg("[startup] RAG vector store init failed (RAG disabled)")
-	} else {
-		a.ragVS = ragVS
-		a.ragDS = rag.NewDocumentStore(ragVS)
-		// 嵌入模型：优先使用专用嵌入模型，否则使用当前聊天模型
-		embedModel := cfg.EmbeddingModel
-		if embedModel != "" {
-			embedModel = resolvePath(embedModel)
-		}
-		if embedModel == "" {
-			a.currentModelMu.RLock()
-			embedModel = a.currentModelName
-			a.currentModelMu.RUnlock()
-		}
-		embedder := &rag.ClientEmbedder{Client: a.client}
-		embedder.SetModel(embedModel)
-		// 当专用嵌入模型为空时，动态获取当前聊天模型名
-		embedder.SetCurrentModelFn(func() string {
-			a.currentModelMu.RLock()
-			defer a.currentModelMu.RUnlock()
-			return a.currentModelName
-		})
-		a.ragEmbedder = embedder
-		collection := cfg.RAGActiveKB
-		if collection == "" {
-			collection = "default"
-		}
-		ragEnabled := cfg.RAGEnabled
-		a.service.SetRAG(ragVS, a.ragDS, embedder, collection, ragEnabled)
-		zlog.Info().Str("dir", ragDir).Str("collection", collection).Str("embed_model", embedModel).Bool("enabled", ragEnabled).Msg("[startup] RAG initialized")
+		return
 	}
+	a.ragVS = ragVS
+	a.ragDS = rag.NewDocumentStore(ragVS)
+	// 嵌入模型：优先使用专用嵌入模型，否则使用当前聊天模型
+	embedModel := cfg.EmbeddingModel
+	if embedModel != "" {
+		embedModel = resolvePath(embedModel)
+	}
+	if embedModel == "" {
+		a.currentModelMu.RLock()
+		embedModel = a.currentModelName
+		a.currentModelMu.RUnlock()
+	}
+	embedder := &rag.ClientEmbedder{Client: a.client}
+	embedder.SetModel(embedModel)
+	// 当专用嵌入模型为空时，动态获取当前聊天模型名
+	embedder.SetCurrentModelFn(func() string {
+		a.currentModelMu.RLock()
+		defer a.currentModelMu.RUnlock()
+		return a.currentModelName
+	})
+	a.ragEmbedder = embedder
+	collection := cfg.RAGActiveKB
+	if collection == "" {
+		collection = "default"
+	}
+	ragEnabled := cfg.RAGEnabled
+	a.service.SetRAG(ragVS, a.ragDS, embedder, collection, ragEnabled)
+	zlog.Info().Str("dir", ragDir).Str("collection", collection).Str("embed_model", embedModel).Bool("enabled", ragEnabled).Msg("[startup] RAG initialized")
+}
 
-	// MCP 服务器：豆芽不再自行启动 MCP 子进程，而是将配置写入 mcp_servers.json，
-	// 由 llama-server 通过 --mcp-servers-config 参数加载并管理。
-	// mcp_servers.json 在 startup 时通过 ensureMcpServersFileExists() 自动同步，
-	// 用户在「设置 → MCP」修改配置时通过 SaveMCPServers() 重新生成。
-
-	// 创建日志 channel 和消费者 goroutine（trackedGo 跟踪）
-	// 生活类比：就像一个邮筒（logChan），邮递员（llama-server）把每封信（日志行）投进邮筒，
-	// 后台有一个邮局职员（消费者 goroutine）负责把信件转交给收件人（前端）。
-	// 用单个职员而不是每封信都派一个职员（原 go func 实现），避免 goroutine 泛滥。
+// initLogChannel 创建日志 channel 和消费者 goroutine（trackedGo 跟踪）。
+// 生活类比：就像一个邮筒（logChan），邮递员（llama-server）把每封信（日志行）投进邮筒，
+// 后台有一个邮局职员（消费者 goroutine）负责把信件转交给收件人（前端）。
+// 用单个职员而不是每封信都派一个职员（原 go func 实现），避免 goroutine 泛滥。
+func (a *App) initLogChannel() {
 	a.logChan = make(chan string, 1024)
 	a.trackedGo(func() {
 		for {
@@ -343,8 +462,12 @@ func (a *App) startup(ctx context.Context) {
 			}
 		}
 	})
+}
 
+// initServer 创建 llama-server 实例并配置日志/终端数据回调。
+func (a *App) initServer() {
 	a.serverMu.Lock()
+	defer a.serverMu.Unlock()
 	a.server = llm.NewServer(a.buildServerConfig())
 	// 设置 llama-server 日志实时推送到前端控制台（exec.Cmd 回调模式使用）
 	// 日志通过 logChan 投递给消费者 goroutine，由其统一 EventsEmit，避免每行日志创建 goroutine
@@ -363,12 +486,54 @@ func (a *App) startup(ctx context.Context) {
 			runtime.EventsEmit(a.ctx, "server:terminal", data)
 		}
 	})
-	a.serverMu.Unlock()
+}
+
+// buildService 构建聊天服务：生成预设文件、同步 MCP 配置、创建 LLM client 和 service、
+// 初始化 RAG、创建日志 channel 和 llama-server 实例。
+func (a *App) buildService(ctx context.Context) {
+	// F-3 修复：preset 文件生成失败不再静默处理，记录错误并通过事件通知前端
+	// 生活类比：菜谱生成器坏了，厨师长（前端）需要知道，否则上菜时才发现没菜谱
+	if err := a.generatePresetFile(); err != nil {
+		zlog.Error().Err(err).Msg("[startup] generate preset file failed")
+		a.presetGenFailed = true
+	}
+
+	// 同步 mcp_servers.json：让 llama-server 启动时通过 --mcp-servers-config 加载此文件，
+	// 启用 /tools 端点并管理所有 MCP 子进程。
+	a.ensureMcpServersFileExists()
+
+	cfg := a.getConfig()
+	a.client = llm.NewClient(cfg.APIBase, a.getServerAPIKey())
+
+	searchChain := a.buildSearchChain()
+
+	// 填充提前创建的 service 的真实 client 和 searchChain
+	a.service.UpdateClient(a.client)
+	a.service.UpdateSearchChain(searchChain)
+
+	// Initialize RAG (Badger-backed vector store + LLM embedder)
+	a.initRAG(ctx, cfg)
+
+	// MCP 服务器：豆芽不再自行启动 MCP 子进程，而是将配置写入 mcp_servers.json，
+	// 由 llama-server 通过 --mcp-servers-config 参数加载并管理。
+	// mcp_servers.json 在 startup 时通过 ensureMcpServersFileExists() 自动同步，
+	// 用户在「设置 → MCP」修改配置时通过 SaveMCPServers() 重新生成。
+
+	// 创建日志 channel 和消费者 goroutine
+	a.initLogChannel()
+
+	// 创建 llama-server 实例
+	a.initServer()
 
 	a.ready.Store(true)
+}
 
-	// 注：此处未使用 trackedGo，因为该 goroutine 为短生命周期且已有 defer recover()，
-	// 完成后即退出，无需 ctx 取消。见安全审查 #26。
+// cleanupOrphanSessions 清理异常会话（如上次崩溃残留的对话）。
+// 异步执行，不阻塞 startup；panic 会被 recover 保护，避免影响主进程。
+//
+// 注：此处未使用 trackedGo，因为该 goroutine 为短生命周期且已有 defer recover()，
+// 完成后即退出，无需 ctx 取消。见安全审查 #26。
+func (a *App) cleanupOrphanSessions(ctx context.Context) {
 	go func() {
 		// 防止 panic 导致整个进程崩溃（启动清理涉及 DB 操作和消息解密，可能 panic）
 		defer func() {
@@ -394,11 +559,6 @@ func (a *App) startup(ctx context.Context) {
 			})
 		}
 	}()
-
-	// startServerAndWatch 是一次性启动流程（同步执行模型检测/加载后返回），
-	// 内部会通过 trackedGo 启动 watcher/health 等长生命周期 goroutine。
-	// 此处不直接 trackedGo：它使用 Wails ctx 而非 rootCtx，且 shutdown 不必等待模型加载完成。
-	go a.startServerAndWatch(a.server, ctx)
 }
 
 // shutdownInternal 是合并后的统一关闭逻辑，由 shutdown 和 PrepareShutdown 复用。
@@ -504,10 +664,188 @@ func (a *App) tryStartExit() bool {
 //	systray.Run 在独立 goroutine 中运行（见 main.go），
 //	runtime.Quit 只关闭 Wails 窗口，不影响托盘。
 //	不调用 systray.Quit 会导致托盘图标残留，用户仍可操作菜单。
+//
+// 为什么最后要调用 os.Exit(0)：
+//
+//	runtime.Quit 和 systray.Quit 都是异步的，发送退出信号后不会立即终止进程。
+//	Wails 的关闭流程需要时间（触发 OnBeforeClose、OnShutdown 等回调）。
+//	如果不调用 os.Exit，进程可能延迟数秒才退出，导致：
+//	1. 单实例互斥体未释放，新进程检测到已有实例而退出（RestartApp 场景）
+//	2. 用户看到旧窗口残留，以为应用没有关闭
+//	os.Exit(0) 确保进程立即终止，互斥体立即释放。
+//	在 forceQuit 场景下无需清理资源（db/server/ragVS 尚未初始化），直接退出是安全的。
 func (a *App) forceQuit() {
 	a.exiting.Store(true)
 	runtime.Quit(a.ctx)
 	systray.Quit()
+	os.Exit(0)
+}
+
+// downloadBackendWithRetry 带重试的后端下载安装，仅用于启动阶段。
+// 每次失败后推送"重试中"进度事件到前端，全部失败后返回最后一次错误。
+//
+// 生活类比：网购发货时快递可能中途丢失，签收失败就联系卖家重发，
+// 最多重发 maxRetries 次，全部失败才放弃。
+func (a *App) downloadBackendWithRetry(bt llm.BackendType, runtimeDir string, maxRetries int) error {
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		zlog.Info().Str("backend", bt.String()).Int("attempt", attempt).Int("max", maxRetries).
+			Msg("[startup] 下载后端尝试")
+		// 推送重试进度到前端
+		if attempt > 1 {
+			runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+				Backend: bt,
+				Status:  "retrying",
+				Error:   fmt.Sprintf("第 %d/%d 次重试中...", attempt, maxRetries),
+			})
+		}
+		if err := a.downloadAndInstallBackend(bt, runtimeDir); err != nil {
+			lastErr = err
+			zlog.Warn().Err(err).Int("attempt", attempt).Int("max", maxRetries).
+				Msg("[startup] 下载后端失败")
+			continue
+		}
+		return nil
+	}
+	// 全部重试失败：补推 downloadComplete 事件（success=false），确保前端能收到完成通知
+	runtime.EventsEmit(a.ctx, "backend:downloadComplete", map[string]any{
+		"backend": bt.String(),
+		"success": false,
+		"error":   fmt.Sprintf("已重试 %d 次仍失败: %v", maxRetries, lastErr),
+	})
+	return fmt.Errorf("下载后端失败（已重试 %d 次）: %w", maxRetries, lastErr)
+}
+
+// downloadAndInstallBackend 下载并安装后端，CUDA 后端会额外下载并解压 cudart 包。
+// 下载和安装过程通过事件推送进度到前端，完成后自动重启应用。
+//
+// 生活类比：买发动机时，CUDA 发动机需要额外配一套"管线配件包"（cudart），
+// 两包货都到齐后才能装车。其他发动机（CPU/Vulkan 等）一包就够了。
+func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) error {
+	// 步骤 1：下载后端主包（推理引擎 + 核心 DLL）
+	zlog.Info().Str("backend", bt.String()).Msg("[startup] 开始下载后端主包")
+	_, dlErr := llm.DownloadBackendZip(bt, runtimeDir, func(p llm.DownloadProgress) {
+		p.Label = "推理后端"
+		runtime.EventsEmit(a.ctx, "backend:downloadProgress", p)
+	})
+	if dlErr != nil {
+		return fmt.Errorf("下载后端主包失败: %w", dlErr)
+	}
+
+	// 步骤 2：CUDA 后端额外下载 cudart 包
+	// cudart 包提供 cudart64_*.dll、cublas64_*.dll 等厂商运行时 DLL，
+	// 需解压到与主包相同的目录（runtime/cuda/）才能被 llama-server 找到。
+	if bt == llm.BackendCUDA {
+		zlog.Info().Msg("[startup] CUDA 后端检测到，开始下载 cudart 包")
+		// 通知前端切换到 cudart 下载阶段
+		runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+			Backend: bt,
+			Status:  "downloading",
+			Label:   "cudart 依赖包",
+			Percent: 0,
+		})
+		_, cudartErr := llm.DownloadCudartZip(runtimeDir, func(p llm.DownloadProgress) {
+			p.Label = "cudart 依赖包"
+			runtime.EventsEmit(a.ctx, "backend:downloadProgress", p)
+		})
+		if cudartErr != nil {
+			// cudart 下载失败直接返回错误，交由上层 downloadBackendWithRetry 重试。
+			// 如果继续解压主包并重启，重启后会因厂商 DLL 缺失再次提示下载，形成无限循环。
+			// 生活类比：配件包裹没到，整车就装不完整，与其装一半重启后又说缺配件，
+			// 不如直接让上层重试，等配件包裹也到齐了再装车。
+			zlog.Warn().Err(cudartErr).Msg("[startup] cudart 包下载失败，交由重试逻辑处理")
+			return fmt.Errorf("下载 cudart 包失败: %w", cudartErr)
+		}
+	}
+
+	// 步骤 3：解压安装（推送按文件数的解压进度）
+	zlog.Info().Str("backend", bt.String()).Msg("[startup] 下载完成，开始解压安装")
+	runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+		Backend: bt,
+		Status:  "installing",
+		Label:   "解压安装中",
+		Percent: 0,
+	})
+
+	_, installErr := llm.EnsureBackendInstalled(bt, runtimeDir, func(current, total int) {
+		percent := 0.0
+		if total > 0 {
+			percent = float64(current) / float64(total) * 100
+		}
+		runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+			Backend: bt,
+			Status:  "installing",
+			Label:   "解压安装中",
+			Percent: percent,
+		})
+	})
+
+	// complete 事件推送规则（避免重复推送）：
+	// - 成功时：此处直接推送 complete {success: true}
+	// - 失败时：此处不推送，由上层 downloadBackendWithRetry 在重试耗尽后统一推送
+	//   原因：若此处推送失败事件，重试循环中前端会收到多次失败弹窗（C1 修复）
+	if installErr != nil {
+		return fmt.Errorf("解压安装失败: %w", installErr)
+	}
+
+	// 步骤 3.5：CUDA 后端额外解压 cudart 包到同一目录
+	// cudart 包提供 cudart64_*.dll、cublas64_*.dll 等厂商运行时 DLL，
+	// 必须解压到与主包相同的目录（runtime/cuda/）才能被 llama-server 找到。
+	// 如果不解压，validatePaths 会检测到厂商 DLL 缺失，导致下次启动时又提示下载（无限循环）。
+	if bt == llm.BackendCUDA {
+		zlog.Info().Msg("[startup] CUDA 后端检测到，开始解压 cudart 包")
+		runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+			Backend: bt,
+			Status:  "installing",
+			Label:   "安装 cudart 依赖包",
+			Percent: 0,
+		})
+		if cudartInstallErr := llm.EnsureCudartInstalled(runtimeDir, func(current, total int) {
+			percent := 0.0
+			if total > 0 {
+				percent = float64(current) / float64(total) * 100
+			}
+			runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+				Backend: bt,
+				Status:  "installing",
+				Label:   "安装 cudart 依赖包",
+				Percent: percent,
+			})
+		}); cudartInstallErr != nil {
+			// cudart 解压失败不阻止重启：主包已安装，用户系统 PATH 中可能有 cudart
+			// 但 validatePaths 会检测到缺失，下次启动可能又提示下载
+			zlog.Warn().Err(cudartInstallErr).Msg("[startup] cudart 包解压失败")
+			runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+				Backend: bt,
+				Status:  "cudart_failed",
+				Label:   "cudart 依赖包",
+				Error:   fmt.Sprintf("cudart 依赖包解压失败：%v", cudartInstallErr),
+			})
+		}
+	}
+
+	// 成功：推送 complete 事件
+	runtime.EventsEmit(a.ctx, "backend:downloadComplete", map[string]any{
+		"backend": bt.String(),
+		"success": true,
+	})
+
+	zlog.Info().Str("backend", bt.String()).Msg("[startup] 下载并安装完成，准备自动重启应用")
+
+	// 推送"重启中"状态，前端据此显示"重启中"文字
+	runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+		Backend: bt,
+		Status:  "completed",
+		Label:   "重启中",
+		Percent: 100,
+	})
+
+	// 延迟 1 秒后自动重启应用，给前端时间显示"重启中"状态
+	go func() {
+		time.Sleep(1 * time.Second)
+		a.RestartApp()
+	}()
+	return nil
 }
 
 func (a *App) beforeClose(ctx context.Context) bool {
@@ -526,9 +864,9 @@ func (a *App) beforeClose(ctx context.Context) bool {
 		a.clearFileCache()
 		return true
 	default: // "ask" 或未设置
-		runtime.WindowHide(ctx)
-		a.hidden.Store(true)
-		a.clearFileCache()
+		// M5 修复：ALT+F4 / 系统关闭按钮 与前端关闭按钮行为一致，
+		// 通过事件通知前端弹出询问对话框，而非直接隐藏到托盘。
+		runtime.EventsEmit(ctx, "window:closeRequest", nil)
 		return true
 	}
 }
@@ -646,6 +984,57 @@ func (a *App) GracefulExit() {
 
 		runtime.Quit(a.ctx)
 		systray.Quit()
+	}()
+}
+
+// RestartApp 重启应用：先启动新进程，再退出当前进程。
+// 通过临时 bat 脚本延迟启动新进程，确保旧进程完全退出后再启动新的，
+// 避免端口/文件锁冲突。
+//
+// 生活类比：换班时，先让接班的人到岗准备好，老员工再下班，
+// 中间留几秒钟交接时间，避免两人同时操作同一个岗位（端口/文件冲突）。
+func (a *App) RestartApp() {
+	exe, err := os.Executable()
+	if err != nil {
+		zlog.Error().Err(err).Msg("[restart] 获取可执行文件路径失败")
+		a.forceQuit()
+		return
+	}
+
+	// 安全校验 exe 路径：清理路径分隔符，检查是否包含 shell 元字符
+	exe = filepath.Clean(exe)
+	if strings.ContainsAny(exe, "&|><^()") {
+		zlog.Warn().Str("exe", exe).Msg("[restart] exe 路径包含特殊字符，重启可能失败")
+	}
+
+	// 创建临时 bat 脚本：等待 2 秒后启动新进程，然后删除自身
+	// 权限设为 0600，仅文件所有者可读写，避免被其他用户篡改
+	batPath := filepath.Join(filepath.Dir(exe), "restart_douya.bat")
+	batContent := fmt.Sprintf("@echo off\r\ntimeout /t 2 /nobreak >nul\r\nstart \"\" \"%s\"\r\ndel \"%%~f0\"\r\n", exe)
+	if err := os.WriteFile(batPath, []byte(batContent), 0600); err != nil {
+		zlog.Error().Err(err).Msg("[restart] 创建重启脚本失败")
+		a.forceQuit()
+		return
+	}
+
+	// 异步启动 bat 脚本（不等待其完成）
+	cmd := exec.Command("cmd", "/c", batPath)
+	cmd.Stdin = nil
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Start(); err != nil {
+		zlog.Error().Err(err).Msg("[restart] 启动重启脚本失败")
+		os.Remove(batPath)
+		a.forceQuit()
+		return
+	}
+
+	zlog.Info().Str("exe", exe).Msg("[restart] 重启脚本已启动，即将退出当前进程")
+
+	// 短暂等待确保 bat 脚本已开始执行，然后退出当前进程
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		a.forceQuit()
 	}()
 }
 

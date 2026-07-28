@@ -75,6 +75,8 @@ export function GetServerStatus():Promise<llm.ServerStatus>;
 
 export function GracefulExit():Promise<void>;
 
+export function RestartApp():Promise<void>;
+
 export function IsRAGEnabled():Promise<boolean>;
 
 export function ListDocuments(arg1:string):Promise<Array<rag.DocumentMeta>>;
@@ -146,3 +148,11 @@ export function UploadDocument(arg1:string,arg2:string,arg3:string,arg4:string):
 export function GetBackendStatus():Promise<main.BackendStatus>;
 
 export function SwitchBackend(arg1:string):Promise<void>;
+
+export function DownloadBackend(arg1:string):Promise<void>;
+
+export function GetAppVersion():Promise<string>;
+
+export function CheckUpdate():Promise<main.UpdateInfo>;
+
+export function PerformUpdate(arg1:string,arg2:string):Promise<void>;

@@ -71,7 +71,9 @@ if ($needCopyExe) {
     Write-Host "  已复制: Douya.exe" -ForegroundColor Green
 }
 
-$syncDirs = @("models", "runtime")
+# runtime 目录不再由编译脚本干预：运行时按需从 GitHub 下载后端 zip 包并解压。
+# 见 app_lifecycle.go 的 downloadAndInstallBackend 逻辑。
+$syncDirs = @("models")
 foreach ($dir in $syncDirs) {
     $src = Join-Path $ProjectRoot $dir
     $dst = Join-Path $OutputDir $dir
@@ -150,8 +152,6 @@ $criticalItems = @(
 $optionalItems = @(
     @{ Name = "models\";  Dst = "$OutputDir\models";  IsDir = $true;
        SrcDir = "$ProjectRoot\models" },
-    @{ Name = "runtime\"; Dst = "$OutputDir\runtime"; IsDir = $true;
-       SrcDir = "$ProjectRoot\runtime" },
     @{ Name = "data\";    Dst = "$OutputDir\data";    IsDir = $true;
        SrcDir = $null }
 )
@@ -222,47 +222,6 @@ foreach ($item in $optionalItems) {
     }
 }
 
-# 确保基础后端（CPU 和 Vulkan）已解压到发布包（任务 7：多显卡后端适配）
-# 基础包应内置 CPU 和 Vulkan 后端，方便用户首次启动即可使用；
-# 若子目录不存在或为空，则从对应 zip 包解压（增量：已解压则跳过）。
-# 生活类比：发货前把常用工具（CPU/Vulkan）从工具箱（zip）里拿出来放好，
-# 用户开箱即用；专用工具（CUDA/HIP 等厂商后端）留在箱子里按需取用。
-$runtimeDst = Join-Path $OutputDir "runtime"
-
-$baseBackends = @(
-    @{ Name = "cpu";    Zip = "llama-b10166-bin-win-cpu-x64.zip" },
-    @{ Name = "vulkan"; Zip = "llama-b10166-bin-win-vulkan-x64.zip" }
-)
-
-foreach ($be in $baseBackends) {
-    $subDir = Join-Path $runtimeDst $be.Name
-    $zipPath = Join-Path $runtimeDst $be.Zip
-
-    # 增量检查：子目录已有文件则跳过
-    $needExtract = $true
-    if (Test-Path -LiteralPath $subDir) {
-        $cnt = (Get-ChildItem -Path $subDir -File -ErrorAction SilentlyContinue | Measure-Object).Count
-        if ($cnt -gt 0) {
-            Write-Host "  [基础后端] $($be.Name)/ 已解压 ($cnt 个文件)，跳过" -ForegroundColor Gray
-            $needExtract = $false
-        }
-    }
-
-    if ($needExtract) {
-        if (Test-Path -LiteralPath $zipPath) {
-            if (-not (Test-Path -LiteralPath $subDir)) {
-                New-Item -ItemType Directory -Path $subDir -Force | Out-Null
-            }
-            Write-Host "  [基础后端] 解压 $($be.Zip) -> runtime\$($be.Name)\" -ForegroundColor Yellow
-            Expand-Archive -Path $zipPath -DestinationPath $subDir -Force
-            $cnt = (Get-ChildItem -Path $subDir -File -ErrorAction SilentlyContinue | Measure-Object).Count
-            Write-Host "  [基础后端] 已解压: $($be.Name)/ ($cnt 个文件)" -ForegroundColor Green
-        } else {
-            Write-Host "  [基础后端缺失] $($be.Zip) - 无法解压到 runtime\$($be.Name)\" -ForegroundColor Yellow
-        }
-    }
-}
-
 if ($criticalMissing.Count -eq 0 -and $optionalMissing.Count -eq 0) {
     Write-Host ""
     Write-Host "=== 构建成功 ===" -ForegroundColor Green
@@ -272,8 +231,8 @@ if ($criticalMissing.Count -eq 0 -and $optionalMissing.Count -eq 0) {
     Write-Host "  $OutputDir\"
     Write-Host "    bin\Douya.exe"
     Write-Host "    models\"
-    Write-Host "    runtime\"
     Write-Host "    data\"
+    Write-Host "    runtime\ (运行时按需下载，不在编译阶段干预)" -ForegroundColor Gray
 } elseif ($criticalMissing.Count -eq 0) {
     Write-Host ""
     Write-Host "=== 构建完成，部分可选文件缺失 ===" -ForegroundColor Yellow

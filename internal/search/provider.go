@@ -246,7 +246,7 @@ const (
 	DefaultFailureThreshold = 3
 	DefaultResetTimeout     = 30 * time.Second
 	DefaultMaxRetries       = 0 // 额外重试次数（0 表示不重试，可外部调整）
-	// 全局搜索超时 50s：兼容三级降级链（Tavily 30s + Ollama 5s + Bing 15s ≈ 50s）。
+	// 全局搜索超时 50s：兼容二级降级链（Tavily 30s + Ollama 20s = 50s）。
 	// 步进式降级无并发，单端超时累加需留足余量，否则下游 provider 永远拿不到机会。
 	// 熔断器在连续失败 3 次后会跳过对应 provider，避免长期空等。
 	DefaultSearchTimeout = 50 * time.Second

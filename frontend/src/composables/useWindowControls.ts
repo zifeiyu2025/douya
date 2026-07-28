@@ -38,6 +38,10 @@ export function useWindowControls() {
   // ----- resize 防抖定时器（任务 24）-----
   let resizeTimer: ReturnType<typeof setTimeout> | null = null
 
+  // 关闭询问对话框防重入标志（M5 修复）
+  // 避免 ALT+F4 和前端关闭按钮同时触发导致弹出两个对话框
+  let isCloseDialogShowing = false
+
   function handleMinimize() {
     WindowMinimise()
   }
@@ -62,6 +66,31 @@ export function useWindowControls() {
     handleToggleMaximize()
   }
 
+  // showCloseDialog 弹出关闭询问对话框（M5 修复：抽取为独立函数，供前端按钮和 ALT+F4 共用）
+  function showCloseDialog() {
+    if (isCloseDialogShowing) return
+    isCloseDialogShowing = true
+    discreteDialog.warning({
+      title: '关闭窗口',
+      content: '你希望将豆芽最小化到系统托盘后台运行，还是直接退出程序？',
+      positiveText: '最小化到托盘',
+      negativeText: '直接退出',
+      onPositiveClick: async () => {
+        isCloseDialogShowing = false
+        await wails.setCloseAction('tray')
+        WindowHide()
+      },
+      onNegativeClick: async () => {
+        isCloseDialogShowing = false
+        await wails.setCloseAction('exit')
+        wails.gracefulExit()
+      },
+      onMaskClick: () => {
+        isCloseDialogShowing = false
+      }
+    })
+  }
+
   async function handleClose() {
     const action = await wails.handleCloseRequest()
     if (action === 'exit') {
@@ -73,20 +102,7 @@ export function useWindowControls() {
       return
     }
     // action === 'ask'：首次关闭时询问
-    discreteDialog.warning({
-      title: '关闭窗口',
-      content: '你希望将豆芽最小化到系统托盘后台运行，还是直接退出程序？',
-      positiveText: '最小化到托盘',
-      negativeText: '直接退出',
-      onPositiveClick: async () => {
-        await wails.setCloseAction('tray')
-        WindowHide()
-      },
-      onNegativeClick: async () => {
-        await wails.setCloseAction('exit')
-        wails.gracefulExit()
-      }
-    })
+    showCloseDialog()
   }
 
   async function updateMaximizedState() {
@@ -103,10 +119,21 @@ export function useWindowControls() {
     resizeTimer = setTimeout(updateMaximizedState, 200)
   }
 
+  // 事件监听取消器集合（M5 修复：新增 window:closeRequest 监听）
+  const unsubscribers: Array<() => void> = []
+
   onMounted(() => {
     // 初始化最大化状态（与原 App.vue 在 onMounted 内通过 Promise.all 调用一致）
     updateMaximizedState()
     window.addEventListener('resize', handleResize)
+
+    // M5 修复：监听 ALT+F4 / 系统关闭按钮事件，与前端关闭按钮行为一致
+    // 后端 beforeClose 在 'ask' 模式下不再直接隐藏窗口，而是发送事件让前端弹出询问对话框
+    unsubscribers.push(
+      wails.subscribeCloseRequest(() => {
+        showCloseDialog()
+      })
+    )
   })
 
   onUnmounted(() => {
@@ -115,6 +142,15 @@ export function useWindowControls() {
     if (resizeTimer) {
       clearTimeout(resizeTimer)
       resizeTimer = null
+    }
+    // 清理事件监听
+    while (unsubscribers.length > 0) {
+      const unsubscribe = unsubscribers.pop()
+      try {
+        unsubscribe?.()
+      } catch {
+        // ignore
+      }
     }
   })
 

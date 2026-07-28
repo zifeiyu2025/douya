@@ -66,9 +66,21 @@
           >
             {{ stageText }}
           </span>
-          <span v-if="modelName && stage !== 'done' && stage !== 'failed'" class="status-model">
+          <!-- downloading 阶段 stageText 已包含 label，不重复显示 status-model -->
+          <span
+            v-if="modelName && stage !== 'done' && stage !== 'failed' && stage !== 'downloading'"
+            class="status-model"
+          >
             {{ modelName }}
           </span>
+        </div>
+
+        <!-- 下载进度条：仅在 downloading 阶段显示 -->
+        <div v-if="stage === 'downloading'" class="splash-download">
+          <div class="download-bar">
+            <div class="download-bar-fill" :style="{ width: progress + '%' }"></div>
+          </div>
+          <span class="download-percent">{{ progress }}%</span>
         </div>
       </div>
     </div>
@@ -99,12 +111,24 @@ defineEmits<{
 }>()
 
 const stageText = computed(() => {
+  // downloading 阶段：根据 label 动态显示精准文本
+  // label 可能是"推理后端"、"cudart 依赖包"、"解压安装中"、"重启中"
+  if (props.stage === 'downloading') {
+    const label = props.modelName || ''
+    if (label === '解压安装中') return '正在解压安装...'
+    if (label === '重启中') return '正在重启应用...'
+    if (label === '下载完成') return '下载完成'
+    if (label) return `正在下载${label}...`
+    return '正在下载...'
+  }
+
   const map: Record<string, string> = {
     idle: '初始化中',
     preparing: '准备启动引擎',
     loading: '加载模型中',
     waiting: '初始化模型',
     detecting: '检测模型能力',
+    downloading: '正在下载...',
     done: '加载完成',
     failed: '加载失败',
     rolling_back: '回滚中',
@@ -406,6 +430,45 @@ const stageText = computed(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   opacity: 0.7;
+}
+
+/* ===== 下载进度条 =====
+ * 仅在 downloading 阶段显示，安静地展示百分比进度
+ */
+.splash-download {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 240px;
+  animation: status-enter 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.download-bar {
+  width: 100%;
+  height: 4px;
+  background: var(--bg-tertiary, rgba(0, 0, 0, 0.08));
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+:global(body.theme-dark) .download-bar {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.download-bar-fill {
+  height: 100%;
+  background: var(--accent-primary);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 6px var(--accent-primary);
+}
+
+.download-percent {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0.5px;
 }
 
 /* ===== 进出场过渡 ===== */

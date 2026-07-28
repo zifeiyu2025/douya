@@ -132,7 +132,19 @@
                 {{ generationSpeed.toFixed(1) }} token/s
               </div>
             </template>
-            <SearchStatus v-if="isSearching" :searching="true" :results="''" :query="searchQuery" />
+            <SearchStatus
+              v-if="isSearching"
+              :searching="true"
+              :results="''"
+              :query="searchQuery"
+              :error="searchError"
+            />
+            <SearchStatus
+              v-else-if="searchError"
+              :searching="false"
+              :results="''"
+              :error="searchError"
+            />
             <SearchStatus
               v-else-if="searchResults"
               :searching="false"
@@ -221,6 +233,7 @@ const isSearching = computed(() => chatStore.isSearching)
 const isThinking = computed(() => chatStore.isThinking)
 const thinkingDuration = computed(() => chatStore.thinkingDuration)
 const searchQuery = computed(() => chatStore.searchQuery)
+const searchError = computed(() => chatStore.searchError)
 const contextTrimmed = computed(() => chatStore.contextTrimmed)
 const generationSpeed = computed(() => chatStore.generationSpeed)
 // Prompt 处理进度：搜索完成后到首 token 之间，向用户展示"正在处理提示词 X%"，
@@ -461,9 +474,10 @@ watch(
 
 .message-item {
   display: flex;
-  gap: 12px;
+  gap: 14px;
   width: 100%;
   margin: 0 auto;
+  align-items: flex-start;
 }
 
 /* AI、用户消息都撑满宽度；气泡宽度由内部 bubble-wrapper 控制 */
@@ -475,15 +489,14 @@ watch(
   flex: 1;
   min-width: 0;
   max-width: 100%;
+  align-items: flex-start;
 }
 
 .message-bubble {
   padding: 14px 20px;
-  /* Q10: 与 MessageItem.vue .ai-bubble 一致：对称大圆角，右上角小
-   * 此处是流式占位气泡的样式，与 MessageItem.vue 的 .message-bubble 基础规则有意不同
-   *（MessageItem.vue 的 .message-bubble 只定义 box-sizing/position/line-height，padding/border-radius 由 .ai-bubble/.user-bubble 提供）
-   * 不要强行合并，避免破坏占位气泡的视觉 */
-  border-radius: var(--border-radius-lg) 4px var(--border-radius-lg) var(--border-radius-lg);
+  /* 与 MessageItem.vue .ai-bubble 一致：左上角小圆角（贴近左侧 AI 头像）
+   * border-radius 顺序：左上、右上、右下、左下 */
+  border-radius: 4px var(--border-radius-lg) var(--border-radius-lg) var(--border-radius-lg);
   box-shadow: none;
   box-sizing: border-box;
   line-height: 1.65;

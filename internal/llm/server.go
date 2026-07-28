@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -47,6 +49,14 @@ var allowedCacheTypes = map[string]bool{
 func isValidCacheType(t string) bool {
 	return allowedCacheTypes[strings.ToLower(t)]
 }
+
+// exitCodeRegexp 匹配 "exit_code=-123"、"exit_code: 123"、"exit_code=3221226507" 等格式，
+// 提取退出码数字。包级变量只编译一次，避免 enhanceExitError 每次调用都重新编译。
+// P2-3 修复：原实现用 strings.Contains 硬匹配 "exit_code=-1073740791"，
+// 一旦格式变化（如多余空格、正数形式、分隔符不同）就会漏匹配。
+// 生活类比：不再逐字比对化验单上的"exit_code=-1073740791"这串字符，
+// 而是用模板"exit_code 后面跟着一个数字"把数字抠出来，再按数值判断病情。
+var exitCodeRegexp = regexp.MustCompile(`exit_code[=: ]\s*(-?\d+)`)
 
 type ServerConfig struct {
 	ModelsDir     string
@@ -212,15 +222,19 @@ type Server struct {
 	// 生活类比：调度中心的总开关状态牌，任何值班员都能直接看/拨（atomic 操作），
 	// 不需要先去前台排队借钥匙（mu 锁），避免排班冲突。
 	mtpFallbackDisabled atomic.Bool
-	lastStartTime       time.Time
-	cmdEnv              []string          // 安全传递给子进程的环境变量（如 API Key）
-	onLog               func(line string) // 日志行回调（用于实时推送到前端）
-	onTerminalData      func(data []byte) // 终端原始字节流回调（用于 xterm.js 渲染）
-	healthClient        *http.Client      // 复用的健康检查 HTTP 客户端（WaitForReady/GracefulStop 共用）
-	permanentFailure    bool              // 永久失败标志：服务器反复崩溃后不再自动重启
-	maxRestartAttempts  int               // 最大重启尝试次数（默认 10，可配置便于测试）
-	initialBackoff      time.Duration     // 初始退避时间（默认 2s，可配置便于测试）
-	pollInterval        time.Duration     // 轮询间隔（默认 1s，可配置便于测试）
+	// lastStartTime 存储上次启动的时刻（UnixNano），用 atomic.Int64 避免
+	// WatchWithCallback 中无锁读取与 Start 中持锁写入之间的数据竞争。
+	// 生活类比：调度中心的电子时钟，任何值班员都能直接抬头看（atomic 读取），
+	// 不需要去前台排队借钥匙（mu 锁），也不会被正在调时的同事挡住。
+	lastStartTime      atomic.Int64
+	cmdEnv             []string          // 安全传递给子进程的环境变量（如 API Key）
+	onLog              func(line string) // 日志行回调（用于实时推送到前端）
+	onTerminalData     func(data []byte) // 终端原始字节流回调（用于 xterm.js 渲染）
+	healthClient       *http.Client      // 复用的健康检查 HTTP 客户端（WaitForReady/GracefulStop 共用）
+	permanentFailure   bool              // 永久失败标志：服务器反复崩溃后不再自动重启
+	maxRestartAttempts int               // 最大重启尝试次数（默认 10，可配置便于测试）
+	initialBackoff     time.Duration     // 初始退避时间（默认 2s，可配置便于测试）
+	pollInterval       time.Duration     // 轮询间隔（默认 1s，可配置便于测试）
 }
 
 func NewServer(cfg *ServerConfig) *Server {
@@ -310,7 +324,7 @@ func (s *Server) resolvePath(p string) string {
 	return pathutil.ResolveInBase(s.config.AppDir, p)
 }
 
-// enhanceStartError 增强启动错误信息，检测 DLL 缺失等常见问题
+// enhanceStartError 增强启动错误信息，检测 DLL 缺失、端口占用等常见问题
 // 生活类比：就像翻译官把晦涩的英文报错翻译成通俗易懂的中文提示
 func enhanceStartError(err error) error {
 	if err == nil {
@@ -335,65 +349,144 @@ func enhanceStartError(err error) error {
 	return err
 }
 
+// enhanceExitError 增强进程退出错误信息，检测端口占用等常见运行时问题。
+//
+// F-2 修复：llama-server 因端口冲突崩溃时，错误信息通常包含 "address already in use"，
+// 但原始错误对用户不友好，这里翻译成明确的中文提示。
+// 生活类比：发动机启动后又熄火了，技师通过故障码判断是排气管被堵（端口占用），
+// 直接告诉驾驶员而不是让他自己看故障码。
+//
+// B-5 增强：检测 Windows 进程退出码，识别栈溢出等常见崩溃并给出明确诊断。
+// 常见退出码：
+//   - 0xC0000409 (-1073740791): STATUS_STACK_BUFFER_OVERRUN 栈缓冲区溢出
+//     常见原因：Vulkan 后端 gpu_layers 过大、ctx-size 过大、模型架构不兼容
+//   - 0xC00000FD (-1073741571): STATUS_STACK_OVERFLOW 栈溢出
+//   - 0xC0000005 (-1073741819): STATUS_ACCESS_VIOLATION 内存访问违规
+//     常见原因：DLL 不兼容、驱动问题、模型文件损坏
+func enhanceExitError(errMsg string, port int) string {
+	lower := strings.ToLower(errMsg)
+	if strings.Contains(lower, "address already in use") ||
+		strings.Contains(lower, "port is already in use") ||
+		strings.Contains(lower, "bind: address already in use") {
+		return fmt.Sprintf("%s\n\n提示：端口 %d 被占用，可能是其他程序或残留的 llama-server 进程占用了该端口。\n请关闭占用该端口的程序，或在设置中修改端口号后重启", errMsg, port)
+	}
+
+	// 检测 Windows 进程退出码，给出针对性诊断
+	// P2-3 修复：用正则提取 exit_code 后的数字，按数值匹配，兼容
+	// "exit_code=-1073740791"、"exit_code: 3221226507"、"exit_code =-1073741819" 等多种格式。
+	// 生活类比：故障码就像医生的化验单，不同数值代表不同疾病，对症下药才有效
+	if m := exitCodeRegexp.FindStringSubmatch(errMsg); m != nil {
+		if code, convErr := strconv.Atoi(m[1]); convErr == nil {
+			switch code {
+			case -1073740791, 3221226507: // 0xC0000409 STATUS_STACK_BUFFER_OVERRUN
+				return errMsg + "\n\n诊断：进程栈缓冲区溢出（0xC0000409）。\n" +
+					"常见原因：Vulkan 后端 gpu_layers 过大、ctx-size 过大、或模型架构不兼容。\n" +
+					"建议：1) 切换到 CUDA 后端（NVIDIA 显卡）；2) 减小 gpu_layers；3) 减小 ctx-size；4) 更新显卡驱动。"
+			case -1073741571, 3221225725: // 0xC00000FD STATUS_STACK_OVERFLOW
+				return errMsg + "\n\n诊断：进程栈溢出（0xC00000FD）。\n" +
+					"常见原因：模型层数过多、gpu_layers 设置过高、或后端兼容性问题。\n" +
+					"建议：1) 减小 gpu_layers；2) 切换到其他后端；3) 使用更小的模型。"
+			case -1073741819, 3221225477: // 0xC0000005 STATUS_ACCESS_VIOLATION
+				return errMsg + "\n\n诊断：内存访问违规（0xC0000005）。\n" +
+					"常见原因：DLL 不兼容、显卡驱动问题、或模型文件损坏。\n" +
+					"建议：1) 更新显卡驱动；2) 重新下载模型文件；3) 切换到其他后端。"
+			}
+		}
+	}
+
+	return errMsg
+}
+
 // readConPTYOutput 持续读取 ConPTY 输出，50ms 窗口批量发送到前端
 // 生活类比：就像邮递员收集信件，不是收到一封就跑一趟，而是攒一批一起送，效率更高
+//
+// P1-3 修复：pty.Read 是阻塞 I/O，原实现直接在主循环调用，ctx 取消后
+// 仍可能永久阻塞在 Read 上导致 goroutine 泄漏。现将 Read 放入独立 goroutine，
+// 通过带缓冲 channel 传递结果，主循环用 select 同时监听 ctx.Done 和读取结果。
+// ctx 取消时主循环立即返回；阻塞中的 Read goroutine 会在 pty.Close() 被调用后
+// 返回，由于 readCh 缓冲为 1，goroutine 写入后即可退出，不会泄漏。
 func (s *Server) readConPTYOutput() {
 	buf := make([]byte, 8192)
 	var pending []byte
 	lastFlush := time.Now()
 
+	// readCh 用于接收 pty.Read 的结果，缓冲为 1 使得读取 goroutine
+	// 在主循环退出后仍能写入结果并退出，不会永久阻塞在 channel 发送上。
+	// 生活类比：邮筒有容量，邮递员把信投进去就能下班，即使收件人出门了。
+	readCh := make(chan struct {
+		n   int
+		err error
+	}, 1)
+
+	// startRead 发起一次非阻塞读取：启动 goroutine 执行 pty.Read，
+	// 结果通过 readCh 返回。任意时刻最多只有一个 goroutine 在写 buf，
+	// 且主循环在 select 收到结果后才读 buf，channel 同步保证 happens-before。
+	startRead := func() {
+		go func() {
+			n, err := s.pty.Read(buf)
+			readCh <- struct {
+				n   int
+				err error
+			}{n: n, err: err}
+		}()
+	}
+
+	// 发起首次读取
+	startRead()
+
 	for {
-		n, err := s.pty.Read(buf)
-		if n > 0 {
-			// 追加到待发送缓冲
-			data := make([]byte, n)
-			copy(data, buf[:n])
-			pending = append(pending, data...)
-			// 同时写入 RingBuffer（用于错误诊断，按行切分存储）
-			if s.stderrBuf != nil {
-				_, _ = s.stderrBuf.Write(buf[:n])
-			}
-		}
-
-		// 50ms 窗口批量发送（降低 IPC 频次 10-50 倍）
-		now := time.Now()
-		if len(pending) > 0 && now.Sub(lastFlush) >= 50*time.Millisecond {
-			s.mu.RLock()
-			cb := s.onTerminalData
-			s.mu.RUnlock()
-			if cb != nil {
-				cb(pending)
-			}
-			pending = pending[:0]
-			lastFlush = now
-		}
-
-		if err != nil {
-			// 读取出错或 EOF，发送剩余数据后退出
-			if len(pending) > 0 {
-				s.mu.RLock()
-				cb := s.onTerminalData
-				s.mu.RUnlock()
-				if cb != nil {
-					cb(pending)
+		select {
+		case <-s.ctx.Done():
+			// ctx 取消：发送剩余数据后立即退出，不再等待下一次 Read。
+			// 阻塞中的 Read goroutine 会在后续 pty.Close() 调用后返回，
+			// readCh 有缓冲，goroutine 能写入后正常退出。
+			s.flushConPTYPending(&pending)
+			return
+		case res := <-readCh:
+			n, err := res.n, res.err
+			if n > 0 {
+				// 追加到待发送缓冲
+				data := make([]byte, n)
+				copy(data, buf[:n])
+				pending = append(pending, data...)
+				// 同时写入 RingBuffer（用于错误诊断，按行切分存储）
+				if s.stderrBuf != nil {
+					_, _ = s.stderrBuf.Write(buf[:n])
 				}
 			}
-			return
-		}
 
-		// 检查 context 是否取消
-		if s.ctx.Err() != nil {
-			if len(pending) > 0 {
-				s.mu.RLock()
-				cb := s.onTerminalData
-				s.mu.RUnlock()
-				if cb != nil {
-					cb(pending)
-				}
+			// 50ms 窗口批量发送（降低 IPC 频次 10-50 倍）
+			now := time.Now()
+			if len(pending) > 0 && now.Sub(lastFlush) >= 50*time.Millisecond {
+				s.flushConPTYPending(&pending)
+				lastFlush = now
 			}
-			return
+
+			if err != nil {
+				// 读取出错或 EOF，发送剩余数据后退出
+				s.flushConPTYPending(&pending)
+				return
+			}
+
+			// 发起下一次读取
+			startRead()
 		}
 	}
+}
+
+// flushConPTYPending 将待发送缓冲通过 onTerminalData 回调一次性发出，并清空缓冲。
+// 提取此辅助函数避免在 readConPTYOutput 的多个退出路径中重复加锁/回调逻辑。
+func (s *Server) flushConPTYPending(pending *[]byte) {
+	if len(*pending) == 0 {
+		return
+	}
+	s.mu.RLock()
+	cb := s.onTerminalData
+	s.mu.RUnlock()
+	if cb != nil {
+		cb(*pending)
+	}
+	*pending = (*pending)[:0]
 }
 
 // replaceContext 清理旧的 cancel 函数并创建新的 context，避免资源泄漏
@@ -433,6 +526,8 @@ func (s *Server) WaitForReady(timeout time.Duration) error {
 				}
 			}
 			s.mu.RUnlock()
+			// F-2 修复：检测端口占用等常见退出原因，增强错误提示
+			errMsg = enhanceExitError(errMsg, s.config.Port)
 			return apperror.Newf(apperror.KindUnavailable, "%s", errMsg)
 		}
 		time.Sleep(500 * time.Millisecond)
@@ -570,10 +665,18 @@ func (s *Server) stopProcessWithTimeout(pid int, waitFn func(), cleanupFn func()
 		if cleanupFn != nil {
 			cleanupFn()
 		}
-		// exec.Cmd 路径需要额外等待 goroutine 结束（cmd.Wait() 会在 kill 后返回）
-		// ConPTY 路径的 pty.Wait(ctx) 已在 3s 超时后返回，无需再次等待
+		// P2-6 修复：两条路径都应等待 waitDone goroutine 结束，避免 goroutine 泄漏。
+		// exec.Cmd 路径：cmd.Wait() 在 force kill 后会很快返回，直接等待即可。
+		// ConPTY 路径：pty.Wait(ctx) 受其内部 ctx（3s）控制，可能在 force kill 后仍未返回，
+		// 这里额外给 2s 超时兜底，超时则放弃等待并记录日志，防止永久阻塞。
 		if mode == "cmd" {
 			<-waitDone
+		} else {
+			select {
+			case <-waitDone:
+			case <-time.After(2 * time.Second):
+				log.Warn().Str("mode", mode).Int("pid", pid).Msg("[server] timed out waiting for pty wait goroutine after force kill")
+			}
 		}
 		s.mu.Lock()
 		s.status = ServerStatus{Running: false}
@@ -652,8 +755,10 @@ func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(Serv
 			// 推测解码崩溃回退：若推测解码已启用且服务器崩溃，自动禁用推测解码
 			// 窗口设为 120 秒以覆盖大模型加载时间（加载期间崩溃也视为推测解码问题）
 			// RF-3 修复：用 atomic.Load/Store 替代直接读写，消除数据竞争
+			// P1-1 修复：lastStartTime 改用 atomic.Int64，此处无锁读取也是 race-free
 			if !s.mtpFallbackDisabled.Load() && s.config.SpecType != "" {
-				runDuration := time.Since(s.lastStartTime)
+				startTime := time.Unix(0, s.lastStartTime.Load())
+				runDuration := time.Since(startTime)
 				if runDuration < 120*time.Second {
 					s.mtpFallbackDisabled.Store(true)
 					log.Warn().
@@ -688,7 +793,9 @@ func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(Serv
 				if ctx.Err() != nil {
 					return
 				}
-				s.SetStatus(false, fmt.Sprintf("server not ready after restart: %v", err))
+				// F-2 修复：增强端口占用等常见错误的提示
+				enhancedMsg := enhanceExitError(err.Error(), s.config.Port)
+				s.SetStatus(false, fmt.Sprintf("server not ready after restart: %s", enhancedMsg))
 				if onStatusChange != nil {
 					onStatusChange(s.Status())
 				}

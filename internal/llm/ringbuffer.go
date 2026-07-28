@@ -37,7 +37,11 @@ func (rb *RingBuffer) Write(p []byte) (n int, err error) {
 		}
 		rb.lines = append(rb.lines, line)
 		if len(rb.lines) > rb.max {
-			rb.lines = rb.lines[len(rb.lines)-rb.max:]
+			// 显式 copy 到新切片，释放底层数组前半部分引用，避免内存泄漏。
+			// 仅靠切片截断 rb.lines[len-rb.max:] 只移动头指针，底层数组前半部分仍被引用无法 GC。
+			newLinesBuf := make([]string, rb.max)
+			copy(newLinesBuf, rb.lines[len(rb.lines)-rb.max:])
+			rb.lines = newLinesBuf
 		}
 		if rb.onChange != nil {
 			pendingCallbacks = append(pendingCallbacks, line)

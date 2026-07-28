@@ -34,6 +34,7 @@ function createEmptyStreamingState(): ConvStreamingState {
     thinkingStartTime: 0,
     thinkingDuration: 0,
     searchQuery: '',
+    searchError: '',
     contextTrimmed: null,
     tokensPerSecond: 0,
     predictedN: 0,
@@ -57,6 +58,7 @@ function clearConvState(state: ConvStreamingState) {
   state.isThinking = false
   state.thinkingDuration = 0
   state.searchQuery = ''
+  state.searchError = ''
 }
 
 export const useChatStore = defineStore('chat', () => {
@@ -191,6 +193,7 @@ export const useChatStore = defineStore('chat', () => {
   const isThinking = computed(() => currentConvState.value.isThinking)
   const thinkingDuration = computed(() => currentConvState.value.thinkingDuration)
   const searchQuery = computed(() => currentConvState.value.searchQuery)
+  const searchError = computed(() => currentConvState.value.searchError)
   const contextTrimmed = computed(() => currentConvState.value.contextTrimmed)
   const tokensPerSecond = computed(() => currentConvState.value.tokensPerSecond)
   const predictedN = computed(() => currentConvState.value.predictedN)
@@ -391,6 +394,8 @@ export const useChatStore = defineStore('chat', () => {
     const state = getConvState(convId)
     state.isSearching = true
     state.searchQuery = content
+    // 清空上次的搜索错误，避免新搜索开始时残留旧错误提示
+    state.searchError = ''
   }
 
   // 已迁移：content 类型对齐 SearchResultEvent['content']（任务 24）
@@ -419,6 +424,18 @@ export const useChatStore = defineStore('chat', () => {
     } else {
       state.searchResults = ''
     }
+  }
+
+  // 处理搜索失败事件：把后端推送的友好错误提示写入 searchError 状态
+  // 前端 SearchStatus 组件根据 searchError 显示红色警告条
+  // 注意：search_error 不改变 isSearching（由 search_result 负责置 false），
+  // 因为 tool call 模式下搜索失败后模型仍会继续生成回答
+  function handleSearchError(
+    convId: string,
+    content: Extract<StreamEvent, { type: 'search_error' }>['content']
+  ) {
+    const state = getConvState(convId)
+    state.searchError = content || ''
   }
 
   /** 处理 token_speed 事件：实时更新生成速度（会话级 + 全局）
@@ -687,6 +704,7 @@ export const useChatStore = defineStore('chat', () => {
     tool_call_start: (id, c) => handleToolCallStart(id, c),
     search_start: (id, c) => handleSearchStart(id, c),
     search_result: (id, c) => handleSearchResult(id, c),
+    search_error: (id, c) => handleSearchError(id, c),
     token_speed: (id, c) => handleTokenSpeed(id, c),
     prompt_progress: (id, c) => handlePromptProgress(id, c),
     done: id => {
@@ -920,6 +938,7 @@ export const useChatStore = defineStore('chat', () => {
     isThinking,
     thinkingDuration,
     searchQuery,
+    searchError,
     contextTrimmed,
     tokensPerSecond,
     predictedN,

@@ -64,7 +64,7 @@ func (s *Server) Start() error {
 	if s.onLog != nil {
 		s.stderrBuf.SetOnChange(s.onLog)
 	}
-	s.lastStartTime = time.Now()
+	s.lastStartTime.Store(time.Now().UnixNano())
 
 	// 尝试用 ConPTY 启动（获得原生终端输出：ANSI 颜色码、进度条）
 	// 生活类比：ConPTY 就像一个"虚拟显示器"，让 llama-server 以为自己在真正的终端里运行
@@ -198,6 +198,8 @@ func (s *Server) startWithExecCmd(args []string, runtimeDir string, env []string
 	if err := s.cmd.Start(); err != nil {
 		enhancedErr := enhanceStartError(err)
 		s.status = ServerStatus{Running: false, Error: fmt.Sprintf("启动 llama-server 失败: %v", enhancedErr)}
+		// 清理旧 context，避免泄漏（进程未启动，不会有 wait goroutine 消费旧 context）
+		s.replaceContext()
 		s.mu.Unlock()
 		return
 	}
@@ -285,7 +287,9 @@ func (s *Server) updateStatusAfterExit(err error, exitCode uint32, isConPTY bool
 			}
 		}
 		// ConPTY 路径：检测 DLL 缺失导致的立即崩溃
-		if isConPTY && exitCode != 0 && s.lastStartTime.Before(time.Now().Add(-10*time.Second)) {
+		// P1-1 修复：lastStartTime 已改为 atomic.Int64，用 Load 读取再还原为 time.Time
+		startTime := time.Unix(0, s.lastStartTime.Load())
+		if isConPTY && exitCode != 0 && startTime.Before(time.Now().Add(-10*time.Second)) {
 			if enhanced := enhanceStartError(errors.New(errMsg)); enhanced != nil {
 				errMsg = enhanced.Error()
 			}

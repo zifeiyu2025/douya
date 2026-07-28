@@ -10,7 +10,6 @@ import (
 
 	"douya/internal/config"
 	"douya/internal/llm"
-	"douya/internal/store"
 	"douya/internal/system"
 
 	zlog "github.com/rs/zerolog/log"
@@ -150,6 +149,9 @@ func resolveDerivedServerParams(cfg *config.Config, sp system.SmartParams) *deri
 	}
 
 	// MmprojOffload：用户设置优先（config.json 中 mmproj_offload=true 则启用）
+	// smartparams 根据硬件判断是否有 GPU（有 GPU 则推荐开启）
+	// 日志证据：mmproj_offload 不是 Vulkan 栈溢出根因，gpu_layers 过大才是
+	// 用户可通过 config.json 的 mmproj_offload=false 来关闭
 	d.MmprojOffload = sp.MmprojOffload
 	if cfg.MmprojOffload {
 		d.MmprojOffload = true
@@ -407,13 +409,7 @@ func (a *App) loadServerAPIKey(serverCfg *llm.ServerConfig) {
 	if a.db == nil {
 		return
 	}
-	if a.encKey != nil {
-		if key, err := store.GetEncryptedSetting(a.db, "server_api_key", a.encKey); err == nil && key != "" {
-			serverCfg.APIKey = key
-		}
-	} else {
-		if key, err := store.GetSetting(a.db, "server_api_key"); err == nil && key != "" {
-			serverCfg.APIKey = key
-		}
+	if key, err := a.service.GetEncryptedSetting("server_api_key"); err == nil && key != "" {
+		serverCfg.APIKey = key
 	}
 }

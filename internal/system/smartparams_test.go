@@ -542,7 +542,9 @@ func TestModelTierConstants(t *testing.T) {
 }
 
 // TestCalculateSmartParams_Vulkan 验证 Vulkan 后端的保守配置
-// Vulkan 后端：Flash Attention 关闭、推测解码关闭、ctx-size ≤ 16384
+// Vulkan 后端：Flash Attention 关闭、推测解码关闭、ctx-size ≤ 8192、gpu_layers ≤ 50
+// B-2/B-3 增强：防止 Vulkan 后端栈溢出崩溃（0xC0000409）
+// 注意：mmproj_offload 不再强制关闭（日志证据：mmproj 不是栈溢出根因）
 //
 // 生活类比：Vulkan 像"通用适配器"，兼容性广但性能特性未知，
 // 所以默认关闭高级特性（Flash Attention、推测解码），用保守配置确保稳定运行。
@@ -559,8 +561,13 @@ func TestCalculateSmartParams_Vulkan(t *testing.T) {
 	if sp.SpecType != "" {
 		t.Errorf("Vulkan 后端应关闭推测解码，实际 SpecType=%s", sp.SpecType)
 	}
-	if sp.ContextSize > 16384 {
-		t.Errorf("Vulkan 后端 ctx-size 应 ≤ 16384，实际 %d", sp.ContextSize)
+	// B-3：ctx-size 限制收紧到 8192
+	if sp.ContextSize > 8192 {
+		t.Errorf("Vulkan 后端 ctx-size 应 ≤ 8192，实际 %d", sp.ContextSize)
+	}
+	// B-2：gpu_layers 限制到 50
+	if sp.GPULayers > 50 {
+		t.Errorf("Vulkan 后端 gpu_layers 应 ≤ 50，实际 %d", sp.GPULayers)
 	}
 }
 
@@ -622,7 +629,9 @@ func TestCalculateSmartParams_CUDA_NoRegression(t *testing.T) {
 }
 
 // TestApplyBackendSpecificParams_Vulkan_ClosesNgramMod 单独测试 Vulkan 关闭 ngram-mod
-// 验证 Vulkan 后端会关闭已启用的 ngram-mod 推测解码，并限制 ctx-size
+// 验证 Vulkan 后端会关闭已启用的 ngram-mod 推测解码，并限制 ctx-size 和 gpu_layers
+// B-2/B-3 增强：Vulkan 后端 gpu_layers<=50, ctx-size<=8192
+// 注意：mmproj_offload 不再强制关闭（日志证据：mmproj 不是栈溢出根因）
 func TestApplyBackendSpecificParams_Vulkan_ClosesNgramMod(t *testing.T) {
 	// 构造一个已启用 ngram-mod 的 SmartParams
 	p := &SmartParams{
@@ -631,7 +640,9 @@ func TestApplyBackendSpecificParams_Vulkan_ClosesNgramMod(t *testing.T) {
 		NgramModNMax:   64,
 		NgramModNMatch: 24,
 		FlashAttn:      true,
-		ContextSize:    32768, // 超过 16384，验证会被限制
+		ContextSize:    32768, // 超过 8192，验证会被限制
+		GPULayers:      99,    // 超过 50，验证会被限制
+		MmprojOffload:  true,  // 不再强制关闭，保持原值
 	}
 	hw := &HardwareInfo{HasGPU: true, GPUVRAMMB: 16303}
 
@@ -649,9 +660,17 @@ func TestApplyBackendSpecificParams_Vulkan_ClosesNgramMod(t *testing.T) {
 	if p.FlashAttn != false {
 		t.Errorf("Vulkan 后端应关闭 Flash Attention，实际 FlashAttn=%v", p.FlashAttn)
 	}
-	// 验证 ctx-size 被限制到 16384
-	if p.ContextSize != 16384 {
-		t.Errorf("Vulkan 后端 ctx-size 应被限制为 16384，实际 %d", p.ContextSize)
+	// B-3：验证 ctx-size 被限制到 8192
+	if p.ContextSize != 8192 {
+		t.Errorf("Vulkan 后端 ctx-size 应被限制为 8192，实际 %d", p.ContextSize)
+	}
+	// B-2：验证 gpu_layers 被限制到 50
+	if p.GPULayers != 50 {
+		t.Errorf("Vulkan 后端 gpu_layers 应被限制为 50，实际 %d", p.GPULayers)
+	}
+	// mmproj_offload 不再强制关闭，验证保持原值
+	if p.MmprojOffload != true {
+		t.Errorf("Vulkan 后端应保持 mmproj_offload 原值，实际 %v", p.MmprojOffload)
 	}
 }
 
