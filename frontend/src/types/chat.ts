@@ -237,6 +237,9 @@ export interface Config {
   mmproj_auto: boolean
   mmproj_offload: boolean
   llama_server_path: string
+  // 计算后端类型：auto(自动检测)/cuda/hip/sycl/vulkan/openvino/cpu
+  // 生活类比：像选发动机型号——auto 是"让系统帮你选"，其他是明确指定用哪种发动机
+  backend_type: string
   api_base: string
   port: number
   context_size: number
@@ -486,6 +489,7 @@ export const DEFAULT_CONFIG: Config = {
   mmproj_auto: true,
   mmproj_offload: true,
   llama_server_path: 'runtime/llama-server.exe',
+  backend_type: 'auto', // 与 Go DefaultConfig 对齐（自动检测最合适的后端）
   api_base: 'http://127.0.0.1:8080',
   port: 8080,
   context_size: 8192,
@@ -689,4 +693,33 @@ export interface ConvStreamingState {
   tokensPerSecond: number // 实时生成速度（tokens/s），0 表示未获取
   predictedN: number // 已生成的 token 数
   promptProgress: { total: number; cache: number; processed: number; timeMs: number } | null
+}
+
+/**
+ * 显卡后端状态信息（对齐 Go 后端 main.BackendStatus）
+ *
+ * 生活类比：就像车辆仪表盘上的"发动机状态"显示区——
+ * 当前用什么发动机、用户选了什么模式、车上装了什么发动机、手头有哪些可用。
+ */
+export interface BackendStatus {
+  /** 当前后端类型："cuda"/"vulkan"/"cpu" 等（已解析，不含 auto），为空表示尚未启动 */
+  current_backend: string
+  /** 配置中的值："auto" 或具体后端（cuda/hip/sycl/vulkan/openvino/cpu） */
+  config_backend: string
+  /** 检测到的 GPU 厂商："nvidia"/"amd"/"intel"/"vulkan"/""（空表示未检测到） */
+  gpu_vendor: string
+  /** GPU 名称（如 "NVIDIA GeForce RTX 4090"），无 GPU 时为空 */
+  gpu_name: string
+  /** GPU 显存（MB），无 GPU 或检测失败时为 0 */
+  gpu_vram_mb: number
+  /** 已安装的后端列表（runtime 目录中已有 llama-server.exe 的后端，不含 auto） */
+  installed_backends: string[]
+  /** 所有可选后端列表（含 auto），供下拉框展示 */
+  available_backends: string[]
+}
+
+/** 显卡后端切换事件（backend:switched 事件载荷） */
+export interface BackendSwitchedEvent {
+  /** 切换后的后端状态（与 BackendStatus 结构相同） */
+  status: BackendStatus
 }

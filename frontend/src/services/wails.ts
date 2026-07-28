@@ -15,6 +15,7 @@ import {
   ExportConversationWithDialog,
   GetConfig,
   GetCleanupResult,
+  GetBackendStatus,
   UpdateConfig,
   GetServerStatus,
   GetMetrics,
@@ -68,7 +69,8 @@ import {
   TestMCPConnection,
   GetMCPStatus,
   ListMCPTools,
-  RefreshMcpTools
+  RefreshMcpTools,
+  SwitchBackend
 } from '../../wailsjs/go/main/App'
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
 import { chat as ChatModel } from '../../wailsjs/go/models'
@@ -91,7 +93,8 @@ import type {
   MCPServerConfig,
   MCPToolInfo,
   MCPServerStatus,
-  MCPConnectResult
+  MCPConnectResult,
+  BackendStatus
 } from '../types/chat'
 import type { CollectionInfo, DocumentMeta } from '../types/search'
 import { DEFAULT_CONFIG } from '../types/chat'
@@ -117,7 +120,8 @@ export type {
   MCPServerConfig,
   MCPToolInfo,
   MCPServerStatus,
-  MCPConnectResult
+  MCPConnectResult,
+  BackendStatus
 }
 export { DEFAULT_CONFIG }
 
@@ -540,6 +544,20 @@ export const wails = {
   },
   refreshMcpTools: async (): Promise<void> => {
     await RefreshMcpTools()
+  },
+  // ============ 显卡后端管理 ============
+  // 后端类型在 llama-server 启动时确定，切换后端需重启应用才能生效。
+  // 生活类比：像选发动机型号——选好后要重新点火才能用新发动机跑。
+  getBackendStatus: async (): Promise<BackendStatus> => {
+    return (await GetBackendStatus()) as BackendStatus
+  },
+  switchBackend: async (backendType: string): Promise<void> => {
+    await SwitchBackend(backendType)
+  },
+  // 监听后端切换事件：切换配置后后端会推送最新状态，前端据此刷新显示
+  subscribeBackendSwitched: (callback: (status: BackendStatus) => void): (() => void) => {
+    EventsOn('backend:switched', callback)
+    return () => EventsOff('backend:switched')
   }
 } as const
 

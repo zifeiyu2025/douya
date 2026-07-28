@@ -14,6 +14,7 @@ declare module 'vue' {
     AboutSettings: typeof import('./components/settings/AboutSettings.vue')['default']
     AdvancedSettings: typeof import('./components/settings/AdvancedSettings.vue')['default']
     AppIcon: typeof import('./components/ui/AppIcon.vue')['default']
+    BackendSettings: typeof import('./components/settings/BackendSettings.vue')['default']
     BasicSettings: typeof import('./components/settings/BasicSettings.vue')['default']
     ChatInput: typeof import('./components/ChatInput.vue')['default']
     ChatView: typeof import('./components/ChatView.vue')['default']

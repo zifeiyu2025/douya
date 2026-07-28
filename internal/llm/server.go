@@ -49,10 +49,14 @@ func isValidCacheType(t string) bool {
 }
 
 type ServerConfig struct {
-	ModelsDir              string
-	MmprojAuto             bool
-	MmprojOffload          bool
-	ServerPath             string
+	ModelsDir     string
+	MmprojAuto    bool
+	MmprojOffload bool
+	ServerPath    string
+	// BackendType 当前使用的计算后端类型（cuda/hip/sycl/vulkan/openvino/cpu），不含 auto。
+	// 由启动流程根据硬件和配置解析后传入，供后续逻辑（如参数调优、日志记录）使用。
+	// 生活类比：记录当前车装的是什么型号的发动机，供后续保养（参数调优）参考。
+	BackendType            BackendType
 	Port                   int
 	GPULayers              string
 	Threads                int
@@ -200,9 +204,9 @@ type Server struct {
 	// （每个语义字段配独立锁，或简单标量改用 atomic.Bool/atomic.Int64）。
 	// 拆分锁时需特别注意 Start/stopInternal 等方法内部的临时释放模式（s.mu.Unlock()），
 	// 避免引入死锁。CI 已配置 go test -race 持续监控（见 .github/workflows/govulncheck.yml 之外的 test workflow）。
-	mu                  sync.RWMutex
-	job                 *JobObject
-	stderrBuf           *RingBuffer
+	mu        sync.RWMutex
+	job       *JobObject
+	stderrBuf *RingBuffer
 	// RF-3 修复：mtpFallbackDisabled 改用 atomic.Bool，消除 WatchWithCallback goroutine
 	// 与 buildStartArgs/GetSpecType 之间的数据竞争（goroutine 无锁写入 vs 持锁读取）。
 	// 生活类比：调度中心的总开关状态牌，任何值班员都能直接看/拨（atomic 操作），

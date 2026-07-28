@@ -135,7 +135,19 @@ func (a *App) validatePaths() PathCheckResult {
 
 	// ===== 1. 检查 runtime 目录完整性 =====
 	cfg := a.getConfig()
-	serverPath := resolvePath(cfg.LlamaServerPath)
+
+	// 解析后端类型：优先用 startup 中缓存的解析结果，否则重新解析
+	// 生活类比：检查发动机舱前，先确定这车装的是什么型号的发动机
+	resolvedBackend := a.resolvedBackend
+	if resolvedBackend == "" {
+		resolvedBackend = llm.ResolveBackendType(a.hwInfo, cfg.BackendType)
+	}
+
+	// 解析 serverPath：优先用 startup 中缓存的路径，否则从配置路径解析
+	serverPath := a.resolvedServerPath
+	if serverPath == "" {
+		serverPath = resolvePath(cfg.LlamaServerPath)
+	}
 	if _, err := os.Stat(serverPath); err != nil {
 		result.RuntimeMissing = append(result.RuntimeMissing, fmt.Sprintf("引擎程序: %s", serverPath))
 	}
@@ -144,37 +156,35 @@ func (a *App) validatePaths() PathCheckResult {
 	if info, err := os.Stat(runtimeDir); err != nil || !info.IsDir() {
 		result.RuntimeMissing = append(result.RuntimeMissing, fmt.Sprintf("运行时目录: %s", runtimeDir))
 	} else {
-		// runtime/ 目录存在，检查核心引擎 DLL
-		// 生活类比：引擎 exe 是"发动机"，这些 DLL 是"传动系统"，缺一不可
-		coreDLLs := []string{
-			"llama.dll",
-			"llama-server-impl.dll",
-			"llama-common.dll",
-			"ggml.dll",
-			"ggml-base.dll",
-			"ggml-cpu.dll",
-		}
-		for _, dll := range coreDLLs {
-			dllPath := filepath.Join(runtimeDir, dll)
-			if _, err := os.Stat(dllPath); err != nil {
-				result.RuntimeMissing = append(result.RuntimeMissing, fmt.Sprintf("核心DLL: %s", dllPath))
+		// 根据后端类型校验 DLL
+		// 生活类比：不同型号的发动机需要的零件不同，按型号清单逐一检查
+		backendInfo := llm.GetBackendInfo(resolvedBackend)
+
+		// 确定 DLL 检查目录：
+		// - 优先检查 runtime/{subdir}/（新版布局）
+		// - 如果子目录不存在，回退到 runtime/（兼容 CUDA 旧版扁平布局）
+		// 生活类比：新版发动机装在专门的车位（子目录），老版直接摆在车库正中间（根目录）
+		dllDir := runtimeDir
+		if backendInfo.Subdir != "" {
+			subdirPath := filepath.Join(runtimeDir, backendInfo.Subdir)
+			if _, err := os.Stat(subdirPath); err == nil {
+				dllDir = subdirPath
 			}
 		}
 
-		// 检查 CUDA 运行时 DLL（仅当存在 ggml-cuda.dll 时才检查，表示用户有 NVIDIA GPU 环境）
-		// 生活类比：如果车上装了涡轮增压器(ggml-cuda.dll)，那就必须有涡轮增压的配套管路(CUDA DLL)
-		ggmlCudaPath := filepath.Join(runtimeDir, "ggml-cuda.dll")
-		if _, err := os.Stat(ggmlCudaPath); err == nil {
-			cudaDLLs := []string{
-				"cudart64_13.dll",
-				"cublas64_13.dll",
-				"cublasLt64_13.dll",
+		// 校验 RequiredDLLs（核心 DLL + 后端专属 DLL）
+		for _, dll := range backendInfo.RequiredDLLs {
+			dllPath := filepath.Join(dllDir, dll)
+			if _, err := os.Stat(dllPath); err != nil {
+				result.RuntimeMissing = append(result.RuntimeMissing, fmt.Sprintf("后端DLL: %s", dllPath))
 			}
-			for _, dll := range cudaDLLs {
-				dllPath := filepath.Join(runtimeDir, dll)
-				if _, err := os.Stat(dllPath); err != nil {
-					result.RuntimeMissing = append(result.RuntimeMissing, fmt.Sprintf("CUDA运行时DLL: %s", dllPath))
-				}
+		}
+
+		// 校验 VendorDLLs（厂商运行时 DLL，如 CUDA 的 cudart/cublas）
+		for _, dll := range backendInfo.VendorDLLs {
+			dllPath := filepath.Join(dllDir, dll)
+			if _, err := os.Stat(dllPath); err != nil {
+				result.RuntimeMissing = append(result.RuntimeMissing, fmt.Sprintf("厂商DLL: %s", dllPath))
 			}
 		}
 	}

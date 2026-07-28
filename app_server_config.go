@@ -57,12 +57,30 @@ type derivedServerParams struct {
 // 装饰（autoEnable/autoRecommend）、上桌前检查（loadAPIKey）各有专人负责。
 func (a *App) buildServerConfig() *llm.ServerConfig {
 	cfg := a.getConfig()
-	absServerPath := resolvePath(cfg.LlamaServerPath)
+
+	// 解析后端类型：优先用 startup 中缓存的解析结果（已 EnsureBackendInstalled），
+	// 未缓存时（如热重载场景）重新根据硬件和配置解析。
+	// 生活类比：用户选了"自动挡"，就根据车库里的车（硬件）来选合适的发动机。
+	resolvedBackend := a.resolvedBackend
+	if resolvedBackend == "" {
+		resolvedBackend = llm.ResolveBackendType(a.hwInfo, cfg.BackendType)
+	}
+
+	// 解析 ServerPath：优先用 startup 中缓存的路径（已 EnsureBackendInstalled），
+	// 未缓存时回退到配置中的 LlamaServerPath（兼容旧版布局）。
+	absServerPath := a.resolvedServerPath
+	if absServerPath == "" {
+		absServerPath = resolvePath(cfg.LlamaServerPath)
+	}
+
 	modelsDir := filepath.Join(appDir(), "models")
 
-	sp := system.CalculateSmartParams(a.hwInfo, resolvePath(cfg.ModelPath))
+	// 传入已解析的后端类型（resolvedBackend），让 SmartParams 根据后端调整参数
+	// 生活类比：告诉智能参数模块"我们这趟用的是电/油/柴"，让它据此调发动机参数
+	sp := system.CalculateSmartParams(a.hwInfo, resolvePath(cfg.ModelPath), string(resolvedBackend))
 	zlog.Info().
 		Str("models_dir", modelsDir).
+		Str("backend", resolvedBackend.String()).
 		Int("gpu_layers", sp.GPULayers).
 		Int("threads", sp.Threads).
 		Bool("flash", sp.FlashAttn).
@@ -76,6 +94,8 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 	derived := resolveDerivedServerParams(cfg, *sp)
 	mediaPath := a.resolveMediaPath(cfg.MediaPath)
 	serverCfg := buildServerConfigFromFields(cfg, *sp, derived, modelsDir, absServerPath, presetPath, mediaPath)
+	// 设置当前使用的后端类型，供后续逻辑（如参数调优、日志记录）使用
+	serverCfg.BackendType = resolvedBackend
 
 	applySmartParamOverrides(serverCfg, cfg, *sp)
 	autoEnableEagle3(serverCfg, cfg, *sp)

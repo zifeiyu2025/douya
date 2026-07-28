@@ -78,7 +78,10 @@ func estimateModelTier(blockCount, embeddingLength int) ModelTier {
 	}
 }
 
-func CalculateSmartParams(hw *HardwareInfo, resolvedModelPath string) *SmartParams {
+// CalculateSmartParams 根据硬件信息和模型元数据计算智能参数
+// backendType 参数为已解析的后端类型（"cuda"/"hip"/"sycl"/"vulkan"/"openvino"/"cpu"），
+// 不会是 "auto"，由调用方解析。空字符串时按 CUDA 行为处理（保持向后兼容）。
+func CalculateSmartParams(hw *HardwareInfo, resolvedModelPath string, backendType string) *SmartParams {
 	p := &SmartParams{}
 
 	// GPU 层数：有完整 GPU 信息时全部卸载；仅检测到 CUDA 驱动时也尝试全部卸载
@@ -185,6 +188,10 @@ func CalculateSmartParams(hw *HardwareInfo, resolvedModelPath string) *SmartPara
 	// 架构特定参数调整（DeepSeek32/GLM4/Cohere2MoE 等新架构）
 	applyArchSpecificParams(p, meta)
 
+	// 后端特定参数调整（CUDA/HIP/SYCL/Vulkan/OpenVINO/CPU）
+	// 生活类比：架构调整是按车型调，后端调整是按燃料类型调
+	applyBackendSpecificParams(p, backendType, hw, meta)
+
 	return p
 }
 
@@ -212,6 +219,72 @@ func applyArchSpecificParams(p *SmartParams, meta *GGUFMetadata) {
 	// Cohere2MoE / tiny-aya：Cohere MoE 多语言模型
 	case strings.Contains(lowerArch, "cohere2moe") || strings.Contains(lowerArch, "tiny-aya"):
 		log.Info().Str("arch", meta.Architecture).Msg("[smart-params] Cohere2MoE architecture detected")
+	}
+}
+
+// applyBackendSpecificParams 根据后端类型调整智能参数
+// 生活类比：就像不同燃料（柴油/汽油/电）需要不同的发动机参数，不同 GPU 后端也有各自的最佳配置
+//
+// 重要约束：传入 "cuda" 时行为必须与原 CalculateSmartParams 完全一致（无回归）。
+// backendType 为已解析值（不会是 "auto"），空字符串按 CUDA 行为处理（安全）。
+func applyBackendSpecificParams(p *SmartParams, backendType string, hw *HardwareInfo, meta *GGUFMetadata) {
+	switch backendType {
+	case "cuda", "":
+		// CUDA 后端：保持现有逻辑，不做额外调整
+		// 所有 CUDA 特定优化已在 CalculateSmartParams 主体中处理
+		// 空字符串（未初始化）也走此分支，保持默认行为（安全）
+	case "hip":
+		// AMD HIP 后端：类似 CUDA 但无 NVFP4、无架构特定优化
+		// Flash Attention 和 ngram-mod 保持与 CUDA 相同的行为
+	case "sycl":
+		// Intel SYCL 后端：类似 CUDA 但无 NVFP4
+	case "vulkan":
+		// Vulkan 后端：保守配置
+		// Flash Attention 在 Vulkan 上支持有限，默认关闭
+		p.FlashAttn = false
+		// ngram-mod 推测解码在 Vulkan 上兼容性未知，关闭
+		if p.SpecType == "ngram-mod" {
+			p.SpecType = ""
+			p.NgramModNMin = 0
+			p.NgramModNMax = 0
+			p.NgramModNMatch = 0
+		}
+		// ctx-size 保守限制：不超过 16384
+		if p.ContextSize > 16384 {
+			p.ContextSize = 16384
+		}
+		// MTP 推测解码在 Vulkan 上可能不兼容，关闭
+		// 简化处理：仅关闭新的 SpecType 设置，不回退已缩减的 ctx-size（保守是安全的）
+		if p.SpecType == "draft-mtp" {
+			p.SpecType = ""
+			p.SpecDraftNMax = 0
+			p.CacheTypeKDraft = ""
+			p.CacheTypeVDraft = ""
+		}
+		log.Info().Msg("[smart-params] Vulkan backend detected, applying conservative config (flash off, spec off, ctx<=16384)")
+	case "openvino":
+		// OpenVINO 后端：Intel 专用，类似 SYCL
+	case "cpu":
+		// CPU 后端：纯 CPU 模式
+		p.GPULayers = 0
+		p.FlashAttn = false
+		p.MmprojOffload = false
+		// 关闭所有推测解码
+		p.SpecType = ""
+		p.NgramModNMin = 0
+		p.NgramModNMax = 0
+		p.NgramModNMatch = 0
+		p.SpecDraftNMax = 0
+		p.CacheTypeKDraft = ""
+		p.CacheTypeVDraft = ""
+		// ctx-size 保守限制：不超过 8192
+		if p.ContextSize > 8192 {
+			p.ContextSize = 8192
+		}
+		// CPU 模式下 KV cache 使用 q4_0 节省内存
+		p.CacheTypeK = "q4_0"
+		p.CacheTypeV = "q4_0"
+		log.Info().Msg("[smart-params] CPU backend detected, applying CPU config (no GPU offload, q4_0 cache, ctx<=8192)")
 	}
 }
 

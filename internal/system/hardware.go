@@ -21,6 +21,13 @@ type HardwareInfo struct {
 	HasGPU          bool   // nvidia-smi 检测成功，有完整 GPU 信息（含 VRAM）
 	HasCUDABackend  bool   // 系统有 NVIDIA CUDA 驱动（nvcuda.dll），但可能无法获取 VRAM
 	GPUArchitecture string // GPU 微架构代号（如 "Blackwell"/"Ada"/"Ampere"/"Unknown"），用于架构感知优化
+	// 多厂商 GPU 支持字段（Task 1 扩展）
+	// 生活类比：就像一辆车可能装的是宝马、奔驰或奥迪的发动机，
+	// GPUVendor 记录这辆"AI 推理车"装的是哪家厂商的"显卡发动机"，
+	// 后续推理参数会根据厂商选择不同的"驾驶模式"（CUDA/Vulkan/SYCL 等）。
+	GPUVendor   string // GPU 厂商："nvidia"/"amd"/"intel"/"vulkan"/""（空表示未检测到）
+	HasAMDGPU   bool   // 检测到 AMD GPU
+	HasIntelGPU bool   // 检测到 Intel GPU
 }
 
 func DetectHardware() *HardwareInfo {
@@ -33,12 +40,49 @@ func DetectHardware() *HardwareInfo {
 	detectCUDABackend(hw)
 	detectGPU(hw)
 
-	if hw.HasGPU {
-		log.Info().Int("cpu_cores", hw.CPUCores).Str("gpu", hw.GPUName).Int64("vram_mb", hw.GPUVRAMMB).Bool("cuda_backend", hw.HasCUDABackend).Msg("[system] hardware detected")
-	} else if hw.HasCUDABackend {
-		log.Warn().Int("cpu_cores", hw.CPUCores).Msg("[system] NVIDIA CUDA driver detected but nvidia-smi unavailable, GPU params will use fallback (no VRAM info)")
-	} else {
-		log.Info().Int("cpu_cores", hw.CPUCores).Msg("[system] hardware: no NVIDIA GPU detected")
+	// NVIDIA 检测成功（有 nvidia-smi 完整信息 或 有 CUDA 驱动）时，标记厂商为 nvidia
+	// 生活类比：只要车库里有 NVIDIA 的车（无论能不能启动仪表盘），门口牌子就写 NVIDIA
+	if hw.HasGPU || hw.HasCUDABackend {
+		hw.GPUVendor = "nvidia"
+	}
+
+	// 多厂商兜底检测：仅当没有任何 NVIDIA 痕迹时，才尝试 AMD/Intel/Vulkan
+	// 生活类比：NVIDIA 车库空着，再去 AMD、Intel、Vulkan 的展厅看看有没有车
+	// 注意：保留 HasCUDABackend 判断，避免有 NVIDIA 驱动但 nvidia-smi 失败时误报其他厂商
+	if !hw.HasGPU && !hw.HasCUDABackend {
+		if !hw.HasGPU {
+			detectAMDGPU(hw)
+		}
+		if !hw.HasGPU {
+			detectIntelGPU(hw)
+		}
+		if !hw.HasGPU {
+			detectVulkanDevice(hw)
+		}
+	}
+
+	// 统一日志输出，支持多厂商信息
+	switch {
+	case hw.HasGPU:
+		log.Info().
+			Int("cpu_cores", hw.CPUCores).
+			Str("vendor", hw.GPUVendor).
+			Str("gpu", hw.GPUName).
+			Int64("vram_mb", hw.GPUVRAMMB).
+			Bool("cuda_backend", hw.HasCUDABackend).
+			Bool("amd", hw.HasAMDGPU).
+			Bool("intel", hw.HasIntelGPU).
+			Msg("[system] hardware detected")
+	case hw.HasCUDABackend:
+		log.Warn().
+			Int("cpu_cores", hw.CPUCores).
+			Str("vendor", hw.GPUVendor).
+			Msg("[system] NVIDIA CUDA driver detected but nvidia-smi unavailable, GPU params will use fallback (no VRAM info)")
+	default:
+		log.Info().
+			Int("cpu_cores", hw.CPUCores).
+			Str("vendor", hw.GPUVendor).
+			Msg("[system] hardware: no GPU detected")
 	}
 
 	return hw

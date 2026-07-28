@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"douya/internal/apperror"
+	"douya/internal/llm"
 
 	"github.com/rs/zerolog/log"
 )
@@ -23,9 +24,13 @@ type Config struct {
 	MmprojAuto      bool   `json:"mmproj_auto"`
 	MmprojOffload   bool   `json:"mmproj_offload"`
 	LlamaServerPath string `json:"llama_server_path"`
-	APIBase         string `json:"api_base"`
-	Port            int    `json:"port"`
-	ContextSize     int    `json:"context_size"`
+	// BackendType 计算后端类型（auto/cuda/hip/sycl/vulkan/openvino/cpu）。
+	// auto 表示根据硬件自动检测最合适的后端，其他值明确指定后端类型。
+	// 生活类比：就像选发动机型号——auto 是"让系统帮你选"，其他是明确指定用哪种发动机。
+	BackendType string `json:"backend_type"`
+	APIBase     string `json:"api_base"`
+	Port        int    `json:"port"`
+	ContextSize int    `json:"context_size"`
 	// ProactiveCompressThreshold 主动压缩阈值：当估算 token 占比 >= 该阈值时，
 	// 提前触发上下文压缩（不等溢出），为后续对话留出空间。
 	// 默认 0.8（80%），范围 0.5-0.95。值越小越激进（更早压缩）。
@@ -190,6 +195,7 @@ func DefaultConfig() *Config {
 		MmprojAuto:                 true,
 		MmprojOffload:              true,
 		LlamaServerPath:            "runtime/llama-server.exe",
+		BackendType:                "auto", // 默认自动检测最合适的后端
 		APIBase:                    "http://127.0.0.1:8080",
 		Port:                       8080,
 		ContextSize:                8192,
@@ -730,6 +736,14 @@ func (c *Config) Validate() error {
 	case "append", "replace", "":
 	default:
 		return apperror.Newf(apperror.KindInvalidConfig, "invalid system_prompt_mode: %q (必须是 append / replace)", c.SystemPromptMode)
+	}
+
+	// 后端类型校验：不合法时不返回错误，而是回退到 "auto" 并记录警告日志。
+	// 生活类比：发动机型号填错了不报错，直接换成"自动"模式，保证车还能开。
+	// 注意：这里只校验字符串合法性，不解析 auto（auto 的具体含义由启动流程根据硬件推断）。
+	if !llm.IsValidBackendType(c.BackendType) {
+		log.Warn().Str("backend_type", c.BackendType).Msg("[config] 无效的后端类型，回退到 auto")
+		c.BackendType = "auto"
 	}
 	return nil
 }

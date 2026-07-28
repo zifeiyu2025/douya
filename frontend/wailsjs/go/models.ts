@@ -519,7 +519,7 @@ export namespace main {
 	        this.rolled_back = source["rolled_back"];
 	        this.rollback_success = source["rollback_success"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -537,6 +537,31 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+
+	export class BackendStatus {
+	    current_backend: string;
+	    config_backend: string;
+	    gpu_vendor: string;
+	    gpu_name: string;
+	    gpu_vram_mb: number;
+	    installed_backends: string[];
+	    available_backends: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new BackendStatus(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.current_backend = source["current_backend"];
+	        this.config_backend = source["config_backend"];
+	        this.gpu_vendor = source["gpu_vendor"];
+	        this.gpu_name = source["gpu_name"];
+	        this.gpu_vram_mb = source["gpu_vram_mb"];
+	        this.installed_backends = source["installed_backends"];
+	        this.available_backends = source["available_backends"];
+	    }
 	}
 
 }

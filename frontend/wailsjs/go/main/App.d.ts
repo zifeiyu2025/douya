@@ -142,3 +142,7 @@ export function ApplyTemplate(arg1:Array<llm.ChatMessage>):Promise<string>;
 export function UpdateConfig(arg1:config.Config):Promise<void>;
 
 export function UploadDocument(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+
+export function GetBackendStatus():Promise<main.BackendStatus>;
+
+export function SwitchBackend(arg1:string):Promise<void>;

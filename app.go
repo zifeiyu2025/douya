@@ -41,18 +41,24 @@ type SearchAPIKeys struct {
 }
 
 type App struct {
-	ctx         context.Context
-	config      *config.Config
-	configMu    sync.RWMutex
-	server      *llm.Server
-	serverMu    sync.RWMutex
-	client      *llm.Client
-	db          *sql.DB
-	service     *chat.Service
-	hwInfo      *system.HardwareInfo
-	ready       atomic.Bool
-	serverReady atomic.Bool
-	watchCancel context.CancelFunc
+	ctx      context.Context
+	config   *config.Config
+	configMu sync.RWMutex
+	server   *llm.Server
+	serverMu sync.RWMutex
+	client   *llm.Client
+	db       *sql.DB
+	service  *chat.Service
+	hwInfo   *system.HardwareInfo
+	// resolvedBackend 是 startup 中解析后的后端类型（不含 auto），供 validatePaths 和 buildServerConfig 复用。
+	// 生活类比：就像车辆登记证上写明的"已装发动机型号"，后续保养（校验/启动）都看这个。
+	resolvedBackend llm.BackendType
+	// resolvedServerPath 是 startup 中 EnsureBackendInstalled 返回的 llama-server.exe 绝对路径。
+	// 为空表示未缓存，调用方应回退到配置中的 LlamaServerPath。
+	resolvedServerPath string
+	ready              atomic.Bool
+	serverReady        atomic.Bool
+	watchCancel        context.CancelFunc
 	// rootCtx 是应用级上下文，生命周期贯穿整个 App 运行期。
 	// shutdownInternal 会调用 rootCancel 通知所有被跟踪的长生命周期 goroutine 退出。
 	rootCtx    context.Context

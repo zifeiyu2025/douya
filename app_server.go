@@ -728,7 +728,7 @@ func (a *App) regeneratePresetWithoutMmproj(modelName string) bool {
 				}
 			}
 		}
-		sp := system.CalculateSmartParams(a.hwInfo, defaultModelPath)
+		sp := system.CalculateSmartParams(a.hwInfo, defaultModelPath, string(a.resolvedBackend))
 		globalDefaults = map[string]string{
 			"ctx-size": fmt.Sprintf("%d", sp.ContextSize),
 		}
@@ -805,7 +805,7 @@ func (a *App) generatePresetFile() error {
 				}
 			}
 		}
-		sp := system.CalculateSmartParams(a.hwInfo, defaultModelPath)
+		sp := system.CalculateSmartParams(a.hwInfo, defaultModelPath, string(a.resolvedBackend))
 		globalDefaults = map[string]string{
 			"ctx-size":       fmt.Sprintf("%d", sp.ContextSize),
 			"mmproj-offload": "1",
@@ -864,7 +864,7 @@ func (a *App) GetSmartParams() *SmartParamsInfo {
 	}
 
 	// 智能参数
-	sp := system.CalculateSmartParams(a.hwInfo, modelPath)
+	sp := system.CalculateSmartParams(a.hwInfo, modelPath, string(a.resolvedBackend))
 	info.Params.GPULayers = sp.GPULayers
 	info.Params.Threads = sp.Threads
 	info.Params.BatchSize = sp.BatchSize

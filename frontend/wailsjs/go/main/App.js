@@ -273,3 +273,11 @@ export function UpdateConfig(arg1) {
 export function UploadDocument(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['UploadDocument'](arg1, arg2, arg3, arg4);
 }
+
+export function GetBackendStatus() {
+  return window['go']['main']['App']['GetBackendStatus']();
+}
+
+export function SwitchBackend(arg1) {
+  return window['go']['main']['App']['SwitchBackend'](arg1);
+}

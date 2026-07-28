@@ -175,7 +175,8 @@ func TestCalculateSmartParams_BlackwellKeepsNgramMod(t *testing.T) {
 	}
 
 	// 非 MTP 模型，Blackwell 架构应保留 ngram-mod（无 GGUF 元数据时也启用）
-	sp := CalculateSmartParams(hw, "")
+	// 传入 "cuda" 保持与原行为一致（CUDA 后端不调整 ngram-mod）
+	sp := CalculateSmartParams(hw, "", "cuda")
 	if sp.SpecType != "ngram-mod" {
 		t.Errorf("Blackwell 架构应保留 ngram-mod，实际 SpecType=%s", sp.SpecType)
 	}
@@ -537,5 +538,170 @@ func TestModelTierConstants(t *testing.T) {
 	}
 	if ModelTierUnknown != 5 {
 		t.Errorf("ModelTierUnknown 期望 5，实际 %d", ModelTierUnknown)
+	}
+}
+
+// TestCalculateSmartParams_Vulkan 验证 Vulkan 后端的保守配置
+// Vulkan 后端：Flash Attention 关闭、推测解码关闭、ctx-size ≤ 16384
+//
+// 生活类比：Vulkan 像"通用适配器"，兼容性广但性能特性未知，
+// 所以默认关闭高级特性（Flash Attention、推测解码），用保守配置确保稳定运行。
+func TestCalculateSmartParams_Vulkan(t *testing.T) {
+	hw := &HardwareInfo{
+		HasGPU:    true,
+		GPUVRAMMB: 16303,
+	}
+	// 传入 "vulkan"，应启用保守配置
+	sp := CalculateSmartParams(hw, "", "vulkan")
+	if sp.FlashAttn != false {
+		t.Errorf("Vulkan 后端应关闭 Flash Attention，实际 FlashAttn=%v", sp.FlashAttn)
+	}
+	if sp.SpecType != "" {
+		t.Errorf("Vulkan 后端应关闭推测解码，实际 SpecType=%s", sp.SpecType)
+	}
+	if sp.ContextSize > 16384 {
+		t.Errorf("Vulkan 后端 ctx-size 应 ≤ 16384，实际 %d", sp.ContextSize)
+	}
+}
+
+// TestCalculateSmartParams_CPU 验证 CPU 后端的保守配置
+// CPU 后端：GPULayers=0、Flash Attention 关闭、ctx-size ≤ 8192、KV cache 用 q4_0
+//
+// 生活类比：CPU 模式就像"纯手动挡"，没有 GPU 加速，
+// 所有 GPU 相关特性都关闭，KV cache 用最省内存的 q4_0。
+func TestCalculateSmartParams_CPU(t *testing.T) {
+	hw := &HardwareInfo{
+		HasGPU:    true,
+		GPUVRAMMB: 16303,
+	}
+	// 传入 "cpu"，应启用 CPU 配置
+	sp := CalculateSmartParams(hw, "", "cpu")
+	if sp.GPULayers != 0 {
+		t.Errorf("CPU 后端 GPULayers 应为 0，实际 %d", sp.GPULayers)
+	}
+	if sp.FlashAttn != false {
+		t.Errorf("CPU 后端应关闭 Flash Attention，实际 FlashAttn=%v", sp.FlashAttn)
+	}
+	if sp.ContextSize > 8192 {
+		t.Errorf("CPU 后端 ctx-size 应 ≤ 8192，实际 %d", sp.ContextSize)
+	}
+	if sp.CacheTypeK != "q4_0" || sp.CacheTypeV != "q4_0" {
+		t.Errorf("CPU 后端 KV cache 应为 q4_0，实际 K=%s V=%s", sp.CacheTypeK, sp.CacheTypeV)
+	}
+	if sp.SpecType != "" {
+		t.Errorf("CPU 后端应关闭所有推测解码，实际 SpecType=%s", sp.SpecType)
+	}
+	if sp.MmprojOffload != false {
+		t.Errorf("CPU 后端应关闭 MmprojOffload，实际 %v", sp.MmprojOffload)
+	}
+}
+
+// TestCalculateSmartParams_CUDA_NoRegression 验证 CUDA 后端行为与原 CalculateSmartParams 一致
+// 传入 "cuda" 时，applyBackendSpecificParams 不做任何调整，保持默认行为
+//
+// 这是回归测试：确保 Task 5 的修改没有破坏 Task 1-4 已有的 CUDA 行为。
+func TestCalculateSmartParams_CUDA_NoRegression(t *testing.T) {
+	hw := &HardwareInfo{
+		HasGPU:    true,
+		GPUVRAMMB: 16303,
+	}
+	// 传入 "cuda"，应保持原行为
+	sp := CalculateSmartParams(hw, "", "cuda")
+	// CUDA 后端：Flash Attention 开启（有 GPU 时）
+	if sp.FlashAttn != true {
+		t.Errorf("CUDA 后端有 GPU 时应开启 Flash Attention，实际 FlashAttn=%v", sp.FlashAttn)
+	}
+	// CUDA 后端：非 MTP 模型应启用 ngram-mod
+	if sp.SpecType != "ngram-mod" {
+		t.Errorf("CUDA 后端非 MTP 模型应启用 ngram-mod，实际 SpecType=%s", sp.SpecType)
+	}
+	// CUDA 后端：GPULayers 应为 99（全部卸载）
+	if sp.GPULayers != 99 {
+		t.Errorf("CUDA 后端有 GPU 时 GPULayers 应为 99，实际 %d", sp.GPULayers)
+	}
+}
+
+// TestApplyBackendSpecificParams_Vulkan_ClosesNgramMod 单独测试 Vulkan 关闭 ngram-mod
+// 验证 Vulkan 后端会关闭已启用的 ngram-mod 推测解码，并限制 ctx-size
+func TestApplyBackendSpecificParams_Vulkan_ClosesNgramMod(t *testing.T) {
+	// 构造一个已启用 ngram-mod 的 SmartParams
+	p := &SmartParams{
+		SpecType:       "ngram-mod",
+		NgramModNMin:   48,
+		NgramModNMax:   64,
+		NgramModNMatch: 24,
+		FlashAttn:      true,
+		ContextSize:    32768, // 超过 16384，验证会被限制
+	}
+	hw := &HardwareInfo{HasGPU: true, GPUVRAMMB: 16303}
+
+	applyBackendSpecificParams(p, "vulkan", hw, nil)
+
+	// 验证 ngram-mod 被关闭
+	if p.SpecType != "" {
+		t.Errorf("Vulkan 后端应关闭 ngram-mod，实际 SpecType=%s", p.SpecType)
+	}
+	if p.NgramModNMin != 0 || p.NgramModNMax != 0 || p.NgramModNMatch != 0 {
+		t.Errorf("Vulkan 后端应清零 ngram-mod 参数，实际 NMin=%d NMax=%d NMatch=%d",
+			p.NgramModNMin, p.NgramModNMax, p.NgramModNMatch)
+	}
+	// 验证 Flash Attention 被关闭
+	if p.FlashAttn != false {
+		t.Errorf("Vulkan 后端应关闭 Flash Attention，实际 FlashAttn=%v", p.FlashAttn)
+	}
+	// 验证 ctx-size 被限制到 16384
+	if p.ContextSize != 16384 {
+		t.Errorf("Vulkan 后端 ctx-size 应被限制为 16384，实际 %d", p.ContextSize)
+	}
+}
+
+// TestApplyBackendSpecificParams_CPU_ClosesAllSpec 单独测试 CPU 关闭所有推测解码
+// 验证 CPU 后端会关闭所有推测解码（含 MTP），并应用 CPU 专用配置
+func TestApplyBackendSpecificParams_CPU_ClosesAllSpec(t *testing.T) {
+	// 构造一个已启用 MTP 推测解码的 SmartParams
+	p := &SmartParams{
+		SpecType:        "draft-mtp",
+		SpecDraftNMax:   3,
+		CacheTypeKDraft: "q8_0",
+		CacheTypeVDraft: "q8_0",
+		GPULayers:       99,
+		FlashAttn:       true,
+		MmprojOffload:   true,
+		ContextSize:     16384, // 超过 8192，验证会被限制
+		CacheTypeK:      "q8_0",
+		CacheTypeV:      "q4_0",
+	}
+	hw := &HardwareInfo{HasGPU: true, GPUVRAMMB: 16303}
+
+	applyBackendSpecificParams(p, "cpu", hw, nil)
+
+	// 验证推测解码被关闭
+	if p.SpecType != "" {
+		t.Errorf("CPU 后端应关闭所有推测解码，实际 SpecType=%s", p.SpecType)
+	}
+	if p.SpecDraftNMax != 0 {
+		t.Errorf("CPU 后端应清零 SpecDraftNMax，实际 %d", p.SpecDraftNMax)
+	}
+	if p.CacheTypeKDraft != "" || p.CacheTypeVDraft != "" {
+		t.Errorf("CPU 后端应清空 Draft cache 类型，实际 K=%s V=%s",
+			p.CacheTypeKDraft, p.CacheTypeVDraft)
+	}
+	// 验证 GPU 相关参数被关闭
+	if p.GPULayers != 0 {
+		t.Errorf("CPU 后端 GPULayers 应为 0，实际 %d", p.GPULayers)
+	}
+	if p.FlashAttn != false {
+		t.Errorf("CPU 后端应关闭 Flash Attention，实际 FlashAttn=%v", p.FlashAttn)
+	}
+	if p.MmprojOffload != false {
+		t.Errorf("CPU 后端应关闭 MmprojOffload，实际 %v", p.MmprojOffload)
+	}
+	// 验证 ctx-size 被限制到 8192
+	if p.ContextSize != 8192 {
+		t.Errorf("CPU 后端 ctx-size 应被限制为 8192，实际 %d", p.ContextSize)
+	}
+	// 验证 KV cache 被设置为 q4_0
+	if p.CacheTypeK != "q4_0" || p.CacheTypeV != "q4_0" {
+		t.Errorf("CPU 后端 KV cache 应为 q4_0，实际 K=%s V=%s", p.CacheTypeK, p.CacheTypeV)
 	}
 }

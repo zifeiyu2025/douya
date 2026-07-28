@@ -39,6 +39,17 @@
             <AdvancedSettings />
           </n-collapse-item>
 
+          <!-- ==================== 显卡后端 ==================== -->
+          <n-collapse-item name="backend">
+            <template #header>
+              <div class="settings-group-header">
+                <span class="settings-group-title">显卡后端</span>
+                <span class="settings-group-desc">切换 GPU 计算后端，影响推理性能与兼容性</span>
+              </div>
+            </template>
+            <BackendSettings />
+          </n-collapse-item>
+
           <!-- ==================== 实验设置 ==================== -->
           <n-collapse-item name="experimental">
             <template #header>
@@ -91,6 +102,7 @@ import defaultUserAvatar from '../assets/images/user-avatar.svg'
 import defaultAiAvatar from '../assets/images/appicon.png'
 import BasicSettings from '../components/settings/BasicSettings.vue'
 import AdvancedSettings from '../components/settings/AdvancedSettings.vue'
+import BackendSettings from '../components/settings/BackendSettings.vue'
 import ExperimentalSettings from '../components/settings/ExperimentalSettings.vue'
 import MCPSettings from '../components/settings/MCPSettings.vue'
 import AboutSettings from '../components/settings/AboutSettings.vue'
@@ -533,6 +545,7 @@ watch(hasGPUInfo, hasGPU => {
 const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'model_path',
   'llama_server_path',
+  'backend_type',
   'api_base',
   'port',
   'context_size',

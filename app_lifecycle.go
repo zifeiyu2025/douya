@@ -53,6 +53,32 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.setConfig(loadedCfg)
 
+	// 解析后端类型并确保后端已安装（在 validatePaths 之前完成，供其校验 DLL）。
+	// 生活类比：提车前先确定用什么发动机，并确保发动机已装好，然后再检查零件是否齐全。
+	// 流程：
+	//   1. 根据硬件和配置解析 auto 为具体后端（如 cuda/hip/cpu）
+	//   2. EnsureBackendInstalled 确保后端已解压到 runtime 目录（幂等：已安装则直接返回路径）
+	//   3. 如果安装失败，尝试回退到 CPU 后端
+	//   4. 将解析结果缓存到 App 结构体，供 validatePaths 和 buildServerConfig 复用
+	runtimeDir := filepath.Join(appDir(), "runtime")
+	resolvedBackend := llm.ResolveBackendType(a.hwInfo, loadedCfg.BackendType)
+	serverPath, err := llm.EnsureBackendInstalled(resolvedBackend, runtimeDir)
+	if err != nil {
+		zlog.Warn().Err(err).Str("backend", resolvedBackend.String()).Msg("[startup] 后端安装失败，尝试回退到 CPU")
+		if resolvedBackend != llm.BackendCPU {
+			fallbackPath, cpuErr := llm.EnsureBackendInstalled(llm.BackendCPU, runtimeDir)
+			if cpuErr != nil {
+				// CPU 后端也失败：不终止启动，validatePaths 会报告缺失文件
+				zlog.Error().Err(cpuErr).Msg("[startup] CPU 后端也安装失败，validatePaths 将报告缺失文件")
+			} else {
+				serverPath = fallbackPath
+				resolvedBackend = llm.BackendCPU
+			}
+		}
+	}
+	a.resolvedBackend = resolvedBackend
+	a.resolvedServerPath = serverPath
+
 	if checkResult := a.validatePaths(); checkResult.HasRuntimeIssues() || checkResult.HasModelIssues() {
 		// ===== 分层提示：runtime 问题（致命）和 models 问题（警告）分开处理 =====
 
@@ -69,15 +95,20 @@ func (a *App) startup(ctx context.Context) {
 			msg.WriteString("\n")
 			msg.WriteString("【这是什么】\n")
 			msg.WriteString("runtime 目录包含 AI 推理引擎（llama-server.exe）和配套的 DLL 动态库，\n")
-			msg.WriteString("是应用运行的核心依赖，缺失任何一个文件都无法启动。\n\n")
+			msg.WriteString("是应用运行的核心依赖。基础发布包已内置 CPU 和 Vulkan 后端（位于 runtime/cpu/\n")
+			msg.WriteString("和 runtime/vulkan/），应用启动时会自动解压；若检测到 NVIDIA/AMD/Intel 显卡，\n")
+			msg.WriteString("还会自动从 runtime/ 中的对应 zip 包解压厂商后端（CUDA/HIP/SYCL 等）。\n\n")
 			msg.WriteString("【如何修复】\n")
-			msg.WriteString("1. 从官方发布包获取完整的 runtime 目录：\n")
+			msg.WriteString("1. 当前缺失的是基础后端核心文件，请重新下载完整的官方发布包：\n")
 			msg.WriteString("   https://github.com/ggml-org/llama.cpp/releases\n")
-			msg.WriteString("   下载 Windows CUDA 版本（如 llama-bXXXX-bin-win-cuda-cu13.x.zip）\n")
-			msg.WriteString("2. 解压后将以下文件放入 runtime 目录：\n")
-			msg.WriteString("   - llama-server.exe（主程序）\n")
-			msg.WriteString("   - llama.dll / ggml.dll 等（核心引擎库）\n")
-			msg.WriteString("   - cudart64_13.dll / cublas64_13.dll 等（CUDA 加速库，NVIDIA 显卡才需要）\n\n")
+			msg.WriteString("   下载对应显卡的后端版本（如 llama-bXXXX-bin-win-cuda-cu13.x.zip）\n")
+			msg.WriteString("2. 如果只是厂商后端（CUDA/HIP/SYCL 等）zip 包缺失，可继续使用内置的\n")
+			msg.WriteString("   CPU/Vulkan 后端（降级模式），或手动下载对应 zip 包放入 runtime/ 目录，\n")
+			msg.WriteString("   重启应用后会自动解压启用。\n")
+			msg.WriteString("3. 完整的 runtime 目录应包含：\n")
+			msg.WriteString("   - llama-server.exe + llama.dll / ggml.dll 等（核心引擎库）\n")
+			msg.WriteString("   - cpu/ 和 vulkan/ 子目录（基础后端，已解压）\n")
+			msg.WriteString("   - 各厂商 zip 包（cuda/hip/sycl 等，按需解压）\n\n")
 			fmt.Fprintf(&msg, "【应用根目录】\n%s", appDir())
 
 			zlog.Error().Strs("runtime_missing", checkResult.RuntimeMissing).Msg("[startup] runtime incomplete, aborting")
