@@ -38,11 +38,13 @@
               更新于 {{ lastUpdateTime }}
             </span>
           </div>
+          <!-- 出错：用 alert 显示，但区分"未开启"和"真错误" -->
           <div v-if="metricsError" class="metrics-error">
             <n-alert type="warning" :title="metricsErrorTitle" closable @close="metricsError = ''">
               {{ metricsError }}
             </n-alert>
           </div>
+          <!-- 正常：显示指标数据 -->
           <div v-else-if="metrics" class="metrics-content">
             <div class="metrics-grid">
               <div class="metric-card metric-card-primary">
@@ -105,8 +107,20 @@
               </div>
             </div>
           </div>
+          <!-- 空状态：友好引导，不报错 -->
           <div v-else class="metrics-empty">
-            <n-empty description="点击「刷新」加载指标数据" />
+            <n-empty description="暂无指标数据">
+              <template #extra>
+                <div class="metrics-empty-hint">
+                  <p>点击上方「刷新」按钮获取指标数据</p>
+                  <p class="metrics-empty-tip">
+                    如显示"指标端点未启用"，请在「设置 → 实验功能」中开启
+                    <strong>服务器指标端点（--metrics）</strong>
+                    后重启 llama-server
+                  </p>
+                </div>
+              </template>
+            </n-empty>
           </div>
         </n-tab-pane>
       </n-tabs>
@@ -173,6 +187,8 @@ const onPauseChange = (value: boolean) => {
 }
 
 // 刷新指标数据
+// 设计原则：未开启指标端点是正常状态，不应当作错误显示
+// 只有真正的请求错误（服务器未启动、网络问题等）才显示为 alert
 const refreshMetrics = async () => {
   metricsLoading.value = true
   try {
@@ -181,20 +197,28 @@ const refreshMetrics = async () => {
     lastUpdateTime.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
-    metricsError.value = errMsg
-    // 友好的错误提示：常见原因分类
-    if (errMsg.includes('status 400')) {
-      metricsErrorTitle.value = '请求参数错误（400）'
-      metricsError.value = 'router 模式下 /metrics 需要 model 参数。请确认已加载模型后再刷新指标。'
-    } else if (errMsg.includes('status 404') || errMsg.toLowerCase().includes('not found')) {
-      metricsErrorTitle.value = '指标端点未启用'
-      metricsError.value = '请在设置中开启「服务器指标端点（--metrics）」后重启 llama-server。'
+    // 指标端点未启用：不当作错误，清空 metrics 让空状态提示显示
+    // 这是用户最常遇到的"未开启"场景，应该友好引导而非报错
+    if (errMsg.includes('status 404') || errMsg.toLowerCase().includes('not found')) {
+      metrics.value = null
+      metricsError.value = ''
+      lastUpdateTime.value = ''
+      // 用 message 提示一次，不持久显示 alert
+      message.info('指标端点未启用，请在「设置 → 实验功能」中开启后重启 llama-server')
+    } else if (errMsg.includes('status 400')) {
+      // router 模式下需要 model 参数，这是配置问题，显示为 info 而非 warning
+      metrics.value = null
+      metricsError.value = ''
+      message.info('请先加载模型后再刷新指标（router 模式需要 model 参数）')
     } else if (errMsg.includes('客户端未初始化')) {
       metricsErrorTitle.value = '服务器未启动'
+      metricsError.value = 'llama-server 尚未启动，请先启动服务器。'
     } else if (errMsg.includes('当前无已加载模型')) {
       metricsErrorTitle.value = '无已加载模型'
+      metricsError.value = '请先加载模型后再刷新指标。'
     } else {
       metricsErrorTitle.value = '获取指标失败'
+      metricsError.value = errMsg
     }
   } finally {
     metricsLoading.value = false
@@ -234,12 +258,8 @@ watch(visible, val => {
   }
 })
 
-// 切换到指标 tab 时自动加载一次
-watch(activeTab, val => {
-  if (val === 'metrics' && !metrics.value && !metricsLoading.value) {
-    refreshMetrics()
-  }
-})
+// 注：切换到指标 tab 时不自动请求，避免未开启指标端点时一进 tab 就报错
+// 用户需手动点击「刷新」按钮，这样能明确区分"未请求"和"请求失败"
 
 defineExpose({ toggle })
 
@@ -385,5 +405,23 @@ onUnmounted(() => {
 }
 .metrics-empty {
   padding: 40px 0;
+}
+.metrics-empty-hint {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-color-3);
+  line-height: 1.8;
+}
+.metrics-empty-hint p {
+  margin: 4px 0;
+}
+.metrics-empty-tip {
+  font-size: 12px;
+  color: var(--text-color-3);
+  max-width: 360px;
+  margin: 8px auto 0;
+}
+.metrics-empty-tip strong {
+  color: var(--text-color-2);
 }
 </style>

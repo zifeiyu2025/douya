@@ -186,8 +186,9 @@ func TestWatchWithCallback_PermanentFailure(t *testing.T) {
 //
 // 生活类比：就像安检口的"允许携带物品清单"，清单上的东西（f32、q8_0 等）可以放心通过。
 // 这个测试确保清单完整，不会误拦合法物品。
+// 注意：列表必须与 llama.cpp 源码 common/arg.cpp 的 kv_cache_types 保持一致。
 func TestIsValidCacheType_AllowedTypes(t *testing.T) {
-	allowed := []string{"f32", "f16", "bf16", "q8_0", "q4_0", "q4_1", "iq4_nl", "q5_0", "q5_1", "nvfp4"}
+	allowed := []string{"f32", "f16", "bf16", "q8_0", "q4_0", "q4_1", "iq4_nl", "q5_0", "q5_1"}
 	for _, ct := range allowed {
 		if !isValidCacheType(ct) {
 			t.Errorf("isValidCacheType(%q) 期望 true，实际 false", ct)
@@ -198,7 +199,7 @@ func TestIsValidCacheType_AllowedTypes(t *testing.T) {
 // TestIsValidCacheType_CaseInsensitive 验证大小写不敏感
 // 用户可能输入大写（如 "Q8_0"），应被接受
 func TestIsValidCacheType_CaseInsensitive(t *testing.T) {
-	cases := []string{"Q8_0", "F32", "BF16", "Q4_0", "IQ4_NL", "Q5_1", "NVFP4"}
+	cases := []string{"Q8_0", "F32", "BF16", "Q4_0", "IQ4_NL", "Q5_1"}
 	for _, ct := range cases {
 		if !isValidCacheType(ct) {
 			t.Errorf("isValidCacheType(%q) 大小写不敏感应返回 true，实际 false", ct)
@@ -206,14 +207,15 @@ func TestIsValidCacheType_CaseInsensitive(t *testing.T) {
 	}
 }
 
-// TestIsValidCacheType_RemovedTypes 验证已删除的 cache 类型返回 false
+// TestIsValidCacheType_RemovedTypes 验证已删除/无效的 cache 类型返回 false
 // llama-server 9631 版本删除了 q2_k, q3_k, q4_k, q5_k, q6_k, iq4_xs
+// nvfp4 是模型权重量化类型，不是 KV cache 类型，llama-server 收到会抛 runtime_error
 // 如果误接受这些类型，会导致 llama-server 启动失败
 func TestIsValidCacheType_RemovedTypes(t *testing.T) {
-	removed := []string{"q2_k", "q3_k", "q4_k", "q5_k", "q6_k", "iq4_xs"}
+	removed := []string{"q2_k", "q3_k", "q4_k", "q5_k", "q6_k", "iq4_xs", "nvfp4"}
 	for _, ct := range removed {
 		if isValidCacheType(ct) {
-			t.Errorf("isValidCacheType(%q) 已删除的类型应返回 false，实际 true", ct)
+			t.Errorf("isValidCacheType(%q) 已删除/无效的类型应返回 false，实际 true", ct)
 		}
 	}
 }

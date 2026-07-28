@@ -116,76 +116,68 @@ func TestCalculateCacheTypes_MoE(t *testing.T) {
 	}
 }
 
-// TestCalculateCacheTypes_Blackwell 测试 Blackwell 架构（RTX 50 系）的 NVFP4 优化
-//
-// 生活类比：就像新能源车可以用专属快充桩，RTX 50 系显卡原生支持 NVFP4 4-bit 浮点量化，
-// 应该优先使用 NVFP4 而不是 iq4_nl（两者占用相同 0.5 字节，但浮点格式精度更优）。
-//
-// 验证点：
-//   - 显存充裕（ratio ≤ 0.5）：K=q8_0，V=nvfp4（V 用 NVFP4 释放空间）
-//   - 显存较充裕（0.5 < ratio ≤ 0.7）：K=q4_0，V=nvfp4
-//   - 显存紧张（0.7 < ratio ≤ 0.85）：K=q4_0，V=nvfp4
-//   - 显存很紧张（ratio > 0.85）：K=nvfp4，V=nvfp4（最大化压缩）
-func TestCalculateCacheTypes_Blackwell(t *testing.T) {
+// TestCalculateCacheTypes_NoNVFP4 验证所有架构都不会使用 nvfp4 作为 KV cache 类型
+// 原因：nvfp4 是模型权重量化类型（MOSTLY_NVFP4），不是 KV cache 类型，
+// llama.cpp 源码 common/arg.cpp 的 kv_cache_types 不包含 nvfp4，
+// llama-server 收到 --cache-type-v nvfp4 会抛 runtime_error 导致启动失败。
+func TestCalculateCacheTypes_NoNVFP4(t *testing.T) {
 	const vramMB = 10000
 	vramBytes := float64(vramMB) * 1024 * 1024
 
-	tests := []struct {
-		name  string
-		ratio float64
-		wantK string
-		wantV string
-	}{
-		{"ratio ≤ 0.5 显存充裕，V 用 NVFP4", 0.3, "q8_0", "nvfp4"},
-		{"ratio 0.5-0.7 显存较充裕，V 用 NVFP4", 0.6, "q4_0", "nvfp4"},
-		{"ratio 0.7-0.85 显存紧张，V 用 NVFP4", 0.8, "q4_0", "nvfp4"},
-		{"ratio > 0.85 显存很紧张，K/V 都用 NVFP4", 0.9, "nvfp4", "nvfp4"},
-	}
+	// 所有架构（含 Blackwell）在所有 ratio 区间都不应返回 nvfp4
+	archs := []string{"Blackwell", "Ada", "Ampere", "Turing", "Unknown", ""}
+	ratios := []float64{0.3, 0.6, 0.8, 0.9}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, arch := range archs {
+		for _, ratio := range ratios {
 			hw := &HardwareInfo{
 				HasGPU:          true,
 				GPUVRAMMB:       vramMB,
-				GPUArchitecture: "Blackwell",
+				GPUArchitecture: arch,
 			}
-			meta := &GGUFMetadata{FileSize: int64(float64(tt.ratio) * vramBytes)}
+			meta := &GGUFMetadata{FileSize: int64(ratio * vramBytes)}
 
 			gotK, gotV := calculateCacheTypes(hw, meta)
-			if gotK != tt.wantK {
-				t.Errorf("CacheTypeK 期望 %s，实际 %s", tt.wantK, gotK)
+			if gotK == "nvfp4" || gotV == "nvfp4" {
+				t.Errorf("架构 %q ratio=%.1f 不应使用 nvfp4，实际 (K=%s, V=%s)", arch, ratio, gotK, gotV)
 			}
-			if gotV != tt.wantV {
-				t.Errorf("CacheTypeV 期望 %s，实际 %s", tt.wantV, gotV)
-			}
-		})
+		}
 	}
 }
 
-// TestCalculateCacheTypes_NonBlackwellNoNVFP4 验证非 Blackwell 架构不会使用 NVFP4
-// 生活类比：油车不能使用新能源专属快充桩，其他架构显卡也不应使用 NVFP4（llama-server 会拒绝）
-func TestCalculateCacheTypes_NonBlackwellNoNVFP4(t *testing.T) {
-	const vramMB = 10000
-	vramBytes := float64(vramMB) * 1024 * 1024
+// TestCalculateContextSize_BlackwellCap 验证 Blackwell 架构 ctx-size 被限制为 32768
+// 原因：llama.cpp 在 Blackwell 上对超大上下文有兼容性问题，96K 会触发栈溢出崩溃
+// 注意：此测试验证 fallback 路径（无 GGUF 元数据），验证 Blackwell 限制在所有路径都生效
+func TestCalculateContextSize_BlackwellCap(t *testing.T) {
+	// 模拟群友环境：RTX 5070 Ti, 16GB VRAM
+	hw := &HardwareInfo{
+		HasGPU:          true,
+		GPUVRAMMB:       16303,
+		GPUArchitecture: "Blackwell",
+	}
 
-	// 显存很紧张的场景，非 Blackwell 架构应使用 q4_1/iq4_nl 而非 nvfp4
-	archs := []string{"Ada", "Ampere", "Turing", "Unknown", ""}
-	for _, arch := range archs {
-		hw := &HardwareInfo{
-			HasGPU:          true,
-			GPUVRAMMB:       vramMB,
-			GPUArchitecture: arch,
-		}
-		meta := &GGUFMetadata{FileSize: int64(0.9 * vramBytes)} // ratio = 0.9
+	// 无模型文件时走 fallback 路径，Blackwell 限制应生效
+	got := calculateContextSize(hw, "")
+	if got > 32768 {
+		t.Errorf("Blackwell 架构 ctx-size 应被限制为 32768，实际 %d", got)
+	}
+}
 
-		gotK, gotV := calculateCacheTypes(hw, meta)
-		if gotK == "nvfp4" || gotV == "nvfp4" {
-			t.Errorf("架构 %q 不应使用 nvfp4，实际 (K=%s, V=%s)", arch, gotK, gotV)
-		}
-		// 非 Blackwell 显存很紧张时应为 q4_1/iq4_nl
-		if gotK != "q4_1" || gotV != "iq4_nl" {
-			t.Errorf("架构 %q 显存紧张时期望 (q4_1, iq4_nl)，实际 (%s, %s)", arch, gotK, gotV)
-		}
+// TestCalculateSmartParams_BlackwellKeepsNgramMod 验证 Blackwell 架构保留 ngram-mod
+// 设计决策：ngram-mod 推测解码是成熟特性，在所有架构上都能工作。
+// Blackwell 崩溃根因是 ctx-size 过大（96K），不是 ngram-mod。
+// 通过只限制 ctx-size 来定位根因，保留 ngram-mod 的加速收益（对 4B 模型有 1.5-2x 加速）。
+func TestCalculateSmartParams_BlackwellKeepsNgramMod(t *testing.T) {
+	hw := &HardwareInfo{
+		HasGPU:          true,
+		GPUVRAMMB:       16303,
+		GPUArchitecture: "Blackwell",
+	}
+
+	// 非 MTP 模型，Blackwell 架构应保留 ngram-mod（无 GGUF 元数据时也启用）
+	sp := CalculateSmartParams(hw, "")
+	if sp.SpecType != "ngram-mod" {
+		t.Errorf("Blackwell 架构应保留 ngram-mod，实际 SpecType=%s", sp.SpecType)
 	}
 }
 
@@ -320,6 +312,7 @@ func TestCalculateBatchSizeFromRatio_MoE(t *testing.T) {
 
 // TestCacheTypeSize 测试 cache type size 函数
 // 返回每种量化类型每个元素占用的字节数
+// 注意：nvfp4 不在此列表中，因为它是模型权重量化类型，不是 KV cache 类型
 func TestCacheTypeSize(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -335,7 +328,7 @@ func TestCacheTypeSize(t *testing.T) {
 		{"q4_1", "q4_1", 0.625},
 		{"q4_0", "q4_0", 0.5625},
 		{"iq4_nl", "iq4_nl", 0.5},
-		{"nvfp4", "nvfp4", 0.5},
+		{"nvfp4 不是 cache 类型应回退默认", "nvfp4", 0.5625},
 		{"未知类型默认 q4_0", "unknown", 0.5625},
 		{"空字符串默认 q4_0", "", 0.5625},
 	}

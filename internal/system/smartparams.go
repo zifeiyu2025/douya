@@ -272,6 +272,17 @@ func calculateContextSize(hw *HardwareInfo, resolvedModelPath string) int {
 			maxCtx = 131072
 		}
 
+		// Blackwell 架构（RTX 50 系）保守限制：ctx-size 上限 32768
+		// 原因：llama.cpp 在 Blackwell 上的 CUDA kernel 可能对超大上下文有兼容性问题，
+		// 96K 上下文加载时触发 STATUS_STACK_BUFFER_OVERRUN 崩溃。
+		// 32K 足够日常对话使用，等 llama.cpp 修复后可放宽。
+		// 生活类比：新车刚上市时先开慢点，等厂家召回修复后再跑高速。
+		if hw.GPUArchitecture == "Blackwell" && maxCtx > 32768 {
+			log.Warn().Int("original_ctx", maxCtx).Int("capped_ctx", 32768).
+				Msg("[smart-params] Blackwell architecture detected, capping ctx-size to 32768 for stability")
+			maxCtx = 32768
+		}
+
 		log.Info().
 			Float64("vram_gb", vramBytes/1024/1024/1024).
 			Float64("model_gb", modelBytes/1024/1024/1024).
@@ -361,6 +372,13 @@ func calculateContextSizeFallback(tier ModelTier, hw *HardwareInfo, meta *GGUFMe
 		vramBased = 4096
 	}
 
+	// Blackwell 架构保守限制（与精确计算路径保持一致）
+	if hw.GPUArchitecture == "Blackwell" && vramBased > 32768 {
+		log.Warn().Int("original_ctx", vramBased).Int("capped_ctx", 32768).
+			Msg("[smart-params] Blackwell architecture detected (fallback path), capping ctx-size to 32768 for stability")
+		vramBased = 32768
+	}
+
 	return vramBased
 }
 
@@ -422,7 +440,9 @@ func calculateBatchSizeFromRatio(hw *HardwareInfo, meta *GGUFMetadata) int {
 }
 
 // cacheTypeSize 返回每种量化类型每个元素占用的字节数
-// 仅包含 llama-server --cache-type-k/v 支持的类型：f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1, nvfp4
+// 仅包含 llama-server --cache-type-k/v 支持的类型：
+// f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1
+// 注意：nvfp4 是模型权重量化类型，不是 KV cache 类型，不在此列表中
 func cacheTypeSize(ct string) float64 {
 	switch ct {
 	case "f32":
@@ -442,10 +462,6 @@ func cacheTypeSize(ct string) float64 {
 	case "q4_0":
 		return 0.5625
 	case "iq4_nl":
-		return 0.5
-	case "nvfp4":
-		// NVFP4：4-bit 浮点量化格式，仅 RTX 50 系（Blackwell）原生支持
-		// 每个元素 0.5 字节（与 iq4_nl 相同占用，但浮点格式精度更好）
 		return 0.5
 	default:
 		return 0.5625 // 默认 q4_0
@@ -516,28 +532,10 @@ func calculateCacheTypes(hw *HardwareInfo, meta *GGUFMetadata) (string, string) 
 		ratio = ratio * float64(meta.ExpertUsed) / float64(meta.ExpertCount)
 	}
 
-	// 架构感知优化：Blackwell 架构（RTX 50 系）原生支持 NVFP4 4-bit 浮点量化。
-	// 生活类比：就像新能源车可以用专属的快充桩（NVFP4），油车（其他架构）只能用普通充电桩。
-	// NVFP4 相比 iq4_nl 同样是 0.5 字节/元素，但浮点格式在数值精度上更优，
-	// 因此在 Blackwell 上优先使用 NVFP4 替代 iq4_nl，并在显存充裕时用 NVFP4 压缩 V cache 释放更多空间给上下文。
-	if hw.GPUArchitecture == "Blackwell" {
-		switch {
-		case ratio <= 0.5:
-			// 显存充裕：K 保持高精度，V 用 NVFP4 释放空间
-			return "q8_0", "nvfp4"
-		case ratio <= 0.7:
-			// 显存较充裕：K 用 q4_0，V 用 NVFP4
-			return "q4_0", "nvfp4"
-		case ratio <= 0.85:
-			// 显存紧张：K/V 都用 NVFP4，但 K 保留 q4_0 以保证注意力精度
-			return "q4_0", "nvfp4"
-		default:
-			// 显存很紧张：K/V 都用 NVFP4 最大化压缩（浮点格式在 4-bit 下仍优于整数量化）
-			return "nvfp4", "nvfp4"
-		}
-	}
-
-	// 其他架构（Ada/Ampere/Turing/Unknown）：不支持 NVFP4，使用原有量化策略
+	// KV cache 量化策略（所有架构统一）
+	// 注意：nvfp4 是模型权重量化类型，不是 KV cache 类型，不能用于 --cache-type-k/v。
+	// llama.cpp 源码 common/arg.cpp 的 kv_cache_types 仅支持：
+	// f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1
 	switch {
 	case ratio <= 0.5:
 		// 显存充裕，最高精度
