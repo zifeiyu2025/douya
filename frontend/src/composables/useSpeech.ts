@@ -1,13 +1,10 @@
 /**
- * 语音输入 composable
+ * useSpeech.ts — 语音输入（STT）composable
  *
- * 生活类比：就像一个语音速记员——你说话，它把声音变成文字填进输入框。
+ * 生活类比：这个文件就像豆芽的"语音速记员"——你说话，它把声音变成文字填进输入框。
  * 说话过程中会实时显示"听到的"临时文字，停顿后把确认的文字追加到输入框。
  *
- * 从 ChatInput.vue 抽取（基于架构优化：ChatInput.vue 1789 行→拆分独立职责）：
- * - SpeechRecognition 类型定义
- * - 语音识别状态管理（isListening, voiceInterimText）
- * - 语音识别生命周期（init/start/stop/cleanup）
+ * 基于浏览器原生 Web Speech API 实现，从 ChatInput.vue 抽取。
  */
 import { ref, computed, type Ref } from 'vue'
 
@@ -46,6 +43,8 @@ declare global {
 }
 
 /**
+ * 语音输入 composable（STT）
+ *
  * @param inputText 输入框文本（双向：语音识别结果会写入此 ref）
  */
 export function useVoiceInput(inputText: Ref<string>) {

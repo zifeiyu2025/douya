@@ -5,7 +5,7 @@ go 1.26.3
 require (
 	fyne.io/systray v1.12.2
 	github.com/UserExistsError/conpty v0.1.4
-	github.com/dgraph-io/badger/v4 v4.9.4
+	github.com/dgraph-io/badger/v4 v4.9.5
 	github.com/google/uuid v1.6.0
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/mattn/go-sqlite3 v1.14.48
