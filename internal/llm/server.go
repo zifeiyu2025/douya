@@ -27,6 +27,7 @@ const healthCheckTimeout = 2 * time.Second // 健康检查超时
 
 // allowedCacheTypes 列出 llama.cpp 允许的 KV cache 类型
 // 已删除的类型：q2_k, q3_k, q4_k, q5_k, q6_k, iq4_xs
+// nvfp4：4-bit 浮点量化，仅 RTX 50 系（Blackwell）原生支持，其他显卡传入会被 llama-server 拒绝
 var allowedCacheTypes = map[string]bool{
 	"f32":    true,
 	"f16":    true,
@@ -37,6 +38,7 @@ var allowedCacheTypes = map[string]bool{
 	"iq4_nl": true,
 	"q5_0":   true,
 	"q5_1":   true,
+	"nvfp4":  true,
 }
 
 // isValidCacheType 校验 cache 类型是否被支持

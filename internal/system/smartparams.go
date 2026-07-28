@@ -422,7 +422,7 @@ func calculateBatchSizeFromRatio(hw *HardwareInfo, meta *GGUFMetadata) int {
 }
 
 // cacheTypeSize 返回每种量化类型每个元素占用的字节数
-// 仅包含 llama-server --cache-type-k/v 支持的类型：f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1
+// 仅包含 llama-server --cache-type-k/v 支持的类型：f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1, nvfp4
 func cacheTypeSize(ct string) float64 {
 	switch ct {
 	case "f32":
@@ -442,6 +442,10 @@ func cacheTypeSize(ct string) float64 {
 	case "q4_0":
 		return 0.5625
 	case "iq4_nl":
+		return 0.5
+	case "nvfp4":
+		// NVFP4：4-bit 浮点量化格式，仅 RTX 50 系（Blackwell）原生支持
+		// 每个元素 0.5 字节（与 iq4_nl 相同占用，但浮点格式精度更好）
 		return 0.5
 	default:
 		return 0.5625 // 默认 q4_0
@@ -512,6 +516,28 @@ func calculateCacheTypes(hw *HardwareInfo, meta *GGUFMetadata) (string, string) 
 		ratio = ratio * float64(meta.ExpertUsed) / float64(meta.ExpertCount)
 	}
 
+	// 架构感知优化：Blackwell 架构（RTX 50 系）原生支持 NVFP4 4-bit 浮点量化。
+	// 生活类比：就像新能源车可以用专属的快充桩（NVFP4），油车（其他架构）只能用普通充电桩。
+	// NVFP4 相比 iq4_nl 同样是 0.5 字节/元素，但浮点格式在数值精度上更优，
+	// 因此在 Blackwell 上优先使用 NVFP4 替代 iq4_nl，并在显存充裕时用 NVFP4 压缩 V cache 释放更多空间给上下文。
+	if hw.GPUArchitecture == "Blackwell" {
+		switch {
+		case ratio <= 0.5:
+			// 显存充裕：K 保持高精度，V 用 NVFP4 释放空间
+			return "q8_0", "nvfp4"
+		case ratio <= 0.7:
+			// 显存较充裕：K 用 q4_0，V 用 NVFP4
+			return "q4_0", "nvfp4"
+		case ratio <= 0.85:
+			// 显存紧张：K/V 都用 NVFP4，但 K 保留 q4_0 以保证注意力精度
+			return "q4_0", "nvfp4"
+		default:
+			// 显存很紧张：K/V 都用 NVFP4 最大化压缩（浮点格式在 4-bit 下仍优于整数量化）
+			return "nvfp4", "nvfp4"
+		}
+	}
+
+	// 其他架构（Ada/Ampere/Turing/Unknown）：不支持 NVFP4，使用原有量化策略
 	switch {
 	case ratio <= 0.5:
 		// 显存充裕，最高精度

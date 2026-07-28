@@ -187,7 +187,7 @@ func TestWatchWithCallback_PermanentFailure(t *testing.T) {
 // 生活类比：就像安检口的"允许携带物品清单"，清单上的东西（f32、q8_0 等）可以放心通过。
 // 这个测试确保清单完整，不会误拦合法物品。
 func TestIsValidCacheType_AllowedTypes(t *testing.T) {
-	allowed := []string{"f32", "f16", "bf16", "q8_0", "q4_0", "q4_1", "iq4_nl", "q5_0", "q5_1"}
+	allowed := []string{"f32", "f16", "bf16", "q8_0", "q4_0", "q4_1", "iq4_nl", "q5_0", "q5_1", "nvfp4"}
 	for _, ct := range allowed {
 		if !isValidCacheType(ct) {
 			t.Errorf("isValidCacheType(%q) 期望 true，实际 false", ct)
@@ -198,7 +198,7 @@ func TestIsValidCacheType_AllowedTypes(t *testing.T) {
 // TestIsValidCacheType_CaseInsensitive 验证大小写不敏感
 // 用户可能输入大写（如 "Q8_0"），应被接受
 func TestIsValidCacheType_CaseInsensitive(t *testing.T) {
-	cases := []string{"Q8_0", "F32", "BF16", "Q4_0", "IQ4_NL", "Q5_1"}
+	cases := []string{"Q8_0", "F32", "BF16", "Q4_0", "IQ4_NL", "Q5_1", "NVFP4"}
 	for _, ct := range cases {
 		if !isValidCacheType(ct) {
 			t.Errorf("isValidCacheType(%q) 大小写不敏感应返回 true，实际 false", ct)

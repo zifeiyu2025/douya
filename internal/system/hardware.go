@@ -15,11 +15,12 @@ import (
 )
 
 type HardwareInfo struct {
-	CPUCores       int
-	GPUVRAMMB      int64
-	GPUName        string
-	HasGPU         bool // nvidia-smi 检测成功，有完整 GPU 信息（含 VRAM）
-	HasCUDABackend bool // 系统有 NVIDIA CUDA 驱动（nvcuda.dll），但可能无法获取 VRAM
+	CPUCores        int
+	GPUVRAMMB       int64
+	GPUName         string
+	HasGPU          bool   // nvidia-smi 检测成功，有完整 GPU 信息（含 VRAM）
+	HasCUDABackend  bool   // 系统有 NVIDIA CUDA 驱动（nvcuda.dll），但可能无法获取 VRAM
+	GPUArchitecture string // GPU 微架构代号（如 "Blackwell"/"Ada"/"Ampere"/"Unknown"），用于架构感知优化
 }
 
 func DetectHardware() *HardwareInfo {
@@ -125,4 +126,44 @@ func detectGPU(hw *HardwareInfo) {
 	hw.GPUVRAMMB = vramMB
 	hw.GPUName = strings.TrimSpace(parts[1])
 	hw.HasGPU = true
+	// 解析 GPU 微架构代号，用于后续架构感知优化（如 Blackwell 启用 NVFP4 量化）
+	hw.GPUArchitecture = parseGPUArchitecture(hw.GPUName)
+	if hw.GPUArchitecture != "Unknown" {
+		log.Info().Str("gpu", hw.GPUName).Str("arch", hw.GPUArchitecture).Msg("[system] GPU architecture detected")
+	}
+}
+
+// parseGPUArchitecture 从 GPU 名称解析微架构代号。
+// 生活类比：就像从车牌号前缀判断车辆品牌，从 GPU 名称中的"RTX 50/40/30"等关键字
+// 可以判断它属于哪一代架构，从而知道支持哪些特性（如 NVFP4 量化仅 Blackwell 支持）。
+//
+// 已知对应关系（NVIDIA 消费级显卡）：
+//   - RTX 50 系列 → Blackwell（支持 NVFP4 4-bit 浮点量化）
+//   - RTX 40 系列 → Ada Lovelace
+//   - RTX 30 系列 → Ampere
+//   - GTX 16 系列 → Turing
+//
+// 注意：nvidia-smi 返回的名称格式可能为 "NVIDIA GeForce RTX 5090" 或 "RTX 5090" 等，
+// 这里用 strings.Contains 做宽松匹配，避免被前缀差异绕过。
+func parseGPUArchitecture(gpuName string) string {
+	if gpuName == "" {
+		return "Unknown"
+	}
+	lowerName := strings.ToLower(gpuName)
+	switch {
+	case strings.Contains(lowerName, "rtx 50"):
+		// RTX 50 系：Blackwell 架构，原生支持 NVFP4 4-bit 浮点量化
+		return "Blackwell"
+	case strings.Contains(lowerName, "rtx 40"):
+		// RTX 40 系：Ada Lovelace 架构
+		return "Ada"
+	case strings.Contains(lowerName, "rtx 30"):
+		// RTX 30 系：Ampere 架构
+		return "Ampere"
+	case strings.Contains(lowerName, "gtx 16"):
+		// GTX 16 系：Turing 架构（无 RT 核心）
+		return "Turing"
+	default:
+		return "Unknown"
+	}
 }

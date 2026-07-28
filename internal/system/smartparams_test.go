@@ -116,6 +116,79 @@ func TestCalculateCacheTypes_MoE(t *testing.T) {
 	}
 }
 
+// TestCalculateCacheTypes_Blackwell 测试 Blackwell 架构（RTX 50 系）的 NVFP4 优化
+//
+// 生活类比：就像新能源车可以用专属快充桩，RTX 50 系显卡原生支持 NVFP4 4-bit 浮点量化，
+// 应该优先使用 NVFP4 而不是 iq4_nl（两者占用相同 0.5 字节，但浮点格式精度更优）。
+//
+// 验证点：
+//   - 显存充裕（ratio ≤ 0.5）：K=q8_0，V=nvfp4（V 用 NVFP4 释放空间）
+//   - 显存较充裕（0.5 < ratio ≤ 0.7）：K=q4_0，V=nvfp4
+//   - 显存紧张（0.7 < ratio ≤ 0.85）：K=q4_0，V=nvfp4
+//   - 显存很紧张（ratio > 0.85）：K=nvfp4，V=nvfp4（最大化压缩）
+func TestCalculateCacheTypes_Blackwell(t *testing.T) {
+	const vramMB = 10000
+	vramBytes := float64(vramMB) * 1024 * 1024
+
+	tests := []struct {
+		name  string
+		ratio float64
+		wantK string
+		wantV string
+	}{
+		{"ratio ≤ 0.5 显存充裕，V 用 NVFP4", 0.3, "q8_0", "nvfp4"},
+		{"ratio 0.5-0.7 显存较充裕，V 用 NVFP4", 0.6, "q4_0", "nvfp4"},
+		{"ratio 0.7-0.85 显存紧张，V 用 NVFP4", 0.8, "q4_0", "nvfp4"},
+		{"ratio > 0.85 显存很紧张，K/V 都用 NVFP4", 0.9, "nvfp4", "nvfp4"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hw := &HardwareInfo{
+				HasGPU:          true,
+				GPUVRAMMB:       vramMB,
+				GPUArchitecture: "Blackwell",
+			}
+			meta := &GGUFMetadata{FileSize: int64(float64(tt.ratio) * vramBytes)}
+
+			gotK, gotV := calculateCacheTypes(hw, meta)
+			if gotK != tt.wantK {
+				t.Errorf("CacheTypeK 期望 %s，实际 %s", tt.wantK, gotK)
+			}
+			if gotV != tt.wantV {
+				t.Errorf("CacheTypeV 期望 %s，实际 %s", tt.wantV, gotV)
+			}
+		})
+	}
+}
+
+// TestCalculateCacheTypes_NonBlackwellNoNVFP4 验证非 Blackwell 架构不会使用 NVFP4
+// 生活类比：油车不能使用新能源专属快充桩，其他架构显卡也不应使用 NVFP4（llama-server 会拒绝）
+func TestCalculateCacheTypes_NonBlackwellNoNVFP4(t *testing.T) {
+	const vramMB = 10000
+	vramBytes := float64(vramMB) * 1024 * 1024
+
+	// 显存很紧张的场景，非 Blackwell 架构应使用 q4_1/iq4_nl 而非 nvfp4
+	archs := []string{"Ada", "Ampere", "Turing", "Unknown", ""}
+	for _, arch := range archs {
+		hw := &HardwareInfo{
+			HasGPU:          true,
+			GPUVRAMMB:       vramMB,
+			GPUArchitecture: arch,
+		}
+		meta := &GGUFMetadata{FileSize: int64(0.9 * vramBytes)} // ratio = 0.9
+
+		gotK, gotV := calculateCacheTypes(hw, meta)
+		if gotK == "nvfp4" || gotV == "nvfp4" {
+			t.Errorf("架构 %q 不应使用 nvfp4，实际 (K=%s, V=%s)", arch, gotK, gotV)
+		}
+		// 非 Blackwell 显存很紧张时应为 q4_1/iq4_nl
+		if gotK != "q4_1" || gotV != "iq4_nl" {
+			t.Errorf("架构 %q 显存紧张时期望 (q4_1, iq4_nl)，实际 (%s, %s)", arch, gotK, gotV)
+		}
+	}
+}
+
 // TestEstimateModelTier 测试模型层级估算
 // score = blockCount * embeddingLength / 1000
 func TestEstimateModelTier(t *testing.T) {
@@ -262,6 +335,7 @@ func TestCacheTypeSize(t *testing.T) {
 		{"q4_1", "q4_1", 0.625},
 		{"q4_0", "q4_0", 0.5625},
 		{"iq4_nl", "iq4_nl", 0.5},
+		{"nvfp4", "nvfp4", 0.5},
 		{"未知类型默认 q4_0", "unknown", 0.5625},
 		{"空字符串默认 q4_0", "", 0.5625},
 	}
