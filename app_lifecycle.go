@@ -394,7 +394,7 @@ func (a *App) migrateSearchEngines(cfgPath string) {
 
 // initRAG 初始化 RAG（Badger-backed 向量存储 + LLM embedder）。
 // 初始化失败时禁用 RAG 但不阻止启动。
-func (a *App) initRAG(ctx context.Context, cfg *config.Config) {
+func (a *App) initRAG(_ context.Context, cfg *config.Config) {
 	ragDir := filepath.Join(appDir(), "data", "rag")
 	ragVS, err := rag.NewVectorStore(ragDir)
 	if err != nil {
@@ -1114,7 +1114,7 @@ func (a *App) SelectImageFile() (string, error) {
 	}
 
 	// 创建目标目录（如不存在）
-	if err := os.MkdirAll(imagesDir, 0o755); err != nil {
+	if err = os.MkdirAll(imagesDir, 0o755); err != nil {
 		return "", fmt.Errorf("创建图片目录失败: %w", err)
 	}
 
@@ -1130,9 +1130,9 @@ func (a *App) SelectImageFile() (string, error) {
 	}
 
 	hasher := sha256.New()
-	if _, err := io.Copy(hasher, srcFile); err != nil {
+	if _, e := io.Copy(hasher, srcFile); e != nil {
 		srcFile.Close()
-		return "", fmt.Errorf("计算文件哈希失败: %w", err)
+		return "", fmt.Errorf("计算文件哈希失败: %w", e)
 	}
 	srcFile.Close()
 
@@ -1158,14 +1158,14 @@ func (a *App) SelectImageFile() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("创建目标文件失败: %w", err)
 	}
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
+	if _, e := io.Copy(dstFile, srcFile); e != nil {
 		dstFile.Close()
 		// 复制失败时清理已创建的空文件
 		_ = os.Remove(dstPath)
-		return "", fmt.Errorf("复制图片失败: %w", err)
+		return "", fmt.Errorf("复制图片失败: %w", e)
 	}
-	if err := dstFile.Close(); err != nil {
-		return "", fmt.Errorf("保存图片失败: %w", err)
+	if e := dstFile.Close(); e != nil {
+		return "", fmt.Errorf("保存图片失败: %w", e)
 	}
 
 	// 返回相对路径，并用正斜杠（前端会用 URL 访问，Windows 下分隔符需转为 /）
