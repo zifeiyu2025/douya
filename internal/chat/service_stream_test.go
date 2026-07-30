@@ -367,4 +367,3 @@ func TestExtractToolResponseContent_Empty(t *testing.T) {
 		t.Errorf("空 plain_text_response 应回退到原始字符串，实际 %q", got)
 	}
 }
-
