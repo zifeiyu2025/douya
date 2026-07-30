@@ -13,7 +13,7 @@
  * 由调用方（App.vue）根据 chat_background 是否存在决定是否应用 .has-background 类。
  *
  * @param chat_background 背景图原始值，可以是文件路径或 data:URL
- * @param opacity 背景透明度（0-1），默认 0.9
+ * @param opacity 背景透明度（0-1），默认 0.85
  * @returns CSS 变量样式对象；chat_background 为空时返回 {}
  */
 export function buildBackgroundStyle(
@@ -24,7 +24,7 @@ export function buildBackgroundStyle(
   if (!chat_background) {
     return {}
   }
-  const actualOpacity = opacity ?? 0.9
+  const actualOpacity = opacity ?? 0.85
   let bgUrl: string
   if (chat_background.startsWith('data:')) {
     // data:URL（如 base64）直接使用，避免二次编码

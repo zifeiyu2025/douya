@@ -38,7 +38,12 @@
           class="conversation-item"
           :class="{ active: conv.id === chatStore.currentConversationId }"
           :style="{ '--stagger-idx': Math.min(idx, 12) }"
+          role="button"
+          tabindex="0"
+          :aria-label="`会话：${fixUtf8(conv.title) || '新对话'}`"
+          :aria-current="conv.id === chatStore.currentConversationId ? 'true' : undefined"
           @click="handleSelect(conv.id)"
+          @keydown.enter.prevent="handleSelect(conv.id)"
           @contextmenu.prevent="handleContextMenu($event, conv)"
         >
           <div class="conversation-item-info">
@@ -343,6 +348,12 @@ async function handleExport(id: string, format: string) {
 
 .conversation-item.active {
   background: var(--bg-active);
+}
+
+/* 键盘聚焦视觉反馈（无障碍）：Tab 键聚焦时显示蓝色描边 */
+.conversation-item:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
 }
 
 .conversation-item-info {

@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"douya/internal/apperror"
-	"douya/internal/llm"
 
 	"github.com/rs/zerolog/log"
 )
@@ -176,6 +175,28 @@ type Config struct {
 	UIMcpProxy bool `json:"ui_mcp_proxy"` // 仅启用 MCP CORS 代理（Agent 已包含此项）
 	// 后端采样（实验性，将采样逻辑移到 GPU 执行，不兼容 grammar 和 reasoning budget）
 	BackendSampling bool `json:"backend_sampling"`
+	// PerformanceMode 性能模式：compatible（兼容）/ balanced（平衡）/ performance（性能）。
+	// 生活类比：就像汽车的 ECO/COMFORT/SPORT 驾驶模式——不改动每个零件，
+	// 只按模式批量调整发动机、变速箱、转向的参数组合。
+	// compatible：保守配置，适合排查问题或首次运行未知模型
+	// balanced：日常使用，平衡性能与稳定性（默认）
+	// performance：榨干性能，适合确认硬件支持后追求极致速度
+	// 空值或非法值按 balanced 处理（向后兼容旧配置）
+	PerformanceMode string `json:"performance_mode"`
+	// ===== TTS 文本转语音设置 =====
+	// 生活类比：像"播音员调度台"的配置——挑哪个播音员、调快慢、调音调、调音量。
+	// 前端用浏览器原生 SpeechSynthesis API 实现，无需后端参与推理，
+	// 后端只负责持久化配置（用户关闭程序后下次打开仍在）。
+	// TtsEnabled 是否启用朗读按钮（关闭则隐藏朗读入口）
+	TtsEnabled bool `json:"tts_enabled"`
+	// TtsVoice 发音人名称（空=自动按优先级挑选，如 "Microsoft Xiaoxiao"）
+	TtsVoice string `json:"tts_voice"`
+	// TtsRate 语速：0.5（慢）- 2.0（快），1.0 = 正常速度
+	TtsRate float64 `json:"tts_rate"`
+	// TtsPitch 音调：0（低）- 2（高），1.0 = 正常音调
+	TtsPitch float64 `json:"tts_pitch"`
+	// TtsVolume 音量：0（静音）- 1（最大），1.0 = 最大音量
+	TtsVolume float64 `json:"tts_volume"`
 	// SSE ping 间隔秒数（0=使用服务器默认 30 秒，用于保持长连接活跃）
 	SsePingInterval int `json:"sse_ping_interval"`
 	// LoRA 适配器路径（逗号分隔，启动时通过 --lora 加载，配合 --lora-init-without-apply 默认不应用）
@@ -255,7 +276,7 @@ func DefaultConfig() *Config {
 		DryPenaltyLastN:          0,
 		GrpAttnN:                 0,
 		GrpAttnW:                 0,
-		Jinja:                    nil,
+		Jinja:                    new(true), // 默认开启 Jinja2 模板引擎，支持更复杂的 chat template 语法
 		CachePrompt:              new(true), // 显式启用 prompt 缓存，多轮对话时复用前缀 KV，降低首 token 延迟
 		Metrics:                  false,
 		Verbose:                  false,
@@ -330,6 +351,15 @@ func DefaultConfig() *Config {
 		Agent:           false,
 		UIMcpProxy:      false,
 		BackendSampling: false,
+		// PerformanceMode 性能模式：默认 balanced（平衡），兼顾性能与稳定性
+		PerformanceMode: "balanced",
+		// TTS 文本转语音默认配置
+		// 默认启用朗读按钮，发音人留空（自动按优先级挑选晓晓等自然语音）
+		TtsEnabled: true,
+		TtsVoice:   "",
+		TtsRate:    1.0,
+		TtsPitch:   1.0,
+		TtsVolume:  1.0,
 		SsePingInterval: 0,
 		LoraPaths:       "",
 		DirectIO:        false,
@@ -682,6 +712,14 @@ func (c *Config) repairInvalidFields() []string {
 		repaired = append(repaired, fmt.Sprintf("system_prompt_mode: %q -> %q", c.SystemPromptMode, defaults.SystemPromptMode))
 		c.SystemPromptMode = defaults.SystemPromptMode
 	}
+	// PerformanceMode 修复：空值保留（向后兼容，运行时按 balanced 处理），
+	// 非法值回退到默认 balanced
+	switch c.PerformanceMode {
+	case "compatible", "balanced", "performance", "":
+	default:
+		repaired = append(repaired, fmt.Sprintf("performance_mode: %q -> %q", c.PerformanceMode, defaults.PerformanceMode))
+		c.PerformanceMode = defaults.PerformanceMode
+	}
 
 	return repaired
 }
@@ -733,13 +771,49 @@ func (c *Config) Validate() error {
 	default:
 		return apperror.Newf(apperror.KindInvalidConfig, "invalid system_prompt_mode: %q (必须是 append / replace)", c.SystemPromptMode)
 	}
+	// PerformanceMode 枚举校验：空值合法（向后兼容旧配置），运行时按 balanced 处理
+	switch c.PerformanceMode {
+	case "compatible", "balanced", "performance", "":
+	default:
+		return apperror.Newf(apperror.KindInvalidConfig, "invalid performance_mode: %q (必须是 compatible / balanced / performance)", c.PerformanceMode)
+	}
+	// TTS 参数范围校验：超范围自动钳制不报错（用户友好）
+	// 生活类比：收音机音量旋钮就算拧过头也不会爆炸，最多就是最大音量。
+	if c.TtsRate < 0.5 {
+		c.TtsRate = 0.5
+	} else if c.TtsRate > 2.0 {
+		c.TtsRate = 2.0
+	}
+	if c.TtsPitch < 0 {
+		c.TtsPitch = 0
+	} else if c.TtsPitch > 2 {
+		c.TtsPitch = 2
+	}
+	if c.TtsVolume < 0 {
+		c.TtsVolume = 0
+	} else if c.TtsVolume > 1 {
+		c.TtsVolume = 1
+	}
 
 	// 后端类型校验：不合法时不返回错误，而是回退到 "auto" 并记录警告日志。
 	// 生活类比：发动机型号填错了不报错，直接换成"自动"模式，保证车还能开。
 	// 注意：这里只校验字符串合法性，不解析 auto（auto 的具体含义由启动流程根据硬件推断）。
-	if !llm.IsValidBackendType(c.BackendType) {
+	// 本地校验避免 config 包依赖 llm 包（保持 config 为基础包，无内部依赖）。
+	if !isValidBackendType(c.BackendType) {
 		log.Warn().Str("backend_type", c.BackendType).Msg("[config] 无效的后端类型，回退到 auto")
 		c.BackendType = "auto"
 	}
 	return nil
+}
+
+// isValidBackendType 校验后端类型字符串合法性。
+// 与 llm.IsValidBackendType 保持同步：合法值为 auto/cuda/hip/sycl/vulkan/openvino/cpu。
+// 本地副本避免 config 包依赖 llm 包（config 应为最基础包，无内部依赖）。
+// 后端类型枚举相对稳定，如新增后端类型需同步更新此处和 llm/backend.go。
+func isValidBackendType(s string) bool {
+	switch s {
+	case "auto", "cuda", "hip", "sycl", "vulkan", "openvino", "cpu":
+		return true
+	}
+	return false
 }

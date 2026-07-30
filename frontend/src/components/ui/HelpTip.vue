@@ -7,9 +7,9 @@
     <template #label>字段名 <HelpTip content="该字段的说明" /></template>
 -->
 <template>
-  <NTooltip trigger="hover">
+  <NTooltip trigger="hover" placement="top">
     <template #trigger>
-      <span class="help-tip-icon">?</span>
+      <span class="help-tip-icon" :aria-label="content || '帮助'">?</span>
     </template>
     {{ content }}
   </NTooltip>

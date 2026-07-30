@@ -92,11 +92,11 @@ func (a *App) watchServerHealth(ctx context.Context, watchCtx context.Context) {
 			a.currentModelMu.RLock()
 			modelName := a.currentModelName
 			a.currentModelMu.RUnlock()
-			if modelName == "" || a.client == nil {
+			if modelName == "" || a.getClient() == nil {
 				return
 			}
 
-			status, err := a.client.GetModelStatus(watchCtx, modelName)
+			status, err := a.getClient().GetModelStatus(watchCtx, modelName)
 			if err != nil {
 				// 查询失败可能是暂时的网络问题，跳过
 				return
@@ -145,14 +145,14 @@ func (a *App) watchServerHealth(ctx context.Context, watchCtx context.Context) {
 					SwitchingTo: modelName,
 				})
 
-				loadErr := a.client.LoadModel(watchCtx, modelName)
+				loadErr := a.getClient().LoadModel(watchCtx, modelName)
 				if loadErr != nil && !isAlreadyRunningError(loadErr) {
 					zlog.Error().Err(loadErr).Str("model", modelName).Msg("[router-monitor] reload failed")
 					a.emitErrorStatus(ctx, fmt.Sprintf("模型重新加载失败: %v", loadErr))
 					return
 				}
 
-				if err := a.client.WaitForModelLoaded(watchCtx, modelName, 120*time.Second); err != nil {
+				if err := a.getClient().WaitForModelLoaded(watchCtx, modelName, 120*time.Second); err != nil {
 					zlog.Error().Err(err).Str("model", modelName).Msg("[router-monitor] reload wait failed")
 					// 用 errors.Is 精准区分错误类型，给用户更准确的提示
 					errMsg := fmt.Sprintf("模型重新加载失败: %v", err)
@@ -221,7 +221,7 @@ func (a *App) GetServerStatus() llm.ServerStatus {
 // 路由到对应子进程。这里自动获取当前已加载的模型名传递。
 // 返回解析后的结构化指标；若 /metrics 端点未启用或请求失败，返回错误。
 func (a *App) GetMetrics() (llm.MetricsSummary, error) {
-	if a.client == nil {
+	if a.getClient() == nil {
 		return llm.MetricsSummary{}, fmt.Errorf("客户端未初始化")
 	}
 	// router 模式下必须传 model 参数，否则返回 400 "model name is missing from the request"
@@ -233,7 +233,7 @@ func (a *App) GetMetrics() (llm.MetricsSummary, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutShort)
 	defer cancel()
-	text, err := a.client.GetMetrics(ctx, modelName)
+	text, err := a.getClient().GetMetrics(ctx, modelName)
 	if err != nil {
 		return llm.MetricsSummary{}, fmt.Errorf("获取指标失败: %w", err)
 	}
@@ -263,7 +263,7 @@ func (a *App) StopGeneration() {
 // 用户在流式推理过程中点击"直接回答"按钮时调用。
 // 生活类比：就像你在考试时监考老师说"思考时间到，开始答题"，模型会立即结束思考开始输出答案。
 func (a *App) StopThinking() error {
-	if a.client == nil {
+	if a.getClient() == nil {
 		return fmt.Errorf("客户端未初始化")
 	}
 	if a.service == nil {
@@ -275,7 +275,7 @@ func (a *App) StopThinking() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return a.client.StopThinking(ctx, completionID)
+	return a.getClient().StopThinking(ctx, completionID)
 }
 
 // slotActionDesc 描述 slot 操作的中文动作（用于错误日志和返回信息）
@@ -301,7 +301,7 @@ func (a *App) operateSlot(slotID int, action string) error {
 	if !validSlotActions[action] {
 		return fmt.Errorf("非法操作: %s，仅支持 save/restore/erase", action)
 	}
-	if a.client == nil {
+	if a.getClient() == nil {
 		return fmt.Errorf("客户端未初始化")
 	}
 
@@ -309,7 +309,7 @@ func (a *App) operateSlot(slotID int, action string) error {
 	defer cancel()
 
 	// 委托给 client.OperateSlot（已实现白名单校验、URL 转义、auth header、状态码判断）
-	if err := a.client.OperateSlot(ctx, slotID, action); err != nil {
+	if err := a.getClient().OperateSlot(ctx, slotID, action); err != nil {
 		return fmt.Errorf("%s slot 失败: %w", slotActionDesc[action], err)
 	}
 
@@ -337,72 +337,72 @@ func (a *App) EraseSlot(slotID int) error {
 
 // DeleteModel 删除模型（从 llama-server 的模型列表中移除并卸载）
 func (a *App) DeleteModel(modelName string) error {
-	if a.client == nil {
+	if a.getClient() == nil {
 		return fmt.Errorf("客户端未初始化")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutMedium)
 	defer cancel()
-	return a.client.DeleteModel(ctx, modelName)
+	return a.getClient().DeleteModel(ctx, modelName)
 }
 
 // DownloadModel 触发模型下载（非阻塞，进度通过 /models/sse 跟踪）
 func (a *App) DownloadModel(modelName string) error {
-	if a.client == nil {
+	if a.getClient() == nil {
 		return fmt.Errorf("客户端未初始化")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutMedium)
 	defer cancel()
-	return a.client.DownloadModel(ctx, modelName)
+	return a.getClient().DownloadModel(ctx, modelName)
 }
 
 // CountTokens 估算消息列表的 token 数量
 func (a *App) CountTokens(messages []llm.ChatMessage) (int, error) {
-	if a.client == nil {
+	if a.getClient() == nil {
 		return 0, fmt.Errorf("客户端未初始化")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutShort)
 	defer cancel()
-	return a.client.CountTokens(ctx, messages)
+	return a.getClient().CountTokens(ctx, messages)
 }
 
 // GetLoraAdapters 获取当前加载的 LoRA 适配器列表
 func (a *App) GetLoraAdapters() ([]llm.LoraAdapter, error) {
-	if a.client == nil {
+	if a.getClient() == nil {
 		return nil, fmt.Errorf("客户端未初始化")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutShort)
 	defer cancel()
-	return a.client.GetLoraAdapters(ctx)
+	return a.getClient().GetLoraAdapters(ctx)
 }
 
 // SetLoraAdapters 设置 LoRA 适配器（运行时热切换）
 func (a *App) SetLoraAdapters(adapters []llm.LoraAdapter) error {
-	if a.client == nil {
+	if a.getClient() == nil {
 		return fmt.Errorf("客户端未初始化")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutMedium)
 	defer cancel()
-	return a.client.SetLoraAdapters(ctx, adapters)
+	return a.getClient().SetLoraAdapters(ctx, adapters)
 }
 
 // GetSlots 获取所有 slot 的状态信息
 func (a *App) GetSlots() ([]llm.SlotInfo, error) {
-	if a.client == nil {
+	if a.getClient() == nil {
 		return nil, fmt.Errorf("客户端未初始化")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutShort)
 	defer cancel()
-	return a.client.GetSlots(ctx)
+	return a.getClient().GetSlots(ctx)
 }
 
 // Tokenize 对文本进行分词，返回 token ID 列表
 func (a *App) Tokenize(text string) ([]int, error) {
-	if a.client == nil {
+	if a.getClient() == nil {
 		return nil, fmt.Errorf("客户端未初始化")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutShort)
 	defer cancel()
-	return a.client.Tokenize(ctx, text)
+	return a.getClient().Tokenize(ctx, text)
 }
 
 // GetLastPromptTokens 返回最近一次请求的 prompt_tokens（来自 llama-server usage）。
@@ -417,23 +417,23 @@ func (a *App) GetLastPromptTokens() int {
 
 // ApplyTemplate 对消息列表应用聊天模板，返回格式化后的字符串
 func (a *App) ApplyTemplate(messages []llm.ChatMessage) (string, error) {
-	if a.client == nil {
+	if a.getClient() == nil {
 		return "", fmt.Errorf("客户端未初始化")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutShort)
 	defer cancel()
-	return a.client.ApplyTemplate(ctx, messages)
+	return a.getClient().ApplyTemplate(ctx, messages)
 }
 
 // AnthropicMessages 代理 Anthropic Messages API
 // 前端传入原始 JSON 请求体字符串，后端透传到 /v1/messages 端点，返回原始 JSON 响应体字符串
 func (a *App) AnthropicMessages(body string) (string, error) {
-	if a.client == nil {
+	if a.getClient() == nil {
 		return "", fmt.Errorf("客户端未初始化")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), httpClientTimeout)
 	defer cancel()
-	respBody, err := a.client.AnthropicMessages(ctx, []byte(body))
+	respBody, err := a.getClient().AnthropicMessages(ctx, []byte(body))
 	if err != nil {
 		return "", err
 	}
@@ -443,12 +443,12 @@ func (a *App) AnthropicMessages(body string) (string, error) {
 // AnthropicCountTokens 代理 Anthropic token 计数
 // 前端传入原始 JSON 请求体字符串，后端透传到 /v1/messages/count_tokens 端点，返回原始 JSON 响应体字符串
 func (a *App) AnthropicCountTokens(body string) (string, error) {
-	if a.client == nil {
+	if a.getClient() == nil {
 		return "", fmt.Errorf("客户端未初始化")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), apiTimeoutMedium)
 	defer cancel()
-	respBody, err := a.client.AnthropicCountTokens(ctx, []byte(body))
+	respBody, err := a.getClient().AnthropicCountTokens(ctx, []byte(body))
 	if err != nil {
 		return "", err
 	}
@@ -458,12 +458,12 @@ func (a *App) AnthropicCountTokens(body string) (string, error) {
 // BuiltInTools 代理内置工具
 // 前端传入原始 JSON 请求体字符串，后端透传到 /tools 端点，返回原始 JSON 响应体字符串
 func (a *App) BuiltInTools(body string) (string, error) {
-	if a.client == nil {
+	if a.getClient() == nil {
 		return "", fmt.Errorf("客户端未初始化")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), httpClientTimeout)
 	defer cancel()
-	respBody, err := a.client.BuiltInTools(ctx, []byte(body))
+	respBody, err := a.getClient().BuiltInTools(ctx, []byte(body))
 	if err != nil {
 		return "", err
 	}
@@ -509,8 +509,8 @@ func (a *App) GetAvailableModels() ([]llm.ModelOption, error) {
 	options := make([]llm.ModelOption, 0, len(presetsCopy))
 
 	modelStatuses := map[string]string{}
-	if a.client != nil && a.serverReady.Load() {
-		if models, err := a.client.GetModelsList(a.ctx); err == nil {
+	if a.getClient() != nil && a.serverReady.Load() {
+		if models, err := a.getClient().GetModelsList(a.ctx); err == nil {
 			for _, m := range models {
 				modelStatuses[m.ID] = m.Status
 			}
@@ -561,7 +561,7 @@ func (a *App) tryWatchModelLoadProgress(ctx context.Context, modelName string) c
 		}()
 		defer sseCancel()
 
-		err := a.client.WatchModelLoadProgress(sseCtx, modelName, func(event llm.ModelLoadEvent) {
+		err := a.getClient().WatchModelLoadProgress(sseCtx, modelName, func(event llm.ModelLoadEvent) {
 			// 推送实时加载进度到前端
 			wailsruntime.EventsEmit(ctx, "modelLoadProgress", map[string]any{
 				"model":    event.Model,
@@ -650,7 +650,7 @@ func (a *App) tryReloadWithoutMmproj(ctx context.Context, modelName string, prog
 	}
 
 	// 通知路由器重新加载 preset 文件
-	if err := a.client.ReloadPresets(ctx); err != nil {
+	if err := a.getClient().ReloadPresets(ctx); err != nil {
 		zlog.Warn().Err(err).Msg("[server] failed to reload presets after removing mmproj")
 		return false
 	}
@@ -660,13 +660,13 @@ func (a *App) tryReloadWithoutMmproj(ctx context.Context, modelName string, prog
 
 	// 重新加载模型（不带 mmproj）
 	zlog.Info().Str("model", modelName).Msg("[server] retrying model load without mmproj")
-	if err := a.client.LoadModel(ctx, modelName); err != nil && !isAlreadyRunningError(err) {
+	if err := a.getClient().LoadModel(ctx, modelName); err != nil && !isAlreadyRunningError(err) {
 		zlog.Error().Err(err).Str("model", modelName).Msg("[server] retry load model (without mmproj) failed")
 		return false
 	}
 
 	// 等待模型加载
-	if err := a.client.WaitForModelLoaded(ctx, modelName, httpClientTimeout, progressCallback); err != nil {
+	if err := a.getClient().WaitForModelLoaded(ctx, modelName, httpClientTimeout, progressCallback); err != nil {
 		zlog.Error().Err(err).Str("model", modelName).Msg("[server] retry load model (without mmproj) timed out")
 		return false
 	}
@@ -728,7 +728,7 @@ func (a *App) regeneratePresetWithoutMmproj(modelName string) bool {
 				}
 			}
 		}
-		sp := system.CalculateSmartParams(a.hwInfo, defaultModelPath, string(a.resolvedBackend))
+		sp := system.CalculateSmartParams(a.hwInfo, defaultModelPath, string(a.resolvedBackend), a.getConfig().PerformanceMode)
 		globalDefaults = map[string]string{
 			"ctx-size": fmt.Sprintf("%d", sp.ContextSize),
 		}
@@ -805,7 +805,7 @@ func (a *App) generatePresetFile() error {
 				}
 			}
 		}
-		sp := system.CalculateSmartParams(a.hwInfo, defaultModelPath, string(a.resolvedBackend))
+		sp := system.CalculateSmartParams(a.hwInfo, defaultModelPath, string(a.resolvedBackend), a.getConfig().PerformanceMode)
 		globalDefaults = map[string]string{
 			"ctx-size":       fmt.Sprintf("%d", sp.ContextSize),
 			"mmproj-offload": "1",
@@ -864,7 +864,7 @@ func (a *App) GetSmartParams() *SmartParamsInfo {
 	}
 
 	// 智能参数
-	sp := system.CalculateSmartParams(a.hwInfo, modelPath, string(a.resolvedBackend))
+	sp := system.CalculateSmartParams(a.hwInfo, modelPath, string(a.resolvedBackend), a.getConfig().PerformanceMode)
 	info.Params.GPULayers = sp.GPULayers
 	info.Params.Threads = sp.Threads
 	info.Params.BatchSize = sp.BatchSize
@@ -945,7 +945,7 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 
 // switchPreCheck 预检查：服务器是否启动、是否正在切换、VRAM 是否足够
 func (a *App) switchPreCheck() string {
-	if a.server == nil || a.client == nil {
+	if a.server == nil || a.getClient() == nil {
 		return "服务器未启动"
 	}
 	if !a.isSwitching.CompareAndSwap(false, true) {
@@ -1109,12 +1109,12 @@ func (a *App) switchLoadModel(modelName string) (bool, string) {
 	sseCancel := a.tryWatchModelLoadProgress(a.ctx, modelName)
 	defer sseCancel()
 
-	loadErr := a.client.LoadModel(a.ctx, modelName)
+	loadErr := a.getClient().LoadModel(a.ctx, modelName)
 	if loadErr == nil {
 		// LoadModel 返回 200 仅表示开始加载，需要等待模型真正就绪
 		a.emitSwitchProgress("waiting", modelName)
 
-		if waitErr := a.client.WaitForModelLoaded(a.ctx, modelName, loadTimeout); waitErr != nil {
+		if waitErr := a.getClient().WaitForModelLoaded(a.ctx, modelName, loadTimeout); waitErr != nil {
 			// 优先检测 OOM/显存/内存不足，返回明确提示
 			if oomMsg := a.detectOOMError(); oomMsg != "" {
 				return false, oomMsg
@@ -1130,7 +1130,7 @@ func (a *App) switchLoadModel(modelName string) (bool, string) {
 		zlog.Info().Str("model", modelName).Msg("[router] model is already running/loading, waiting for loaded state")
 		a.emitSwitchProgress("waiting", modelName)
 
-		if waitErr := a.client.WaitForModelLoaded(a.ctx, modelName, loadTimeout); waitErr != nil {
+		if waitErr := a.getClient().WaitForModelLoaded(a.ctx, modelName, loadTimeout); waitErr != nil {
 			if oomMsg := a.detectOOMError(); oomMsg != "" {
 				return false, oomMsg
 			}
@@ -1262,7 +1262,7 @@ func (a *App) switchWaitReady(modelName string) string {
 	backoffs := []time.Duration{200 * time.Millisecond, 400 * time.Millisecond, 600 * time.Millisecond, 800 * time.Millisecond, time.Second}
 	var lastProps *llm.ServerProps
 	for i := range 10 {
-		props, propsErr := a.client.GetServerProps(propsCtx, modelName)
+		props, propsErr := a.getClient().GetServerProps(propsCtx, modelName)
 		if propsErr == nil {
 			lastProps = props
 			// 不需要 mmproj — 立即退出
@@ -1297,8 +1297,8 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 	a.currentModelName = modelName
 	a.currentModelMu.Unlock()
 	// 同步更新 client 的当前模型（v9744+ API 需要）
-	if a.client != nil {
-		a.client.SetCurrentModel(modelName)
+	if a.getClient() != nil {
+		a.getClient().SetCurrentModel(modelName)
 	}
 
 	// 清除旧模型的 slot 缓存：模型切换后旧 KV 缓存对新模型毫无价值，
@@ -1363,14 +1363,14 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 	// 用户可在设置界面重新启用需要的适配器
 	// 仅在配置了 LoRA 路径时才调用，否则 llama-server 未加载任何适配器，
 	// 调用 /lora-adapters 端点会返回 400 错误（model name is missing）
-	if a.client != nil && a.getConfig().LoraPaths != "" {
+	if a.getClient() != nil && a.getConfig().LoraPaths != "" {
 		loraCtx, loraCancel := context.WithTimeout(a.ctx, 5*time.Second)
-		if adapters, err := a.client.GetLoraAdapters(loraCtx); err == nil && len(adapters) > 0 {
+		if adapters, err := a.getClient().GetLoraAdapters(loraCtx); err == nil && len(adapters) > 0 {
 			// 将所有适配器的 scale 设为 0（保留列表，不删除）
 			for i := range adapters {
 				adapters[i].Scale = 0
 			}
-			if err := a.client.SetLoraAdapters(loraCtx, adapters); err != nil {
+			if err := a.getClient().SetLoraAdapters(loraCtx, adapters); err != nil {
 				zlog.Warn().Err(err).Msg("[router] failed to reset lora adapters after model switch")
 			} else {
 				zlog.Info().Int("count", len(adapters)).Msg("[router] lora adapters reset to scale=0 after model switch")
@@ -1421,10 +1421,10 @@ func (a *App) handleSwitchFailure(modelName, previousModel, errMsg string) Switc
 	if previousModel != "" && previousModel != modelName {
 		zlog.Info().Str("model", previousModel).Msg("[router] attempting to restore model")
 		restoreCtx, restoreCancel := context.WithTimeout(a.ctx, apiTimeoutMedium)
-		if restoreErr := a.client.LoadModel(restoreCtx, previousModel); restoreErr == nil || isAlreadyRunningError(restoreErr) {
+		if restoreErr := a.getClient().LoadModel(restoreCtx, previousModel); restoreErr == nil || isAlreadyRunningError(restoreErr) {
 			// LoadModel 返回 "already running"/"already loaded" 时，旧模型实际仍在运行，
 			// 视为回滚成功，避免误报失败导致 UI 状态错误
-			_ = a.client.WaitForModelLoaded(restoreCtx, previousModel, apiTimeoutMedium)
+			_ = a.getClient().WaitForModelLoaded(restoreCtx, previousModel, apiTimeoutMedium)
 			a.currentModelMu.Lock()
 			a.currentModelName = previousModel
 			a.currentModelMu.Unlock()
@@ -1452,10 +1452,10 @@ func (a *App) handleSwitchFailure(modelName, previousModel, errMsg string) Switc
 }
 
 func (a *App) ReloadModels() error {
-	if a.client == nil {
+	if a.getClient() == nil {
 		return fmt.Errorf("客户端未初始化")
 	}
-	if err := a.client.ReloadModels(a.ctx); err != nil {
+	if err := a.getClient().ReloadModels(a.ctx); err != nil {
 		return fmt.Errorf("热重载模型列表失败: %w", err)
 	}
 	system.InvalidateGGUFCache()

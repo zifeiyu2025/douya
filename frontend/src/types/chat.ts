@@ -247,6 +247,16 @@ export interface Config {
   // 计算后端类型：auto(自动检测)/cuda/hip/sycl/vulkan/openvino/cpu
   // 生活类比：像选发动机型号——auto 是"让系统帮你选"，其他是明确指定用哪种发动机
   backend_type: string
+  // 性能模式：compatible(兼容)/balanced(平衡)/performance(性能)
+  // 生活类比：像汽车的 ECO/COMFORT/SPORT 驾驶模式，按模式批量调整参数组合
+  performance_mode: string
+  // ===== TTS 文本转语音配置 =====
+  // 生活类比：播音员调度台的设置——挑人、调快慢、调音调、调音量
+  tts_enabled: boolean // 是否启用朗读按钮
+  tts_voice: string // 发音人名称（空=自动按优先级挑选）
+  tts_rate: number // 语速 0.5-2.0，1.0 = 正常
+  tts_pitch: number // 音调 0-2，1.0 = 正常
+  tts_volume: number // 音量 0-1，1.0 = 最大
   api_base: string
   port: number
   context_size: number
@@ -497,6 +507,13 @@ export const DEFAULT_CONFIG: Config = {
   mmproj_offload: true,
   llama_server_path: 'runtime/llama-server.exe',
   backend_type: 'auto', // 与 Go DefaultConfig 对齐（自动检测最合适的后端）
+  performance_mode: 'balanced', // 与 Go DefaultConfig 对齐（平衡模式，兼顾性能与稳定性）
+  // TTS 文本转语音默认配置（与 Go DefaultConfig 对齐）
+  tts_enabled: false, // 默认关闭朗读按钮
+  tts_voice: '', // 空字符串 = 自动按优先级挑选（晓晓→云希→...）
+  tts_rate: 1.0, // 正常语速
+  tts_pitch: 1.0, // 正常音调
+  tts_volume: 1.0, // 最大音量
   api_base: 'http://127.0.0.1:8080',
   port: 8080,
   context_size: 8192,
@@ -516,7 +533,7 @@ export const DEFAULT_CONFIG: Config = {
   system_prompt: '',
   system_prompt_mode: 'append', // 默认使用追加模式（与 Go DefaultConfig 对齐）
   chat_background: '',
-  chat_background_opacity: 0.9,
+  chat_background_opacity: 0.85,
   user_avatar: '',
   ai_avatar: '',
   search_mode: 'off',
@@ -542,7 +559,7 @@ export const DEFAULT_CONFIG: Config = {
   dry_penalty_last_n: 0,
   grp_attn_n: 0,
   grp_attn_w: 0,
-  jinja: null, // 与 Go DefaultConfig 对齐（nil=不传递）
+  jinja: true, // 与 Go DefaultConfig 对齐（默认开启 Jinja2 模板引擎）
   cache_prompt: true, // 与 Go DefaultConfig 对齐（显式启用 prompt 缓存）
   metrics: false,
   verbose: false,

@@ -36,12 +36,13 @@ func (s *Server) buildStartArgs() []string {
 }
 
 // baseArgs 返回启动命令的基础参数（必传项）。
-// 包括模型目录、端口、Jinja 模板、FIT 模式、禁用原生 webui、绑定 host。
+// 包括模型目录、端口、FIT 模式、禁用原生 webui、绑定 host。
+// 注意：Jinja2 模板开关由 appendSwitchArgs 统一控制，此处不再硬编码 --jinja，
+// 避免与 appendSwitchArgs 中的 --jinja/--no-jinja 重复。
 func (s *Server) baseArgs() []string {
 	args := []string{
 		"--models-dir", s.config.ModelsDir,
 		"--port", fmt.Sprintf("%d", s.config.Port),
-		"--jinja",
 		"--fit", "on",
 	}
 	// 默认禁用 llama-server 自带的 Web UI（豆芽有自己的 Vue 前端）。
@@ -69,7 +70,14 @@ func (s *Server) appendModelLoadArgs(args []string) []string {
 	}
 	args = appendIntArg(args, "--models-max", s.config.ModelsMax)
 	args = appendIntArg(args, "--sleep-idle-seconds", s.config.SleepIdleSeconds)
-	args = appendStringArg(args, "--gpu-layers", s.config.GPULayers)
+	// 崩溃降级级别 2：gpu-layers 设为 auto（让 llama.cpp 自决层数）
+	// 生活类比：连续抛锚后挂空挡，让拖车（llama.cpp）自己决定怎么拖
+	gpuLayers := s.config.GPULayers
+	if s.crashDegradeLevel.Load() >= 2 {
+		log.Warn().Str("original_ngl", gpuLayers).Msg("[server] degrade level 2: gpu-layers overridden to auto")
+		gpuLayers = "auto"
+	}
+	args = appendStringArg(args, "--gpu-layers", gpuLayers)
 	args = appendStringArg(args, "--flash-attn", s.config.FlashAttn)
 	// KV Cache 量化类型校验：llama-server 9631+ 移除了 q2_k/q3_k/q4_k/q5_k/q6_k/iq4_xs
 	args = s.appendValidatedCacheType(args, "--cache-type-k", s.config.CacheTypeK)
@@ -98,7 +106,18 @@ func (s *Server) appendRuntimeArgs(args []string) []string {
 	args = appendIntArg(args, "-b", s.config.BatchSize)
 	args = appendIntArg(args, "-ub", s.config.UBatchSize)
 	args = appendIntArg(args, "--threads-http", s.config.ThreadsHTTP)
-	args = appendIntArg(args, "-c", s.config.ContextSize)
+	// 崩溃降级级别 1：ctx-size 减半（最小 2048，避免过小无法使用）
+	// 生活类比：连续抛锚后限速，先把最高时速砍半
+	ctxSize := s.config.ContextSize
+	if s.crashDegradeLevel.Load() >= 1 && ctxSize > 2048 {
+		halved := ctxSize / 2
+		if halved < 2048 {
+			halved = 2048
+		}
+		log.Warn().Int("original_ctx", ctxSize).Int("degraded_ctx", halved).Msg("[server] degrade level 1: ctx-size halved")
+		ctxSize = halved
+	}
+	args = appendIntArg(args, "-c", ctxSize)
 	args = appendBoolArg(args, "--mmproj-auto", s.config.MmprojAuto)
 	args = appendBoolArg(args, "--mmproj-offload", s.config.MmprojOffload)
 	return args
@@ -188,12 +207,15 @@ func (s *Server) appendSamplingArgs(args []string) []string {
 // 包括 Jinja2 模板、Prompt 缓存、指标端点、详细日志、Embedding API、池化类型。
 func (s *Server) appendSwitchArgs(args []string) []string {
 	// Jinja2 模板引擎开关
+	// 默认开启（nil 按 true 处理，兼容旧配置升级）
+	jinjaEnabled := true
 	if s.config.Jinja != nil {
-		if *s.config.Jinja {
-			args = append(args, "--jinja")
-		} else {
-			args = append(args, "--no-jinja")
-		}
+		jinjaEnabled = *s.config.Jinja
+	}
+	if jinjaEnabled {
+		args = append(args, "--jinja")
+	} else {
+		args = append(args, "--no-jinja")
 	}
 	// Prompt 缓存控制
 	if s.config.CachePrompt != nil {

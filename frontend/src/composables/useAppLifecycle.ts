@@ -28,10 +28,23 @@ import { classifyError } from '../utils/errorGuidance'
 import { formatModelName } from '../utils/model'
 // F-1.14：stageMap 抽取为常量，与 useModelSwitch.ts 共享
 import { STAGE_PERCENT_MAP } from './stageMap'
+import { useTTS } from './useTTS'
 
 export function useAppLifecycle() {
   const chatStore = useChatStore()
   const settingsStore = useSettingsStore()
+  // TTS 播音员调度台：用于切换会话时停止上一条朗读
+  const tts = useTTS()
+
+  // 切换会话时停止当前朗读，避免声音跨会话残留
+  watch(
+    () => chatStore.currentConversationId,
+    () => {
+      if (tts.isAnySpeaking()) {
+        tts.stop()
+      }
+    }
+  )
 
   // ===== SubTask 8.2: 启动屏与退出动效状态 =====
 
@@ -282,6 +295,14 @@ export function useAppLifecycle() {
 
     // 3. 加载配置（await 可能耗时，但 watch 已注册，不会错过期间的事件）
     await settingsStore.loadConfig()
+
+    // 同步 TTS 配置到 useTTS（让朗读用用户配置的发音人/语速/音调/音量）
+    tts.updateConfig({
+      voice: settingsStore.config.tts_voice,
+      rate: settingsStore.config.tts_rate,
+      pitch: settingsStore.config.tts_pitch,
+      volume: settingsStore.config.tts_volume
+    })
 
     // 异常清理事件监听：后端检测到无有效消息的会话时主动推送
     // M4 修复：用标志位记录是否已显示清理提示，避免事件 + getCleanupResult 轮询重复弹窗

@@ -126,8 +126,8 @@ func (a *App) selectAndDetectDefaultModel(ctx context.Context) string {
 		a.currentModelMu.Lock()
 		a.currentModelName = p.Name
 		a.currentModelMu.Unlock()
-		if a.client != nil {
-			a.client.SetCurrentModel(p.Name)
+		if a.getClient() != nil {
+			a.getClient().SetCurrentModel(p.Name)
 		}
 		foundDefault = true
 		break
@@ -136,8 +136,8 @@ func (a *App) selectAndDetectDefaultModel(ctx context.Context) string {
 		a.currentModelMu.Lock()
 		a.currentModelName = presetsSnapshot[0].Name
 		a.currentModelMu.Unlock()
-		if a.client != nil {
-			a.client.SetCurrentModel(presetsSnapshot[0].Name)
+		if a.getClient() != nil {
+			a.getClient().SetCurrentModel(presetsSnapshot[0].Name)
 		}
 		a.currentModelMu.RLock()
 		zlog.Info().Str("model", a.currentModelName).Msg("[server] no default preset found, using first model")
@@ -161,7 +161,7 @@ func (a *App) selectAndDetectDefaultModel(ctx context.Context) string {
 // autoLoadDefaultModel 启动后自动加载默认模型。
 // 处理流程：SSE 监听 → LoadModel → WaitForModelLoaded（含 mmproj 重试和后台等待降级）。
 func (a *App) autoLoadDefaultModel(ctx context.Context, modelForDetect string) {
-	if modelForDetect == "" || a.client == nil {
+	if modelForDetect == "" || a.getClient() == nil {
 		return
 	}
 
@@ -177,7 +177,7 @@ func (a *App) autoLoadDefaultModel(ctx context.Context, modelForDetect string) {
 	sseCancel := a.tryWatchModelLoadProgress(ctx, modelForDetect)
 	defer sseCancel()
 
-	loadErr := a.client.LoadModel(ctx, modelForDetect)
+	loadErr := a.getClient().LoadModel(ctx, modelForDetect)
 	if loadErr != nil && !isAlreadyRunningError(loadErr) {
 		// 非预期错误（非 "already running"），报告失败
 		zlog.Error().Err(loadErr).Str("model", modelForDetect).Msg("[server] auto-load default model failed")
@@ -193,7 +193,7 @@ func (a *App) autoLoadDefaultModel(ctx context.Context, modelForDetect string) {
 
 	progressCallback := a.makeLoadProgressCallback(ctx, modelForDetect)
 
-	if err := a.client.WaitForModelLoaded(ctx, modelForDetect, httpClientTimeout, progressCallback); err != nil {
+	if err := a.getClient().WaitForModelLoaded(ctx, modelForDetect, httpClientTimeout, progressCallback); err != nil {
 		a.handleModelLoadFailure(ctx, modelForDetect, err, progressCallback)
 		return
 	}
@@ -293,7 +293,7 @@ func (a *App) handleModelLoadFailure(ctx context.Context, modelForDetect string,
 		// 后台继续等待，不设超时（依赖 WatchWithCallback 检测崩溃）
 		// 使用 bgCtx（rootCtx 派生）而非 ctx，确保 shutdown 能取消等待；
 		// EventsEmit 仍用原始 ctx（Wails ctx），与 SSE goroutine 保持一致。
-		if bgErr := a.client.WaitForModelLoaded(bgCtx, modelForDetect, loadTimeoutMax, progressCallback); bgErr != nil {
+		if bgErr := a.getClient().WaitForModelLoaded(bgCtx, modelForDetect, loadTimeoutMax, progressCallback); bgErr != nil {
 			zlog.Error().Err(bgErr).Str("model", modelForDetect).Msg("[server] auto-load default model background wait also failed")
 
 			// B-1：后台等待失败也检测栈溢出，给出同样建议
@@ -444,12 +444,12 @@ func (a *App) makeRestartCallback(ctx context.Context) func() {
 			zlog.Error().Err(err).Msg("detect model architecture after restart failed")
 		}
 		// 重启后重新加载当前模型，加载完成后才设置 serverReady
-		if modelForDetect2 == "" || a.client == nil {
+		if modelForDetect2 == "" || a.getClient() == nil {
 			a.serverReady.Store(true)
 			return
 		}
 		zlog.Info().Str("model", modelForDetect2).Msg("[server] reloading model after restart")
-		loadErr := a.client.LoadModel(ctx, modelForDetect2)
+		loadErr := a.getClient().LoadModel(ctx, modelForDetect2)
 		if loadErr != nil && !isAlreadyRunningError(loadErr) {
 			zlog.Error().Err(loadErr).Str("model", modelForDetect2).Msg("[server] reload model after restart failed")
 			a.emitErrorStatus(ctx, fmt.Sprintf("重启后模型加载失败: %v", loadErr))
@@ -458,7 +458,7 @@ func (a *App) makeRestartCallback(ctx context.Context) func() {
 		if loadErr != nil {
 			zlog.Info().Str("model", modelForDetect2).Msg("[server] model is already running/loading after restart, waiting for loaded state")
 		}
-		if err := a.client.WaitForModelLoaded(ctx, modelForDetect2, 120*time.Second); err != nil {
+		if err := a.getClient().WaitForModelLoaded(ctx, modelForDetect2, 120*time.Second); err != nil {
 			zlog.Error().Err(err).Str("model", modelForDetect2).Msg("[server] reload model wait after restart failed")
 			a.emitErrorStatus(ctx, fmt.Sprintf("重启后模型加载超时: %v", err))
 			return

@@ -47,6 +47,12 @@ type App struct {
 	server   *llm.Server
 	serverMu sync.RWMutex
 	client   *llm.Client
+	// clientMu 保护 client 字段的并发读写。
+	// 生活类比：像公共打印机的"使用登记本"——多人可同时查看谁在用（RLock），
+	// 但更换打印机时必须等所有人用完（Lock）。
+	// 风险背景：a.client 在 Wails 主线程、startServerAndWatch goroutine、
+	// health goroutine 等多处被读写，无锁保护会导致数据竞争甚至 panic。
+	clientMu sync.RWMutex
 	db       *sql.DB
 	service  *chat.Service
 	hwInfo   *system.HardwareInfo
@@ -98,6 +104,24 @@ type App struct {
 
 func NewApp() *App {
 	return &App{}
+}
+
+// getClient 返回当前 llm.Client 的快照指针。
+// 调用方拿到指针后，llm.Client 内部方法本身是并发安全的（基于 http.Client），
+// 因此只需保护 a.client 指针字段的读写，无需在调用方法期间持锁。
+// 生活类比：像从登记本上抄下"当前打印机型号"，抄完后就可以放心去用，不用一直按着登记本。
+func (a *App) getClient() *llm.Client {
+	a.clientMu.RLock()
+	defer a.clientMu.RUnlock()
+	return a.client
+}
+
+// setClient 原子地替换 llm.Client 指针。
+// 生活类比：像更换打印机——必须等所有人都用完旧的（Lock），才能换上新的。
+func (a *App) setClient(c *llm.Client) {
+	a.clientMu.Lock()
+	defer a.clientMu.Unlock()
+	a.client = c
 }
 
 // trackedGo 启动一个被 App 跟踪的长生命周期 goroutine。

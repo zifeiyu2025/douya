@@ -269,6 +269,7 @@ import {
 import { wails, type CollectionInfo, type DocumentMeta, type ModelOption } from '../services/wails'
 import { useSettingsStore } from '../stores/settings'
 import { showError, showSuccess, showWarning } from '../utils/showError'
+import { logError } from '../utils/logger'
 
 const message = useMessage()
 const dialog = useDialog()
@@ -316,7 +317,7 @@ async function loadModels() {
   try {
     availableModels.value = await wails.getAvailableModels()
   } catch (e) {
-    console.error('Failed to load models:', e)
+    logError('Failed to load models:', e)
   }
 }
 
@@ -387,7 +388,7 @@ async function loadData() {
       }
     }
     await loadDocuments()
-  } catch (e: any) {
+  } catch (e: unknown) {
     showError(message, '加载知识库数据失败', e)
   }
 }
@@ -405,7 +406,7 @@ async function handleKBChange(name: string) {
     await wails.setActiveKnowledgeBase(name)
     activeKB.value = name
     await loadDocuments()
-  } catch (e: any) {
+  } catch (e: unknown) {
     showError(message, '切换知识库失败', e)
   }
 }
@@ -420,7 +421,7 @@ async function handleCreateKB() {
     showSuccess(message, '知识库创建成功')
     newKBName.value = ''
     await loadData()
-  } catch (e: any) {
+  } catch (e: unknown) {
     showError(message, '创建失败', e)
   }
 }
@@ -437,7 +438,7 @@ async function handleDeleteKB() {
         showSuccess(message, '知识库已删除')
         activeKB.value = 'default'
         await loadData()
-      } catch (e: any) {
+      } catch (e: unknown) {
         showError(message, '删除失败', e)
       }
     }
@@ -449,7 +450,7 @@ async function handleDeleteDoc(docID: string) {
     await wails.deleteDocument(activeKB.value, docID)
     showSuccess(message, '文档已删除')
     await loadDocuments()
-  } catch (e: any) {
+  } catch (e: unknown) {
     showError(message, '删除文档失败', e)
   }
 }
@@ -486,7 +487,7 @@ async function handleFileUpload({ file }: any) {
     await wails.uploadDocument(activeKB.value, f.name, base64, f.type || 'application/octet-stream')
     showSuccess(message, `${f.name} 上传成功`)
     await loadDocuments()
-  } catch (e: any) {
+  } catch (e: unknown) {
     showError(message, '上传失败', e)
   } finally {
     uploading.value = false
@@ -505,7 +506,7 @@ async function handleRAGToggle(enabled: boolean) {
     } else {
       message.info('RAG 已关闭', { duration: 2000 })
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     showError(message, '切换 RAG 失败', e)
   }
 }
@@ -521,7 +522,7 @@ async function handleSaveRAGConfig() {
     config.embedding_model = ragConfig.value.embeddingModel
     await wails.updateConfig(config)
     showSuccess(message, 'RAG 设置已保存')
-  } catch (e: any) {
+  } catch (e: unknown) {
     showError(message, '保存失败', e)
   } finally {
     savingRAG.value = false

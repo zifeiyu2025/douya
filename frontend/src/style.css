@@ -60,7 +60,6 @@
   --bg-glass-tertiary: rgba(255, 255, 255, 0.4);
   --bg-glass-hover: rgba(255, 255, 255, 0.65);
   --bg-glass-active: rgba(255, 255, 255, 0.5);
-  --text-shadow-glass: 0 1px 2px rgba(255, 255, 255, 0.6);
 
   /* 背景色系 - canvas/subtle/muted 三层（柔和米白调，降低刺眼感） */
   --bg-primary: #fbfbfc;
@@ -78,7 +77,7 @@
   --text-primary: #1f2328;
   --text-secondary: #656d76;
   --text-muted: #848d97;
-  --text-tertiary: #afb8c1;
+  --text-tertiary: #6e7681;
   --text-user-msg: #0969da;
   --text-ai-msg: #1f2328;
 
@@ -168,7 +167,6 @@ html.dark {
   --bg-glass-tertiary: rgba(13, 17, 23, 0.4);
   --bg-glass-hover: rgba(22, 27, 34, 0.65);
   --bg-glass-active: rgba(22, 27, 34, 0.5);
-  --text-shadow-glass: 0 1px 3px rgba(0, 0, 0, 0.7);
 
   /* 背景色系 - GitHub dark_high_contrast canvas/subtle/muted（接近纯黑） */
   /* 交互区域（聊天区、侧边栏、输入框）用纯黑 #000000，次级元素保持层次 */
@@ -433,22 +431,45 @@ body,
   left: 0;
   right: 0;
   bottom: 0;
-  background-image: var(--chat-background, none);
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-attachment: fixed;
-  /* 背景图透明度：用户可控，默认 0.9 让背景图充分可见
-   * 文字可读性由 .has-background 的 text-shadow 和组件半透明底色共同保证 */
-  opacity: var(--chat-background-opacity, 0.9);
+  /* VSCode 背景插件风格：叠加暗化遮罩消除亮色白雾，深色模式加深层次
+   * 第一层：暗角渐变遮罩（上深→中淡→下深），制造沉浸感
+   * 第二层：实际背景图 */
+  background:
+    linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.16) 0%,
+      rgba(0, 0, 0, 0.05) 35%,
+      rgba(0, 0, 0, 0.05) 65%,
+      rgba(0, 0, 0, 0.18) 100%
+    ),
+    var(--chat-background, none);
+  background-size: cover, cover;
+  background-position: center, center;
+  background-repeat: no-repeat, no-repeat;
+  background-attachment: fixed, fixed;
+  /* 背景图透明度：用户可控，默认 0.85 */
+  opacity: var(--chat-background-opacity, 0.85);
   z-index: 0;
   pointer-events: none;
   transition: opacity 0.4s ease;
 }
 
-/* 深色版背景图层：与亮色同 opacity，由用户统一控制 */
+/* 深色版：更深的暗角，让背景图融入黑色UI */
 html.dark .app-layout::before {
-  opacity: var(--chat-background-opacity, 0.9);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.45) 0%,
+      rgba(0, 0, 0, 0.15) 40%,
+      rgba(0, 0, 0, 0.15) 60%,
+      rgba(0, 0, 0, 0.5) 100%
+    ),
+    var(--chat-background, none);
+  background-size: cover, cover;
+  background-position: center, center;
+  background-repeat: no-repeat, no-repeat;
+  background-attachment: fixed, fixed;
+  opacity: var(--chat-background-opacity, 0.85);
 }
 
 .sidebar {
@@ -594,18 +615,21 @@ html.dark .app-layout::before {
 
 /* ===== .has-background 三层透明度体系（VSCode 背景插件效果）=====
  * 背景图充满窗口，所有组件半透明浮于其上，形成层次感
- * 不用 backdrop-filter（用户要求），只用 color-mix 半透明
+ * 不用 backdrop-filter，只用 color-mix 半透明
  *
  * 层次定义：
- * - 背景图层（z-index: 0）：.app-layout::before 充满窗口，opacity 由用户控制
- * - 结构层（z-index: 1，70% 透明度）：sidebar/header/input 半透明，让背景透出
+ * - 背景图层（z-index: 0）：.app-layout::before 充满窗口，叠加暗角遮罩 + 背景图
+ * - 结构层（z-index: 1）：sidebar/header/input 半透明浮起
+ *   · 亮色模式：55% 透明度（降低白雾感，让背景图充分透出）
+ *   · 深色模式：70% 透明度（保持UI可读性）
  * - 内容层（z-index: 1，完全透明）：列表/容器透明，背景图充分可见
  * - 气泡/卡片层（z-index: 2，80% 透明度）：气泡/代码块/卡片半透明浮起
  */
 
 /* ===== 文字阴影（可读性增强）===== */
+/* 亮色：极淡暗影替代白色光晕（消除白雾感的关键一步） */
 .has-background {
-  text-shadow: var(--text-shadow-glass);
+  text-shadow: 0 0 1px rgba(0, 0, 0, 0.04);
 }
 
 .dark.has-background {
@@ -614,31 +638,50 @@ html.dark .app-layout::before {
     0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
-/* ===== 结构层（70% 透明度）===== */
+/* ===== 结构层 ===== */
 .has-background .main-area {
   background: transparent;
 }
 
-.has-background .sidebar {
+/* 亮色：降低白色半透明覆盖（70%→55%），消除白雾感 */
+.has-background:not(.dark) .sidebar {
+  background: color-mix(in srgb, var(--bg-sidebar) 55%, transparent);
+  border-right-color: color-mix(in srgb, var(--border-color) 45%, transparent);
+}
+.dark.has-background .sidebar {
   background: color-mix(in srgb, var(--bg-sidebar) 70%, transparent);
   border-right-color: color-mix(in srgb, var(--border-color) 60%, transparent);
 }
 
-.has-background .main-header {
+.has-background:not(.dark) .main-header {
+  background: color-mix(in srgb, var(--bg-secondary) 55%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--border-color) 45%, transparent);
+}
+.dark.has-background .main-header {
   background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
   border-bottom-color: color-mix(in srgb, var(--border-color) 60%, transparent);
 }
 
-.has-background .server-status {
+.has-background:not(.dark) .server-status {
+  background: color-mix(in srgb, var(--bg-secondary) 55%, transparent);
+  border-color: color-mix(in srgb, var(--border-color) 40%, transparent);
+}
+.dark.has-background .server-status {
   background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
   border-color: color-mix(in srgb, var(--border-color) 50%, transparent);
 }
 
-.has-background .chat-input-container {
+.has-background:not(.dark) .chat-input-container {
+  background: color-mix(in srgb, var(--bg-input) 55%, transparent) !important;
+}
+.dark.has-background .chat-input-container {
   background: color-mix(in srgb, var(--bg-input) 70%, transparent) !important;
 }
 
-.has-background .scroll-to-bottom-btn {
+.has-background:not(.dark) .scroll-to-bottom-btn {
+  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
+}
+.dark.has-background .scroll-to-bottom-btn {
   background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
 }
 
@@ -669,11 +712,17 @@ html.dark .app-layout::before {
   transition: background 0.2s ease;
 }
 
-.has-background .conversation-item:hover {
+.has-background:not(.dark) .conversation-item:hover {
+  background: color-mix(in srgb, var(--bg-hover) 55%, transparent);
+}
+.dark.has-background .conversation-item:hover {
   background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
 }
 
-.has-background .conversation-item.active {
+.has-background:not(.dark) .conversation-item.active {
+  background: color-mix(in srgb, var(--bg-active) 55%, transparent);
+}
+.dark.has-background .conversation-item.active {
   background: color-mix(in srgb, var(--bg-active) 70%, transparent);
 }
 
@@ -683,27 +732,47 @@ html.dark .app-layout::before {
 }
 
 /* 用 .app-layout.has-background 提升特异性（0,3,0），覆盖组件 scoped 实色背景 */
-.app-layout.has-background .knowledge-container {
+/* 亮色：降低覆盖（60%→45%）让背景图更通透 */
+.app-layout.has-background:not(.dark) .knowledge-container {
+  background: color-mix(in srgb, var(--bg-secondary) 45%, transparent);
+  border-radius: 12px;
+}
+.app-layout.has-background:not(.dark) .settings-container {
+  background: color-mix(in srgb, var(--bg-primary) 45%, transparent);
+  border-radius: 12px;
+}
+.dark .app-layout.has-background .knowledge-container {
   background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
   border-radius: 12px;
 }
-
-.app-layout.has-background .settings-container {
+.dark .app-layout.has-background .settings-container {
   background: color-mix(in srgb, var(--bg-primary) 60%, transparent);
   border-radius: 12px;
 }
 
-.app-layout.has-background .knowledge-header,
-.app-layout.has-background .settings-header {
+.app-layout.has-background:not(.dark) .knowledge-header,
+.app-layout.has-background:not(.dark) .settings-header {
+  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
+}
+.dark .app-layout.has-background .knowledge-header,
+.dark .app-layout.has-background .settings-header {
   background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
 }
 
-/* ===== 气泡/卡片层（80% 透明度）===== */
-.has-background .hljs {
+/* ===== 气泡/卡片层（亮色微降透明度）===== */
+.has-background:not(.dark) .hljs {
+  background: color-mix(in srgb, var(--bg-code) 75%, transparent) !important;
+}
+.dark.has-background .hljs {
   background: color-mix(in srgb, var(--bg-code) 80%, transparent) !important;
 }
 
-.has-background .markdown-body pre {
+.has-background:not(.dark) .markdown-body pre {
+  background: color-mix(in srgb, var(--bg-code) 75%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color) 45%, transparent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+.dark.has-background .markdown-body pre {
   background: color-mix(in srgb, var(--bg-code) 80%, transparent);
   border: 1px solid color-mix(in srgb, var(--border-color) 50%, transparent);
   box-shadow:
@@ -711,12 +780,21 @@ html.dark .app-layout::before {
     0 0 0 1px rgba(255, 255, 255, 0.1) inset;
 }
 
-.has-background .markdown-body pre .code-header {
+.has-background:not(.dark) .markdown-body pre .code-header {
+  background: color-mix(in srgb, var(--bg-code) 85%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--border-color) 35%, transparent);
+}
+.dark.has-background .markdown-body pre .code-header {
   background: color-mix(in srgb, var(--bg-code) 90%, transparent);
   border-bottom-color: color-mix(in srgb, var(--border-color) 40%, transparent);
 }
 
-.has-background .message-item .think-block-content {
+.has-background:not(.dark) .message-item .think-block-content {
+  background: color-mix(in srgb, var(--bg-tertiary) 75%, transparent);
+  border-color: color-mix(in srgb, var(--border-color) 40%, transparent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+.dark.has-background .message-item .think-block-content {
   background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent);
   border-color: color-mix(in srgb, var(--border-color) 45%, transparent);
   box-shadow:
@@ -724,7 +802,15 @@ html.dark .app-layout::before {
     0 0 0 1px rgba(255, 255, 255, 0.08) inset;
 }
 
-.has-background .message-item .think-block.is-thinking .think-block-content {
+.has-background:not(.dark) .message-item .think-block.is-thinking .think-block-content {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent-think) 7%, transparent) 0%,
+    color-mix(in srgb, var(--bg-tertiary) 75%, transparent) 55%
+  );
+  border-color: color-mix(in srgb, var(--accent-think) 38%, var(--border-color));
+}
+.dark.has-background .message-item .think-block.is-thinking .think-block-content {
   background: linear-gradient(
     90deg,
     color-mix(in srgb, var(--accent-think) 7%, transparent) 0%,
@@ -734,30 +820,87 @@ html.dark .app-layout::before {
 }
 
 /* 用 .app-layout.has-background 提升特异性，覆盖组件 scoped 实色背景 */
-.app-layout.has-background .doc-icon-box {
+.app-layout.has-background:not(.dark) .doc-icon-box {
+  background: color-mix(in srgb, var(--accent-p-soft) 75%, transparent);
+}
+.dark .app-layout.has-background .doc-icon-box {
   background: color-mix(in srgb, var(--accent-p-soft) 80%, transparent);
 }
 
-.app-layout.has-background .kb-count {
+.app-layout.has-background:not(.dark) .kb-count {
+  background: color-mix(in srgb, var(--bg-tertiary) 75%, transparent);
+}
+.dark .app-layout.has-background .kb-count {
   background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent);
 }
 
-.app-layout.has-background .embedding-help {
+.app-layout.has-background:not(.dark) .embedding-help {
+  background: color-mix(in srgb, var(--bg-tertiary) 75%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color) 30%, transparent);
+}
+.dark .app-layout.has-background .embedding-help {
   background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent);
   border: 1px solid color-mix(in srgb, var(--border-color) 35%, transparent);
 }
 
-.app-layout.has-background .recommend-tag {
+.app-layout.has-background:not(.dark) .recommend-tag {
+  background: color-mix(in srgb, var(--bg-primary) 75%, transparent);
+  border-color: color-mix(in srgb, var(--border-color) 45%, transparent);
+}
+.dark .app-layout.has-background .recommend-tag {
   background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
   border-color: color-mix(in srgb, var(--border-color) 50%, transparent);
 }
 
-.app-layout.has-background .model-ref-card {
+.app-layout.has-background:not(.dark) .model-ref-card {
+  background: color-mix(in srgb, var(--bg-secondary) 75%, transparent);
+}
+.dark .app-layout.has-background .model-ref-card {
   background: color-mix(in srgb, var(--bg-secondary) 80%, transparent);
 }
 
-.app-layout.has-background .model-ref-header {
+.app-layout.has-background:not(.dark) .model-ref-header {
+  background: color-mix(in srgb, var(--bg-primary) 75%, transparent);
+}
+.dark .app-layout.has-background .model-ref-header {
   background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
+}
+
+/* ===== 设置界面卡片/折叠面板（背景模式通透） ===== */
+/* 高级采样卡片、KV缓存卡片等折叠面板 */
+.app-layout.has-background:not(.dark) .advanced-section {
+  border-color: color-mix(in srgb, var(--border-color) 40%, transparent);
+}
+.app-layout.has-background:not(.dark) .advanced-header {
+  background: color-mix(in srgb, var(--bg-secondary) 55%, transparent);
+}
+.app-layout.has-background:not(.dark) .advanced-content {
+  background: color-mix(in srgb, var(--bg-tertiary) 45%, transparent);
+}
+.dark .app-layout.has-background .advanced-section {
+  border-color: color-mix(in srgb, var(--border-color) 50%, transparent);
+}
+.dark .app-layout.has-background .advanced-header {
+  background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+}
+.dark .app-layout.has-background .advanced-content {
+  background: color-mix(in srgb, var(--bg-tertiary) 65%, transparent);
+}
+
+/* GPU 信息卡片 (n-card) — 亮色背景模式半透明 */
+.app-layout.has-background:not(.dark) .gpu-info-card {
+  background: color-mix(in srgb, var(--bg-secondary) 55%, transparent) !important;
+}
+.app-layout.has-background:not(.dark) .gpu-info-card .n-card__content {
+  background: color-mix(in srgb, var(--bg-secondary) 55%, transparent);
+}
+
+/* model-ref 小元素 */
+.app-layout.has-background:not(.dark) .model-ref-note {
+  background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent);
+}
+.app-layout.has-background:not(.dark) .model-ref-current {
+  background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent);
 }
 
 /* ===== 对话头像保持辨识度 ===== */
@@ -766,28 +909,46 @@ html.dark .app-layout::before {
 }
 
 /* ===== 侧边栏底部按钮 hover ===== */
-.has-background .sidebar-footer .footer-btn:hover {
+.has-background:not(.dark) .sidebar-footer .footer-btn:hover {
+  background: color-mix(in srgb, var(--bg-hover) 55%, transparent);
+}
+.dark.has-background .sidebar-footer .footer-btn:hover {
   background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
 }
 
 /* ===== 设置/知识库界面 hover 半透明（覆盖 scoped 实色 hover）===== */
-.app-layout.has-background .back-btn:hover {
+.app-layout.has-background:not(.dark) .back-btn:hover {
+  background: color-mix(in srgb, var(--bg-hover) 55%, transparent);
+}
+.dark .app-layout.has-background .back-btn:hover {
   background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
 }
 
-.app-layout.has-background .back-btn:active {
+.app-layout.has-background:not(.dark) .back-btn:active {
+  background: color-mix(in srgb, var(--bg-active) 55%, transparent);
+}
+.dark .app-layout.has-background .back-btn:active {
   background: color-mix(in srgb, var(--bg-active) 70%, transparent);
 }
 
-.app-layout.has-background .doc-item:hover {
+.app-layout.has-background:not(.dark) .doc-item:hover {
+  background: color-mix(in srgb, var(--bg-hover) 55%, transparent);
+}
+.dark .app-layout.has-background .doc-item:hover {
   background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
 }
 
-.app-layout.has-background .settings-content .n-collapse-item__header:hover {
+.app-layout.has-background:not(.dark) .settings-content .n-collapse-item__header:hover {
+  background: color-mix(in srgb, var(--bg-hover) 55%, transparent);
+}
+.dark .app-layout.has-background .settings-content .n-collapse-item__header:hover {
   background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
 }
 
-.app-layout.has-background .recommend-tag:hover {
+.app-layout.has-background:not(.dark) .recommend-tag:hover {
+  background: color-mix(in srgb, var(--accent-primary) 75%, transparent);
+}
+.dark .app-layout.has-background .recommend-tag:hover {
   background: color-mix(in srgb, var(--accent-primary) 80%, transparent);
 }
 
@@ -797,25 +958,31 @@ html.dark .app-layout::before {
  * - 输入框上方 token 信息：透明底 + 字体色
  * - 输入框下方提示文字：透明底 + 字体色
  *
- * 双层光晕策略（VSCode 背景插件标准做法）：
- * 1. 描边层（0 blur）：与文字主色相反的颜色，1px 紧贴描边
- * 2. 光晕层（2-4px blur）：更大范围的柔和光晕
- * 无论背景图是深是浅，文字都能清晰可读
+ * VSCode 背景插件风格：
+ * 亮色用极淡黑描边 + 光晕（不再用白色光晕，消除白雾）
+ * 深色用黑描边 + 黑光晕
  */
 .has-background .msg-actions .action-btn,
 .has-background .msg-actions .token-speed,
 .has-background .token-info,
 .has-background .input-footer-reminder,
 .has-background .token-info .compress-btn {
-  /* 亮色主题：深色文字 → 白色描边 + 白色光晕 */
   color: var(--text-secondary);
-  text-shadow:
-    0 0 1px rgba(255, 255, 255, 0.95),
-    0 0 3px rgba(255, 255, 255, 0.75),
-    0 1px 4px rgba(255, 255, 255, 0.55);
 }
 
-/* 深色主题：浅色文字 → 黑色描边 + 黑色光晕 */
+/* 亮色主题：极淡黑色描边替代白色光晕（消除白雾感的关键） */
+.has-background:not(.dark) .msg-actions .action-btn,
+.has-background:not(.dark) .msg-actions .token-speed,
+.has-background:not(.dark) .token-info,
+.has-background:not(.dark) .input-footer-reminder,
+.has-background:not(.dark) .token-info .compress-btn {
+  text-shadow:
+    0 0 1px rgba(0, 0, 0, 0.12),
+    0 0 3px rgba(0, 0, 0, 0.06),
+    0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+/* 深色主题：黑色描边 + 黑色光晕 */
 .dark.has-background .msg-actions .action-btn,
 .dark.has-background .msg-actions .token-speed,
 .dark.has-background .token-info,
@@ -1446,7 +1613,7 @@ html.dark .app-layout::before {
  */
 
 /* ===== 设置界面 & 知识库界面 naive-ui 控件透明规则 ===== */
-/* 背景图模式下让 n-input、n-select、n-collapse 等控件通透，无 blur 避免亮色白雾 */
+/* 背景图模式下让 n-input、n-select、n-collapse 等控件通透 */
 /* 用 .app-layout.has-background 三层 class 提升特异性，覆盖 naive-ui 默认实色背景 */
 /* 限定在 .settings-content 和 .knowledge-body 范围内，避免影响聊天主界面 */
 .app-layout.has-background .settings-content .n-input__textarea-el,
@@ -1460,20 +1627,33 @@ html.dark .app-layout::before {
   background: transparent !important;
 }
 
-/* 输入框/选择器外层 — 轻底色让控件可识别，无 blur */
-.app-layout.has-background .settings-content .n-input,
-.app-layout.has-background .settings-content .n-base-selection,
-.app-layout.has-background .knowledge-body .n-input,
-.app-layout.has-background .knowledge-body .n-base-selection {
+/* 输入框/选择器外层 — 亮色降低覆盖，深色保持 */
+.app-layout.has-background:not(.dark) .settings-content .n-input,
+.app-layout.has-background:not(.dark) .settings-content .n-base-selection,
+.app-layout.has-background:not(.dark) .knowledge-body .n-input,
+.app-layout.has-background:not(.dark) .knowledge-body .n-base-selection {
+  background: color-mix(in srgb, var(--bg-primary) 65%, transparent) !important;
+  border-color: var(--border-color) !important;
+}
+.dark .app-layout.has-background .settings-content .n-input,
+.dark .app-layout.has-background .settings-content .n-base-selection,
+.dark .app-layout.has-background .knowledge-body .n-input,
+.dark .app-layout.has-background .knowledge-body .n-base-selection {
   background: color-mix(in srgb, var(--bg-primary) 80%, transparent) !important;
   border-color: var(--border-color) !important;
 }
 
 /* 数字输入框、n-input-number 容器 */
-.app-layout.has-background .settings-content .n-input-number,
-.app-layout.has-background .settings-content .n-input-number .n-input,
-.app-layout.has-background .knowledge-body .n-input-number,
-.app-layout.has-background .knowledge-body .n-input-number .n-input {
+.app-layout.has-background:not(.dark) .settings-content .n-input-number,
+.app-layout.has-background:not(.dark) .settings-content .n-input-number .n-input,
+.app-layout.has-background:not(.dark) .knowledge-body .n-input-number,
+.app-layout.has-background:not(.dark) .knowledge-body .n-input-number .n-input {
+  background: color-mix(in srgb, var(--bg-primary) 65%, transparent) !important;
+}
+.dark .app-layout.has-background .settings-content .n-input-number,
+.dark .app-layout.has-background .settings-content .n-input-number .n-input,
+.dark .app-layout.has-background .knowledge-body .n-input-number,
+.dark .app-layout.has-background .knowledge-body .n-input-number .n-input {
   background: color-mix(in srgb, var(--bg-primary) 80%, transparent) !important;
 }
 
@@ -1484,31 +1664,50 @@ html.dark .app-layout::before {
 }
 
 /* 折叠面板头部 — 轻底色形成可识别的栏 */
-.app-layout.has-background .settings-content .n-collapse-item__header {
+.app-layout.has-background:not(.dark) .settings-content .n-collapse-item__header {
+  background: color-mix(in srgb, var(--bg-primary) 65%, transparent) !important;
+}
+.dark .app-layout.has-background .settings-content .n-collapse-item__header {
   background: color-mix(in srgb, var(--bg-primary) 80%, transparent) !important;
 }
 
 /* 切换按钮轨道（n-switch）— 关闭状态：半透明灰；开启状态：保留绿色区分 */
-.app-layout.has-background .settings-content .n-switch:not(.n-switch--active) .n-switch__rail,
-.app-layout.has-background .knowledge-body .n-switch:not(.n-switch--active) .n-switch__rail {
+.app-layout.has-background:not(.dark) .settings-content .n-switch:not(.n-switch--active) .n-switch__rail,
+.app-layout.has-background:not(.dark) .knowledge-body .n-switch:not(.n-switch--active) .n-switch__rail {
+  background: color-mix(in srgb, var(--bg-tertiary) 65%, transparent) !important;
+}
+.dark .app-layout.has-background .settings-content .n-switch:not(.n-switch--active) .n-switch__rail,
+.dark .app-layout.has-background .knowledge-body .n-switch:not(.n-switch--active) .n-switch__rail {
   background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent) !important;
 }
 
 /* 设置界面 help-tip-icon — 透明（小图标，无需底色） */
-.app-layout.has-background .settings-content .help-tip-icon,
-.app-layout.has-background .knowledge-body .help-tip-icon {
+.app-layout.has-background:not(.dark) .settings-content .help-tip-icon,
+.app-layout.has-background:not(.dark) .knowledge-body .help-tip-icon {
+  background: color-mix(in srgb, var(--bg-tertiary) 65%, transparent);
+}
+.dark .app-layout.has-background .settings-content .help-tip-icon,
+.dark .app-layout.has-background .knowledge-body .help-tip-icon {
   background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent);
 }
 
 /* 滑块轨道（n-slider）— 半透明 */
-.app-layout.has-background .settings-content .n-slider__rail,
-.app-layout.has-background .knowledge-body .n-slider__rail {
+.app-layout.has-background:not(.dark) .settings-content .n-slider__rail,
+.app-layout.has-background:not(.dark) .knowledge-body .n-slider__rail {
+  background: color-mix(in srgb, var(--bg-tertiary) 65%, transparent) !important;
+}
+.dark .app-layout.has-background .settings-content .n-slider__rail,
+.dark .app-layout.has-background .knowledge-body .n-slider__rail {
   background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent) !important;
 }
 
 /* 标签输入框、n-tag、n-dynamic-tags — 半透明 */
-.app-layout.has-background .settings-content .n-tag,
-.app-layout.has-background .knowledge-body .n-tag {
+.app-layout.has-background:not(.dark) .settings-content .n-tag,
+.app-layout.has-background:not(.dark) .knowledge-body .n-tag {
+  background: color-mix(in srgb, var(--bg-tertiary) 65%, transparent) !important;
+}
+.dark .app-layout.has-background .settings-content .n-tag,
+.dark .app-layout.has-background .knowledge-body .n-tag {
   background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent) !important;
 }
 
@@ -1572,10 +1771,6 @@ html.dark .app-layout::before {
 
 .dark.has-background .n-modal {
   background: color-mix(in srgb, var(--bg-tertiary) 85%, transparent) !important;
-}
-
-.has-background .model-ref-header {
-  background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
 }
 
 /* 深色模式下设置界面 — 已由第 540-708 行三层透明度体系统一处理 */

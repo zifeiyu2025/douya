@@ -84,6 +84,24 @@
             <AppIcon name="copy" class="action-icon" :size="14" />
             <span class="action-label">复制</span>
           </button>
+          <!-- TTS 朗读按钮：仅 AI 消息显示，需启用 TTS 且流式生成中禁用 -->
+          <button
+            v-if="!isUser && tts.isSupported.value && settingsStore.config.tts_enabled"
+            class="action-btn"
+            :class="{ active: tts.isSpeaking(message.id) }"
+            :title="tts.isSpeaking(message.id) ? '停止朗读' : '朗读'"
+            :disabled="chatStore.isGenerating && isLastAIMessage"
+            @click="toggleSpeak"
+          >
+            <AppIcon
+              :name="tts.isSpeaking(message.id) ? 'stop' : 'volume'"
+              class="action-icon"
+              :size="14"
+            />
+            <span class="action-label">
+              {{ tts.isSpeaking(message.id) ? '停止' : '朗读' }}
+            </span>
+          </button>
           <button
             v-if="!isUser && !chatStore.isAnyGenerating && isLastAIMessage"
             class="action-btn"
@@ -112,6 +130,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown'
 import { setupCodeCopyDelegation } from '../utils/codeCopy'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
+import { useTTS } from '../composables/useTTS'
 import type { Message, AttachmentSummary } from '../services/wails'
 import AppIcon from './ui/AppIcon.vue'
 import defaultUserAvatar from '../assets/images/user-avatar.svg'
@@ -121,6 +140,8 @@ const props = defineProps<{ message: Message }>()
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
 const messageApi = useMessage()
+// TTS 播音员调度台（全局单例，所有消息共用）
+const tts = useTTS()
 
 const ATTACHMENT_ICON_MAP: Record<string, 'audio' | 'video' | 'pdf' | 'file' | 'image'> = {
   audio: 'audio',
@@ -225,6 +246,26 @@ onMounted(() => {
   // scroll 监听器改为按需注册（见下方 watch(selectionBtnVisible)），
   // 避免每个 MessageItem 实例都常驻全局 scroll 监听导致长会话滚动卡顿
 })
+
+/**
+ * 切换朗读状态：未朗读→开始朗读，正在朗读→停止
+ * 生活类比：按收音机电源键——开着就关，关着就开。
+ * 如果用户在消息气泡内选中了文字，只朗读选中部分；否则朗读整条消息。
+ */
+function toggleSpeak() {
+  // 正在朗读本条 → 停止
+  if (tts.isSpeaking(props.message.id)) {
+    tts.stop()
+    return
+  }
+  // 获取用户选中的文字（如果有）
+  const selection = window.getSelection()
+  const selectedText = selection?.toString().trim()
+  const textToSpeak = selectedText && selectedText.length > 0 ? selectedText : props.message.content
+  if (textToSpeak) {
+    tts.speak(textToSpeak, props.message.id)
+  }
+}
 
 async function copyContent() {
   try {
@@ -581,6 +622,17 @@ function regenerate() {
 .action-btn.danger:hover {
   color: var(--accent-danger);
   background: var(--accent-r-soft);
+}
+
+/* 朗读按钮激活态：正在朗读时高亮显示（主色调背景） */
+.action-btn.active {
+  color: var(--accent-primary);
+  background: var(--accent-tertiary);
+}
+
+.action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .action-icon {

@@ -222,6 +222,12 @@ type Server struct {
 	// 生活类比：调度中心的总开关状态牌，任何值班员都能直接看/拨（atomic 操作），
 	// 不需要先去前台排队借钥匙（mu 锁），避免排班冲突。
 	mtpFallbackDisabled atomic.Bool
+	// crashDegradeLevel 崩溃降级级别（atomic，WatchWithCallback 写、buildStartArgs 读）
+	// 0=无降级，1=ctx-size 减半，2=gpu-layers 设为 auto（让 llama.cpp 自决）
+	// 生活类比：汽车连续抛锚后，维修工会逐级降档——先限速（ctx 减半），
+	// 再挂空挡让拖车拖（gpu-layers auto），最后才换发动机（后端回滚）。
+	// 每级降级都记录日志并推送前端提示，启动成功后自动重置为 0。
+	crashDegradeLevel  atomic.Int32
 	// lastStartTime 存储上次启动的时刻（UnixNano），用 atomic.Int64 避免
 	// WatchWithCallback 中无锁读取与 Start 中持锁写入之间的数据竞争。
 	// 生活类比：调度中心的电子时钟，任何值班员都能直接抬头看（atomic 读取），
@@ -307,6 +313,45 @@ func appendFloatArg(args []string, flag string, val float64, format string) []st
 		return append(args, flag, fmt.Sprintf(format, val))
 	}
 	return args
+}
+
+// ApplyBackendSafetyLimits 对 ServerConfig 应用后端硬限制。
+// 在所有用户覆盖之后调用，确保后端安全限制不可被绕过。
+//
+// 修复的 bug：原实现中 system.applyBackendSpecificParams 修改 sp.GPULayers
+// （如 Vulkan 限到 50），但 app 层 resolveDerivedServerParams 中用户显式
+// cfg.GPULayers=99 会直接用用户值，绕过了 sp 中已应用的 Vulkan 50 层限制。
+// 此方法作为最后兜底，作用在最终 ServerConfig 上。
+//
+// 生活类比：就像交规限速——不管司机（用户）把油门踩多深，限速牌（后端硬限制）说了算。
+func (c *ServerConfig) ApplyBackendSafetyLimits(backend BackendType) {
+	switch backend {
+	case BackendVulkan:
+		// Vulkan 后端硬限制：gpu_layers <= 50，ctx_size <= 8192
+		// 原因：全层卸载（99）在 Vulkan 上容易导致栈溢出崩溃（0xC0000409）
+		if ngl, err := strconv.Atoi(c.GPULayers); err == nil && ngl > 50 {
+			log.Warn().Str("original_ngl", c.GPULayers).Int("capped_ngl", 50).
+				Msg("[server-config] Vulkan backend safety limit: gpu-layers capped to 50")
+			c.GPULayers = "50"
+		}
+		if c.ContextSize > 8192 {
+			log.Warn().Int("original_ctx", c.ContextSize).Int("capped_ctx", 8192).
+				Msg("[server-config] Vulkan backend safety limit: ctx-size capped to 8192")
+			c.ContextSize = 8192
+		}
+	case BackendCPU:
+		// CPU 后端硬限制：gpu_layers = 0，ctx_size <= 8192
+		if ngl, err := strconv.Atoi(c.GPULayers); err == nil && ngl > 0 {
+			log.Warn().Str("original_ngl", c.GPULayers).Int("capped_ngl", 0).
+				Msg("[server-config] CPU backend safety limit: gpu-layers forced to 0")
+			c.GPULayers = "0"
+		}
+		if c.ContextSize > 8192 {
+			log.Warn().Int("original_ctx", c.ContextSize).Int("capped_ctx", 8192).
+				Msg("[server-config] CPU backend safety limit: ctx-size capped to 8192")
+			c.ContextSize = 8192
+		}
+	}
 }
 
 // appendBoolArg 当 val 为 true 时追加布尔标志参数（无值）。
@@ -769,6 +814,37 @@ func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(Serv
 				}
 			}
 
+			// 扩展降级链：推测解码已禁用但仍崩溃时，逐级降级 ctx-size 和 gpu-layers
+			// 降级链：推测解码 Off → ctx-size 减半 → gpu-layers auto → 后端回滚（app 层）
+			// 生活类比：汽车抛锚后先关空调（推测解码），再限速（ctx 减半），
+			// 再挂空挡（gpu-layers auto），最后才换发动机（后端回滚）
+			if s.mtpFallbackDisabled.Load() {
+				startTime := time.Unix(0, s.lastStartTime.Load())
+				runDuration := time.Since(startTime)
+				// 只在启动后 120 秒内崩溃才触发降级（覆盖加载期崩溃）
+				if runDuration < 120*time.Second {
+					currentLevel := s.crashDegradeLevel.Load()
+					if currentLevel < 1 {
+						// 降级 1：ctx-size 减半（最小 2048，避免过小无法使用）
+						s.crashDegradeLevel.Store(1)
+						log.Warn().
+							Dur("run_duration", runDuration).
+							Int("original_ctx", s.config.ContextSize).
+							Msg("[server] crash degrade level 1: halving ctx-size for next restart")
+						backoff = 1 * time.Second
+					} else if currentLevel < 2 {
+						// 降级 2：gpu-layers 设为 auto（让 llama.cpp 自决层数）
+						s.crashDegradeLevel.Store(2)
+						log.Warn().
+							Dur("run_duration", runDuration).
+							Str("original_ngl", s.config.GPULayers).
+							Msg("[server] crash degrade level 2: setting gpu-layers to auto for next restart")
+						backoff = 1 * time.Second
+					}
+					// 降级 3 及以上交给 app 层的 tryRollbackBackend 处理（后端回滚）
+				}
+			}
+
 			s.SetStatus(false, fmt.Sprintf("server crashed, restarting in %v (attempt %d/%d)", backoff, restartCount, maxAttempts))
 			if onStatusChange != nil {
 				onStatusChange(s.Status())
@@ -805,6 +881,11 @@ func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(Serv
 			s.SetStatus(true, "")
 			restartCount = 0
 			currentBackoff = initialBackoff
+			// 启动成功后重置崩溃降级级别（推测解码回退不重置，避免反复崩溃循环）
+			if s.crashDegradeLevel.Load() > 0 {
+				log.Info().Int32("degrade_level", s.crashDegradeLevel.Load()).Msg("[server] restart success, resetting crash degrade level")
+				s.crashDegradeLevel.Store(0)
+			}
 			if onRestartSuccess != nil {
 				onRestartSuccess()
 			}

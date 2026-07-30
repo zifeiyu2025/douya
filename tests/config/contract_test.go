@@ -89,8 +89,8 @@ func TestContractDefaultConfigSpotChecks(t *testing.T) {
 		{"sleep_idle_seconds", cfg.SleepIdleSeconds, -1},
 		// *bool 类型字段：cache_prompt 默认 true（显式启用）
 		{"cache_prompt", *cfg.CachePrompt, true},
-		// *bool 类型字段：jinja 默认 nil（不传递）
-		{"jinja_is_nil", cfg.Jinja, (*bool)(nil)},
+		// *bool 类型字段：jinja 默认 true（默认开启 Jinja2 模板引擎）
+		{"jinja", *cfg.Jinja, true},
 		// *bool 类型字段：reasoning_preserve 默认 nil
 		{"reasoning_preserve_is_nil", cfg.ReasoningPreserve, (*bool)(nil)},
 	}
@@ -100,7 +100,7 @@ func TestContractDefaultConfigSpotChecks(t *testing.T) {
 			// 对于 *bool 类型的 nil 比较，必须使用 reflect.DeepEqual：
 			// 因为 *bool 的 nil 装箱为 interface{} 后，其 (type, value) != (nil, nil)，
 			// 直接用 "!= nil" 判断会误判为非 nil。
-			if sc.name == "jinja_is_nil" || sc.name == "reasoning_preserve_is_nil" {
+			if sc.name == "reasoning_preserve_is_nil" {
 				if !reflect.DeepEqual(sc.got, sc.want) {
 					t.Errorf("%s: 期望 nil，实际 %v", sc.name, sc.got)
 				}

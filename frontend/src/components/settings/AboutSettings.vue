@@ -200,8 +200,8 @@ async function handleCheckUpdate() {
     } else {
       updateStatus.value = 'up-to-date'
     }
-  } catch (e: any) {
-    errorMessage.value = e?.message || '检查更新失败'
+  } catch (e: unknown) {
+    errorMessage.value = e instanceof Error ? e.message : '检查更新失败'
     updateStatus.value = 'error'
   }
 }
@@ -213,8 +213,8 @@ async function handlePerformUpdate() {
   try {
     await wails.performUpdate(updateInfo.value.download_url, updateInfo.value.latest_version)
     updateStatus.value = 'installing'
-  } catch (e: any) {
-    errorMessage.value = e?.message || '更新失败'
+  } catch (e: unknown) {
+    errorMessage.value = e instanceof Error ? e.message : '更新失败'
     updateStatus.value = 'error'
   }
 }

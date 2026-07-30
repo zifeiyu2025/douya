@@ -16,60 +16,71 @@
     </div>
     <div class="settings-content">
       <n-form label-placement="left" label-width="120" :model="formConfig">
-        <n-collapse :default-expanded-names="['basic']" display-directive="show">
-          <!-- ==================== 基础设置 ==================== -->
-          <n-collapse-item name="basic">
+        <n-collapse :default-expanded-names="['appearance']" display-directive="show">
+          <!-- ==================== 外观 ==================== -->
+          <n-collapse-item name="appearance">
             <template #header>
               <div class="settings-group-header">
-                <span class="settings-group-title">基础设置</span>
-                <span class="settings-group-desc">常用设置，影响对话体验</span>
+                <span class="settings-group-title">外观</span>
+                <span class="settings-group-desc">主题、背景、头像</span>
               </div>
             </template>
-            <BasicSettings />
+            <AppearanceSettings />
           </n-collapse-item>
 
-          <!-- ==================== 高级设置 ==================== -->
+          <!-- ==================== AI 对话 ==================== -->
+          <n-collapse-item name="chat">
+            <template #header>
+              <div class="settings-group-header">
+                <span class="settings-group-title">AI 对话</span>
+                <span class="settings-group-desc">提示词、推理、生成参数、朗读</span>
+              </div>
+            </template>
+            <AIChatSettings />
+          </n-collapse-item>
+
+          <!-- ==================== 联网搜索 ==================== -->
+          <n-collapse-item name="search">
+            <template #header>
+              <div class="settings-group-header">
+                <span class="settings-group-title">联网搜索</span>
+                <span class="settings-group-desc">搜索引擎、搜索密钥</span>
+              </div>
+            </template>
+            <WebSearchSettings />
+          </n-collapse-item>
+
+          <!-- ==================== 性能 ==================== -->
+          <n-collapse-item name="performance">
+            <template #header>
+              <div class="settings-group-header">
+                <span class="settings-group-title">性能</span>
+                <span class="settings-group-desc">GPU、后端、KV 缓存、推测解码</span>
+              </div>
+            </template>
+            <PerformanceSettings />
+          </n-collapse-item>
+
+          <!-- ==================== API 服务 ==================== -->
+          <n-collapse-item name="api">
+            <template #header>
+              <div class="settings-group-header">
+                <span class="settings-group-title">API 服务</span>
+                <span class="settings-group-desc">端点、密钥、局域网访问</span>
+              </div>
+            </template>
+            <APIServiceSettings />
+          </n-collapse-item>
+
+          <!-- ==================== 高级工具 ==================== -->
           <n-collapse-item name="advanced">
             <template #header>
               <div class="settings-group-header">
-                <span class="settings-group-title">高级设置</span>
-                <span class="settings-group-desc">需要一定技术背景的配置项</span>
+                <span class="settings-group-title">高级</span>
+                <span class="settings-group-desc">MCP 工具、RAG、LoRA、实验功能</span>
               </div>
             </template>
-            <AdvancedSettings />
-          </n-collapse-item>
-
-          <!-- ==================== 显卡后端 ==================== -->
-          <n-collapse-item name="backend">
-            <template #header>
-              <div class="settings-group-header">
-                <span class="settings-group-title">显卡后端</span>
-                <span class="settings-group-desc">切换 GPU 计算后端，影响推理性能与兼容性</span>
-              </div>
-            </template>
-            <BackendSettings />
-          </n-collapse-item>
-
-          <!-- ==================== 实验设置 ==================== -->
-          <n-collapse-item name="experimental">
-            <template #header>
-              <div class="settings-group-header">
-                <span class="settings-group-title">实验设置</span>
-                <span class="settings-group-desc">实验性功能，可能影响稳定性</span>
-              </div>
-            </template>
-            <ExperimentalSettings />
-          </n-collapse-item>
-
-          <!-- ==================== MCP 服务器 ==================== -->
-          <n-collapse-item name="mcp">
-            <template #header>
-              <div class="settings-group-header">
-                <span class="settings-group-title">MCP 服务器</span>
-                <span class="settings-group-desc">连接外部 MCP 服务器，扩展模型工具能力</span>
-              </div>
-            </template>
-            <MCPSettings />
+            <AdvancedExperimentalSettings />
           </n-collapse-item>
 
           <!-- ==================== 关于 ==================== -->
@@ -77,7 +88,7 @@
             <template #header>
               <div class="settings-group-header">
                 <span class="settings-group-title">关于</span>
-                <span class="settings-group-desc">版本信息与更新</span>
+                <span class="settings-group-desc">版本与更新</span>
               </div>
             </template>
             <AboutSettings />
@@ -100,11 +111,12 @@ import { type Config, type SearchAPIKeys, DEFAULT_CONFIG } from '../services/wai
 import { wails } from '../services/wails'
 import defaultUserAvatar from '../assets/images/user-avatar.svg'
 import defaultAiAvatar from '../assets/images/appicon.png'
-import BasicSettings from '../components/settings/BasicSettings.vue'
-import AdvancedSettings from '../components/settings/AdvancedSettings.vue'
-import BackendSettings from '../components/settings/BackendSettings.vue'
-import ExperimentalSettings from '../components/settings/ExperimentalSettings.vue'
-import MCPSettings from '../components/settings/MCPSettings.vue'
+import AppearanceSettings from '../components/settings/AppearanceSettings.vue'
+import AIChatSettings from '../components/settings/AIChatSettings.vue'
+import WebSearchSettings from '../components/settings/WebSearchSettings.vue'
+import PerformanceSettings from '../components/settings/PerformanceSettings.vue'
+import APIServiceSettings from '../components/settings/APIServiceSettings.vue'
+import AdvancedExperimentalSettings from '../components/settings/AdvancedExperimentalSettings.vue'
 import AboutSettings from '../components/settings/AboutSettings.vue'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from '../components/settings/settingsContext'
 // F-1.17：readFileAsDataURL 抽取到 imageProcess.ts 统一导出，消除两处重复定义
@@ -390,7 +402,7 @@ async function selectBackgroundImage() {
 
 function clearBackground() {
   formConfig.value.chat_background = ''
-  formConfig.value.chat_background_opacity = 0.9
+  formConfig.value.chat_background_opacity = 0.85
 }
 
 // maxAvatarSize 头像文件最大大小（1MB）
@@ -467,7 +479,7 @@ async function doAutoSave() {
     formConfig.value = { ...settingsStore.config }
     genParamsDirty.value = false
   } catch (e) {
-    console.error('自动保存配置失败', e)
+    logError('自动保存配置失败', e)
     message.destroyAll()
     message.error('保存失败')
   } finally {
@@ -637,6 +649,7 @@ const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'agent',
   'ui_mcp_proxy',
   'backend_sampling',
+  'performance_mode',
   'gpu_layers',
   'flash_attn',
   'mlock',
@@ -663,7 +676,13 @@ const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'samplers',
   'ignore_eos',
   'adaptive_target',
-  'adaptive_decay'
+  'adaptive_decay',
+  // TTS 朗读配置
+  'tts_enabled',
+  'tts_voice',
+  'tts_rate',
+  'tts_pitch',
+  'tts_volume'
 ]
 
 watch(
@@ -690,11 +709,15 @@ function scheduleAutoSave() {
 
 onUnmounted(() => {
   // 离开设置页时如有未保存的修改，立即同步保存，避免丢失
+  // 注意：组件已卸载，message 实例可能失效，静默保存并 catch 错误
   if (genParamsSaveTimer) {
     clearTimeout(genParamsSaveTimer)
     genParamsSaveTimer = null
     if (genParamsDirty.value) {
-      autoSave()
+      autoSave().catch(e => {
+        // 静默处理：组件已卸载，无法弹 UI 提示，仅控制台记录
+        logError('[settings] onUnmounted autoSave failed:', e)
+      })
     }
   }
 })

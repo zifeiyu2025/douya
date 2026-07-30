@@ -66,6 +66,14 @@ func (s *Server) Start() error {
 	}
 	s.lastStartTime.Store(time.Now().UnixNano())
 
+	// 重置崩溃降级级别：每次主动 Start() 都意味着新的一次启动尝试
+	// 旧的降级级别（来自上次崩溃链）应失效，避免残留的降级参数影响本次启动
+	// 修复 bug：原实现只在 WatchWithCallback 重启成功后重置，用户手动 Start() 时残留
+	if old := s.crashDegradeLevel.Load(); old > 0 {
+		log.Info().Int32("old_level", old).Msg("[server] manual start, resetting crash degrade level")
+		s.crashDegradeLevel.Store(0)
+	}
+
 	// 尝试用 ConPTY 启动（获得原生终端输出：ANSI 颜色码、进度条）
 	// 生活类比：ConPTY 就像一个"虚拟显示器"，让 llama-server 以为自己在真正的终端里运行
 	pty, ptyErr := startWithConPTY(s.config.ServerPath, args, runtimeDir, env, 120, 40)

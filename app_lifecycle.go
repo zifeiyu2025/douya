@@ -413,7 +413,7 @@ func (a *App) initRAG(ctx context.Context, cfg *config.Config) {
 		embedModel = a.currentModelName
 		a.currentModelMu.RUnlock()
 	}
-	embedder := &rag.ClientEmbedder{Client: a.client}
+	embedder := &rag.ClientEmbedder{Client: a.getClient()}
 	embedder.SetModel(embedModel)
 	// 当专用嵌入模型为空时，动态获取当前聊天模型名
 	embedder.SetCurrentModelFn(func() string {
@@ -503,12 +503,12 @@ func (a *App) buildService(ctx context.Context) {
 	a.ensureMcpServersFileExists()
 
 	cfg := a.getConfig()
-	a.client = llm.NewClient(cfg.APIBase, a.getServerAPIKey())
+	a.setClient(llm.NewClient(cfg.APIBase, a.getServerAPIKey()))
 
 	searchChain := a.buildSearchChain()
 
 	// 填充提前创建的 service 的真实 client 和 searchChain
-	a.service.UpdateClient(a.client)
+	a.service.UpdateClient(a.getClient())
 	a.service.UpdateSearchChain(searchChain)
 
 	// Initialize RAG (Badger-backed vector store + LLM embedder)

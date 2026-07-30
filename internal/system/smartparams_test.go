@@ -176,7 +176,8 @@ func TestCalculateSmartParams_BlackwellKeepsNgramMod(t *testing.T) {
 
 	// 非 MTP 模型，Blackwell 架构应保留 ngram-mod（无 GGUF 元数据时也启用）
 	// 传入 "cuda" 保持与原行为一致（CUDA 后端不调整 ngram-mod）
-	sp := CalculateSmartParams(hw, "", "cuda")
+	// performanceMode 传空字符串按 balanced 处理（向后兼容）
+	sp := CalculateSmartParams(hw, "", "cuda", "")
 	if sp.SpecType != "ngram-mod" {
 		t.Errorf("Blackwell 架构应保留 ngram-mod，实际 SpecType=%s", sp.SpecType)
 	}
@@ -554,7 +555,8 @@ func TestCalculateSmartParams_Vulkan(t *testing.T) {
 		GPUVRAMMB: 16303,
 	}
 	// 传入 "vulkan"，应启用保守配置
-	sp := CalculateSmartParams(hw, "", "vulkan")
+	// performanceMode 传空字符串按 balanced 处理（向后兼容）
+	sp := CalculateSmartParams(hw, "", "vulkan", "")
 	if sp.FlashAttn != false {
 		t.Errorf("Vulkan 后端应关闭 Flash Attention，实际 FlashAttn=%v", sp.FlashAttn)
 	}
@@ -582,7 +584,8 @@ func TestCalculateSmartParams_CPU(t *testing.T) {
 		GPUVRAMMB: 16303,
 	}
 	// 传入 "cpu"，应启用 CPU 配置
-	sp := CalculateSmartParams(hw, "", "cpu")
+	// performanceMode 传空字符串按 balanced 处理（向后兼容）
+	sp := CalculateSmartParams(hw, "", "cpu", "")
 	if sp.GPULayers != 0 {
 		t.Errorf("CPU 后端 GPULayers 应为 0，实际 %d", sp.GPULayers)
 	}
@@ -613,7 +616,8 @@ func TestCalculateSmartParams_CUDA_NoRegression(t *testing.T) {
 		GPUVRAMMB: 16303,
 	}
 	// 传入 "cuda"，应保持原行为
-	sp := CalculateSmartParams(hw, "", "cuda")
+	// performanceMode 传空字符串按 balanced 处理（向后兼容）
+	sp := CalculateSmartParams(hw, "", "cuda", "")
 	// CUDA 后端：Flash Attention 开启（有 GPU 时）
 	if sp.FlashAttn != true {
 		t.Errorf("CUDA 后端有 GPU 时应开启 Flash Attention，实际 FlashAttn=%v", sp.FlashAttn)

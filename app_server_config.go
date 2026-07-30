@@ -76,7 +76,7 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 
 	// 传入已解析的后端类型（resolvedBackend），让 SmartParams 根据后端调整参数
 	// 生活类比：告诉智能参数模块"我们这趟用的是电/油/柴"，让它据此调发动机参数
-	sp := system.CalculateSmartParams(a.hwInfo, resolvePath(cfg.ModelPath), string(resolvedBackend))
+	sp := system.CalculateSmartParams(a.hwInfo, resolvePath(cfg.ModelPath), string(resolvedBackend), cfg.PerformanceMode)
 	zlog.Info().
 		Str("models_dir", modelsDir).
 		Str("backend", resolvedBackend.String()).
@@ -100,6 +100,10 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 	autoEnableEagle3(serverCfg, cfg, *sp)
 	autoRecommendReasoning(serverCfg, *sp)
 	a.loadServerAPIKey(serverCfg)
+
+	// 后端安全限制：在所有用户覆盖之后应用，确保后端硬限制不可被绕过
+	// 已下沉为 llm.ServerConfig 的方法，app 层只做调用
+	serverCfg.ApplyBackendSafetyLimits(resolvedBackend)
 
 	return serverCfg
 }
