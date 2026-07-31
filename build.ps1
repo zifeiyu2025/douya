@@ -71,16 +71,32 @@ if ($needCopyExe) {
     Write-Host "  已复制: Douya.exe" -ForegroundColor Green
 }
 
-# runtime 目录不再由编译脚本干预：运行时按需从 GitHub 下载后端 zip 包并解压。
-# 见 app_lifecycle.go 的 downloadAndInstallBackend 逻辑。
-$syncDirs = @("models")
+# runtime 目录同步策略：编译时从项目 runtime/ 同步到 release/runtime/，
+# 发布版自带已编译的后端（如 CUDA），用户开箱即用，无需首次启动下载。
+# 注意：排除备份目录（如 cuda.b10210），备份目录仅用于本地回滚，不进入发布包。
+# 见 app_lifecycle.go 的 EnsureBackendInstalled 逻辑（运行时仍可按需下载其他后端）。
+$syncDirs = @("models", "runtime")
 foreach ($dir in $syncDirs) {
     $src = Join-Path $ProjectRoot $dir
     $dst = Join-Path $OutputDir $dir
     if (Test-Path $src) {
         $hasContent = (Get-ChildItem -Path $src -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count -gt 0
         if ($hasContent) {
-            & robocopy.exe $src $dst /MIR /NJH /NJS /NDL /NFL /NC /NS
+            # 构造 robocopy 参数，runtime 目录需要排除备份子目录（如 cuda.b10210）
+            $robocopyArgs = @($src, $dst, "/MIR", "/NJH", "/NJS", "/NDL", "/NFL", "/NC", "/NS")
+            if ($dir -eq "runtime") {
+                # 动态收集备份目录（匹配 *.b数字 模式，如 cuda.b10210、vulkan.b10216）
+                $backupDirs = Get-ChildItem $src -Directory -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -match '\.b\d+$' } |
+                    Select-Object -ExpandProperty FullName
+                if ($backupDirs) {
+                    foreach ($bd in $backupDirs) {
+                        $robocopyArgs += @("/XD", $bd)
+                    }
+                    Write-Host "  [runtime] 排除备份目录: $($backupDirs.Count) 个" -ForegroundColor Gray
+                }
+            }
+            & robocopy.exe @robocopyArgs
             $rc = $LASTEXITCODE
             # robocopy 退出码 0-7 表示成功（0=无变化，1-7=成功复制），8+ 表示错误
             if ($rc -ge 8) { throw "robocopy $dir 失败 (exit code $rc)" }
@@ -232,7 +248,7 @@ if ($criticalMissing.Count -eq 0 -and $optionalMissing.Count -eq 0) {
     Write-Host "    bin\Douya.exe"
     Write-Host "    models\"
     Write-Host "    data\"
-    Write-Host "    runtime\ (运行时按需下载，不在编译阶段干预)" -ForegroundColor Gray
+    Write-Host "    runtime\ (从项目 runtime/ 同步，已排除备份目录)" -ForegroundColor Gray
 } elseif ($criticalMissing.Count -eq 0) {
     Write-Host ""
     Write-Host "=== 构建完成，部分可选文件缺失 ===" -ForegroundColor Yellow

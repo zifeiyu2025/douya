@@ -528,6 +528,62 @@ func (a *App) buildService(ctx context.Context) {
 	a.initServer()
 
 	a.ready.Store(true)
+
+	// 异步检查 llama.cpp 上游更新（不阻塞启动，失败不影响主流程）
+	// 生活类比：车启动后，后台偷偷去应用商店看一眼有没有新版本，有就弹个提示
+	go a.checkLlamaCppUpdate()
+}
+
+// checkLlamaCppUpdate 异步检查 llama.cpp 是否有新版本，通过 EventsEmit 通知前端。
+//
+// 设计说明：
+//   - 不使用 trackedGo：短生命周期，完成后即退出，无需 shutdown 等待
+//   - panic recover 保护：避免网络异常等导致进程崩溃
+//   - 本地版本查询失败时静默跳过（llama-server 可能未安装）
+//   - 有更新时通过 EventsEmit 推送前端，前端可显示更新提示
+func (a *App) checkLlamaCppUpdate() {
+	// panic 保护，避免网络异常等导致进程崩溃
+	defer func() {
+		if r := recover(); r != nil {
+			zlog.Warn().Interface("panic", r).Msg("[update-check] panic")
+		}
+	}()
+
+	// 获取 llama-server.exe 路径（优先用已缓存的解析路径）
+	serverPath := a.resolvedServerPath
+	if serverPath == "" {
+		// 未缓存时从配置解析（兼容热重载场景）
+		cfg := a.getConfig()
+		serverPath = resolvePath(cfg.LlamaServerPath)
+	}
+	if serverPath == "" {
+		zlog.Debug().Msg("[update-check] llama-server 路径为空，跳过更新检查")
+		return
+	}
+
+	zlog.Info().Str("server", serverPath).Msg("[update-check] 开始检查 llama.cpp 更新")
+	info := llm.CheckForUpdate(serverPath)
+
+	// 通过 EventsEmit 推送结果到前端
+	// 前端监听 "update:check" 事件，根据 HasUpdate 决定是否显示更新提示
+	runtime.EventsEmit(a.ctx, "update:check", map[string]any{
+		"local_version":  info.LocalVersion,
+		"local_commit":   info.LocalCommit,
+		"remote_version": info.RemoteVersion,
+		"remote_tag":     info.RemoteTag,
+		"has_update":     info.HasUpdate,
+		"check_error":    info.CheckError,
+	})
+
+	if info.HasUpdate {
+		zlog.Info().
+			Int("local", info.LocalVersion).
+			Int("remote", info.RemoteVersion).
+			Str("remote_tag", info.RemoteTag).
+			Msg("[update-check] 检测到 llama.cpp 有更新，已通知前端")
+	} else if info.CheckError != "" {
+		zlog.Debug().Str("error", info.CheckError).Msg("[update-check] 检查失败")
+	}
 }
 
 // cleanupOrphanSessions 清理异常会话（如上次崩溃残留的对话）。
