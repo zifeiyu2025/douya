@@ -78,20 +78,23 @@ func EnsureBackendInstalled(bt BackendType, runtimeDir string, progressCB Extrac
 		return "", fmt.Errorf("磁盘空间不足，无法解压 %s: %w", info.DisplayName, err)
 	}
 
-	// 步骤 5：解压（带进度回调）
+	// 步骤 5：解压（带进度回调 + 失败重试）
+	// P4 改进：原实现解压失败直接删除 zip，网络抖动或磁盘瞬时问题时用户需手动重下。
+	// 新逻辑：先验证 zip 完整性（central directory 可读），完整则重试 1 次（可能是临时文件锁），
+	// 重试仍失败或 zip 本身损坏才删除。
 	log.Info().
 		Str("backend", bt.String()).
 		Str("zip", zipPath).
 		Str("dest", destDir).
 		Msg("[backend] 开始解压后端 zip 包")
-	if err := extractBackendZip(zipPath, destDir, progressCB); err != nil {
+	if err := extractBackendZipWithRetry(zipPath, destDir, progressCB); err != nil {
 		// F-4 修复：解压失败时删除损坏的 zip 文件，避免下次启动反复尝试解压同一文件。
 		// 生活类比：收到一个破损的快递包裹，拆不开就扔掉，下次重新下单，
 		// 而不是每次经过仓库都尝试拆同一个破损包裹。
 		log.Warn().
 			Err(err).
 			Str("zip", zipPath).
-			Msg("[backend] 解压失败，删除可能损坏的 zip 文件")
+			Msg("[backend] 解压失败（含重试），删除可能损坏的 zip 文件")
 		if removeErr := os.Remove(zipPath); removeErr != nil {
 			log.Error().Err(removeErr).Str("zip", zipPath).Msg("[backend] 删除损坏 zip 文件失败")
 		}
@@ -219,6 +222,50 @@ func isRedundantFile(filename string) bool {
 // ExtractProgressFunc 是解压进度回调函数类型。
 // current 是已解压文件数，total 是总文件数（不含冗余跳过的文件）。
 type ExtractProgressFunc func(current, total int)
+
+// extractBackendZipWithRetry 解压 zip 包，失败时若 zip 完整则重试 1 次。
+//
+// P4 改进：原 extractBackendZip 失败直接返回，调用方会删除 zip 让用户重下。
+// 新逻辑：解压失败时先验证 zip central directory 是否可读（判断 zip 本身是否损坏），
+// 若 zip 完整（可能是临时文件锁/磁盘瞬时问题），清理 destDir 后重试 1 次；
+// 若 zip 损坏或重试仍失败，返回错误由调用方删除 zip。
+//
+// 生活类比：拆快递拆不开时，先检查包裹本身是不是破损的（zip 完整性）。
+// 如果包裹完好，可能是剪刀卡住了（临时问题），换个剪刀再试一次；
+// 如果包裹本身破损，直接拒收（删除 zip）。
+func extractBackendZipWithRetry(zipPath, destDir string, progressCB ExtractProgressFunc) error {
+	err := extractBackendZip(zipPath, destDir, progressCB)
+	if err == nil {
+		return nil
+	}
+
+	// 解压失败：验证 zip 是否损坏（central directory 是否可读）
+	log.Warn().Err(err).Str("zip", zipPath).Msg("[backend] 首次解压失败，验证 zip 完整性")
+	zipReader, verifyErr := zip.OpenReader(zipPath)
+	if verifyErr != nil {
+		// zip 本身损坏（无法打开），不重试
+		log.Warn().Err(verifyErr).Str("zip", zipPath).Msg("[backend] zip 文件损坏（无法读取 central directory），不重试")
+		return err
+	}
+	zipReader.Close()
+
+	// zip 完整：清理 destDir 后重试 1 次（可能是临时文件锁或部分写入残留）
+	log.Info().Str("zip", zipPath).Str("dest", destDir).Msg("[backend] zip 完整，清理目标目录后重试解压")
+	if cleanErr := os.RemoveAll(destDir); cleanErr != nil {
+		log.Warn().Err(cleanErr).Str("dest", destDir).Msg("[backend] 清理目标目录失败，尝试直接重试")
+	}
+	if mkdirErr := os.MkdirAll(destDir, 0o755); mkdirErr != nil {
+		return fmt.Errorf("重试前创建目录失败: %w (原始错误: %v)", mkdirErr, err)
+	}
+
+	retryErr := extractBackendZip(zipPath, destDir, progressCB)
+	if retryErr == nil {
+		log.Info().Str("zip", zipPath).Msg("[backend] 重试解压成功")
+		return nil
+	}
+	// 重试仍失败：返回最后一次错误（包含重试上下文）
+	return fmt.Errorf("重试解压仍失败 (首次错误: %v, 重试错误: %w)", err, retryErr)
+}
 
 // extractBackendZip 将 zip 包解压到 destDir。
 //

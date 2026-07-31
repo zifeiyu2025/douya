@@ -4,6 +4,11 @@
 package llm
 
 import (
+	"os"
+	"path/filepath"
+
+	"github.com/rs/zerolog/log"
+
 	"douya/internal/system"
 )
 
@@ -214,13 +219,13 @@ func GetBackendInfo(bt BackendType) BackendInfo {
 // - 如果用户说"随便"，就根据车库里有啥车（GPUVendor）来推荐最合适的发动机。
 //
 // 解析规则：
-//   - cfgBackend 为 "auto" 或空时：按 GPUVendor 自动匹配
-//     nvidia → CUDA, amd → HIP, intel → Vulkan（保守默认）, vulkan → Vulkan, 无 GPU → CPU
+//   - cfgBackend 为 "auto" 或空时：按 GPUVendor 自动匹配原生后端
+//     nvidia → CUDA, amd → HIP, intel → SYCL, vulkan → Vulkan, 无 GPU → CPU
 //   - cfgBackend 为有效后端值（cuda/hip/sycl/vulkan/openvino/cpu）：直接返回
 //   - cfgBackend 为无效值：返回 CPU（安全回退）
 //
-// 注意：Intel 显卡默认走 Vulkan 而非 SYCL，因为 SYCL 兼容性未充分验证，
-// 用户若确信 SYCL 可用，可手动在配置中选择 sycl。
+// 后端选择策略：优先使用厂商原生后端（性能最佳），Vulkan 仅作为跨厂商兜底。
+// 原生后端未安装时，由 ResolveBackendTypeWithRuntime 负责回退到 Vulkan 或 CPU。
 func ResolveBackendType(hw *system.HardwareInfo, cfgBackend string) BackendType {
 	// 先处理手动指定的情况
 	if cfgBackend != "" && cfgBackend != string(BackendAuto) {
@@ -231,7 +236,7 @@ func ResolveBackendType(hw *system.HardwareInfo, cfgBackend string) BackendType 
 		return BackendCPU
 	}
 
-	// auto 模式：根据硬件厂商推断
+	// auto 模式：根据硬件厂商推断原生后端
 	if hw == nil {
 		return BackendCPU
 	}
@@ -241,15 +246,87 @@ func ResolveBackendType(hw *system.HardwareInfo, cfgBackend string) BackendType 
 	case "amd":
 		return BackendHIP
 	case "intel":
-		// 保守默认：Intel 显卡走 Vulkan，SYCL 兼容性未验证
-		// 用户若需用 SYCL，可手动在配置中选择 sycl
-		return BackendVulkan
+		// Intel 显卡优先使用原生 SYCL 后端（性能最佳）
+		// SYCL 未安装时由 ResolveBackendTypeWithRuntime 回退到 Vulkan
+		return BackendSYCL
 	case "vulkan":
 		return BackendVulkan
 	default:
 		// 无 GPU 或未识别厂商，回退到 CPU
 		return BackendCPU
 	}
+}
+
+// ResolveBackendTypeWithRuntime 在 ResolveBackendType 基础上增加运行时文件预校验。
+//
+// 回退策略（auto 模式下，原生后端未安装时）：
+//  1. 先尝试 Vulkan（跨厂商 GPU 后端，仍有 GPU 加速）
+//  2. 再尝试 CPU（纯 CPU，兜底方案）
+//  3. 都没安装则返回原推断后端，交给 installBackend 触发下载流程
+//
+// 生活类比：想用原厂发动机（SYCL/HIP），但没装；先看看有没有通用发动机（Vulkan），
+// 有的话先用着，至少还能跑；通用发动机也没有，才用纯 CPU 发动机。
+// 这样保证非 N 卡用户也能优先享受 GPU 加速，而不是无脑退到 CPU。
+//
+// 参数：
+//   - hw: 硬件信息（可为 nil，nil 时按 CPU 处理）
+//   - cfgBackend: 用户配置的后端字符串（"auto" 或具体后端名）
+//   - runtimeDir: runtime 目录的绝对路径（用于检查后端是否已安装）
+//
+// 返回：解析后的后端类型（保证运行时文件存在，或回退到 CPU）
+func ResolveBackendTypeWithRuntime(hw *system.HardwareInfo, cfgBackend string, runtimeDir string) BackendType {
+	resolved := ResolveBackendType(hw, cfgBackend)
+
+	// 手动指定的后端：不主动回退（尊重用户选择，下载失败由 installBackend 处理）
+	isAuto := cfgBackend == "" || cfgBackend == string(BackendAuto)
+	if !isAuto {
+		return resolved
+	}
+
+	// auto 模式：检查推断的后端是否已安装
+	if resolved == BackendCPU {
+		return resolved // CPU 本身就是兜底
+	}
+	if isBackendInstalled(resolved, runtimeDir) {
+		return resolved
+	}
+
+	// 原生后端未安装，先尝试 Vulkan（跨厂商 GPU 加速）
+	if resolved != BackendVulkan && isBackendInstalled(BackendVulkan, runtimeDir) {
+		log.Warn().
+			Str("preferred", resolved.String()).
+			Str("fallback", string(BackendVulkan)).
+			Msg("[backend] 原生后端未安装但 Vulkan 已安装，回退到 Vulkan（auto 模式）")
+		return BackendVulkan
+	}
+
+	// Vulkan 也没安装，检查 CPU 是否已安装
+	if isBackendInstalled(BackendCPU, runtimeDir) {
+		log.Warn().
+			Str("preferred", resolved.String()).
+			Str("fallback", string(BackendCPU)).
+			Msg("[backend] 原生后端和 Vulkan 均未安装，回退到 CPU（auto 模式）")
+		return BackendCPU
+	}
+
+	// 都没安装：返回原推断，交给 installBackend 触发下载流程
+	return resolved
+}
+
+// isBackendInstalled 检查指定后端是否已安装到 runtime 目录（llama-server.exe 存在）。
+//
+// 生活类比：派人去车库看一眼，指定型号的发动机装好了没。
+func isBackendInstalled(bt BackendType, runtimeDir string) bool {
+	if bt == BackendAuto {
+		return false
+	}
+	info := GetBackendInfo(bt)
+	if info.Subdir == "" {
+		return false
+	}
+	serverPath := filepath.Join(runtimeDir, info.Subdir, llamaServerExe)
+	_, err := os.Stat(serverPath)
+	return err == nil
 }
 
 // IsValidBackendType 校验字符串是否为有效的后端类型（含 "auto"）。

@@ -4,6 +4,8 @@
 package llm_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -152,10 +154,11 @@ func TestGetBackendInfo_UnknownType(t *testing.T) {
 	}
 }
 
-// TestResolveBackendType_Auto 验证 auto 模式下根据 GPU 厂商自动选择后端。
+// TestResolveBackendType_Auto 验证 auto 模式下根据 GPU 厂商自动选择原生后端。
 //
 // 生活类比：用户说"随便帮我选个发动机"，系统根据车库里有啥车来推荐——
-// 有 NVIDIA 就用 CUDA，有 AMD 就用 HIP，有 Intel 保守用 Vulkan，啥都没有就用 CPU。
+// 有 NVIDIA 就用 CUDA，有 AMD 就用 HIP，有 Intel 就用 SYCL，啥都没有就用 CPU。
+// 优先使用厂商原生后端（性能最佳），Vulkan 仅作为跨厂商兜底。
 func TestResolveBackendType_Auto(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -164,7 +167,7 @@ func TestResolveBackendType_Auto(t *testing.T) {
 	}{
 		{"NVIDIA 显卡 → CUDA", "nvidia", llm.BackendCUDA},
 		{"AMD 显卡 → HIP", "amd", llm.BackendHIP},
-		{"Intel 显卡 → Vulkan（保守默认）", "intel", llm.BackendVulkan},
+		{"Intel 显卡 → SYCL（原生后端）", "intel", llm.BackendSYCL},
 		{"Vulkan 设备 → Vulkan", "vulkan", llm.BackendVulkan},
 		{"未知厂商 → CPU", "unknown_vendor", llm.BackendCPU},
 		{"空厂商 → CPU", "", llm.BackendCPU},
@@ -248,6 +251,113 @@ func TestResolveBackendType_NilHardware(t *testing.T) {
 	got := llm.ResolveBackendType(nil, string(llm.BackendAuto))
 	if got != llm.BackendCPU {
 		t.Errorf("nil hardware + auto 应回退到 CPU, got %q", got)
+	}
+}
+
+// TestResolveBackendTypeWithRuntime_Fallback 验证 auto 模式下的回退策略。
+//
+// 回退顺序：原生后端 → Vulkan → CPU → 原推断（触发下载）
+// 生活类比：想用原厂发动机（SYCL），没装；找通用发动机（Vulkan），也没有；
+// 找备用发动机（CPU），有就用；全都没有就保持原选择，等安装流程处理。
+func TestResolveBackendTypeWithRuntime_Fallback(t *testing.T) {
+	// 创建临时 runtime 目录
+	tempDir := t.TempDir()
+
+	// 辅助函数：在 runtime 目录下创建指定后端的 llama-server.exe
+	setupBackend := func(subdir string) {
+		backendDir := filepath.Join(tempDir, subdir)
+		if err := os.MkdirAll(backendDir, 0755); err != nil {
+			t.Fatalf("创建目录失败: %v", err)
+		}
+		serverPath := filepath.Join(backendDir, "llama-server.exe")
+		if err := os.WriteFile(serverPath, []byte("fake"), 0644); err != nil {
+			t.Fatalf("创建文件失败: %v", err)
+		}
+	}
+
+	tests := []struct {
+		name           string
+		vendor         string
+		setupBackends  []string // 在 runtime 目录中预装的后端子目录
+		wantBackend    llm.BackendType
+	}{
+		{
+			name:          "Intel + SYCL 已安装 → SYCL",
+			vendor:        "intel",
+			setupBackends: []string{"sycl"},
+			wantBackend:   llm.BackendSYCL,
+		},
+		{
+			name:          "Intel + SYCL 未安装但 Vulkan 已安装 → Vulkan",
+			vendor:        "intel",
+			setupBackends: []string{"vulkan"},
+			wantBackend:   llm.BackendVulkan,
+		},
+		{
+			name:          "Intel + SYCL 和 Vulkan 都未安装但 CPU 已安装 → CPU",
+			vendor:        "intel",
+			setupBackends: []string{"cpu"},
+			wantBackend:   llm.BackendCPU,
+		},
+		{
+			name:          "Intel + 全部未安装 → 返回原推断 SYCL（触发下载）",
+			vendor:        "intel",
+			setupBackends: []string{},
+			wantBackend:   llm.BackendSYCL,
+		},
+		{
+			name:          "AMD + HIP 已安装 → HIP",
+			vendor:        "amd",
+			setupBackends: []string{"hip"},
+			wantBackend:   llm.BackendHIP,
+		},
+		{
+			name:          "AMD + HIP 未安装但 Vulkan 已安装 → Vulkan",
+			vendor:        "amd",
+			setupBackends: []string{"vulkan"},
+			wantBackend:   llm.BackendVulkan,
+		},
+		{
+			name:          "NVIDIA + CUDA 已安装 → CUDA",
+			vendor:        "nvidia",
+			setupBackends: []string{"cuda"},
+			wantBackend:   llm.BackendCUDA,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// 每个测试用例使用独立的临时目录
+			testDir := filepath.Join(tempDir, tt.name)
+			_ = os.MkdirAll(testDir, 0755)
+
+			// 清理并重建后端目录
+			for _, subdir := range tt.setupBackends {
+				setupBackend(filepath.Join(tt.name, subdir))
+			}
+
+			hw := &system.HardwareInfo{GPUVendor: tt.vendor, HasGPU: true}
+			got := llm.ResolveBackendTypeWithRuntime(hw, string(llm.BackendAuto), testDir)
+			if got != tt.wantBackend {
+				t.Errorf("ResolveBackendTypeWithRuntime(vendor=%q) = %q, want %q",
+					tt.vendor, got, tt.wantBackend)
+			}
+		})
+	}
+}
+
+// TestResolveBackendTypeWithRuntime_ManualNoFallback 验证手动指定后端时不回退。
+//
+// 生活类比：用户明确说"我要 SYCL"，即使没装也不擅自换成别的，尊重用户选择。
+func TestResolveBackendTypeWithRuntime_ManualNoFallback(t *testing.T) {
+	tempDir := t.TempDir()
+	// 不安装任何后端
+	hw := &system.HardwareInfo{GPUVendor: "intel", HasGPU: true}
+
+	// 手动指定 SYCL，即使未安装也不回退
+	got := llm.ResolveBackendTypeWithRuntime(hw, "sycl", tempDir)
+	if got != llm.BackendSYCL {
+		t.Errorf("手动指定 sycl 时不应回退, got %q", got)
 	}
 }
 

@@ -975,8 +975,14 @@ func (a *App) vramPreCheck(modelName string) string {
 		mmprojPath = resolvePath(preset.MmprojPath)
 	}
 
-	estimated := llm.EstimateModelVRAM(modelPath, mmprojPath)
-	gpuVRAM, err := llm.GetGPUVRAMBytes()
+	// P2 改进：传入上下文长度，动态估算 KV cache（原固定 512MB 会低估大上下文）
+	ctxSize := 0
+	if cfg := a.getConfig(); cfg != nil {
+		ctxSize = cfg.ContextSize
+	}
+	estimated := llm.EstimateModelVRAM(modelPath, mmprojPath, ctxSize)
+	// P1 改进：传入 HardwareInfo，支持多厂商 VRAM 查询（原只查 nvidia-smi）
+	gpuVRAM, err := llm.GetGPUVRAMBytes(a.hwInfo)
 	if err != nil {
 		zlog.Debug().Err(err).Msg("[vram-check] cannot query GPU VRAM, skip pre-check")
 		return ""

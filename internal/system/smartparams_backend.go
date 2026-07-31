@@ -18,11 +18,25 @@ func applyBackendSpecificParams(p *SmartParams, backendType string, hw *Hardware
 		// CUDA 后端：保持现有逻辑，不做额外调整
 		// 所有 CUDA 特定优化已在 CalculateSmartParams 主体中处理
 		// 空字符串（未初始化）也走此分支，保持默认行为（安全）
+		// gpu_layers=99（全层卸载）、Flash Attention、ngram-mod 均在主体中设置
 	case "hip":
-		// AMD HIP 后端：类似 CUDA 但无 NVFP4、无架构特定优化
-		// Flash Attention 和 ngram-mod 保持与 CUDA 相同的行为
+		// AMD HIP 后端：与 CUDA 行为一致，支持全层卸载（gpu_layers=99）
+		// HIP 是 AMD 原生后端，性能特性与 CUDA 对等：
+		//   - Flash Attention：支持（已在主体中开启）
+		//   - ngram-mod 推测解码：支持（已在主体中开启）
+		//   - gpu_layers=99：支持全层卸载（已在主体中设置）
+		// 无需额外调整，保持与 CUDA 一致的激进配置
 	case "sycl":
-		// Intel SYCL 后端：类似 CUDA 但无 NVFP4
+		// Intel SYCL 后端：与 CUDA 行为一致，支持全层卸载（gpu_layers=99）
+		// SYCL 是 Intel 原生后端，性能优于 Vulkan：
+		//   - Flash Attention：支持（已在主体中开启）
+		//   - ngram-mod 推测解码：支持（已在主体中开启）
+		//   - gpu_layers=99：支持全层卸载（已在主体中设置）
+		// 无需额外调整，保持与 CUDA 一致的激进配置
+	case "openvino":
+		// OpenVINO 后端：Intel 专用，与 SYCL 行为一致
+		// 支持全层卸载（gpu_layers=99）、Flash Attention、ngram-mod
+		// 无需额外调整
 	case "vulkan":
 		// Vulkan 后端：保守配置（防止栈溢出崩溃 0xC0000409）
 		// 背景：llama.cpp Vulkan 后端对 gpu_layers=99（全层卸载）和较大 ctx-size 兼容性较差，
@@ -69,8 +83,6 @@ func applyBackendSpecificParams(p *SmartParams, backendType string, hw *Hardware
 		// 用户可通过 config.json 的 mmproj_offload=false 来关闭
 
 		log.Info().Msg("[smart-params] Vulkan backend detected, applying conservative config (flash off, spec off, ngl<=50, ctx<=8192)")
-	case "openvino":
-		// OpenVINO 后端：Intel 专用，类似 SYCL
 	case "cpu":
 		// CPU 后端：纯 CPU 模式
 		p.GPULayers = 0

@@ -62,6 +62,7 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 	// 生活类比：用户选了"自动挡"，就根据车库里的车（硬件）来选合适的发动机。
 	resolvedBackend := a.resolvedBackend
 	if resolvedBackend == "" {
+		// 热重载场景：runtime 已就绪，无需运行时预校验，直接按硬件推断
 		resolvedBackend = llm.ResolveBackendType(a.hwInfo, cfg.BackendType)
 	}
 

@@ -137,7 +137,9 @@ func (a *App) ensureDirectories() (runtimeDir, modelsDir string) {
 //  5. 若 runtime 缺失，弹窗询问用户是否下载；用户选「是」则异步下载并返回 true
 func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
 	cfg := a.getConfig()
-	resolvedBackend := llm.ResolveBackendType(a.hwInfo, cfg.BackendType)
+	// P3 改进：使用带运行时预校验的解析函数，auto 模式下优先选择已安装的后端，
+	// 避免推断出未下载的后端（如 Vulkan）后走下载流程（原实现会失败再回退 CPU）
+	resolvedBackend := llm.ResolveBackendTypeWithRuntime(a.hwInfo, cfg.BackendType, runtimeDir)
 	serverPath, err := llm.EnsureBackendInstalled(resolvedBackend, runtimeDir, nil)
 	if err != nil {
 		zlog.Warn().Err(err).Str("backend", resolvedBackend.String()).Msg("[startup] 后端安装失败，尝试回退到 CPU")
