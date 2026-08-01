@@ -769,22 +769,33 @@ func (a *App) generatePresetFile() error {
 		presets[i].ModelPath = absModelPath
 
 		if presets[i].MmprojPath != "" {
-			presets[i].MmprojPath = resolvePath(presets[i].MmprojPath)
-			var modalities []string
-			if presets[i].MmprojVision {
-				modalities = append(modalities, "vision")
+			absMmproj := resolvePath(presets[i].MmprojPath)
+			// 验证 mmproj 文件实际存在，不存在则降级为纯文本模式
+			if _, err := os.Stat(absMmproj); err != nil {
+				zlog.Warn().Str("model", presets[i].Name).Str("mmproj", absMmproj).
+					Err(err).Msg("[preset] mmproj 文件不存在，将以纯文本模式加载")
+				presets[i].MmprojPath = ""
+				presets[i].MmprojVision = false
+				presets[i].MmprojAudio = false
+				presets[i].MmprojVideo = false
+			} else {
+				presets[i].MmprojPath = absMmproj
+				var modalities []string
+				if presets[i].MmprojVision {
+					modalities = append(modalities, "vision")
+				}
+				if presets[i].MmprojAudio {
+					modalities = append(modalities, "audio")
+				}
+				if presets[i].MmprojVideo {
+					modalities = append(modalities, "video")
+				}
+				zlog.Info().
+					Str("model", presets[i].Name).
+					Str("mmproj", presets[i].MmprojPath).
+					Strs("modalities", modalities).
+					Msg("[preset] mmproj detected")
 			}
-			if presets[i].MmprojAudio {
-				modalities = append(modalities, "audio")
-			}
-			if presets[i].MmprojVideo {
-				modalities = append(modalities, "video")
-			}
-			zlog.Info().
-				Str("model", presets[i].Name).
-				Str("mmproj", presets[i].MmprojPath).
-				Strs("modalities", modalities).
-				Msg("[preset] mmproj detected")
 		}
 	}
 
@@ -929,6 +940,33 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 	// 加载新模型
 	alreadyRunning, loadErr := a.switchLoadModel(modelName)
 	if loadErr != "" {
+		// 加载失败时，尝试去掉 mmproj 后以纯文本模式重试
+		// 生活类比：打不开带密码的文件？先去掉密码保护用纯文本打开，总比打不开好。
+		if a.regeneratePresetWithoutMmproj(modelName) {
+			if reloadErr := a.getClient().ReloadPresets(a.ctx); reloadErr != nil {
+				zlog.Warn().Err(reloadErr).Msg("[server] failed to reload presets after removing mmproj")
+			} else {
+				time.Sleep(2 * time.Second)
+				zlog.Info().Str("model", modelName).Msg("[server] retrying model load without mmproj (switch)")
+				retryRunning, retryErr := a.switchLoadModel(modelName)
+				if retryErr == "" {
+					// 纯文本重试成功，继续完成切换流程
+					if !retryRunning {
+						if waitErr := a.switchWaitReady(modelName); waitErr != "" {
+							return a.handleSwitchFailure(modelName, previousModel, waitErr)
+						}
+					}
+					// 通知前端多模态不可用
+					wailsruntime.EventsEmit(a.ctx, "server:mmprojUnavailable", map[string]string{
+						"model": modelName,
+						"hint":  "未找到匹配的多模态投影文件，已切换为纯文本模式",
+					})
+					return a.switchFinalize(modelName, previousModel)
+				}
+				// 重试也失败，使用重试的错误信息
+				loadErr = retryErr
+			}
+		}
 		return a.handleSwitchFailure(modelName, previousModel, loadErr)
 	}
 

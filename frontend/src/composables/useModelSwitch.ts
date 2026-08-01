@@ -125,7 +125,9 @@ export function useModelSwitch() {
   /**
    * 获取当前切换阶段索引（0/1/2）
    * - 切换进行中但后端未推送 stage 时返回 0
-   * - preparing → 0, loading → 1, done → 2
+   * - preparing → 0, loading/waiting/detecting → 1, done → 2
+   * - waiting/detecting 都是"加载新模型"的子阶段，必须映射到 1，
+   *   否则高亮会从"加载新模型"回退到"准备切换"，视觉上表现为高亮熄灭
    */
   function getSwitchStageIndex(): number {
     // 切换进行中但后端未推送 stage 时，显示第一阶段
@@ -135,11 +137,14 @@ export function useModelSwitch() {
       case 'preparing':
         return 0
       case 'loading':
+      case 'waiting':
+      case 'detecting':
         return 1
       case 'done':
         return 2
       default:
-        return 0
+        // failed/rolling_back 等状态保持在"加载新模型"阶段（未完成）
+        return 1
     }
   }
 

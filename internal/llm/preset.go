@@ -279,11 +279,28 @@ func findMmprojInDir(dir string, modelBaseName string) string {
 		return ""
 	}
 
+	keywords := extractKeywords(modelBaseName)
+
+	// 即使目录下只有一个 mmproj 文件，也需验证它与模型名是否匹配。
+	// 生活类比：一把钥匙即使看起来能插进锁孔，齿形不对也打不开门——
+	// 与其勉强凑合导致加载崩溃，不如直接走纯文本模式。
 	if len(allMmprojFiles) == 1 {
-		return makeRelativeModelPath(dir, filepath.Base(allMmprojFiles[0]))
+		mmprojName := filepath.Base(allMmprojFiles[0])
+		if len(keywords) > 0 {
+			score := 0
+			for _, kw := range keywords {
+				if strings.Contains(strings.ToLower(mmprojName), strings.ToLower(kw)) {
+					score++
+				}
+			}
+			if score == 0 {
+				// 单个 mmproj 与模型名无任何关键词匹配，不使用
+				return ""
+			}
+		}
+		return makeRelativeModelPath(dir, mmprojName)
 	}
 
-	keywords := extractKeywords(modelBaseName)
 	var bestMatch string
 	var bestMatchScore int
 

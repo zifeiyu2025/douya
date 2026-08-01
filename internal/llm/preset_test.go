@@ -679,3 +679,76 @@ func TestScanModelsDir_EmptyDir(t *testing.T) {
 		t.Errorf("expected 0 presets for empty dir, got %d", len(presets))
 	}
 }
+
+// TestScanModelsDir_SingleMmprojNoMatch 验证单个 mmproj 文件与模型名不匹配时不使用
+func TestScanModelsDir_SingleMmprojNoMatch(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "models-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// 模型名含 "Gemma"，mmproj 含 "Llama"——完全不匹配
+	modelFile := "Gemma-4-E4B-U-Q4_K_M.gguf"
+	mmprojFile := "mmproj-Llama-3-8B-f16.gguf"
+
+	f, err := os.Create(filepath.Join(tmpDir, modelFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	f, err = os.Create(filepath.Join(tmpDir, mmprojFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	presets, err := ScanModelsDir(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(presets) != 1 {
+		t.Fatalf("expected 1 preset, got %d", len(presets))
+	}
+	if presets[0].MmprojPath != "" {
+		t.Errorf("expected empty mmproj path for non-matching mmproj, got %q", presets[0].MmprojPath)
+	}
+}
+
+// TestScanModelsDir_SingleMmprojMatch 验证单个 mmproj 文件与模型名匹配时正常使用
+func TestScanModelsDir_SingleMmprojMatch(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "models-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	modelFile := "Gemma-4-E4B-U-Q4_K_M.gguf"
+	mmprojFile := "mmproj-Gemma-4-E4B-U-f16.gguf"
+
+	f, err := os.Create(filepath.Join(tmpDir, modelFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	f, err = os.Create(filepath.Join(tmpDir, mmprojFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	presets, err := ScanModelsDir(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(presets) != 1 {
+		t.Fatalf("expected 1 preset, got %d", len(presets))
+	}
+	if presets[0].MmprojPath == "" {
+		t.Error("expected mmproj path to be found for matching mmproj, got empty")
+	}
+}

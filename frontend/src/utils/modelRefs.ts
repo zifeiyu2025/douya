@@ -935,6 +935,34 @@ export const MODEL_REFS: Record<string, ModelRefConfig> = {
     ],
     note: 'MiniCPM3 面壁智能端侧模型，4B 参数性能强。无审查/蒸馏变体参数一致'
   },
+  minicpm5: {
+    name: 'MiniCPM5',
+    raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 1.0,
+      top_p: 0.95,
+      top_k: 20,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐)' },
+      { label: '温度', value: '0.7' },
+      { label: 'Top P', value: '0.8' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~1B' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐)' },
+      { label: '温度', value: '1.0 (思考模式)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~1B' }
+    ],
+    note: 'MiniCPM5 面壁智能端侧思考模型，支持 thinking 模式。无审查/蒸馏变体参数一致'
+  },
   'phi-3.5': {
     name: 'Phi-3.5',
     raw: { temperature: 0.7, top_p: 0.9, top_k: 40, context_size: 16384, repeat_penalty: 1.0 },
@@ -973,5 +1001,597 @@ export const MODEL_REFS: Record<string, ModelRefConfig> = {
       { label: '参数量', value: '1B/3B (边缘设备)' }
     ],
     note: 'Llama 3.2 边缘设备模型，参数与 Llama 3.1 一致。无审查/蒸馏变体参数一致'
+  },
+  // ===== 后端已支持但前端此前缺失的模型条目（llama.cpp 原生能力适配）=====
+  // Template 思考模式：通过 chat template 的 enable_thinking 控制
+  // Reasoning 思考模式：通过 reasoning 参数控制
+  'mistral-small-3': {
+    name: 'Mistral Small 3',
+    raw: { temperature: 0.7, top_p: 0.9, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.8,
+      top_p: 0.95,
+      top_k: 40,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.7' },
+      { label: 'Top P', value: '0.9' },
+      { label: 'Top K', value: '40' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~24B' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.8 (思考模式)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '40' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~24B' }
+    ],
+    note: 'Mistral Small 3 系列，llama.cpp 原生 Template 思考模式。无审查/蒸馏变体参数一致'
+  },
+  'mistral-4': {
+    name: 'Mistral 4',
+    raw: { temperature: 0.7, top_p: 0.9, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.8,
+      top_p: 0.95,
+      top_k: 40,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.7' },
+      { label: 'Top P', value: '0.9' },
+      { label: 'Top K', value: '40' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~24B' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.8 (思考模式)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '40' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~24B' }
+    ],
+    note: 'Mistral 4 系列，llama.cpp 原生 Template 思考模式。无审查/蒸馏变体参数一致'
+  },
+  'granite-speech': {
+    name: 'Granite Speech',
+    raw: { temperature: 0.7, top_p: 0.9, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.8,
+      top_p: 0.95,
+      top_k: 40,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐)' },
+      { label: '温度', value: '0.7' },
+      { label: 'Top P', value: '0.9' },
+      { label: 'Top K', value: '40' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~3B/8B (语音多模态)' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐)' },
+      { label: '温度', value: '0.8 (思考模式)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '40' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~3B/8B (语音多模态)' }
+    ],
+    note: 'IBM Granite Speech 语音多模态模型，llama.cpp 原生 Template 思考模式'
+  },
+  'cohere2moe': {
+    name: 'Cohere Command A (MoE)',
+    raw: { temperature: 0.7, top_p: 0.9, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.8,
+      top_p: 0.95,
+      top_k: 40,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K' },
+      { label: '温度', value: '0.7' },
+      { label: 'Top P', value: '0.9' },
+      { label: 'Top K', value: '40' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~111B (MoE)' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K' },
+      { label: '温度', value: '0.8 (思考模式)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '40' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~111B (MoE)' }
+    ],
+    note: 'Cohere Command A MoE 架构，llama.cpp 原生 Template 思考模式。无审查/蒸馏变体参数一致'
+  },
+  'tiny-aya': {
+    name: 'Tiny Aya',
+    raw: { temperature: 0.7, top_p: 0.9, top_k: 40, context_size: 8192, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.8,
+      top_p: 0.95,
+      top_k: 40,
+      context_size: 8192,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '8K (推荐)' },
+      { label: '温度', value: '0.7' },
+      { label: 'Top P', value: '0.9' },
+      { label: 'Top K', value: '40' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~1B (多语言)' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '8K (推荐)' },
+      { label: '温度', value: '0.8 (思考模式)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '40' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~1B (多语言)' }
+    ],
+    note: 'Tiny Aya 多语言小模型，llama.cpp 原生 Template 思考模式'
+  },
+  'ernie-4.5': {
+    name: 'ERNIE 4.5',
+    raw: { temperature: 0.6, top_p: 0.9, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.8,
+      top_p: 0.95,
+      top_k: 20,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.6' },
+      { label: 'Top P', value: '0.9' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '2B/8B/20B (Dense)' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.8 (思考模式)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '2B/8B/20B (Dense)' }
+    ],
+    note: '百度 ERNIE 4.5 Dense 系列，llama.cpp 原生 Template 思考模式。无审查/蒸馏变体参数一致'
+  },
+  'ernie-4.5-moe': {
+    name: 'ERNIE 4.5 MoE',
+    raw: { temperature: 0.6, top_p: 0.9, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.8,
+      top_p: 0.95,
+      top_k: 20,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.6' },
+      { label: 'Top P', value: '0.9' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~300B (MoE)' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.8 (思考模式)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~300B (MoE)' }
+    ],
+    note: '百度 ERNIE 4.5 MoE 架构，llama.cpp 原生 Template 思考模式。无审查/蒸馏变体参数一致'
+  },
+  'minimax-m2': {
+    name: 'MiniMax M2',
+    raw: { temperature: 0.7, top_p: 0.9, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.8,
+      top_p: 0.95,
+      top_k: 20,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 204K' },
+      { label: '温度', value: '0.7' },
+      { label: 'Top P', value: '0.9' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~230B (MoE)' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 204K' },
+      { label: '温度', value: '0.8 (思考模式)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~230B (MoE)' }
+    ],
+    note: 'MiniMax M2 MoE 架构，llama.cpp 原生 Template 思考模式。无审查/蒸馏变体参数一致'
+  },
+  'smollm3': {
+    name: 'SmolLM3',
+    raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 1.0,
+      top_p: 0.95,
+      top_k: 20,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.7' },
+      { label: 'Top P', value: '0.8' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~1.7B/3B' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '1.0 (思考模式)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~1.7B/3B' }
+    ],
+    note: 'SmolLM3 端侧思考模型，llama.cpp 原生 Template 思考模式。无审查/蒸馏变体参数一致'
+  },
+  'hunyuan-moe': {
+    name: 'Hunyuan MoE',
+    raw: { temperature: 0.7, top_p: 0.9, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.8,
+      top_p: 0.95,
+      top_k: 20,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K' },
+      { label: '温度', value: '0.7' },
+      { label: 'Top P', value: '0.9' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~389B (MoE)' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K' },
+      { label: '温度', value: '0.8 (思考模式)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~389B (MoE)' }
+    ],
+    note: '腾讯混元 MoE 架构，llama.cpp 原生 Template 思考模式。无审查/蒸馏变体参数一致'
+  },
+  'hunyuan-dense': {
+    name: 'Hunyuan Dense',
+    raw: { temperature: 0.7, top_p: 0.9, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.8,
+      top_p: 0.95,
+      top_k: 20,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K' },
+      { label: '温度', value: '0.7' },
+      { label: 'Top P', value: '0.9' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '7B/13B/53B (Dense)' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K' },
+      { label: '温度', value: '0.8 (思考模式)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '7B/13B/53B (Dense)' }
+    ],
+    note: '腾讯混元 Dense 架构，llama.cpp 原生 Template 思考模式。无审查/蒸馏变体参数一致'
+  },
+  'step-3.5': {
+    name: 'Step 3.5',
+    raw: { temperature: 0.7, top_p: 0.9, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.8,
+      top_p: 0.95,
+      top_k: 20,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K' },
+      { label: '温度', value: '0.7' },
+      { label: 'Top P', value: '0.9' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: 'MTP', value: '支持 flash mtp3' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K' },
+      { label: '温度', value: '0.8 (思考模式)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: 'MTP', value: '支持 flash mtp3' }
+    ],
+    note: '阶跃 Step 3.5，llama.cpp 原生 Template 思考模式 + MTP 推测解码。无审查/蒸馏变体参数一致'
+  },
+  'kimi-linear': {
+    name: 'Kimi Linear',
+    raw: { temperature: 0.7, top_p: 0.9, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.8,
+      top_p: 0.95,
+      top_k: 20,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.7' },
+      { label: 'Top P', value: '0.9' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~20B (MoE)' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.8 (思考模式)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~20B (MoE)' }
+    ],
+    note: '月之暗面 Kimi Linear，llama.cpp 原生 Template 思考模式。无审查/蒸馏变体参数一致'
+  },
+  'arcee': {
+    name: 'Arcee',
+    raw: { temperature: 0.7, top_p: 0.9, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.8,
+      top_p: 0.95,
+      top_k: 20,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐)' },
+      { label: '温度', value: '0.7' },
+      { label: 'Top P', value: '0.9' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~8B/14B' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐)' },
+      { label: '温度', value: '0.8 (思考模式)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~8B/14B' }
+    ],
+    note: 'Arcee AI 模型，llama.cpp 原生 Template 思考模式。无审查/蒸馏变体参数一致'
+  },
+  'dots1': {
+    name: 'Dots1',
+    raw: { temperature: 0.7, top_p: 0.9, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.8,
+      top_p: 0.95,
+      top_k: 20,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐)' },
+      { label: '温度', value: '0.7' },
+      { label: 'Top P', value: '0.9' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: 'MoE 架构' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐)' },
+      { label: '温度', value: '0.8 (思考模式)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: 'MoE 架构' }
+    ],
+    note: 'Dots1 模型，llama.cpp 原生 Template 思考模式。无审查/蒸馏变体参数一致'
+  },
+  'dream': {
+    name: 'Dream',
+    raw: { temperature: 0.7, top_p: 0.9, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.8,
+      top_p: 0.95,
+      top_k: 20,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐)' },
+      { label: '温度', value: '0.7' },
+      { label: 'Top P', value: '0.9' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~7B/14B' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐)' },
+      { label: '温度', value: '0.8 (思考模式)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~7B/14B' }
+    ],
+    note: 'Dream 模型，llama.cpp 原生 Template 思考模式。无审查/蒸馏变体参数一致'
+  },
+  'smallthinker': {
+    name: 'SmallThinker',
+    raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 1.0,
+      top_p: 0.95,
+      top_k: 20,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐)' },
+      { label: '温度', value: '0.7' },
+      { label: 'Top P', value: '0.8' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~3B/8B' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐)' },
+      { label: '温度', value: '1.0 (思考模式)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~3B/8B' }
+    ],
+    note: 'SmallThinker 端侧思考模型，llama.cpp 原生 Template 思考模式。无审查/蒸馏变体参数一致'
+  },
+  // DeepSeek 系列（Reasoning 思考模式：通过 reasoning 参数控制）
+  'deepseek3': {
+    name: 'DeepSeek 3 / 3.2 / 32',
+    raw: { temperature: 0.6, top_p: 0.95, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.6,
+      top_p: 0.95,
+      top_k: 40,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.6' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '40' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '思考模式', value: 'Reasoning 参数控制' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.6' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '40' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '思考模式', value: 'Reasoning 参数控制' }
+    ],
+    note: 'DeepSeek 3 / 3.2 / 32 系列，llama.cpp 原生 Reasoning 思考模式。无审查/蒸馏变体参数一致'
+  },
+  'deepseek2': {
+    name: 'DeepSeek 2',
+    raw: { temperature: 0.6, top_p: 0.95, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.6,
+      top_p: 0.95,
+      top_k: 40,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.6' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '40' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '思考模式', value: 'Reasoning 参数控制' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.6' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '40' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '思考模式', value: 'Reasoning 参数控制' }
+    ],
+    note: 'DeepSeek 2 系列，llama.cpp 原生 Reasoning 思考模式。无审查/蒸馏变体参数一致'
+  },
+  'deepseek4': {
+    name: 'DeepSeek 4',
+    raw: { temperature: 0.6, top_p: 0.95, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.6,
+      top_p: 0.95,
+      top_k: 40,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.6' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '40' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '思考模式', value: 'Reasoning 参数控制' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.6' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '40' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '思考模式', value: 'Reasoning 参数控制' }
+    ],
+    note: 'DeepSeek 4 系列，llama.cpp 原生 Reasoning 思考模式。无审查/蒸馏变体参数一致'
+  },
+  'deepseek-v4': {
+    name: 'DeepSeek V4',
+    raw: { temperature: 0.6, top_p: 0.95, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.6,
+      top_p: 0.95,
+      top_k: 40,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.6' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '40' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '思考模式', value: 'Reasoning 参数控制' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.6' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '40' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '思考模式', value: 'Reasoning 参数控制' }
+    ],
+    note: 'DeepSeek V4 系列，llama.cpp 原生 Reasoning 思考模式。无审查/蒸馏变体参数一致'
   }
 }

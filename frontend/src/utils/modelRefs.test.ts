@@ -176,6 +176,16 @@ describe('matchModelRef', () => {
     expect(result?.raw.top_k).toBe(40)
   })
 
+  it('匹配 MiniCPM5 端侧思考模型及变体', () => {
+    const result = matchModelRef('MiniCPM5-1B-Claude-Opus-Fable5-V2-Thinking-F16', MODEL_REFS)
+    expect(result).not.toBeNull()
+    expect(result?.name).toBe('MiniCPM5')
+    expect(result?.raw.top_k).toBe(20)
+    // 思考模式参数也应存在
+    expect(result?.raw_thinking).toBeDefined()
+    expect(result?.raw_thinking?.temperature).toBe(1.0)
+  })
+
   it('匹配 Phi-3.5 小模型', () => {
     const result = matchModelRef('Phi-3.5-mini-instruct', MODEL_REFS)
     expect(result).not.toBeNull()
@@ -197,6 +207,81 @@ describe('matchModelRef', () => {
       expect(result?.raw.temperature).toBe(0.6)
       expect(result?.raw.top_p).toBe(0.9)
       expect(result?.raw.top_k).toBe(40)
+    }
+  })
+
+  // ===== 后端已支持但前端此前缺失的模型匹配测试 =====
+  it('匹配 Mistral Small 3', () => {
+    const result = matchModelRef('Mistral-Small-3.1-24B-Instruct', MODEL_REFS)
+    expect(result).not.toBeNull()
+    expect(result?.name).toBe('Mistral Small 3')
+    expect(result?.raw_thinking).toBeDefined()
+  })
+
+  it('匹配 Mistral 4', () => {
+    const result = matchModelRef('Mistral-4-24B-Instruct', MODEL_REFS)
+    expect(result).not.toBeNull()
+    expect(result?.name).toBe('Mistral 4')
+  })
+
+  it('匹配 ERNIE 4.5 Dense 和 MoE 变体', () => {
+    const dense = matchModelRef('ERNIE-4.5-8B-Chat', MODEL_REFS)
+    expect(dense).not.toBeNull()
+    expect(dense?.name).toBe('ERNIE 4.5')
+    const moe = matchModelRef('ERNIE-4.5-MoE-300B', MODEL_REFS)
+    expect(moe).not.toBeNull()
+    expect(moe?.name).toBe('ERNIE 4.5 MoE')
+  })
+
+  it('匹配 Hunyuan MoE 和 Dense 变体', () => {
+    const moe = matchModelRef('Hunyuan-MoE-389B', MODEL_REFS)
+    expect(moe).not.toBeNull()
+    expect(moe?.name).toBe('Hunyuan MoE')
+    const dense = matchModelRef('Hunyuan-Dense-7B', MODEL_REFS)
+    expect(dense).not.toBeNull()
+    expect(dense?.name).toBe('Hunyuan Dense')
+  })
+
+  it('匹配 SmolLM3 端侧思考模型', () => {
+    const result = matchModelRef('SmolLM3-3B', MODEL_REFS)
+    expect(result).not.toBeNull()
+    expect(result?.raw_thinking?.temperature).toBe(1.0)
+  })
+
+  it('匹配 Step 3.5（含 MTP）', () => {
+    const result = matchModelRef('Step3.5-8B', MODEL_REFS)
+    expect(result).not.toBeNull()
+    expect(result?.name).toBe('Step 3.5')
+  })
+
+  it('匹配 DeepSeek 3 系列（Reasoning 模式）', () => {
+    const result = matchModelRef('DeepSeek3.2-16B', MODEL_REFS)
+    expect(result).not.toBeNull()
+    expect(result?.name).toBe('DeepSeek 3 / 3.2 / 32')
+  })
+
+  it('匹配 DeepSeek 4 / V4（Reasoning 模式）', () => {
+    const r1 = matchModelRef('DeepSeek4-16B', MODEL_REFS)
+    expect(r1).not.toBeNull()
+    expect(r1?.name).toBe('DeepSeek 4')
+    const r2 = matchModelRef('DeepSeek-V4-16B', MODEL_REFS)
+    expect(r2).not.toBeNull()
+    expect(r2?.name).toBe('DeepSeek V4')
+  })
+
+  it('匹配 MiniMax M2 / Kimi Linear / Arcee / Dots1 / Dream / SmallThinker', () => {
+    const cases: Array<[string, string]> = [
+      ['MiniMax-M2-230B', 'MiniMax M2'],
+      ['Kimi-Linear-20B', 'Kimi Linear'],
+      ['Arcee-8B', 'Arcee'],
+      ['Dots1-14B', 'Dots1'],
+      ['Dream-7B', 'Dream'],
+      ['SmallThinker-3B', 'SmallThinker'],
+    ]
+    for (const [name, expected] of cases) {
+      const result = matchModelRef(name, MODEL_REFS)
+      expect(result, `${name} should match`).not.toBeNull()
+      expect(result?.name).toBe(expected)
     }
   })
 })
