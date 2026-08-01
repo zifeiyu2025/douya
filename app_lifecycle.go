@@ -244,6 +244,17 @@ func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
 	// 异步下载+安装（CUDA 额外下载 cudart 包，失败重试最多 3 次）
 	backendToDownload := resolvedBackend
 	go func() {
+		// 防止 panic 导致整个进程崩溃（下载涉及网络和文件 IO，可能 panic）
+		defer func() {
+			if r := recover(); r != nil {
+				zlog.Warn().Interface("panic", r).Msg("[startup] 下载后端 goroutine panic")
+				runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+					Backend: backendToDownload,
+					Status:  "failed",
+					Error:   fmt.Sprintf("下载后端发生内部错误：%v", r),
+				})
+			}
+		}()
 		if dlErr := a.downloadBackendWithRetry(backendToDownload, runtimeDir, 3); dlErr != nil {
 			zlog.Error().Err(dlErr).Str("backend", backendToDownload.String()).Msg("[startup] 下载后端失败（已重试 3 次）")
 			runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
@@ -900,6 +911,12 @@ func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) e
 
 	// 延迟 1 秒后自动重启应用，给前端时间显示"重启中"状态
 	go func() {
+		// 防止 panic 导致整个进程崩溃
+		defer func() {
+			if r := recover(); r != nil {
+				zlog.Warn().Interface("panic", r).Msg("[startup] 自动重启 goroutine panic")
+			}
+		}()
 		time.Sleep(1 * time.Second)
 		a.RestartApp()
 	}()
@@ -1091,6 +1108,12 @@ func (a *App) RestartApp() {
 
 	// 短暂等待确保 bat 脚本已开始执行，然后退出当前进程
 	go func() {
+		// 防止 panic 导致整个进程崩溃
+		defer func() {
+			if r := recover(); r != nil {
+				zlog.Warn().Interface("panic", r).Msg("[restart] 退出等待 goroutine panic")
+			}
+		}()
 		time.Sleep(500 * time.Millisecond)
 		a.forceQuit()
 	}()

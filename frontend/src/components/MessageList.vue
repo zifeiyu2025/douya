@@ -195,6 +195,7 @@ import { useScrollToBottom } from '../composables/useScrollToBottom'
 import { useVirtualScroll } from '../composables/useVirtualScroll'
 import { usePromptProgress } from '../composables/usePromptProgress'
 import { setupCodeCopyDelegation } from '../utils/codeCopy'
+import { logError } from '../utils/logger'
 import { isSafeUrl } from '../utils/lightSanitize'
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
 import defaultAiAvatar from '../assets/images/appicon.png'
@@ -304,7 +305,7 @@ async function handleStopThinking() {
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e || '直接回答请求失败')
     message.error(`直接回答失败：${errMsg}`)
-    console.error('停止思考失败:', e)
+    logError('停止思考失败:', e)
   } finally {
     isStoppingThinking.value = false
   }

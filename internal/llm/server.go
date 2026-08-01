@@ -468,6 +468,15 @@ func (s *Server) readConPTYOutput() {
 	// 且主循环在 select 收到结果后才读 buf，channel 同步保证 happens-before。
 	startRead := func() {
 		go func() {
+			// 防止 panic 导致整个进程崩溃（pty.Read 可能因底层资源问题 panic）
+			defer func() {
+				if r := recover(); r != nil {
+					readCh <- struct {
+						n   int
+						err error
+					}{n: 0, err: fmt.Errorf("pty read panic: %v", r)}
+				}
+			}()
 			n, err := s.pty.Read(buf)
 			readCh <- struct {
 				n   int

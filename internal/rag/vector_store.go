@@ -655,6 +655,11 @@ func (vs *VectorStore) rebuildBM25Index() {
 
 // getOrCreateBM25 返回指定 collection 的 BM25 索引，不存在则创建。
 // 访问 vs.bm25Indexes 受 vs.mu 保护；BM25Index 自身的并发安全由其内部 mu 保证。
+//
+// 竞态修复（M3）：Close() 会将 bm25Indexes 置 nil，若在写锁内直接写入
+// `vs.bm25Indexes[name] = idx` 会对 nil map 赋值导致 panic。
+// 因此在写入前检查 bm25Indexes 是否为 nil，nil 时返回空索引（无害），
+// 避免并发 Close 场景下 panic。
 func (vs *VectorStore) getOrCreateBM25(name string) *BM25Index {
 	vs.mu.RLock()
 	idx, ok := vs.bm25Indexes[name]
@@ -667,6 +672,10 @@ func (vs *VectorStore) getOrCreateBM25(name string) *BM25Index {
 	// 双重检查：避免并发时重复创建
 	if idx, ok := vs.bm25Indexes[name]; ok {
 		return idx
+	}
+	// M3 修复：Close 已将 bm25Indexes 置 nil，返回空索引避免 nil map 写入 panic
+	if vs.bm25Indexes == nil {
+		return NewBM25Index()
 	}
 	idx = NewBM25Index()
 	vs.bm25Indexes[name] = idx
@@ -775,7 +784,18 @@ func (vs *VectorStore) getOrLoadIndex(name string) (vectorIndex, error) {
 		return idx, nil
 	}
 
+	// M3 修复：Close 已将 indexes 置 nil，返回 ErrClosed 避免 nil map 写入 panic
+	if vs.closed.Load() {
+		return nil, ErrClosed
+	}
+
 	vs.mu.Lock()
+
+	// M3 修复：写锁内再次检查 closed（Close 可能在 RLock 之后、Lock 之前完成）
+	if vs.closed.Load() || vs.indexes == nil {
+		vs.mu.Unlock()
+		return nil, ErrClosed
+	}
 
 	// Double-check with write lock.
 	if idx, ok := vs.indexes[name]; ok {
@@ -851,9 +871,15 @@ func (vs *VectorStore) getOrLoadIndex(name string) (vectorIndex, error) {
 // badgerIndex 不持有向量数据，仅持有 db 引用和前缀，创建开销极低；
 // 缓存在 vs.badgerIndexes 中，DeleteCollection 时统一清除。
 // 调用方需持有 vs.mu 写锁。
+//
+// M3 修复：Close 会将 badgerIndexes 置 nil，写入前检查避免 nil map 写入 panic。
 func (vs *VectorStore) getOrCreateBadgerIndex(name string, dim int) *badgerIndex {
 	if idx, ok := vs.badgerIndexes[name]; ok {
 		return idx
+	}
+	// M3 修复：Close 已将 badgerIndexes 置 nil，返回 nil 由调用方处理（getOrLoadIndex 已检查 closed）
+	if vs.badgerIndexes == nil {
+		return nil
 	}
 	idx := &badgerIndex{
 		db:     vs.db,

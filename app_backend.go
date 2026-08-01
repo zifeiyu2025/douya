@@ -179,6 +179,17 @@ func (a *App) DownloadBackend(bt string) error {
 
 	// 步骤 2：异步下载+安装（goroutine），通过事件推送进度
 	go func() {
+		// 防止 panic 导致整个进程崩溃（下载涉及网络和文件 IO，可能 panic）
+		defer func() {
+			if r := recover(); r != nil {
+				zlog.Warn().Interface("panic", r).Str("backend", bt).Msg("[backend] 下载 goroutine panic")
+				wailsruntime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+					Backend: llm.BackendType(bt),
+					Status:  "failed",
+					Error:   fmt.Sprintf("下载后端发生内部错误：%v", r),
+				})
+			}
+		}()
 		runtimeDir := filepath.Join(appDir(), "runtime")
 		backendType := llm.BackendType(bt)
 

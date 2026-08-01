@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"douya/internal/config"
@@ -153,9 +154,31 @@ func TestLoad_InvalidJSON(t *testing.T) {
 		t.Fatalf("failed to write config file: %v", err)
 	}
 
-	_, err := config.Load(cfgPath)
-	if err == nil {
-		t.Fatal("expected error for invalid JSON, got nil")
+	// F-1 修复设计意图：配置文件损坏时，应用备份原文件后用默认配置启动，
+	// 返回 nil 错误（避免用户完全无法进入应用），而不是返回错误。
+	// 生活类比：菜谱被水泡模糊了，先把旧菜谱收起来（备份），用标准菜谱继续营业。
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("invalid JSON 应触发备份+默认配置启动（F-1 容错策略），实际返回错误: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("invalid JSON 应返回默认配置，实际为 nil")
+	}
+
+	// 验证损坏文件确实被备份（.corrupt- 前缀）
+	entries, readErr := os.ReadDir(tmpDir)
+	if readErr != nil {
+		t.Fatalf("读取目录失败: %v", readErr)
+	}
+	foundBackup := false
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "config.json.corrupt-") {
+			foundBackup = true
+			break
+		}
+	}
+	if !foundBackup {
+		t.Fatal("损坏的配置文件应被备份为 config.json.corrupt-* 文件")
 	}
 }
 

@@ -1430,7 +1430,11 @@ func (a *App) handleSwitchFailure(modelName, previousModel, errMsg string) Switc
 		if restoreErr := a.getClient().LoadModel(restoreCtx, previousModel); restoreErr == nil || isAlreadyRunningError(restoreErr) {
 			// LoadModel 返回 "already running"/"already loaded" 时，旧模型实际仍在运行，
 			// 视为回滚成功，避免误报失败导致 UI 状态错误
-			_ = a.getClient().WaitForModelLoaded(restoreCtx, previousModel, apiTimeoutMedium)
+			// M1 修复：等待结果不再静默忽略——等待失败说明旧模型未真正就绪，
+			// 记录日志便于排查，但继续按回滚成功处理（模型已在加载中，后续 watch 会更新状态）
+			if waitErr := a.getClient().WaitForModelLoaded(restoreCtx, previousModel, apiTimeoutMedium); waitErr != nil {
+				zlog.Warn().Err(waitErr).Str("model", previousModel).Msg("[router] 等待旧模型就绪超时，将依赖 watch 更新状态")
+			}
 			a.currentModelMu.Lock()
 			a.currentModelName = previousModel
 			a.currentModelMu.Unlock()

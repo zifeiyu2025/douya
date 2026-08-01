@@ -441,7 +441,7 @@ async function doDeleteModel(modelName: string) {
     await loadAvailableModels()
     discreteMessage.success('模型删除成功')
   } catch (e) {
-    console.error('删除模型失败:', e)
+    logError('删除模型失败:', e)
     discreteMessage.error(`删除模型失败: ${e}`, { duration: 5000 })
   }
 }
@@ -502,7 +502,7 @@ async function handleModelChange(value: string) {
       }, 300)
     }
   } catch (e) {
-    console.error('Failed to switch model:', e)
+    logError('切换模型失败:', e)
     selectedModel.value = previousModel
     const errorText = `切换模型失败: ${e}`
     const guidance = classifyError(String(e))

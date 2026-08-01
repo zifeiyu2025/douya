@@ -69,6 +69,12 @@ func (a *App) UpdateConfig(cfg *config.Config) error {
 	// ctx-size 等参数与实际启动参数不一致
 	if performanceModeChanged && a.service != nil {
 		go func() {
+			// 防止 panic 导致整个进程崩溃（preset 生成涉及文件 IO）
+			defer func() {
+				if r := recover(); r != nil {
+					zlog.Warn().Interface("panic", r).Msg("[config] 性能模式 preset 生成 goroutine panic")
+				}
+			}()
 			if err := a.generatePresetFile(); err != nil {
 				zlog.Warn().Err(err).Msg("[config] 性能模式切换后重新生成 preset 文件失败")
 			} else {
