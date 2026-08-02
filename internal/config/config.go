@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -98,6 +99,11 @@ type Config struct {
 	SpecDraftThreadsBatch   int     `json:"spec_draft_threads_batch"` // Draft 模型批处理线程数（0=不传递）
 	SpecDefault             bool    `json:"spec_default"`             // 使用默认推测解码配置
 	Device                  string  `json:"device"`
+	// 多 GPU 原生参数。空 split_mode 表示不覆盖 llama.cpp 默认的 layer 模式；
+	// main_gpu=-1 表示不传递，让 llama.cpp 使用默认设备。
+	SplitMode               string  `json:"split_mode"`
+	TensorSplit             string  `json:"tensor_split"`
+	MainGPU                 int     `json:"main_gpu"`
 	Parallel                int     `json:"parallel"`
 	CacheTypeK              string  `json:"cache_type_k"`
 	CacheTypeV              string  `json:"cache_type_v"`
@@ -201,6 +207,9 @@ type Config struct {
 	SsePingInterval int `json:"sse_ping_interval"`
 	// LoRA 适配器路径（逗号分隔，启动时通过 --lora 加载，配合 --lora-init-without-apply 默认不应用）
 	LoraPaths string `json:"lora_paths"`
+	// ChatTemplateFile 自定义聊天模板文件路径（.jinja 文件，通过 --chat-template-file 传递给 llama-server）
+	// 配置后优先于模型 GGUF 自带模板，用于自定义对话格式（如多轮提示、角色扮演模板）
+	ChatTemplateFile string `json:"chat_template_file"`
 	// 直接 I/O（绕过操作系统页面缓存，加速大模型加载，避免内存污染）
 	DirectIO bool `json:"direct_io"`
 	// MoE 权重 CPU 卸载（将所有专家权重保留在 CPU，显存不足时启用）
@@ -284,6 +293,9 @@ func DefaultConfig() *Config {
 		SpecDraftThreadsBatch:    0,
 		SpecDefault:              false,
 		Device:                   "",
+		SplitMode:                "",
+		TensorSplit:              "",
+		MainGPU:                  -1,
 		Parallel:                 0,
 		CacheTypeK:               "",
 		CacheTypeV:               "",
@@ -362,6 +374,7 @@ func DefaultConfig() *Config {
 		TtsVolume:  1.0,
 		SsePingInterval: 0,
 		LoraPaths:       "",
+		ChatTemplateFile: "",
 		DirectIO:        false,
 		CPUMoe:          false,
 		NCpuMoe:         0,
@@ -635,6 +648,7 @@ var intFieldRules = []intFieldRule{
 	{"threads", func(c *Config) int { return c.Threads }, 0, math.MaxInt32, func(c *Config, v int) { c.Threads = v }, "invalid threads: %d (threads 不能为负数)"},
 	{"batch_size", func(c *Config) int { return c.BatchSize }, 0, math.MaxInt32, func(c *Config, v int) { c.BatchSize = v }, "invalid batch_size: %d (batch_size 不能为负数)"},
 	{"gpu_layers", func(c *Config) int { return c.GPULayers }, 0, math.MaxInt32, func(c *Config, v int) { c.GPULayers = v }, "invalid gpu_layers: %d (gpu_layers 不能为负数)"},
+	{"main_gpu", func(c *Config) int { return c.MainGPU }, -1, math.MaxInt32, func(c *Config, v int) { c.MainGPU = v }, "invalid main_gpu: %d (main_gpu 必须 >= -1)"},
 	{"cache_ram", func(c *Config) int { return c.CacheRAM }, 0, math.MaxInt32, func(c *Config, v int) { c.CacheRAM = v }, "invalid cache_ram: %d (cache_ram 不能为负数)"},
 	{"rerank_top_n", func(c *Config) int { return c.RerankTopN }, 1, math.MaxInt32, func(c *Config, v int) { c.RerankTopN = v }, "invalid rerank_top_n: %d (rerank_top_n 必须 > 0)"},
 }
@@ -693,6 +707,14 @@ func (c *Config) repairInvalidFields() []string {
 		repaired = append(repaired, fmt.Sprintf("grp_attn_n/w: %d/%d -> %d/%d", c.GrpAttnN, c.GrpAttnW, defaults.GrpAttnN, defaults.GrpAttnW))
 		c.GrpAttnN = defaults.GrpAttnN
 		c.GrpAttnW = defaults.GrpAttnW
+	}
+	if !isValidSplitMode(c.SplitMode) {
+		repaired = append(repaired, fmt.Sprintf("split_mode: %q -> %q", c.SplitMode, defaults.SplitMode))
+		c.SplitMode = defaults.SplitMode
+	}
+	if err := validateTensorSplit(c.TensorSplit); err != nil || (c.SplitMode == "none" && strings.TrimSpace(c.TensorSplit) != "") {
+		repaired = append(repaired, fmt.Sprintf("tensor_split: %q -> %q", c.TensorSplit, defaults.TensorSplit))
+		c.TensorSplit = defaults.TensorSplit
 	}
 	if c.BackendSampling && c.ReasoningBudget > 0 {
 		repaired = append(repaired, fmt.Sprintf("reasoning_budget: %d -> %d (backend_sampling 互斥)", c.ReasoningBudget, defaults.ReasoningBudget))
@@ -760,6 +782,17 @@ func (c *Config) Validate() error {
 		return apperror.Newf(apperror.KindInvalidConfig, "backend_sampling and reasoning_budget are mutually exclusive (backend_sampling=true requires reasoning_budget <= 0, got %d)", c.ReasoningBudget)
 	}
 
+	// 多 GPU 参数严格校验（repairInvalidFields 负责修复，Validate 负责报错）
+	if !isValidSplitMode(c.SplitMode) {
+		return apperror.Newf(apperror.KindInvalidConfig, "invalid split_mode: %q (必须是 none / layer / row / tensor，或留空使用 llama.cpp 默认)", c.SplitMode)
+	}
+	if err := validateTensorSplit(c.TensorSplit); err != nil {
+		return apperror.Wrap(apperror.KindInvalidConfig, "invalid tensor_split", err)
+	}
+	if c.SplitMode == "none" && strings.TrimSpace(c.TensorSplit) != "" {
+		return apperror.New(apperror.KindInvalidConfig, "tensor_split cannot be used with split_mode=none")
+	}
+
 	// 枚举检查
 	switch c.SearchMode {
 	case "off", "auto", "on":
@@ -816,4 +849,40 @@ func isValidBackendType(s string) bool {
 		return true
 	}
 	return false
+}
+
+func isValidSplitMode(mode string) bool {
+	switch mode {
+	case "", "none", "layer", "row", "tensor":
+		return true
+	}
+	return false
+}
+
+// validateTensorSplit validates llama.cpp's comma-separated non-negative
+// allocation weights. The values are proportions, not percentages; e.g. 3,1
+// assigns 75% / 25%. Whitespace is accepted for hand-edited config files.
+func validateTensorSplit(split string) error {
+	split = strings.TrimSpace(split)
+	if split == "" {
+		return nil
+	}
+	parts := strings.Split(split, ",")
+	if len(parts) < 2 {
+		return fmt.Errorf("must contain at least two comma-separated device weights")
+	}
+	hasPositive := false
+	for _, part := range parts {
+		value, err := strconv.ParseFloat(strings.TrimSpace(part), 64)
+		if err != nil || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+			return fmt.Errorf("%q is not a non-negative finite number", part)
+		}
+		if value > 0 {
+			hasPositive = true
+		}
+	}
+	if !hasPositive {
+		return fmt.Errorf("at least one device weight must be greater than zero")
+	}
+	return nil
 }

@@ -292,9 +292,9 @@ func (s *Service) buildOverflowMessages(systemContent string, dbMsgs []*store.Me
 		existingSummary, _ = store.GetConversationSummary(s.db, convID)
 	}
 	client := s.getClientSnapshot()
-	// M13 修复：wailsCtx 用 snapshot 读取避免数据竞争；nil 时 CompressContext 内部会用 context.Background() 兜底
-	wailsCtx := s.getWailsCtxSnapshot()
-	result := CompressContext(wailsCtx, baseMessages, maxContext, existingSummary, dbMsgs, client, convID, s.db)
+	// M13 修复：hostCtx 用 snapshot 读取避免数据竞争；nil 时 CompressContext 内部会用 context.Background() 兜底
+	hostCtx := s.getHostContextSnapshot()
+	result := CompressContext(hostCtx, baseMessages, maxContext, existingSummary, dbMsgs, client, convID, s.db)
 	messages := result.Messages
 
 	// 如果 CompressContext 返回的消息仍然超限（极端情况），fallback 到只保留 system + 最后一条消息
@@ -321,9 +321,9 @@ func (s *Service) buildNormalMessages(systemContent string, dbMsgs []*store.Mess
 	if len(trimmedMsgs) > 0 && convID != "" {
 		existingSummary, _ := store.GetConversationSummary(s.db, convID)
 		client := s.getClientSnapshot()
-		// M13 修复：wailsCtx 用 snapshot 读取避免数据竞争
-		wailsCtx := s.getWailsCtxSnapshot()
-		result := CompressContext(wailsCtx, baseMessages, maxContext, existingSummary, trimmedMsgs, client, convID, s.db)
+		// M13 修复：hostCtx 用 snapshot 读取避免数据竞争
+		hostCtx := s.getHostContextSnapshot()
+		result := CompressContext(hostCtx, baseMessages, maxContext, existingSummary, trimmedMsgs, client, convID, s.db)
 		messages = result.Messages
 		log.Info().Int("trimmed_count", result.TrimmedCount).Bool("summary_inserted", result.SummaryInserted).Str("convID", convID).Msg("[buildLLMMessages] 上下文已压缩")
 	} else {

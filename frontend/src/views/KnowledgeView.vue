@@ -514,7 +514,7 @@ async function handleRAGToggle(enabled: boolean) {
 async function handleSaveRAGConfig() {
   savingRAG.value = true
   try {
-    const config = (await wails.getConfig()) as any
+    const config = await wails.getConfig()
     config.rag_top_k = ragConfig.value.topK
     config.rag_min_score = ragConfig.value.minScore
     config.rag_chunk_size = ragConfig.value.chunkSize

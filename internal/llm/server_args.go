@@ -217,6 +217,16 @@ func (s *Server) appendSwitchArgs(args []string) []string {
 	} else {
 		args = append(args, "--no-jinja")
 	}
+	// 自定义聊天模板文件（.jinja）：配置后优先于模型 GGUF 自带模板
+	// 仅在文件实际存在时传递，避免指向不存在的文件导致启动失败
+	if s.config.ChatTemplateFile != "" {
+		resolvedTemplate := s.resolvePath(s.config.ChatTemplateFile)
+		if info, err := os.Stat(resolvedTemplate); err == nil && !info.IsDir() {
+			args = append(args, "--chat-template-file", resolvedTemplate)
+		} else {
+			log.Warn().Str("chat_template_file", resolvedTemplate).Msg("[server] chat-template-file does not exist, skipping --chat-template-file")
+		}
+	}
 	// Prompt 缓存控制
 	if s.config.CachePrompt != nil {
 		if *s.config.CachePrompt {
@@ -244,6 +254,20 @@ func (s *Server) appendServiceArgs(args []string) []string {
 		args = append(args, "--rerank")
 	}
 	args = appendStringArg(args, "--device", s.config.Device)
+	// 多 GPU 参数（llama.cpp 原生能力，仅配置了有效值时传递）：
+	//   --split-mode：layer（按层分割，默认）/ row（按行分割）/ tensor（按张量分割）/ none（禁用多卡）
+	//   --tensor-split：逗号分隔的显存分配权重，如 "3,1" = 75%/25%
+	//   --main-gpu：指定主 GPU（计算优先级最高的卡），-1=不传递使用默认
+	// 注意：--tensor-split 与 --split-mode none 互斥，config 校验层已保证不会同时设置
+	if s.config.SplitMode != "" {
+		args = append(args, "--split-mode", s.config.SplitMode)
+	}
+	if s.config.TensorSplit != "" {
+		args = append(args, "--tensor-split", s.config.TensorSplit)
+	}
+	if s.config.MainGPU >= 0 {
+		args = append(args, "--main-gpu", fmt.Sprintf("%d", s.config.MainGPU))
+	}
 	args = appendIntArg(args, "--parallel", s.config.Parallel)
 	args = append(args, "--timeout", "900")
 	return args

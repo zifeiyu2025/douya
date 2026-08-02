@@ -64,8 +64,9 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 //   - 回退失败：弹 ErrorDialog → forceQuit 退出（避免应用处于不可用状态）
 //
 // 为什么所有失败路径都 forceQuit：
-//   服务器未启动时应用无法对话，继续运行只会让用户面对一个不可用的界面。
-//   统一 forceQuit 让用户重启后走完整启动流程，避免半死不活的状态。
+//
+//	服务器未启动时应用无法对话，继续运行只会让用户面对一个不可用的界面。
+//	统一 forceQuit 让用户重启后走完整启动流程，避免半死不活的状态。
 func (a *App) startServerAndWaitReady(srv *llm.Server, ctx context.Context) error {
 	if err := srv.Start(); err != nil {
 		zlog.Error().Err(err).Msg("start llama-server failed")
@@ -123,9 +124,7 @@ func (a *App) selectAndDetectDefaultModel(ctx context.Context) string {
 		if p.Alias != "default" {
 			continue
 		}
-		a.currentModelMu.Lock()
-		a.currentModelName = p.Name
-		a.currentModelMu.Unlock()
+		a.setCurrentModel(p.Name)
 		if a.getClient() != nil {
 			a.getClient().SetCurrentModel(p.Name)
 		}
@@ -133,20 +132,14 @@ func (a *App) selectAndDetectDefaultModel(ctx context.Context) string {
 		break
 	}
 	if !foundDefault && len(presetsSnapshot) > 0 {
-		a.currentModelMu.Lock()
-		a.currentModelName = presetsSnapshot[0].Name
-		a.currentModelMu.Unlock()
+		a.setCurrentModel(presetsSnapshot[0].Name)
 		if a.getClient() != nil {
 			a.getClient().SetCurrentModel(presetsSnapshot[0].Name)
 		}
-		a.currentModelMu.RLock()
-		zlog.Info().Str("model", a.currentModelName).Msg("[server] no default preset found, using first model")
-		a.currentModelMu.RUnlock()
+		zlog.Info().Str("model", a.currentModel()).Msg("[server] no default preset found, using first model")
 	}
 
-	a.currentModelMu.RLock()
-	modelForDetect := a.currentModelName
-	a.currentModelMu.RUnlock()
+	modelForDetect := a.currentModel()
 
 	// 推送首次启动进度：检测模型能力
 	a.emitSwitchProgressCtx(ctx, "detecting", modelForDetect, nil)
@@ -396,12 +389,10 @@ func (a *App) makeStatusCallback(ctx context.Context) func(llm.ServerStatus) {
 		if a.serverLoadFailed.Load() {
 			return
 		}
-		if a.isSwitching.Load() {
+		if a.modelSessionSnapshot().Switching {
 			return
 		}
-		a.currentModelMu.RLock()
-		curModel := a.currentModelName
-		a.currentModelMu.RUnlock()
+		curModel := a.currentModel()
 		if status.Running {
 			var caps llm.ModelCapabilities
 			if a.service != nil {
@@ -437,9 +428,7 @@ func (a *App) makeRestartCallback(ctx context.Context) func() {
 			}
 		}()
 
-		a.currentModelMu.RLock()
-		modelForDetect2 := a.currentModelName
-		a.currentModelMu.RUnlock()
+		modelForDetect2 := a.currentModel()
 		if err := a.service.DetectModelArchitectureForModel(modelForDetect2); err != nil {
 			zlog.Error().Err(err).Msg("detect model architecture after restart failed")
 		}

@@ -318,6 +318,10 @@ export interface Config {
   spec_default: boolean // 使用默认推测解码配置
   device: string
   parallel: number
+  // 多 GPU 原生参数（llama.cpp --split-mode / --tensor-split / --main-gpu）
+  split_mode: string // 分割模式：layer/row/tensor/none，空=使用 llama.cpp 默认
+  tensor_split: string // 张量分割权重（逗号分隔，如 "3,1"），空=不传递
+  main_gpu: number // 主 GPU 索引，-1=不传递使用默认
   cache_type_k: string
   cache_type_v: string
   spec_type: string
@@ -340,6 +344,7 @@ export interface Config {
   spec_draft_model: string
   cache_type_k_draft: string
   cache_type_v_draft: string
+  chat_template_file: string // 自定义聊天模板文件路径（.jinja），空=使用模型自带模板
   server_api_key_enabled: boolean
   expose_server: boolean
   enable_web_ui: boolean
@@ -568,6 +573,9 @@ export const DEFAULT_CONFIG: Config = {
   spec_default: false,
   device: '',
   parallel: 0,
+  split_mode: '', // 空=使用 llama.cpp 默认 layer 模式
+  tensor_split: '', // 空=不传递
+  main_gpu: -1, // -1=不传递
   cache_type_k: '',
   cache_type_v: '',
   spec_type: '',
@@ -590,6 +598,7 @@ export const DEFAULT_CONFIG: Config = {
   spec_draft_model: '',
   cache_type_k_draft: '',
   cache_type_v_draft: '',
+  chat_template_file: '', // 空=使用模型自带模板
   server_api_key_enabled: false,
   expose_server: false,
   enable_web_ui: false,

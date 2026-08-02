@@ -115,9 +115,11 @@ func GetBackendInfo(bt BackendType) BackendInfo {
 			Type:        BackendCUDA,
 			DisplayName: "CUDA (NVIDIA)",
 			Subdir:      "cuda",
-			ZipPattern:  "llama-b*-bin-win-cuda-1[3-9]*-x64.zip",
-			// 匹配 CUDA 13.x（豆芽用 cudart64_13.dll），如 llama-b10167-bin-win-cuda-13.3-x64.zip
-			ReleaseAssetRegex: `^llama-b\d+-bin-win-cuda-1[3-9]\.\d+-x64\.zip$`,
+			ZipPattern:  "llama-b*-bin-win-cuda-1[23]*-x64.zip",
+			// 全量适配：同时匹配 CUDA 12.x 和 13.x（官方 release 同时提供两个版本）
+			// 豆芽优先使用 13.x（cudart64_13.dll），12.x 作为回退（cudart64_12.dll）
+			// 选择策略见 FindReleaseAsset 的 CUDA 优先逻辑
+			ReleaseAssetRegex: `^llama-b\d+-bin-win-cuda-1[23]\.\d+-x64\.zip$`,
 			RequiredDLLs: append(append([]string{}, coreDLLs...),
 				"ggml-cuda.dll", mtmdDLL),
 			// VendorDLLs 使用 glob 模式，同时兼容 CUDA 12 和 CUDA 13：

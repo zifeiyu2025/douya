@@ -66,7 +66,8 @@ func (a *App) startup(ctx context.Context) {
 	// buildSearchChain 等通过 service 访问 settings，避免 App 层直接 import store（QUAL-3）。
 	// 后续 UpdateClient / UpdateSearchChain 会填充真实依赖。
 	a.service = chat.NewService(nil, nil, a.db, a.getConfig(), secrets.NewCipher(a.encKey), appDir())
-	a.service.SetContext(ctx)
+	a.service.SetHostContext(ctx)
+	a.service.SetEventPublisher(newWailsChatEventPublisher(ctx))
 
 	a.migrateSearchEngines(cfgPath)
 
@@ -422,17 +423,13 @@ func (a *App) initRAG(_ context.Context, cfg *config.Config) {
 		embedModel = resolvePath(embedModel)
 	}
 	if embedModel == "" {
-		a.currentModelMu.RLock()
-		embedModel = a.currentModelName
-		a.currentModelMu.RUnlock()
+		embedModel = a.currentModel()
 	}
 	embedder := &rag.ClientEmbedder{Client: a.getClient()}
 	embedder.SetModel(embedModel)
 	// 当专用嵌入模型为空时，动态获取当前聊天模型名
 	embedder.SetCurrentModelFn(func() string {
-		a.currentModelMu.RLock()
-		defer a.currentModelMu.RUnlock()
-		return a.currentModelName
+		return a.currentModel()
 	})
 	a.ragEmbedder = embedder
 	collection := cfg.RAGActiveKB
@@ -985,7 +982,9 @@ func (a *App) SetCloseAction(action string) {
 	if err := newCfg.Validate(); err != nil {
 		zlog.Warn().Err(err).Msg("[SetCloseAction] 配置校验失败，仍保存")
 	}
-	_ = config.Save(filepath.Join(appDir(), "config.json"), &newCfg)
+	if err := config.Save(filepath.Join(appDir(), "config.json"), &newCfg); err != nil {
+		zlog.Warn().Err(err).Msg("[SetCloseAction] 配置保存失败")
+	}
 }
 
 func (a *App) GracefulExit() {

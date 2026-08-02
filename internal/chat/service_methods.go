@@ -188,9 +188,9 @@ func (s *Service) DeleteMessage(id string) error {
 // RegenerateMessage regenerates the last assistant message in a conversation.
 func (s *Service) RegenerateMessage(msgID string, searchMode string) error {
 	// C-7 修复：用 beginGeneration 统一锁/取消逻辑，消除与 SendMessage 的重复代码
-	// M14 修复：wailsCtx 可能为 nil（初始化期间或测试环境），用 context.Background() 兜底
+	// M14 修复：hostCtx 可能为 nil（初始化期间或测试环境），用 context.Background() 兜底
 	// 生活类比：快递员找不到调度总机时，用离线模式继续工作，而不是当场罢工
-	parentCtx := s.getWailsCtxSnapshot()
+	parentCtx := s.getHostContextSnapshot()
 	if parentCtx == nil {
 		parentCtx = context.Background()
 	}

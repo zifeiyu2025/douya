@@ -115,7 +115,14 @@ type ServerConfig struct {
 	SpecDefault           bool  // 使用默认推测解码配置
 	Device                string
 	Parallel              int
-	APIKey                string
+	// 多 GPU 原生参数（对应 llama.cpp --split-mode / --tensor-split / --main-gpu）
+	// SplitMode 为空表示不覆盖 llama.cpp 默认的 layer 模式
+	SplitMode string
+	// TensorSplit 为逗号分隔的设备权重（如 "3,1" 表示 75%/25%），空表示不传递
+	TensorSplit string
+	// MainGPU 主 GPU 索引（-1=不传递，让 llama.cpp 使用默认设备）
+	MainGPU int
+	APIKey  string
 	ServerAPIKeyEnabled   bool // 是否启用服务 API Key 验证（暴露到局域网时强制要求）
 
 	SpecType               string
@@ -188,6 +195,9 @@ type ServerConfig struct {
 	SsePingInterval int
 	// LoRA 适配器路径（逗号分隔，启动时通过 --lora 加载，配合 --lora-init-without-apply 默认不应用）
 	LoraPaths string
+	// ChatTemplateFile 自定义聊天模板文件路径（.jinja 文件）
+	// 通过 --chat-template-file 传递给 llama-server，优先于模型 GGUF 自带模板
+	ChatTemplateFile string
 	// Reranker 模型路径（配置后自动启用 --rerank 端点）
 	RerankerModelPath string
 	// 直接 I/O（绕过操作系统页面缓存，加速大模型加载）

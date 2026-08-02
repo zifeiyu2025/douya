@@ -317,6 +317,62 @@
           <n-input v-model:value="formConfig.device" placeholder="留空自动选择，多卡如 0,1" />
         </n-form-item>
 
+        <!-- 多 GPU 分割模式 -->
+        <n-form-item>
+          <template #label>
+            多 GPU 分割模式
+            <HelpTip
+              content="多卡并行时张量在各 GPU 间的分割方式。layer=按层分割（默认），row=按行分割，tensor=按张量分割，none=禁用多卡。多卡用户建议搭配下方张量分割使用"
+            />
+          </template>
+          <n-select
+            v-model:value="formConfig.split_mode"
+            :options="splitModeOptions"
+            placeholder="使用 llama.cpp 默认（layer）"
+            clearable
+          />
+        </n-form-item>
+
+        <!-- 张量分割权重 -->
+        <n-form-item>
+          <template #label>
+            张量分割权重
+            <HelpTip
+              content="多卡显存分配权重（逗号分隔），如 3,1 表示第一块卡分 75%、第二块 25%。需与 GPU 设备数量一致"
+            />
+          </template>
+          <n-input
+            v-model:value="formConfig.tensor_split"
+            placeholder="如 3,1（两张卡）"
+            :disabled="formConfig.split_mode === 'none'"
+          />
+        </n-form-item>
+        <n-text
+          v-if="formConfig.split_mode === 'none' && formConfig.tensor_split"
+          depth="3"
+          style="font-size: 12px; margin-top: -12px; display: block; margin-bottom: 8px"
+        >
+          分割模式为 none 时张量分割权重无效
+        </n-text>
+
+        <!-- 主 GPU -->
+        <n-form-item>
+          <template #label>
+            主 GPU
+            <HelpTip
+              content="多卡场景指定主计算 GPU（索引从 0 开始）。-1=自动选择，0=第一块卡"
+            />
+          </template>
+          <n-input-number
+            v-model:value="formConfig.main_gpu"
+            :min="-1"
+            :step="1"
+            placeholder="-1 = 自动"
+            style="width: 100%"
+            @blur="autoSave"
+          />
+        </n-form-item>
+
         <!-- 并发槽位数 -->
         <n-form-item>
           <template #label>
@@ -330,6 +386,69 @@
             :min="0"
             placeholder="0 = 自动"
             style="width: 100%"
+          />
+        </n-form-item>
+
+        <!-- CPU 线程数 -->
+        <n-form-item>
+          <template #label>
+            CPU 线程数
+            <HelpTip content="推理使用的 CPU 线程数。0=自动（按 CPU 核心数），降低可避免 CPU 过载" />
+          </template>
+          <n-input-number
+            v-model:value="formConfig.threads"
+            :min="0"
+            :step="1"
+            placeholder="0 = 自动"
+            style="width: 100%"
+            @blur="autoSave"
+          />
+        </n-form-item>
+
+        <!-- 批处理大小 -->
+        <n-form-item>
+          <template #label>
+            批处理大小
+            <HelpTip
+              content="每次前向传播处理的 token 数（batch size）。0=自动，增大可提升吞吐但增加显存/内存占用"
+            />
+          </template>
+          <n-input-number
+            v-model:value="formConfig.batch_size"
+            :min="0"
+            :step="64"
+            placeholder="0 = 自动"
+            style="width: 100%"
+            @blur="autoSave"
+          />
+        </n-form-item>
+
+        <!-- MoE 权重 CPU 卸载 -->
+        <n-form-item>
+          <template #label>
+            MoE CPU 卸载
+            <HelpTip
+              content="将 MoE 模型的专家权重保留在 CPU 内存，仅激活的专家加载到 GPU，显著降低显存占用（适用于混元/DeepSeek 等 MoE 大模型）"
+            />
+          </template>
+          <n-switch v-model:value="formConfig.cpu_moe" @update:value="autoSave" />
+        </n-form-item>
+
+        <!-- MoE 前 N 层卸载 -->
+        <n-form-item>
+          <template #label>
+            MoE 前 N 层卸载
+            <HelpTip
+              content="仅将前 N 层 MoE 专家权重保留在 CPU，0=不启用。比全局 cpu_moe 更精细，兼顾显存与性能"
+            />
+          </template>
+          <n-input-number
+            v-model:value="formConfig.n_cpu_moe"
+            :min="0"
+            :step="1"
+            placeholder="0 = 不启用"
+            style="width: 100%"
+            @blur="autoSave"
           />
         </n-form-item>
 
@@ -1019,6 +1138,14 @@ const flashAttnOptions = [
   { label: '自动（有 GPU 时开启）', value: 'auto' },
   { label: '开启', value: 'on' },
   { label: '关闭', value: 'off' }
+]
+
+// 多 GPU 分割模式选项（对应 llama.cpp --split-mode）
+const splitModeOptions = [
+  { label: '按层分割 layer（默认）', value: 'layer' },
+  { label: '按行分割 row', value: 'row' },
+  { label: '按张量分割 tensor', value: 'tensor' },
+  { label: '禁用多卡 none', value: 'none' }
 ]
 const flashAttnValue = computed({
   get: () => {

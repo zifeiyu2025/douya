@@ -386,3 +386,193 @@ func TestDefaultConfig_Version(t *testing.T) {
 		t.Errorf("期望默认配置 Version=%d，实际得到: %d", currentConfigVersion, cfg.Version)
 	}
 }
+
+// ===== 多 GPU 参数校验测试（split_mode / tensor_split / main_gpu） =====
+//
+// 这批测试覆盖 llama.cpp 原生多 GPU 参数的校验逻辑：
+//   - isValidSplitMode：枚举值校验（none/layer/row/tensor/空）
+//   - validateTensorSplit：格式校验（至少两个权重、非负、至少一个正数）
+//   - Validate 跨字段互斥：split_mode=none + tensor_split 非法组合
+//
+// 生活类比：就像 multicooker 多锅具套装——split_mode 是选"分层蒸"还是"分格煮"，
+// tensor_split 是每格放多少食材，none+还要分格就是自相矛盾。
+
+// TestValidate_SplitMode_Valid 验证所有合法的 SplitMode 值通过校验
+func TestValidate_SplitMode_Valid(t *testing.T) {
+	validModes := []string{"", "none", "layer", "row", "tensor"}
+	for _, mode := range validModes {
+		t.Run("mode="+mode, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.SplitMode = mode
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("期望 SplitMode=%q 通过校验，实际返回错误: %v", mode, err)
+			}
+		})
+	}
+}
+
+// TestValidate_SplitMode_Invalid 验证非法的 SplitMode 值返回错误
+func TestValidate_SplitMode_Invalid(t *testing.T) {
+	invalidModes := []string{"auto", "split", "horizontal", "vertical", "NONE", "Layer"}
+	for _, mode := range invalidModes {
+		t.Run("mode="+mode, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.SplitMode = mode
+			if err := cfg.Validate(); err == nil {
+				t.Errorf("期望 SplitMode=%q 返回错误，实际返回 nil", mode)
+			}
+		})
+	}
+}
+
+// TestValidate_TensorSplit_Empty 验证空 TensorSplit 通过校验（默认不传递）
+func TestValidate_TensorSplit_Empty(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.TensorSplit = ""
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("期望 TensorSplit 为空时通过校验，实际返回错误: %v", err)
+	}
+}
+
+// TestValidate_TensorSplit_Valid 验证合法的 TensorSplit 格式通过校验
+func TestValidate_TensorSplit_Valid(t *testing.T) {
+	validSplits := []string{
+		"3,1",           // 双卡 3:1
+		"1,1",           // 双卡均分
+		"3,2,1",         // 三卡 3:2:1
+		"0.5,0.5",       // 浮点权重
+		" 3 , 1 ",       // 带空格（手写配置常见）
+		"10,5,3,2,1",    // 五卡
+	}
+	for _, split := range validSplits {
+		t.Run("split="+split, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.TensorSplit = split
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("期望 TensorSplit=%q 通过校验，实际返回错误: %v", split, err)
+			}
+		})
+	}
+}
+
+// TestValidate_TensorSplit_SingleValue 验证只有单个权重值时返回错误
+// 生活类比：分蛋糕至少要分给两个人，只写一个数等于没分。
+func TestValidate_TensorSplit_SingleValue(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.TensorSplit = "3"
+	if err := cfg.Validate(); err == nil {
+		t.Error("期望 TensorSplit=3（单个值）返回错误，实际返回 nil")
+	}
+}
+
+// TestValidate_TensorSplit_Negative 验证负数权重返回错误
+func TestValidate_TensorSplit_Negative(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.TensorSplit = "3,-1"
+	if err := cfg.Validate(); err == nil {
+		t.Error("期望 TensorSplit=3,-1（负数）返回错误，实际返回 nil")
+	}
+}
+
+// TestValidate_TensorSplit_AllZero 验证全零权重返回错误
+// 生活类比：所有盘子都分 0 份，等于没分蛋糕。
+func TestValidate_TensorSplit_AllZero(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.TensorSplit = "0,0"
+	if err := cfg.Validate(); err == nil {
+		t.Error("期望 TensorSplit=0,0（全零）返回错误，实际返回 nil")
+	}
+}
+
+// TestValidate_TensorSplit_NonNumeric 验证非数字值返回错误
+func TestValidate_TensorSplit_NonNumeric(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.TensorSplit = "3,abc"
+	if err := cfg.Validate(); err == nil {
+		t.Error("期望 TensorSplit=3,abc（非数字）返回错误，实际返回 nil")
+	}
+}
+
+// TestValidate_TensorSplit_Nan 验证 NaN 返回错误
+func TestValidate_TensorSplit_Nan(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.TensorSplit = "NaN,1"
+	if err := cfg.Validate(); err == nil {
+		t.Error("期望 TensorSplit=NaN,1 返回错误，实际返回 nil")
+	}
+}
+
+// TestValidate_TensorSplit_Inf 验证 Inf 返回错误
+func TestValidate_TensorSplit_Inf(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.TensorSplit = "Inf,1"
+	if err := cfg.Validate(); err == nil {
+		t.Error("期望 TensorSplit=Inf,1 返回错误，实际返回 nil")
+	}
+}
+
+// TestValidate_MultiGPU_NoneWithTensorSplit 验证 split_mode=none + tensor_split 非空时返回错误
+// 生活类比：用户说"禁用多卡"（none）但又指定了"分蛋糕方案"（tensor_split），自相矛盾。
+func TestValidate_MultiGPU_NoneWithTensorSplit(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SplitMode = "none"
+	cfg.TensorSplit = "3,1"
+	if err := cfg.Validate(); err == nil {
+		t.Error("期望 split_mode=none + tensor_split=3,1 返回错误，实际返回 nil")
+	}
+}
+
+// TestValidate_MultiGPU_NoneWithEmptyTensorSplit 验证 split_mode=none + tensor_split 空时通过
+func TestValidate_MultiGPU_NoneWithEmptyTensorSplit(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SplitMode = "none"
+	cfg.TensorSplit = ""
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("期望 split_mode=none + tensor_split 为空时通过，实际返回错误: %v", err)
+	}
+}
+
+// TestValidate_MultiGPU_LayerWithTensorSplit 验证 split_mode=layer + tensor_split 非空时通过
+func TestValidate_MultiGPU_LayerWithTensorSplit(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SplitMode = "layer"
+	cfg.TensorSplit = "3,1"
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("期望 split_mode=layer + tensor_split=3,1 通过，实际返回错误: %v", err)
+	}
+}
+
+// TestValidate_MultiGPU_RowWithTensorSplit 验证 split_mode=row + tensor_split 非空时通过
+func TestValidate_MultiGPU_RowWithTensorSplit(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SplitMode = "row"
+	cfg.TensorSplit = "3,1"
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("期望 split_mode=row + tensor_split=3,1 通过，实际返回错误: %v", err)
+	}
+}
+
+// TestValidate_MultiGPU_TensorWithTensorSplit 验证 split_mode=tensor + tensor_split 非空时通过
+func TestValidate_MultiGPU_TensorWithTensorSplit(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SplitMode = "tensor"
+	cfg.TensorSplit = "3,1"
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("期望 split_mode=tensor + tensor_split=3,1 通过，实际返回错误: %v", err)
+	}
+}
+
+// TestDefaultConfig_MultiGPUFields 验证默认配置中多 GPU 字段为安全默认值
+// 生活类比：新车出厂时挡位默认在空挡（SplitMode 空），油门松开（MainGPU=-1）。
+func TestDefaultConfig_MultiGPUFields(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.SplitMode != "" {
+		t.Errorf("期望默认 SplitMode 为空（使用 llama.cpp 默认 layer），实际得到: %q", cfg.SplitMode)
+	}
+	if cfg.TensorSplit != "" {
+		t.Errorf("期望默认 TensorSplit 为空，实际得到: %q", cfg.TensorSplit)
+	}
+	if cfg.MainGPU != -1 {
+		t.Errorf("期望默认 MainGPU=-1（不传递），实际得到: %d", cfg.MainGPU)
+	}
+}

@@ -15,6 +15,7 @@ import (
 	"douya/internal/chat"
 	"douya/internal/config"
 	"douya/internal/llm"
+	"douya/internal/modelruntime"
 	"douya/internal/pathutil"
 	"douya/internal/rag"
 	"douya/internal/system"
@@ -64,9 +65,9 @@ type App struct {
 	resolvedServerPath string
 	// presetGenFailed 标记 preset 文件生成是否失败，用于启动后通知前端显示警告
 	presetGenFailed bool
-	ready              atomic.Bool
-	serverReady        atomic.Bool
-	watchCancel        context.CancelFunc
+	ready           atomic.Bool
+	serverReady     atomic.Bool
+	watchCancel     context.CancelFunc
 	// rootCtx 是应用级上下文，生命周期贯穿整个 App 运行期。
 	// shutdownInternal 会调用 rootCancel 通知所有被跟踪的长生命周期 goroutine 退出。
 	rootCtx    context.Context
@@ -77,18 +78,17 @@ type App struct {
 	// logChan 用于 SetOnLog 回调的日志推送：生产者（llama-server 输出）非阻塞写入，
 	// 消费者（trackedGo 启动的单个 goroutine）读取并 EventsEmit 到前端。
 	// 替代原来"每行日志一个 goroutine"的实现，避免 goroutine 泛滥。
-	logChan          chan string
-	stopOnce         sync.Once
-	cleanupResult    []*chat.AbnormalConversation
-	cleanupResultMu  sync.Mutex
-	presets          []llm.ModelPreset
-	presetRelPaths   map[string]string
-	presetsMu        sync.RWMutex
-	currentModelMu   sync.RWMutex
-	currentModelName string
-	isSwitching      atomic.Bool
-	switchingTo      string
-	switchingToMu    sync.RWMutex
+	logChan         chan string
+	stopOnce        sync.Once
+	cleanupResult   []*chat.AbnormalConversation
+	cleanupResultMu sync.Mutex
+	presets         []llm.ModelPreset
+	presetRelPaths  map[string]string
+	presetsMu       sync.RWMutex
+	// modelSession owns current-model and switch-transition state. Keeping the
+	// state together prevents readers from observing a mixed lock/atomic view.
+	modelSession     *modelruntime.Session
+	modelSessionOnce sync.Once
 	ragVS            *rag.VectorStore
 	ragDS            *rag.DocumentStore
 	ragEmbedder      *rag.ClientEmbedder
@@ -104,6 +104,31 @@ type App struct {
 
 func NewApp() *App {
 	return &App{}
+}
+
+func (a *App) modelRuntimeSession() *modelruntime.Session {
+	// NewApp is the production construction path. The fallback preserves the
+	// zero-value App used by a few focused tests and legacy helpers.
+	a.modelSessionOnce.Do(func() {
+		a.modelSession = modelruntime.NewSession()
+	})
+	return a.modelSession
+}
+
+func (a *App) currentModel() string { return a.modelRuntimeSession().CurrentModel() }
+
+func (a *App) setCurrentModel(model string) { a.modelRuntimeSession().SetCurrentModel(model) }
+
+func (a *App) beginModelSwitch(target string) bool {
+	return a.modelRuntimeSession().BeginSwitch(target)
+}
+
+func (a *App) endModelSwitch() { a.modelRuntimeSession().EndSwitch() }
+
+func (a *App) clearSwitchTarget() { a.modelRuntimeSession().ClearTarget() }
+
+func (a *App) modelSessionSnapshot() modelruntime.SessionSnapshot {
+	return a.modelRuntimeSession().Snapshot()
 }
 
 // getClient 返回当前 llm.Client 的快照指针。

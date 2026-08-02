@@ -144,9 +144,9 @@ func (s *Service) executeToolCallsConcurrently(cancelCtx context.Context, convID
 				if r := recover(); r != nil {
 					log.Error().Interface("panic", r).Str("tool", tc.Function.Name).Int("idx", idx).Msg("[chat] executeSingleToolCall panic recovered")
 					toolResults[idx] = toolCallResult{
-						tc:           tc,
-						toolContent:  fmt.Sprintf(`{"error":"工具执行内部错误:%v"}`, r),
-						searchJSON:   "",
+						tc:          tc,
+						toolContent: fmt.Sprintf(`{"error":"工具执行内部错误:%v"}`, r),
+						searchJSON:  "",
 					}
 				}
 			}()
@@ -444,9 +444,9 @@ func (s *Service) compressContextIfNeeded(convID string, llmMessages []llm.ChatM
 	if convID != "" {
 		existingSummary, _ = store.GetConversationSummary(s.db, convID)
 	}
-	// M13 修复：wailsCtx 用 snapshot 读取避免数据竞争
-	wailsCtx := s.getWailsCtxSnapshot()
-	result := CompressContext(wailsCtx, llmMessages, contextLimit, existingSummary, nil, client, convID, s.db)
+	// M13 修复：hostCtx 用 snapshot 读取避免数据竞争
+	hostCtx := s.getHostContextSnapshot()
+	result := CompressContext(hostCtx, llmMessages, contextLimit, existingSummary, nil, client, convID, s.db)
 	llmMessages = result.Messages
 	// 压缩后 llmMessages 发生变化，重新计算 totalTokens 以保持准确
 	state.totalTokens = estimateMessagesTokens(llmMessages)

@@ -281,6 +281,11 @@ func buildServerConfigFromFields(
 		SpecDefault:              cfg.SpecDefault,
 		Device:                   cfg.Device,
 		Parallel:                 cfg.Parallel,
+		// 多 GPU 参数接线：config.go 已有字段与校验（isValidSplitMode/validateTensorSplit），
+		// 此处映射到 ServerConfig，由 server_args.go 生成 --split-mode/--tensor-split/--main-gpu
+		SplitMode:                cfg.SplitMode,
+		TensorSplit:              cfg.TensorSplit,
+		MainGPU:                  cfg.MainGPU,
 		SpecType:                 d.SpecType,
 		SpecDraftNMax:            d.SpecDraftNMax,
 		SpecDraftNMin:            d.SpecDraftNMin,
@@ -339,6 +344,7 @@ func buildServerConfigFromFields(
 		BackendSampling:          cfg.BackendSampling,
 		SsePingInterval:          cfg.SsePingInterval,
 		LoraPaths:                cfg.LoraPaths,
+		ChatTemplateFile:         cfg.ChatTemplateFile,
 		RerankerModelPath:        cfg.RerankerModelPath,
 		DirectIO:                 cfg.DirectIO,
 		CPUMoe:                   cfg.CPUMoe,

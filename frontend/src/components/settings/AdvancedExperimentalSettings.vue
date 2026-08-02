@@ -83,6 +83,20 @@
 
       <n-form-item>
         <template #label>
+          自定义聊天模板
+          <HelpTip
+            content="指定 .jinja 模板文件路径，覆盖模型自带的聊天模板（用于自定义对话格式）。留空使用模型自带模板，文件不存在时自动忽略"
+          />
+        </template>
+        <n-input
+          v-model:value="formConfig.chat_template_file"
+          placeholder="模板文件路径（如 models/my-template.jinja）"
+          @blur="autoSave"
+        />
+      </n-form-item>
+
+      <n-form-item>
+        <template #label>
           Prompt 缓存
           <HelpTip
             content="显式控制 prompt 缓存行为。开启后复用已计算的 KV 缓存加速重复请求，关闭则每次重新计算"
@@ -117,6 +131,63 @@
           />
         </template>
         <n-switch v-model:value="formConfig.verbose" @update:value="autoSave" />
+      </n-form-item>
+
+      <n-form-item>
+        <template #label>
+          内存锁定 (mlock)
+          <HelpTip
+            content="将模型权重锁定在物理内存，防止操作系统换页到磁盘，提升推理稳定性。内存充足时可开启"
+          />
+        </template>
+        <n-switch
+          :value="formConfig.mlock ?? false"
+          @update:value="
+            (v: boolean) => {
+              formConfig.mlock = v
+              autoSave()
+            }
+          "
+        />
+      </n-form-item>
+
+      <n-form-item>
+        <template #label>
+          统一 KV 缓存
+          <HelpTip
+            content="开启后 K/V 缓存共享同一内存池，减少内存碎片。llama.cpp 新特性，一般建议保持开启"
+          />
+        </template>
+        <n-switch v-model:value="formConfig.kv_unified" @update:value="autoSave" />
+      </n-form-item>
+
+      <n-form-item>
+        <template #label>
+          直接 I/O
+          <HelpTip
+            content="绕过操作系统页面缓存直接读写磁盘，加速大模型加载。HDD 上效果明显，SSD 提升有限"
+          />
+        </template>
+        <n-switch v-model:value="formConfig.direct_io" @update:value="autoSave" />
+      </n-form-item>
+
+      <n-form-item>
+        <template #label>
+          算子卸载
+          <HelpTip
+            content="将部分计算算子（op）从 GPU 卸载到 CPU 执行，节省显存。自动=由 llama.cpp 根据显存自动决定"
+          />
+        </template>
+        <n-select
+          :value="formConfig.op_offload === null ? 'auto' : formConfig.op_offload ? 'on' : 'off'"
+          :options="opOffloadOptions"
+          @update:value="
+            (v: string) => {
+              formConfig.op_offload = v === 'auto' ? null : v === 'on'
+              autoSave()
+            }
+          "
+        />
       </n-form-item>
 
       <!-- RAG 重排序配置 -->
@@ -198,7 +269,7 @@
 
 <script setup lang="ts">
 import { inject } from 'vue'
-import { NFormItem, NSwitch, NInput, NInputNumber } from 'naive-ui'
+import { NFormItem, NSwitch, NInput, NInputNumber, NSelect } from 'naive-ui'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
 import MCPSettings from './MCPSettings.vue'
 import LoraManager from '../LoraManager.vue'
@@ -229,6 +300,13 @@ function handleBackendSamplingChange() {
   }
   autoSave()
 }
+
+/** 算子卸载选项（null=自动，对应 llama.cpp 默认） */
+const opOffloadOptions = [
+  { label: '自动（llama.cpp 决定）', value: 'auto' },
+  { label: '开启', value: 'on' },
+  { label: '关闭', value: 'off' }
+]
 </script>
 
 <style scoped>

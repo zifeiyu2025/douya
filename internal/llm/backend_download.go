@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -111,22 +113,55 @@ func FindReleaseAsset(bt BackendType) (asset githubAsset, tagName string, err er
 		return githubAsset{}, "", fmt.Errorf("解析 GitHub API 响应失败: %w", err)
 	}
 
-	// 在 assets 中匹配对应后端
+	// 在 assets 中匹配对应后端，收集所有匹配项
+	// CUDA 后端官方同时提供 12.x 和 13.x 两个版本，需要优先选 13.x
+	var matched []githubAsset
 	for _, a := range release.Assets {
 		if re.MatchString(a.Name) {
-			log.Info().
-				Str("backend", bt.String()).
-				Str("tag", release.TagName).
-				Str("asset", a.Name).
-				Str("url", a.BrowserDownloadURL).
-				Int64("size", a.Size).
-				Msg("[backend] 匹配到 GitHub release asset")
-			return a, release.TagName, nil
+			matched = append(matched, a)
 		}
 	}
 
-	return githubAsset{}, release.TagName, fmt.Errorf("在最新 release %s 中未找到匹配 %s 后端的 asset（正则: %s）",
-		release.TagName, info.DisplayName, info.ReleaseAssetRegex)
+	if len(matched) == 0 {
+		return githubAsset{}, release.TagName, fmt.Errorf("在最新 release %s 中未找到匹配 %s 后端的 asset（正则: %s）",
+			release.TagName, info.DisplayName, info.ReleaseAssetRegex)
+	}
+
+	// CUDA 后端优先选高版本（13.x 优于 12.x），豆芽主用 cudart64_13.dll
+	// 其他后端只有一个匹配项，排序不影响
+	if bt == BackendCUDA && len(matched) > 1 {
+		sort.Slice(matched, func(i, j int) bool {
+			return cudaMajorVersion(matched[i].Name) > cudaMajorVersion(matched[j].Name)
+		})
+		log.Info().
+			Str("backend", bt.String()).
+			Ints("versions", []int{cudaMajorVersion(matched[0].Name), cudaMajorVersion(matched[len(matched)-1].Name)}).
+			Msg("[backend] CUDA 多版本匹配，已优先选择高版本")
+	}
+
+	a := matched[0]
+	log.Info().
+		Str("backend", bt.String()).
+		Str("tag", release.TagName).
+		Str("asset", a.Name).
+		Str("url", a.BrowserDownloadURL).
+		Int64("size", a.Size).
+		Msg("[backend] 匹配到 GitHub release asset")
+	return a, release.TagName, nil
+}
+
+// cudaMajorVersion 从 CUDA asset 名中提取大版本号（如 13.3 → 13），用于优先级排序。
+// 无法提取时返回 0（排序时排在最后）。
+func cudaMajorVersion(assetName string) int {
+	matches := cudaVersionPriorityRegex.FindStringSubmatch(assetName)
+	if len(matches) < 2 {
+		return 0
+	}
+	n, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // DownloadBackendZip 从 GitHub 下载指定后端的 zip 包到 runtimeDir 目录。
@@ -301,8 +336,14 @@ func DownloadBackendZip(bt BackendType, runtimeDir string, progressCB func(Downl
 }
 
 // cudartAssetRegex 匹配 CUDA 后端附带的 cudart 包
-// 例如：cudart-llama-bin-win-cuda-13.3-x64.zip
-var cudartAssetRegex = regexp.MustCompile(`^cudart-llama-bin-win-cuda-1[3-9]\.\d+-x64\.zip$`)
+// 全量适配：同时匹配 CUDA 12.x 和 13.x
+// 例如：cudart-llama-bin-win-cuda-12.4-x64.zip、cudart-llama-bin-win-cuda-13.3-x64.zip
+// 优先级见 FindCudartAsset 的优先选择逻辑
+var cudartAssetRegex = regexp.MustCompile(`^cudart-llama-bin-win-cuda-1[23]\.\d+-x64\.zip$`)
+
+// cudaVersionPriorityRegex 用于从 CUDA asset 名中提取版本号，用于优先级排序。
+// 例如 "llama-b10228-bin-win-cuda-13.3-x64.zip" 提取 "13.3"，13.x 优先于 12.x
+var cudaVersionPriorityRegex = regexp.MustCompile(`cuda-(\d+)\.(\d+)`)
 
 // FindCudartAsset 在 GitHub latest release 中查找 CUDA 的 cudart 附带包。
 // 仅在 CUDA 后端下载时需要额外下载此包，解压到同一目录提供 cudart64_*.dll 等厂商 DLL。
@@ -338,19 +379,37 @@ func FindCudartAsset() (asset githubAsset, tagName string, err error) {
 		return githubAsset{}, "", fmt.Errorf("解析 GitHub API 响应失败: %w", err)
 	}
 
+	// 收集所有匹配的 cudart asset（12.x 和 13.x）
+	var matched []githubAsset
 	for _, a := range release.Assets {
 		if cudartAssetRegex.MatchString(a.Name) {
-			log.Info().
-				Str("tag", release.TagName).
-				Str("asset", a.Name).
-				Str("url", a.BrowserDownloadURL).
-				Int64("size", a.Size).
-				Msg("[backend] 匹配到 cudart release asset")
-			return a, release.TagName, nil
+			matched = append(matched, a)
 		}
 	}
 
-	return githubAsset{}, release.TagName, fmt.Errorf("在最新 release %s 中未找到 cudart 包", release.TagName)
+	if len(matched) == 0 {
+		return githubAsset{}, release.TagName, fmt.Errorf("在最新 release %s 中未找到 cudart 包", release.TagName)
+	}
+
+	// 优先选高版本（13.x 优于 12.x），与主后端版本保持一致
+	if len(matched) > 1 {
+		sort.Slice(matched, func(i, j int) bool {
+			return cudaMajorVersion(matched[i].Name) > cudaMajorVersion(matched[j].Name)
+		})
+		log.Info().
+			Str("tag", release.TagName).
+			Ints("versions", []int{cudaMajorVersion(matched[0].Name), cudaMajorVersion(matched[len(matched)-1].Name)}).
+			Msg("[backend] cudart 多版本匹配，已优先选择高版本")
+	}
+
+	a := matched[0]
+	log.Info().
+		Str("tag", release.TagName).
+		Str("asset", a.Name).
+		Str("url", a.BrowserDownloadURL).
+		Int64("size", a.Size).
+		Msg("[backend] 匹配到 cudart release asset")
+	return a, release.TagName, nil
 }
 
 // DownloadCudartZip 下载 CUDA 的 cudart 附带包到 runtimeDir 目录。

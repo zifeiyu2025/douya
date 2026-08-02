@@ -85,13 +85,11 @@ func (a *App) watchServerHealth(ctx context.Context, watchCtx context.Context) {
 			}
 
 			// 不在切换中且 serverReady 为 true 时才检查
-			if a.isSwitching.Load() || !a.serverReady.Load() {
+			if a.modelSessionSnapshot().Switching || !a.serverReady.Load() {
 				return
 			}
 
-			a.currentModelMu.RLock()
-			modelName := a.currentModelName
-			a.currentModelMu.RUnlock()
+			modelName := a.currentModel()
 			if modelName == "" || a.getClient() == nil {
 				return
 			}
@@ -197,16 +195,12 @@ func (a *App) GetServerStatus() llm.ServerStatus {
 				caps := a.service.GetModelCapabilities()
 				status.Capabilities = &caps
 			}
-			a.currentModelMu.RLock()
-			status.CurrentModel = a.currentModelName
-			a.currentModelMu.RUnlock()
+			status.CurrentModel = a.currentModel()
 		}
 		status.ModelReady = a.serverReady.Load()
-		if a.isSwitching.Load() {
+		if snapshot := a.modelSessionSnapshot(); snapshot.Switching {
 			status.Switching = true
-			a.switchingToMu.RLock()
-			status.SwitchingTo = a.switchingTo
-			a.switchingToMu.RUnlock()
+			status.SwitchingTo = snapshot.SwitchingTo
 		}
 		return status
 	}
@@ -225,9 +219,7 @@ func (a *App) GetMetrics() (llm.MetricsSummary, error) {
 		return llm.MetricsSummary{}, fmt.Errorf("客户端未初始化")
 	}
 	// router 模式下必须传 model 参数，否则返回 400 "model name is missing from the request"
-	a.currentModelMu.RLock()
-	modelName := a.currentModelName
-	a.currentModelMu.RUnlock()
+	modelName := a.currentModel()
 	if modelName == "" {
 		return llm.MetricsSummary{}, fmt.Errorf("当前无已加载模型，无法获取指标（router 模式需要 model 参数）")
 	}
@@ -242,9 +234,7 @@ func (a *App) GetMetrics() (llm.MetricsSummary, error) {
 
 func (a *App) runningStatus() llm.ServerStatus {
 	caps := a.service.GetModelCapabilities()
-	a.currentModelMu.RLock()
-	modelName := a.currentModelName
-	a.currentModelMu.RUnlock()
+	modelName := a.currentModel()
 	return llm.ServerStatus{
 		Running:      true,
 		ModelReady:   a.serverReady.Load(),
@@ -910,7 +900,7 @@ func (a *App) GetSmartParams() *SmartParamsInfo {
 // SwitchModel 切换模型（主流程编排）
 func (a *App) SwitchModel(modelName string) SwitchResult {
 	// 预检查
-	if errMsg := a.switchPreCheck(); errMsg != "" {
+	if errMsg := a.switchPreCheck(modelName); errMsg != "" {
 		return SwitchResult{Error: errMsg}
 	}
 
@@ -982,11 +972,11 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 }
 
 // switchPreCheck 预检查：服务器是否启动、是否正在切换、VRAM 是否足够
-func (a *App) switchPreCheck() string {
+func (a *App) switchPreCheck(modelName string) string {
 	if a.server == nil || a.getClient() == nil {
 		return "服务器未启动"
 	}
-	if !a.isSwitching.CompareAndSwap(false, true) {
+	if !a.beginModelSwitch(modelName) {
 		return "正在切换模型中，请稍候。"
 	}
 	return ""
@@ -1080,13 +1070,7 @@ func (a *App) switchPrepare(modelName string) string {
 		a.service.StopGeneration()
 	}
 
-	a.currentModelMu.RLock()
-	previousModel := a.currentModelName
-	a.currentModelMu.RUnlock()
-
-	a.switchingToMu.Lock()
-	a.switchingTo = modelName
-	a.switchingToMu.Unlock()
+	previousModel := a.currentModel()
 
 	a.serverReady.Store(false)
 
@@ -1101,6 +1085,7 @@ func (a *App) switchPrepare(modelName string) string {
 // 生活类比：客服收到投诉后先分类（是产品坏了还是物流慢了），再按类别套模板回复，而不是每次重新写。
 //   - waitErr: WaitForModelLoaded 返回的错误
 //   - stderrHint: 从 server stderr 提取的详细错误提示（可为空）
+//
 // 返回非空字符串表示失败原因；空字符串表示未识别为错误（调用方不应进入此分支）。
 //
 // B-1 增强：检测栈溢出崩溃（0xC0000409），Vulkan 后端时给出后端切换建议。
@@ -1337,9 +1322,7 @@ func (a *App) switchWaitReady(modelName string) string {
 // switchFinalize 完成切换：更新模型名、保存配置、检测架构、发射事件
 func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 	// 更新当前模型名
-	a.currentModelMu.Lock()
-	a.currentModelName = modelName
-	a.currentModelMu.Unlock()
+	a.setCurrentModel(modelName)
 	// 同步更新 client 的当前模型（v9744+ API 需要）
 	if a.getClient() != nil {
 		a.getClient().SetCurrentModel(modelName)
@@ -1432,16 +1415,11 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 	a.serverReady.Store(true)
 
 	// 清除切换状态
-	a.isSwitching.Store(false)
-	a.switchingToMu.Lock()
-	a.switchingTo = ""
-	a.switchingToMu.Unlock()
+	a.endModelSwitch()
 
 	zlog.Info().Str("model", modelName).Str("previous", previousModel).Msg("[router] model switched")
 
-	a.currentModelMu.RLock()
-	resultModel := a.currentModelName
-	a.currentModelMu.RUnlock()
+	resultModel := a.currentModel()
 	caps := a.service.GetModelCapabilities()
 	return SwitchResult{
 		Success:       true,
@@ -1457,9 +1435,7 @@ func (a *App) handleSwitchFailure(modelName, previousModel, errMsg string) Switc
 	a.emitSwitchProgress("failed", modelName)
 
 	// 注意：isSwitching 在回滚完成后再清除，防止回滚期间用户发起新切换
-	a.switchingToMu.Lock()
-	a.switchingTo = ""
-	a.switchingToMu.Unlock()
+	a.clearSwitchTarget()
 
 	rollbackSuccess := false
 	if previousModel != "" && previousModel != modelName {
@@ -1473,9 +1449,7 @@ func (a *App) handleSwitchFailure(modelName, previousModel, errMsg string) Switc
 			if waitErr := a.getClient().WaitForModelLoaded(restoreCtx, previousModel, apiTimeoutMedium); waitErr != nil {
 				zlog.Warn().Err(waitErr).Str("model", previousModel).Msg("[router] 等待旧模型就绪超时，将依赖 watch 更新状态")
 			}
-			a.currentModelMu.Lock()
-			a.currentModelName = previousModel
-			a.currentModelMu.Unlock()
+			a.setCurrentModel(previousModel)
 			a.emitSwitchSuccess(previousModel)
 			a.serverReady.Store(true)
 			rollbackSuccess = true
@@ -1489,7 +1463,7 @@ func (a *App) handleSwitchFailure(modelName, previousModel, errMsg string) Switc
 	}
 
 	// 回滚完成后再清除 isSwitching
-	a.isSwitching.Store(false)
+	a.endModelSwitch()
 
 	return SwitchResult{
 		Error:           errMsg,
@@ -1657,15 +1631,10 @@ func (a *App) Health() HealthStatus {
 	}
 	llmStatus.ModelReady = a.serverReady.Load()
 	llmStatus.LoadFailed = a.serverLoadFailed.Load()
-	a.currentModelMu.RLock()
-	llmStatus.CurrentModel = a.currentModelName
-	a.currentModelMu.RUnlock()
-	llmStatus.Switching = a.isSwitching.Load()
-	if llmStatus.Switching {
-		a.switchingToMu.RLock()
-		llmStatus.SwitchingTo = a.switchingTo
-		a.switchingToMu.RUnlock()
-	}
+	session := a.modelSessionSnapshot()
+	llmStatus.CurrentModel = session.CurrentModel
+	llmStatus.Switching = session.Switching
+	llmStatus.SwitchingTo = session.SwitchingTo
 	a.lastServerErrMu.RLock()
 	llmStatus.LastError = a.lastServerError
 	a.lastServerErrMu.RUnlock()

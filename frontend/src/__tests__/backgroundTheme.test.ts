@@ -12,7 +12,7 @@ import { buildBackgroundStyle } from '../utils/backgroundStyle'
  * 这个测试文件就是来"验收"这件事的：
  *   1. 验证 buildBackgroundStyle 这个"包装工人"在两种主题下都肯干活（21.1）
  *   2. 验证 App.vue 的 .has-background 开关不再看主题脸色（21.2）
- *   3. 验证 BasicSettings 设置页不再弹出"仅深色模式"的禁用提示（21.3）
+ *   3. 验证 AppearanceSettings 设置页不再弹出"仅深色模式"的禁用提示（21.3）
  *
  * 说明：buildBackgroundStyle 是从 App.vue mainAreaStyle 抽取的纯函数，
  * 它不接收 isDark 参数——这本身就是"双主题都支持"的体现。
@@ -26,7 +26,7 @@ const __dirname = dirname(__filename)
 
 // 读取源码文件路径（用于 SubTask 21.2 / 21.3 的代码审查）
 const APP_VUE_PATH = resolve(__dirname, '../App.vue')
-const BASIC_SETTINGS_VUE_PATH = resolve(__dirname, '../components/settings/BasicSettings.vue')
+const APPEARANCE_SETTINGS_VUE_PATH = resolve(__dirname, '../components/settings/AppearanceSettings.vue')
 
 describe('Task 21: 背景图双主题支持', () => {
   beforeEach(() => {
@@ -86,9 +86,9 @@ describe('Task 21: 背景图双主题支持', () => {
       expect(style['--chat-background']).toBe(`url(/local-file/${encoded})`)
     })
 
-    it('opacity 默认值为 0.9', () => {
+    it('opacity 默认值为 0.85', () => {
       const style = buildBackgroundStyle('/path/to/bg.png')
-      expect(style['--chat-background-opacity']).toBe('0.9')
+      expect(style['--chat-background-opacity']).toBe('0.85')
     })
 
     it('opacity 显式传 0.5 → 使用 0.5', () => {
@@ -147,22 +147,22 @@ describe('Task 21: 背景图双主题支持', () => {
     })
   })
 
-  // ===== SubTask 21.3: 验证 BasicSettings 亮色模式显示上传区 =====
-  describe('SubTask 21.3: BasicSettings 亮色模式显示上传区', () => {
-    it('BasicSettings.vue 不包含"背景图仅支持深色模式"禁用提示', () => {
-      const content = readFileSync(BASIC_SETTINGS_VUE_PATH, 'utf-8')
+  // ===== SubTask 21.3: 验证 AppearanceSettings 亮色模式显示上传区 =====
+  describe('SubTask 21.3: AppearanceSettings 亮色模式显示上传区', () => {
+    it('AppearanceSettings.vue 不包含"背景图仅支持深色模式"禁用提示', () => {
+      const content = readFileSync(APPEARANCE_SETTINGS_VUE_PATH, 'utf-8')
       expect(content).not.toContain('背景图仅支持深色模式')
       expect(content).not.toContain('仅支持深色模式')
     })
 
-    it('BasicSettings.vue 背景图上传区不再被 v-if="!isDark" 禁用', () => {
-      const content = readFileSync(BASIC_SETTINGS_VUE_PATH, 'utf-8')
+    it('AppearanceSettings.vue 背景图上传区不再被 v-if="!isDark" 禁用', () => {
+      const content = readFileSync(APPEARANCE_SETTINGS_VUE_PATH, 'utf-8')
       // 不应存在用 !isDark 禁用背景图上传区的条件
       expect(content).not.toContain('v-if="!isDark"')
     })
 
-    it('BasicSettings.vue 聊天背景 form-item 始终显示（无 isDark 条件）', () => {
-      const content = readFileSync(BASIC_SETTINGS_VUE_PATH, 'utf-8')
+    it('AppearanceSettings.vue 聊天背景 form-item 始终显示（无 isDark 条件）', () => {
+      const content = readFileSync(APPEARANCE_SETTINGS_VUE_PATH, 'utf-8')
       // 定位"聊天背景"form-item 块
       const bgBlock =
         content.match(/<n-form-item label="聊天背景">[\s\S]*?<\/n-form-item>/)?.[0] ?? ''
@@ -171,12 +171,12 @@ describe('Task 21: 背景图双主题支持', () => {
       expect(bgBlock).not.toContain('isDark')
     })
 
-    it('BasicSettings.vue 上传占位区在无背景图时显示（v-if 仅依赖 chat_background）', () => {
-      const content = readFileSync(BASIC_SETTINGS_VUE_PATH, 'utf-8')
-      // upload-placeholder 的 v-if 应仅依赖 formConfig.chat_background
-      // 正则允许 <div 与 class 之间有其他属性和换行（prettier 格式化后属性分散多行）
+    it('AppearanceSettings.vue 上传占位区在无背景图时显示（v-if 仅依赖 chat_background）', () => {
+      const content = readFileSync(APPEARANCE_SETTINGS_VUE_PATH, 'utf-8')
+      // bg-upload-placeholder 的 v-if 应仅依赖 formConfig.chat_background
+      // 正则允许 <div 和 class 之间有其他属性和换行（prettier 格式化后属性分散多行）
       const placeholderLine =
-        content.match(/<div\b[^>]*class="upload-placeholder"[^>]*>/)?.[0] ?? ''
+        content.match(/<div\b[^>]*class="bg-upload-placeholder"[^>]*>/)?.[0] ?? ''
       expect(placeholderLine).toBeTruthy()
       expect(placeholderLine).toContain('v-if="!formConfig.chat_background"')
       expect(placeholderLine).not.toContain('isDark')

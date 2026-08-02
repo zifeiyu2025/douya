@@ -10,8 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
-
 	"douya/internal/apperror"
 	"douya/internal/config"
 	"douya/internal/llm"
@@ -22,11 +20,18 @@ import (
 )
 
 type Service struct {
-	llmClient         *llm.Client
-	searchChain       *search.SearchChain
-	db                *sql.DB
-	config            *config.Config
-	wailsCtx          context.Context
+	llmClient   *llm.Client
+	searchChain *search.SearchChain
+	db          *sql.DB
+	config      *config.Config
+	// events is the output port for UI-facing stream events. Keeping this as an
+	// interface prevents chat use cases from depending on a specific desktop UI
+	// framework (Wails today, another host tomorrow).
+	events EventPublisher
+	// hostCtx is the application lifecycle context. It is deliberately separate
+	// from events: command cancellation is a use-case concern, while publishing
+	// is an infrastructure concern.
+	hostCtx           context.Context
 	appDir            string
 	currentCancel     context.CancelFunc
 	currentConvID     string
@@ -65,10 +70,10 @@ type Service struct {
 	// 用户改 MCP 配置 + llama-server 重启后可通过 RefreshMcpToolsCache 强制刷新。
 	// mcpToolsInitialized 区分"未初始化"和"已初始化但为空"，避免空缓存反复触发拉取。
 	// mcpToolsOnce 确保并发 getMcpTools 只触发一次拉取（M2: 防止启动阶段重复拉取）。
-	mcpToolsCache        []llm.ToolDefinition
-	mcpToolsCacheMu      sync.RWMutex
-	mcpToolsInitialized  bool
-	mcpToolsOnce         sync.Once
+	mcpToolsCache       []llm.ToolDefinition
+	mcpToolsCacheMu     sync.RWMutex
+	mcpToolsInitialized bool
+	mcpToolsOnce        sync.Once
 }
 
 func NewService(llmClient *llm.Client, searchChain *search.SearchChain, db *sql.DB, cfg *config.Config, cipher secrets.Cipher, appDir string) *Service {
@@ -83,20 +88,37 @@ func NewService(llmClient *llm.Client, searchChain *search.SearchChain, db *sql.
 	}
 }
 
-func (s *Service) SetContext(ctx context.Context) {
-	// M11 修复：wailsCtx 加锁保护，避免与 emit/emitForConv 并发读取产生数据竞争
-	// 生活类比：调度中心更新电话总机时，要先锁住操作台，避免接线员同时读半更新的号码
+// SetEventPublisher sets the adapter used to forward stream events outside the
+// chat application layer. Passing nil intentionally disables event delivery,
+// which is useful for headless callers and tests.
+func (s *Service) SetEventPublisher(events EventPublisher) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	s.wailsCtx = ctx
+	s.events = events
 }
 
-// getWailsCtxSnapshot 在读锁保护下获取 wailsCtx 快照，避免数据竞争。
-// 返回 nil 表示 SetContext 尚未调用（如初始化期间或测试环境），调用方需自行兜底。
-func (s *Service) getWailsCtxSnapshot() context.Context {
+// SetHostContext sets the host lifecycle context used as the parent for
+// long-running chat operations. It does not imply a particular UI framework.
+func (s *Service) SetHostContext(ctx context.Context) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.hostCtx = ctx
+}
+
+// getEventPublisherSnapshot returns the current event adapter under a read
+// lock, so replacing it during lifecycle changes cannot race with streaming.
+func (s *Service) getEventPublisherSnapshot() EventPublisher {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
-	return s.wailsCtx
+	return s.events
+}
+
+// getHostContextSnapshot returns the host lifecycle context, if one has been
+// supplied. Callers fall back to context.Background for headless use and tests.
+func (s *Service) getHostContextSnapshot() context.Context {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+	return s.hostCtx
 }
 
 // beginGeneration 统一处理"开始新一轮生成"的锁与取消逻辑，消除 SendMessage 和 RegenerateMessage 的重复代码。
@@ -223,10 +245,8 @@ func (s *Service) SetRAGEnabled(enabled bool) {
 }
 
 func (s *Service) emit(eventType string, content any) {
-	// M11 修复：通过 snapshot 读取 wailsCtx，避免与 SetContext 数据竞争
-	ctx := s.getWailsCtxSnapshot()
-	if ctx != nil {
-		runtime.EventsEmit(ctx, "chat:stream", StreamEvent{
+	if events := s.getEventPublisherSnapshot(); events != nil {
+		events.Publish(StreamEvent{
 			Type:    eventType,
 			Content: content,
 		})
@@ -234,10 +254,8 @@ func (s *Service) emit(eventType string, content any) {
 }
 
 func (s *Service) emitForConv(convID string, eventType string, content any) {
-	// M11 修复：通过 snapshot 读取 wailsCtx，避免与 SetContext 数据竞争
-	ctx := s.getWailsCtxSnapshot()
-	if ctx != nil {
-		runtime.EventsEmit(ctx, "chat:stream", StreamEvent{
+	if events := s.getEventPublisherSnapshot(); events != nil {
+		events.Publish(StreamEvent{
 			Type:           eventType,
 			Content:        content,
 			ConversationID: convID,
@@ -348,9 +366,9 @@ func (s *Service) CompressConversation(convID string) (*CompressResult, error) {
 
 	// 6. 同步生成新短期摘要
 	// 超时设为 summaryTimeoutSec*2+10s，与 CompressContext 一致，留出短期+长期两次 LLM 调用时间
-	// M15 修复：用 wailsCtx 作为父 context，应用关闭时能立即取消，避免阻塞退出最长 70+ 秒
+	// M15 修复：用 hostCtx 作为父 context，应用关闭时能立即取消，避免阻塞退出最长 70+ 秒
 	// 生活类比：加班任务要挂在公司总机下，公司下班时能一起切断，而不是独立电话线永远占线
-	parentCtx := s.getWailsCtxSnapshot()
+	parentCtx := s.getHostContextSnapshot()
 	if parentCtx == nil {
 		parentCtx = context.Background()
 	}
