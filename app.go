@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -167,6 +168,26 @@ func (a *App) trackedGo(fn func()) {
 		}()
 		fn()
 	})
+}
+
+// requireReady 检查应用是否已就绪（配置加载、数据库初始化等完成）。
+// 生活类比：像大楼入口的门禁——没有工牌（未就绪）就不让进，直接返回错误。
+// 用于消除各 App 方法开头重复的 if !a.ready.Load() { return ... } 模式。
+func (a *App) requireReady() error {
+	if !a.ready.Load() {
+		return fmt.Errorf("应用未就绪。")
+	}
+	return nil
+}
+
+// requireServer 检查 AI 服务（llama-server）是否已启动并就绪。
+// 生活类比：像使用会议室前检查投影仪是否已开机——没开机就无法开会。
+// 用于消除需要 AI 推理能力的方法中重复的 serverReady 检查。
+func (a *App) requireServer() error {
+	if !a.serverReady.Load() {
+		return fmt.Errorf("AI 服务未启动，请等待服务就绪或检查配置。")
+	}
+	return nil
 }
 
 var (

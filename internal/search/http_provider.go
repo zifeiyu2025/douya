@@ -7,8 +7,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
+
+	"douya/internal/apperror"
 )
 
 // BaseHTTPSearchProvider 为基于 HTTP+JSON 的搜索 Provider 提供通用骨架。
@@ -51,7 +52,7 @@ type BaseHTTPSearchProvider struct {
 func (p *BaseHTTPSearchProvider) doSearchJSON(ctx context.Context, url string, reqBody any, respOut any) error {
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "marshal request", err)
 	}
 
 	headers := map[string]string{
@@ -65,7 +66,7 @@ func (p *BaseHTTPSearchProvider) doSearchJSON(ctx context.Context, url string, r
 	}
 
 	if err := json.Unmarshal(respBody, respOut); err != nil {
-		return fmt.Errorf("unmarshal response: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "unmarshal response", err)
 	}
 
 	return nil

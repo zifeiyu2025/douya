@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"douya/internal/apperror"
 	"douya/internal/system"
 )
 
@@ -134,9 +135,13 @@ func WritePresetFile(path string, content string) error {
 
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create preset dir: %w", err)
+		// 目录创建失败通常是权限问题或磁盘满，归为 Internal
+		return apperror.Wrap(apperror.KindInternal, "create preset dir", err)
 	}
-	return os.WriteFile(path, []byte(content), 0o644)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return apperror.Wrap(apperror.KindInternal, "write preset file", err)
+	}
+	return nil
 }
 
 func SetDefaultAlias(presets []ModelPreset, defaultModelPath string) {
@@ -172,7 +177,8 @@ func ScanModelsDir(modelsDir string) ([]ModelPreset, error) {
 func scanFlatModels(modelsDir string) ([]ModelPreset, error) {
 	entries, err := os.ReadDir(modelsDir)
 	if err != nil {
-		return nil, err
+		// 模型目录读取失败：可能是目录不存在或无权限
+		return nil, apperror.Wrap(apperror.KindInternal, "read models dir (flat)", err)
 	}
 
 	var modelFiles []string
@@ -204,7 +210,7 @@ func scanFlatModels(modelsDir string) ([]ModelPreset, error) {
 func scanSubdirModels(modelsDir string) ([]ModelPreset, error) {
 	entries, err := os.ReadDir(modelsDir)
 	if err != nil {
-		return nil, fmt.Errorf("read models dir: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "read models dir (subdir)", err)
 	}
 
 	var presets []ModelPreset

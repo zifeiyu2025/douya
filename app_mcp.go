@@ -5,10 +5,10 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 
+	"douya/internal/apperror"
 	"douya/internal/config"
 
 	zlog "github.com/rs/zerolog/log"
@@ -53,7 +53,7 @@ func (a *App) SaveMCPServers(servers []config.MCPServerConfig) error {
 	a.configMu.Lock()
 	if a.config == nil {
 		a.configMu.Unlock()
-		return fmt.Errorf("配置未初始化")
+		return apperror.New(apperror.KindInvalidConfig, "配置未初始化")
 	}
 	newCfg := *a.config
 	newCfg.MCPServers = servers
@@ -64,13 +64,13 @@ func (a *App) SaveMCPServers(servers []config.MCPServerConfig) error {
 	// 2. 持久化 config.json
 	configPath := filepath.Join(appDir(), "config.json")
 	if err := config.Save(configPath, cfg); err != nil {
-		return fmt.Errorf("保存配置失败: %w", err)
+		return apperror.Wrap(apperror.KindInvalidConfig, "保存配置失败", err)
 	}
 
 	// 3. 生成 mcp_servers.json（仅包含已启用的 server）
 	mcpConfigPath := filepath.Join(appDir(), "mcp_servers.json")
 	if err := writeMcpServersFile(mcpConfigPath, servers); err != nil {
-		return fmt.Errorf("写入 mcp_servers.json 失败: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "写入 mcp_servers.json 失败", err)
 	}
 
 	enabledCount := 0
@@ -104,7 +104,7 @@ func writeMcpServersFile(path string, servers []config.MCPServerConfig) error {
 
 	data, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {
-		return fmt.Errorf("序列化 mcp_servers.json 失败: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "序列化 mcp_servers.json 失败", err)
 	}
 	// RF-4 修复：MCP 配置的 Env 字段可能含 API token 等敏感信息，收紧文件权限到 0o600
 	// 仅文件所有者可读写，避免同机其他用户读取明文环境变量

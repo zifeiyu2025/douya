@@ -9,7 +9,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -17,6 +16,7 @@ import (
 
 	zlog "github.com/rs/zerolog/log"
 
+	"douya/internal/apperror"
 	"douya/internal/pathutil"
 )
 
@@ -41,11 +41,11 @@ func (c *CipherCache) getAEAD(key []byte) (cipher.AEAD, error) {
 	// 缓存未命中，创建新的 AEAD
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, fmt.Errorf("create cipher: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "create cipher", err)
 	}
 	aesGCM, err := cipher.NewGCM(block)
 	if err != nil {
-		return nil, fmt.Errorf("create GCM: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "create GCM", err)
 	}
 	c.m.Store(cacheKey, aesGCM)
 	return aesGCM, nil
@@ -120,29 +120,29 @@ func LoadOrCreateKey(keyPath string) ([]byte, error) {
 			return data, nil
 		}
 		// 文件存在但长度异常——可能是损坏/截断，不能静默覆盖，否则旧加密数据永久无法解密
-		return nil, fmt.Errorf("密钥文件 %s 已损坏（当前大小=%d 字节，期望=32 字节），请备份后手动删除该文件再启动", keyPath, len(data))
+		return nil, apperror.Newf(apperror.KindInvalidInput, "密钥文件 %s 已损坏（当前大小=%d 字节，期望=32 字节），请备份后手动删除该文件再启动", keyPath, len(data))
 	}
 	// 文件不存在，创建新密钥
 	if !os.IsNotExist(err) {
 		// 其他读取错误（权限等）
-		return nil, fmt.Errorf("读取密钥文件 %s 失败: %w", keyPath, err)
+		return nil, apperror.Wrapf(apperror.KindInternal, "读取密钥文件 %s 失败", err, keyPath)
 	}
 
 	// 生成新的 256-bit 密钥
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
-		return nil, fmt.Errorf("生成密钥失败: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "生成密钥失败", err)
 	}
 
 	// 确保目录存在
 	dir := filepath.Dir(keyPath)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("create key dir: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "create key dir", err)
 	}
 
 	// 写入密钥文件，权限仅限当前用户
 	if err := os.WriteFile(keyPath, key, 0o600); err != nil {
-		return nil, fmt.Errorf("写入密钥文件 %s 失败: %w", keyPath, err)
+		return nil, apperror.Wrapf(apperror.KindInternal, "写入密钥文件 %s 失败", err, keyPath)
 	}
 
 	// Windows 平台：0600 权限位在 Windows 上意义有限（NTFS 不使用 Unix 权限模型），
@@ -172,7 +172,7 @@ func Encrypt(plaintext string, key []byte) (string, error) {
 
 	nonce := make([]byte, aesGCM.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
-		return "", fmt.Errorf("generate nonce: %w", err)
+		return "", apperror.Wrap(apperror.KindInternal, "generate nonce", err)
 	}
 
 	// nonce 附加在密文前面
@@ -185,7 +185,7 @@ func Encrypt(plaintext string, key []byte) (string, error) {
 func Decrypt(encoded string, key []byte) (string, error) {
 	ciphertext, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return "", fmt.Errorf("decode base64: %w", err)
+		return "", apperror.Wrap(apperror.KindInternal, "decode base64", err)
 	}
 
 	aesGCM, err := defaultCipherCache.getAEAD(key)
@@ -195,13 +195,13 @@ func Decrypt(encoded string, key []byte) (string, error) {
 
 	nonceSize := aesGCM.NonceSize()
 	if len(ciphertext) < nonceSize {
-		return "", fmt.Errorf("ciphertext too short")
+		return "", apperror.New(apperror.KindInvalidInput, "ciphertext too short")
 	}
 
 	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
 	plaintext, err := aesGCM.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return "", fmt.Errorf("decrypt: %w", err)
+		return "", apperror.Wrap(apperror.KindInternal, "decrypt", err)
 	}
 
 	return string(plaintext), nil

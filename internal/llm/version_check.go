@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	"douya/internal/apperror"
+
 	"github.com/rs/zerolog/log"
 )
 
@@ -63,7 +65,7 @@ func GetLocalVersion(serverPath string) (version int, commit string, err error) 
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return 0, "", fmt.Errorf("执行 llama-server --version 失败: %w", err)
+		return 0, "", apperror.Wrap(apperror.KindInternal, "执行 llama-server --version 失败", err)
 	}
 
 	outputStr := string(output)
@@ -72,11 +74,11 @@ func GetLocalVersion(serverPath string) (version int, commit string, err error) 
 	// 提取版本号（如 10216）
 	matches := versionRegexp.FindStringSubmatch(outputStr)
 	if len(matches) < 2 {
-		return 0, "", fmt.Errorf("无法从版本输出中解析版本号: %s", strings.TrimSpace(outputStr))
+		return 0, "", apperror.Newf(apperror.KindInternal, "无法从版本输出中解析版本号: %s", strings.TrimSpace(outputStr))
 	}
 	version, err = strconv.Atoi(matches[1])
 	if err != nil {
-		return 0, "", fmt.Errorf("解析版本号 %q 失败: %w", matches[1], err)
+		return 0, "", apperror.Wrapf(apperror.KindInternal, "解析版本号 %q 失败", err, matches[1])
 	}
 
 	// 提取 commit hash（括号内的字符串，如 "876a43211"）
@@ -110,40 +112,40 @@ func GetLatestReleaseTag() (version int, tag string, err error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequest("GET", GitHubReleasesAPI, nil)
 	if err != nil {
-		return 0, "", fmt.Errorf("创建 GitHub API 请求失败: %w", err)
+		return 0, "", apperror.Wrap(apperror.KindInternal, "创建 GitHub API 请求失败", err)
 	}
 	req.Header.Set("User-Agent", "Douya-LocalAI")
 	req.Header.Set("Accept", "application/vnd.github+json")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, "", fmt.Errorf("请求 GitHub API 失败: %w", err)
+		return 0, "", apperror.Wrap(apperror.KindUnavailable, "请求 GitHub API 失败", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return 0, "", fmt.Errorf("GitHub API 返回非 200 状态码: %d", resp.StatusCode)
+		return 0, "", apperror.Newf(apperror.KindUnavailable, "GitHub API 返回非 200 状态码: %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return 0, "", fmt.Errorf("读取 GitHub API 响应失败: %w", err)
+		return 0, "", apperror.Wrap(apperror.KindInternal, "读取 GitHub API 响应失败", err)
 	}
 
 	var release githubRelease
 	if err := json.Unmarshal(body, &release); err != nil {
-		return 0, "", fmt.Errorf("解析 GitHub API 响应失败: %w", err)
+		return 0, "", apperror.Wrap(apperror.KindInternal, "解析 GitHub API 响应失败", err)
 	}
 
 	tag = release.TagName
 	// 从 tag（如 "b10220"）提取构建编号
 	matches := tagRegexp.FindStringSubmatch(tag)
 	if len(matches) < 2 {
-		return 0, tag, fmt.Errorf("无法从 tag %q 解析构建编号", tag)
+		return 0, tag, apperror.Newf(apperror.KindInternal, "无法从 tag %q 解析构建编号", tag)
 	}
 	version, err = strconv.Atoi(matches[1])
 	if err != nil {
-		return 0, tag, fmt.Errorf("解析构建编号 %q 失败: %w", matches[1], err)
+		return 0, tag, apperror.Wrapf(apperror.KindInternal, "解析构建编号 %q 失败", err, matches[1])
 	}
 
 	log.Info().

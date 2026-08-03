@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"douya/internal/apperror"
 )
 
 // TestDeleteModel 测试 DeleteModel 方法
@@ -803,8 +805,9 @@ func TestGetModelInfoByNameNotFound(t *testing.T) {
 	if err == nil {
 		t.Fatalf("期望返回错误（模型未找到），但得到 nil，info=%+v", info)
 	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Fatalf("期望错误信息包含 \"not found\"，实际为 %v", err)
+	// 用错误类型判断替代字符串匹配，这正是 apperror 的设计初衷
+	if apperror.KindOf(err) != apperror.KindNotFound {
+		t.Fatalf("期望错误类型为 KindNotFound，实际为 %s，err=%v", apperror.KindOf(err), err)
 	}
 	if info != nil {
 		t.Fatalf("期望 info 为 nil，实际为 %+v", info)

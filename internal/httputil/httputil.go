@@ -3,9 +3,10 @@ package httputil
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
+
+	"douya/internal/apperror"
 )
 
 // ReadBodyLimited 读取 r 的内容，最多读取 maxBytes 字节。
@@ -20,22 +21,22 @@ func ReadBodyLimited(r io.Reader, maxBytes int64) ([]byte, error) {
 func DoAndUnmarshal[T any](client *http.Client, req *http.Request, maxBodySize int64) (*T, []byte, error) {
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, nil, fmt.Errorf("request failed: %w", err)
+		return nil, nil, apperror.Wrap(apperror.KindUnavailable, "request failed", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := ReadBodyLimited(resp.Body, maxBodySize)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read body failed: %w", err)
+		return nil, nil, apperror.Wrap(apperror.KindUnavailable, "read body failed", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, body, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
+		return nil, body, apperror.Newf(apperror.KindUnavailable, "unexpected status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var result T
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, body, fmt.Errorf("unmarshal failed: %w", err)
+		return nil, body, apperror.Wrap(apperror.KindUnavailable, "unmarshal failed", err)
 	}
 	return &result, body, nil
 }
@@ -44,5 +45,5 @@ func DoAndUnmarshal[T any](client *http.Client, req *http.Request, maxBodySize i
 // 消除重复的错误响应处理模式。
 func ReadErrorBody(resp *http.Response, prefix string) error {
 	body, _ := ReadBodyLimited(resp.Body, 64*1024) // 错误响应体限制 64KB
-	return fmt.Errorf("%s, status %d: %s", prefix, resp.StatusCode, string(body))
+	return apperror.Newf(apperror.KindUnavailable, "%s, status %d: %s", prefix, resp.StatusCode, string(body))
 }

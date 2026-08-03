@@ -2,10 +2,10 @@ package main
 
 import (
 	"encoding/base64"
-	"fmt"
 	"path/filepath"
 	"strings"
 
+	"douya/internal/apperror"
 	"douya/internal/config"
 	"douya/internal/rag"
 
@@ -15,27 +15,30 @@ import (
 
 func (a *App) ListKnowledgeBases() ([]rag.CollectionInfo, error) {
 	if a.ragVS == nil {
-		return nil, fmt.Errorf("知识库未初始化")
+		return nil, apperror.New(apperror.KindUnavailable, "知识库未初始化")
 	}
 	return a.ragVS.ListCollections()
 }
 
 func (a *App) CreateKnowledgeBase(name string) error {
 	if a.ragVS == nil {
-		return fmt.Errorf("知识库未初始化")
+		return apperror.New(apperror.KindUnavailable, "知识库未初始化")
 	}
 	if name == "" {
-		return fmt.Errorf("知识库名称不能为空")
+		return apperror.New(apperror.KindInvalidInput, "知识库名称不能为空")
 	}
 	return a.ragVS.CreateCollection(name, 0)
 }
 
 func (a *App) DeleteKnowledgeBase(name string) error {
 	if a.ragVS == nil {
-		return fmt.Errorf("知识库未初始化")
+		return apperror.New(apperror.KindUnavailable, "知识库未初始化")
+	}
+	if err := validateNonEmpty("知识库名称", name); err != nil {
+		return err
 	}
 	if name == "default" {
-		return fmt.Errorf("不能删除默认知识库")
+		return apperror.New(apperror.KindConflict, "不能删除默认知识库")
 	}
 	return a.ragVS.DeleteCollection(name)
 }
@@ -113,16 +116,25 @@ const (
 
 func (a *App) UploadDocument(kbName string, fileName string, fileData string, mimeType string) error {
 	if a.ragVS == nil {
-		return fmt.Errorf("知识库未初始化")
+		return apperror.New(apperror.KindUnavailable, "知识库未初始化")
 	}
 	if !a.serverReady.Load() {
-		return fmt.Errorf("AI 服务未启动，无法生成嵌入向量")
+		return apperror.New(apperror.KindUnavailable, "AI 服务未启动，无法生成嵌入向量")
+	}
+	if err := validateNonEmpty("知识库名称", kbName); err != nil {
+		return err
+	}
+	if err := validateNonEmpty("文件名", fileName); err != nil {
+		return err
+	}
+	if err := validateNonEmpty("文件数据", fileData); err != nil {
+		return err
 	}
 
 	// 验证文件扩展名
 	ext := strings.ToLower(filepath.Ext(fileName))
 	if !allowedDocExts[ext] {
-		return fmt.Errorf("不支持的文件类型: %s", ext)
+		return apperror.Newf(apperror.KindInvalidInput, "不支持的文件类型: %s", ext)
 	}
 
 	// MIME 类型校验与兜底推断
@@ -132,18 +144,18 @@ func (a *App) UploadDocument(kbName string, fileName string, fileData string, mi
 	if mimeType == "" || mimeType == "application/octet-stream" {
 		inferred, ok := extToMIME[ext]
 		if !ok {
-			return fmt.Errorf("无法识别文件类型")
+			return apperror.New(apperror.KindInvalidInput, "无法识别文件类型")
 		}
 		mimeType = inferred
 	}
 	if !allowedDocMIMETypes[mimeType] {
-		return fmt.Errorf("不支持的 MIME 类型: %s", mimeType)
+		return apperror.Newf(apperror.KindInvalidInput, "不支持的 MIME 类型: %s", mimeType)
 	}
 
 	// 验证文件大小
 	decodedLen := base64.StdEncoding.DecodedLen(len(fileData))
 	if decodedLen > maxUploadSize {
-		return fmt.Errorf("文件大小超过限制（最大 %d MB）", maxUploadSize/(1024*1024))
+		return apperror.Newf(apperror.KindInvalidInput, "文件大小超过限制（最大 %d MB）", maxUploadSize/(1024*1024))
 	}
 
 	// 知识库级别限制：检查文档数量和总大小
@@ -154,14 +166,14 @@ func (a *App) UploadDocument(kbName string, fileName string, fileData string, mi
 			zlog.Warn().Err(err).Msg("[rag] 查询已有文档列表失败，跳过知识库级别限制检查")
 		} else {
 			if len(existingDocs) >= maxDocumentsPerKB {
-				return fmt.Errorf("知识库文档数量已达上限（%d 个），请删除不需要的文档后再上传", maxDocumentsPerKB)
+				return apperror.Newf(apperror.KindConflict, "知识库文档数量已达上限（%d 个），请删除不需要的文档后再上传", maxDocumentsPerKB)
 			}
 			var totalSize int64
 			for _, doc := range existingDocs {
 				totalSize += doc.FileSize
 			}
 			if totalSize+int64(decodedLen) > maxTotalSizePerKB {
-				return fmt.Errorf("知识库总大小将超过上限（%.0f MB），请删除不需要的文档后再上传",
+				return apperror.Newf(apperror.KindConflict, "知识库总大小将超过上限（%.0f MB），请删除不需要的文档后再上传",
 					float64(maxTotalSizePerKB)/(1024*1024))
 			}
 		}
@@ -181,14 +193,14 @@ func (a *App) UploadDocument(kbName string, fileName string, fileData string, mi
 		if minDecodeLen > 0 {
 			decoded, err := base64.StdEncoding.DecodeString(fileData[:minDecodeLen])
 			if err != nil || len(decoded) < 5 || string(decoded[:5]) != "%PDF-" {
-				return fmt.Errorf("文件扩展名为 PDF 但内容不是有效的 PDF 文件（magic bytes 不匹配）")
+				return apperror.New(apperror.KindInvalidInput, "文件扩展名为 PDF 但内容不是有效的 PDF 文件（magic bytes 不匹配）")
 			}
 		}
 	}
 
 	embedder := a.ragEmbedder
 	if embedder == nil {
-		return fmt.Errorf("知识库未初始化")
+		return apperror.New(apperror.KindUnavailable, "知识库未初始化")
 	}
 	cfg := a.getConfig()
 	chunkCfg := rag.ChunkConfig{
@@ -203,21 +215,30 @@ func (a *App) UploadDocument(kbName string, fileName string, fileData string, mi
 	}
 	_, err := rag.IngestFileFromBase64(a.ctx, a.ragVS, a.ragDS, embedder, kbName, fileName, fileData, mimeType, chunkCfg)
 	if err != nil {
-		return fmt.Errorf("上传文档失败: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "上传文档失败", err)
 	}
 	return nil
 }
 
 func (a *App) ListDocuments(kbName string) ([]rag.DocumentMeta, error) {
 	if a.ragDS == nil {
-		return nil, fmt.Errorf("知识库未初始化")
+		return nil, apperror.New(apperror.KindUnavailable, "知识库未初始化")
+	}
+	if err := validateNonEmpty("知识库名称", kbName); err != nil {
+		return nil, err
 	}
 	return a.ragDS.List(kbName)
 }
 
 func (a *App) DeleteDocument(kbName string, docID string) error {
 	if a.ragVS == nil {
-		return fmt.Errorf("知识库未初始化")
+		return apperror.New(apperror.KindUnavailable, "知识库未初始化")
+	}
+	if err := validateNonEmpty("知识库名称", kbName); err != nil {
+		return err
+	}
+	if err := validateNonEmpty("文档ID", docID); err != nil {
+		return err
 	}
 	if a.ragDS != nil {
 		if err := a.ragDS.Delete(kbName, docID); err != nil {
@@ -229,7 +250,10 @@ func (a *App) DeleteDocument(kbName string, docID string) error {
 
 func (a *App) SetActiveKnowledgeBase(kbName string) error {
 	if a.ragVS == nil {
-		return fmt.Errorf("知识库未初始化")
+		return apperror.New(apperror.KindUnavailable, "知识库未初始化")
+	}
+	if err := validateNonEmpty("知识库名称", kbName); err != nil {
+		return err
 	}
 	// 采用"复制→修改副本→替换指针"模式，避免直接修改 a.config 字段破坏快照语义
 	a.configMu.Lock()

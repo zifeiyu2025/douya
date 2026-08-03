@@ -49,7 +49,7 @@ type BackendInfo struct {
 	DisplayName string
 	// Subdir runtime/ 目录下的子目录名，如 "cuda"，每种后端的 DLL 解压到这里
 	Subdir string
-	// ZipPattern zip 包名的 glob 模式，如 "llama-b*-bin-win-cuda-1[3-9]*-x64.zip"，
+	// ZipPattern zip 包名的 glob 模式，如 "llama-b*-bin-win-cuda-1[23]*-x64.zip"（匹配 CUDA 12.x/13.x），
 	// 用于在本地 runtime 目录中匹配已下载的后端压缩包
 	ZipPattern string
 	// ReleaseAssetRegex 匹配 GitHub release asset 名称的正则表达式，

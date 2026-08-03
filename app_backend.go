@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"douya/internal/apperror"
 	"douya/internal/config"
 	"douya/internal/llm"
 
@@ -102,7 +103,7 @@ func (a *App) GetBackendStatus() BackendStatus {
 func (a *App) SwitchBackend(bt string) error {
 	// 步骤 1：校验后端类型合法性
 	if !llm.IsValidBackendType(bt) {
-		return fmt.Errorf("无效的后端类型: %q（合法值: auto/cuda/hip/sycl/vulkan/openvino/cpu）", bt)
+		return apperror.Newf(apperror.KindInvalidInput, "无效的后端类型: %q（合法值: auto/cuda/hip/sycl/vulkan/openvino/cpu）", bt)
 	}
 
 	zlog.Info().Str("backend", bt).Msg("[backend] 开始切换显卡后端")
@@ -119,7 +120,7 @@ func (a *App) SwitchBackend(bt string) error {
 	}
 	newCfg.BackendType = bt
 	if err := newCfg.Validate(); err != nil {
-		return fmt.Errorf("配置校验失败: %w", err)
+		return apperror.Wrap(apperror.KindInvalidConfig, "配置校验失败", err)
 	}
 	a.setConfig(&newCfg)
 
@@ -127,7 +128,7 @@ func (a *App) SwitchBackend(bt string) error {
 	cfgPath := filepath.Join(appDir(), "config.json")
 	if err := config.Save(cfgPath, &newCfg); err != nil {
 		zlog.Error().Err(err).Msg("[backend] 保存配置失败")
-		return fmt.Errorf("保存配置失败: %w", err)
+		return apperror.Wrap(apperror.KindInvalidConfig, "保存配置失败", err)
 	}
 
 	if newCfg.LastSuccessfulBackend != "" {
@@ -144,7 +145,7 @@ func (a *App) SwitchBackend(bt string) error {
 			// 前端会误以为切换成功。改为只返回 error，由前端 catch 处理失败提示，
 			// 并在前端刷新状态时通过 GetBackendStatus 重新获取真实状态。
 			zlog.Error().Err(err).Str("backend", bt).Msg("[backend] 后端安装失败")
-			return fmt.Errorf("后端 %s 安装失败: %w", bt, err)
+			return apperror.Wrapf(apperror.KindInternal, "后端 %s 安装失败", err, bt)
 		}
 	}
 
@@ -172,7 +173,7 @@ func (a *App) SwitchBackend(bt string) error {
 func (a *App) DownloadBackend(bt string) error {
 	// 步骤 1：校验后端类型合法性（auto 不可下载，需先解析成具体后端）
 	if !llm.IsValidBackendType(bt) || bt == string(llm.BackendAuto) {
-		return fmt.Errorf("无效的后端类型: %q（合法值: cuda/hip/sycl/vulkan/openvino/cpu）", bt)
+		return apperror.Newf(apperror.KindInvalidInput, "无效的后端类型: %q（合法值: cuda/hip/sycl/vulkan/openvino/cpu）", bt)
 	}
 
 	zlog.Info().Str("backend", bt).Msg("[backend] 开始从 GitHub 下载后端")

@@ -3,13 +3,13 @@ package rag
 import (
 	"archive/zip"
 	"bytes"
-	"fmt"
 	"io"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"unicode/utf8"
 
+	"douya/internal/apperror"
 	"douya/internal/pdfutil"
 )
 
@@ -93,7 +93,7 @@ func ParseFileFromBytes(data []byte, fileName string) (string, error) {
 	case ".pdf":
 		text := pdfutil.ExtractTextWithFallback(data, "")
 		if text == "" {
-			return "", fmt.Errorf("failed to extract text from PDF: %s", fileName)
+			return "", apperror.Newf(apperror.KindInternal, "failed to extract text from PDF: %s", fileName)
 		}
 		return text, nil
 	case ".docx":
@@ -105,7 +105,7 @@ func ParseFileFromBytes(data []byte, fileName string) (string, error) {
 
 func parseAsText(data []byte) (string, error) {
 	if !utf8.Valid(data) {
-		return "", fmt.Errorf("file content is not valid UTF-8")
+		return "", apperror.New(apperror.KindInternal, "file content is not valid UTF-8")
 	}
 	return string(data), nil
 }
@@ -113,7 +113,7 @@ func parseAsText(data []byte) (string, error) {
 func parseDOCX(data []byte) (string, error) {
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
-		return "", fmt.Errorf("failed to open docx as zip: %w", err)
+		return "", apperror.Wrap(apperror.KindInternal, "failed to open docx as zip", err)
 	}
 
 	var xmlContent []byte
@@ -123,30 +123,30 @@ func parseDOCX(data []byte) (string, error) {
 		}
 		rc, err := f.Open()
 		if err != nil {
-			return "", fmt.Errorf("failed to open word/document.xml: %w", err)
+			return "", apperror.Wrap(apperror.KindInternal, "failed to open word/document.xml", err)
 		}
 		// 使用 limitedReadAll 限制解压后大小，防御 zip bomb 攻击
 		xmlContent, err = limitedReadAll(rc, maxDOCXUncompressedSize)
 		rc.Close()
 		if err != nil {
-			return "", fmt.Errorf("failed to read word/document.xml: %w", err)
+			return "", apperror.Wrap(apperror.KindInternal, "failed to read word/document.xml", err)
 		}
 		// 检查读取到的字节数是否达到上限，若达到则说明内容超过 100MB 限制
 		if int64(len(xmlContent)) >= maxDOCXUncompressedSize {
-			return "", fmt.Errorf("DOCX 解压内容超过 100MB 限制，可能为恶意文件")
+			return "", apperror.New(apperror.KindInvalidInput, "DOCX 解压内容超过 100MB 限制，可能为恶意文件")
 		}
 		break
 	}
 
 	if xmlContent == nil {
-		return "", fmt.Errorf("word/document.xml not found in docx")
+		return "", apperror.New(apperror.KindInternal, "word/document.xml not found in docx")
 	}
 
 	text := stripXMLTags(string(xmlContent))
 	text = cleanWhitespace(text)
 
 	if text == "" {
-		return "", fmt.Errorf("no text content extracted from docx")
+		return "", apperror.New(apperror.KindInternal, "no text content extracted from docx")
 	}
 
 	return text, nil

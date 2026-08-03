@@ -7,7 +7,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -94,22 +93,22 @@ func encryptMessage(msg *Message, encKey []byte) error {
 func decryptMessage(msg *Message, encKey []byte) error {
 	var err error
 	if msg.Content, err = decryptField(msg.Content, encKey); err != nil {
-		return fmt.Errorf("decrypt content: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "decrypt content", err)
 	}
 	if msg.ThinkingContent, err = decryptField(msg.ThinkingContent, encKey); err != nil {
-		return fmt.Errorf("decrypt thinking_content: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "decrypt thinking_content", err)
 	}
 	if msg.SearchResults, err = decryptField(msg.SearchResults, encKey); err != nil {
-		return fmt.Errorf("decrypt search_results: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "decrypt search_results", err)
 	}
 	if msg.Images, err = decryptField(msg.Images, encKey); err != nil {
-		return fmt.Errorf("decrypt images: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "decrypt images", err)
 	}
 	if msg.Attachments, err = decryptField(msg.Attachments, encKey); err != nil {
-		return fmt.Errorf("decrypt attachments: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "decrypt attachments", err)
 	}
 	if msg.ToolCalls, err = decryptField(msg.ToolCalls, encKey); err != nil {
-		return fmt.Errorf("decrypt tool_calls: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "decrypt tool_calls", err)
 	}
 	return nil
 }
@@ -129,7 +128,7 @@ func CreateMessage(db *sql.DB, msg *Message, encKey []byte) error {
 	}
 	// 加密复制的结构体，不修改原始 msg
 	if err := encryptMessage(&saved, encKey); err != nil {
-		return fmt.Errorf("encrypt message: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "encrypt message", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), dbOpTimeout)
@@ -139,7 +138,7 @@ func CreateMessage(db *sql.DB, msg *Message, encKey []byte) error {
 		saved.ID, saved.ConversationID, saved.Role, saved.Content, saved.ThinkingContent, saved.ThinkingDuration, saved.SearchResults, saved.Images, saved.Attachments, saved.ToolCalls, saved.ToolCallID, saved.CreatedAt,
 	)
 	if err != nil {
-		return fmt.Errorf("create message: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "create message", err)
 	}
 	return nil
 }
@@ -152,23 +151,23 @@ func GetMessagesByConversation(db *sql.DB, convID string, encKey []byte) ([]*Mes
 		convID,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("get messages by conversation: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "get messages by conversation", err)
 	}
 	defer rows.Close()
 	var msgs []*Message
 	for rows.Next() {
 		msg := &Message{}
 		if err := scanMessage(rows, msg); err != nil {
-			return nil, fmt.Errorf("scan message: %w", err)
+			return nil, apperror.Wrap(apperror.KindInternal, "scan message", err)
 		}
 		// 解密敏感字段
 		if err := decryptMessage(msg, encKey); err != nil {
-			return nil, fmt.Errorf("decrypt message %s: %w", msg.ID, err)
+			return nil, apperror.Wrapf(apperror.KindInternal, "decrypt message %s", err, msg.ID)
 		}
 		msgs = append(msgs, msg)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate messages: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "iterate messages", err)
 	}
 	return msgs, nil
 }
@@ -186,7 +185,7 @@ func SearchMessages(db *sql.DB, query string, encKey []byte) ([]*Message, error)
 		searchMaxScanRows,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("search messages: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "search messages", err)
 	}
 	defer rows.Close()
 
@@ -198,7 +197,7 @@ func SearchMessages(db *sql.DB, query string, encKey []byte) ([]*Message, error)
 		scanned++
 		msg := &Message{}
 		if err := scanMessage(rows, msg); err != nil {
-			return nil, fmt.Errorf("scan message: %w", err)
+			return nil, apperror.Wrap(apperror.KindInternal, "scan message", err)
 		}
 		// 解密敏感字段
 		if err := decryptMessage(msg, encKey); err != nil {
@@ -231,7 +230,7 @@ func SearchMessages(db *sql.DB, query string, encKey []byte) ([]*Message, error)
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate messages: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "iterate messages", err)
 	}
 	// 如果扫描的行数达到上限，说明可能还有更早的匹配结果被截断，提示用户缩小搜索范围
 	if scanned >= searchMaxScanRows {
@@ -256,11 +255,11 @@ func GetMessage(db *sql.DB, id string, encKey []byte) (*Message, error) {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, apperror.Wrap(apperror.KindNotFound, "消息不存在: "+id, err)
 		}
-		return nil, fmt.Errorf("get message: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "get message", err)
 	}
 	// 解密敏感字段
 	if err := decryptMessage(&msg, encKey); err != nil {
-		return nil, fmt.Errorf("decrypt message %s: %w", msg.ID, err)
+		return nil, apperror.Wrapf(apperror.KindInternal, "decrypt message %s", err, msg.ID)
 	}
 	return &msg, nil
 }
@@ -306,7 +305,7 @@ func deleteMessagesBatchInternal(db *sql.DB, ids []string) error {
 	defer cancel()
 	_, err := db.ExecContext(ctx, query, args...)
 	if err != nil {
-		return fmt.Errorf("delete messages batch: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "delete messages batch", err)
 	}
 	return nil
 }

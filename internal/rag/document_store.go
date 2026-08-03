@@ -2,10 +2,11 @@ package rag
 
 import (
 	"encoding/json"
-	"fmt"
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/rs/zerolog/log"
+
+	"douya/internal/apperror"
 )
 
 type DocumentMeta struct {
@@ -37,7 +38,7 @@ func docMetaKey(collection, id string) []byte {
 func (ds *DocumentStore) Put(meta DocumentMeta) error {
 	data, err := json.Marshal(meta)
 	if err != nil {
-		return fmt.Errorf("marshal document meta: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "marshal document meta", err)
 	}
 	key := docMetaKey(meta.Collection, meta.ID)
 	// 通过 VectorStore.WithTx 访问 Badger，不再直接持有 *badger.DB
@@ -45,7 +46,7 @@ func (ds *DocumentStore) Put(meta DocumentMeta) error {
 		return txn.Set(key, data)
 	})
 	if err != nil {
-		return fmt.Errorf("put document meta %q/%q: %w", meta.Collection, meta.ID, err)
+		return apperror.Wrapf(apperror.KindInternal, "put document meta %q/%q", err, meta.Collection, meta.ID)
 	}
 	log.Info().Str("collection", meta.Collection).Str("id", meta.ID).Msg("document meta stored")
 	return nil
@@ -65,7 +66,7 @@ func (ds *DocumentStore) Get(collection, id string) (*DocumentMeta, error) {
 		})
 	})
 	if err != nil {
-		return nil, fmt.Errorf("get document meta %q/%q: %w", collection, id, err)
+		return nil, apperror.Wrapf(apperror.KindInternal, "get document meta %q/%q", err, collection, id)
 	}
 	return &meta, nil
 }
@@ -91,7 +92,7 @@ func (ds *DocumentStore) List(collection string) ([]DocumentMeta, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list document meta for %q: %w", collection, err)
+		return nil, apperror.Wrapf(apperror.KindInternal, "list document meta for %q", err, collection)
 	}
 	if result == nil {
 		result = []DocumentMeta{}
@@ -105,7 +106,7 @@ func (ds *DocumentStore) Delete(collection, id string) error {
 		return txn.Delete(key)
 	})
 	if err != nil {
-		return fmt.Errorf("delete document meta %q/%q: %w", collection, id, err)
+		return apperror.Wrapf(apperror.KindInternal, "delete document meta %q/%q", err, collection, id)
 	}
 	log.Info().Str("collection", collection).Str("id", id).Msg("document meta deleted")
 	return nil

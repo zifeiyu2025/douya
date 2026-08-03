@@ -2,9 +2,9 @@ package rag
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
+	"douya/internal/apperror"
 	"douya/internal/llm"
 )
 
@@ -40,7 +40,7 @@ func (e *ClientEmbedder) GetModel() string {
 // Embed calls the LLM embedding API and returns float64 vectors.
 func (e *ClientEmbedder) Embed(ctx context.Context, texts []string) ([][]float64, error) {
 	if e.Client == nil {
-		return nil, fmt.Errorf("rag: embedder client is nil")
+		return nil, apperror.New(apperror.KindInvalidConfig, "rag: embedder client is nil")
 	}
 
 	e.mu.RLock()
@@ -62,7 +62,7 @@ func (e *ClientEmbedder) Embed(ctx context.Context, texts []string) ([][]float64
 
 	resp, err := e.Client.Embedding(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("rag: embedding API call failed: %w", err)
+		return nil, apperror.Wrap(apperror.KindUnavailable, "rag: embedding API call failed", err)
 	}
 
 	vectors := make([][]float64, len(resp.Data))

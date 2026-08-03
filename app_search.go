@@ -1,9 +1,9 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
+	"douya/internal/apperror"
 	"douya/internal/search"
 )
 
@@ -25,10 +25,10 @@ func (a *App) SetSearchAPIKeys(keys SearchAPIKeys) error {
 		return a.service.SetEncryptedSetting(dbKey, value)
 	}
 	if err := setFn("search_ollama_api_key", keys.OllamaAPIKey); err != nil {
-		return fmt.Errorf("save ollama api key: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "save ollama api key", err)
 	}
 	if err := setFn("search_tavily_api_key", keys.TavilyAPIKey); err != nil {
-		return fmt.Errorf("save tavily api key: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "save tavily api key", err)
 	}
 	return nil
 }

@@ -11,7 +11,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"math"
 	"strings"
 	"sync"
@@ -20,6 +19,8 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/rs/zerolog/log"
+
+	"douya/internal/apperror"
 )
 
 // ErrCollectionExists is returned when creating a collection that already exists.
@@ -156,7 +157,7 @@ func (idx *memIndex) insert(id string, vec []float64) {
 // 任务 34:接受 ctx 参数,每 1000 次迭代检查 ctx.Err() 以支持超时取消。
 func (idx *memIndex) Search(ctx context.Context, query []float64, k int) ([]SearchResult, error) {
 	if err := idx.waitReady(); err != nil {
-		return nil, fmt.Errorf("memIndex not ready: %w", err)
+		return nil, apperror.Wrap(apperror.KindUnavailable, "memIndex not ready", err)
 	}
 	if len(query) == 0 {
 		return nil, ErrEmptyVector
@@ -504,7 +505,7 @@ func (bi *badgerIndex) Search(ctx context.Context, query []float64, k int) ([]Se
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("badger index search: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "badger index search", err)
 	}
 
 	if truncated {
@@ -582,7 +583,7 @@ func NewVectorStore(dataDir string) (*VectorStore, error) {
 
 	db, err := badger.Open(opts)
 	if err != nil {
-		return nil, fmt.Errorf("open badger: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "open badger", err)
 	}
 
 	vs := &VectorStore{
@@ -733,11 +734,11 @@ func vectorToBytes(v []float64) []byte {
 
 func bytesToVector(b []byte, dim int) ([]float64, error) {
 	if len(b) != dim*8 {
-		return nil, fmt.Errorf("expected %d bytes, got %d", dim*8, len(b))
+		return nil, apperror.Newf(apperror.KindInternal, "expected %d bytes, got %d", dim*8, len(b))
 	}
 	v := make([]float64, dim)
 	if err := binary.Read(bytes.NewReader(b), binary.LittleEndian, v); err != nil {
-		return nil, fmt.Errorf("failed to decode vector: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "failed to decode vector", err)
 	}
 	return v, nil
 }
@@ -861,7 +862,7 @@ func (vs *VectorStore) getOrLoadIndex(name string) (vectorIndex, error) {
 		vs.mu.Lock()
 		delete(vs.indexes, name)
 		vs.mu.Unlock()
-		return nil, fmt.Errorf("rebuild index from badger: %w", buildErr)
+		return nil, apperror.Wrap(apperror.KindInternal, "rebuild index from badger", buildErr)
 	}
 
 	return mi, nil
@@ -967,12 +968,12 @@ func (vs *VectorStore) CreateCollection(name string, dim int) error {
 		meta := collectionMeta{Dim: int32(dim), VectorCount: 0}
 		data, err := metaToBytes(meta)
 		if err != nil {
-			return fmt.Errorf("serialise meta: %w", err)
+			return apperror.Wrap(apperror.KindInternal, "serialise meta", err)
 		}
 		return txn.Set(collectionKey(name), data)
 	})
 	if err != nil {
-		return fmt.Errorf("create collection %q: %w", name, err)
+		return apperror.Wrapf(apperror.KindInternal, "create collection %q", err, name)
 	}
 
 	log.Info().Str("collection", name).Int("dim", dim).Msg("collection created")
@@ -1004,7 +1005,7 @@ func (vs *VectorStore) AddVectors(collection string, ids []string, vectors [][]f
 // 复用本逻辑，将整个文档摄入纳入单次锁保护，避免与并发 DeleteDocument 产生孤立数据（任务 13）。
 func (vs *VectorStore) addVectorsCore(collection string, ids []string, vectors [][]float64) error {
 	if len(ids) != len(vectors) {
-		return fmt.Errorf("ids (%d) and vectors (%d) must have the same length", len(ids), len(vectors))
+		return apperror.Newf(apperror.KindInvalidInput, "ids (%d) and vectors (%d) must have the same length", len(ids), len(vectors))
 	}
 	if len(ids) == 0 {
 		return nil
@@ -1020,17 +1021,17 @@ func (vs *VectorStore) addVectorsCore(collection string, ids []string, vectors [
 	if dim == 0 && len(vectors) > 0 && len(vectors[0]) > 0 {
 		dim = len(vectors[0])
 		if err := vs.updateCollectionDim(collection, int32(dim)); err != nil {
-			return fmt.Errorf("update collection dim: %w", err)
+			return apperror.Wrap(apperror.KindInternal, "update collection dim", err)
 		}
 	}
 
 	// Validate all vectors before any write.
 	for i, v := range vectors {
 		if len(v) == 0 {
-			return fmt.Errorf("%w: vector at index %d is empty", ErrEmptyVector, i)
+			return apperror.Wrapf(apperror.KindInvalidInput, "vector at index %d is empty", ErrEmptyVector, i)
 		}
 		if len(v) != dim {
-			return fmt.Errorf("%w: vector at index %d has dim %d, expected %d",
+			return apperror.Wrapf(apperror.KindInvalidInput, "vector at index %d has dim %d, expected %d",
 				ErrVectorDimMismatch, i, len(v), dim)
 		}
 	}
@@ -1039,7 +1040,7 @@ func (vs *VectorStore) addVectorsCore(collection string, ids []string, vectors [
 	err = vs.db.Update(func(txn *badger.Txn) error {
 		for i, id := range ids {
 			if err := txn.Set(vectorKey(collection, id), vectorToBytes(vectors[i])); err != nil {
-				return fmt.Errorf("store vector %q: %w", id, err)
+				return apperror.Wrapf(apperror.KindInternal, "store vector %q", err, id)
 			}
 		}
 		meta.VectorCount += int64(len(vectors))
@@ -1050,19 +1051,19 @@ func (vs *VectorStore) addVectorsCore(collection string, ids []string, vectors [
 		return txn.Set(collectionKey(collection), data)
 	})
 	if err != nil {
-		return fmt.Errorf("badger update: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "badger update", err)
 	}
 
 	// 更新内存索引（仅 memIndex 模式；badgerIndex 模式下数据已通过 db.Update 写入 Badger）
 	idx, err := vs.getOrLoadIndex(collection)
 	if err != nil {
-		return fmt.Errorf("load index: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "load index", err)
 	}
 	// 注意：此处不再获取 collectionLock，由调用方（AddVectors 或 IngestDocumentWithMeta）持有
 	if mi, ok := idx.(*memIndex); ok {
 		// 任务 3:等待 memIndex 构建完成后再插入,避免与并发构建产生重复向量
 		if err := mi.waitReady(); err != nil {
-			return fmt.Errorf("memIndex build failed: %w", err)
+			return apperror.Wrap(apperror.KindUnavailable, "memIndex build failed", err)
 		}
 		for i := range ids {
 			mi.insert(ids[i], vectors[i])
@@ -1139,7 +1140,7 @@ func (vs *VectorStore) Search(ctx context.Context, collection string, query []fl
 		return nil, err
 	}
 	if len(query) != int(meta.Dim) {
-		return nil, fmt.Errorf("%w: query dim %d, expected %d", ErrVectorDimMismatch, len(query), meta.Dim)
+		return nil, apperror.Wrapf(apperror.KindInvalidInput, "query dim %d, expected %d", ErrVectorDimMismatch, len(query), meta.Dim)
 	}
 
 	// 修复 #12: 在调用 getOrLoadIndex 之前获取 collectionLock，消除
@@ -1166,7 +1167,7 @@ func (vs *VectorStore) Search(ctx context.Context, collection string, query []fl
 	mu.Unlock()
 
 	if err != nil {
-		return nil, fmt.Errorf("search index: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "search index", err)
 	}
 
 	// 批量读取所有 chunk 内容和 metadata，避免 N+1 查询（已移出 collectionLock）。
@@ -1250,7 +1251,7 @@ func deleteByPrefix(txn *badger.Txn, prefix []byte) (int, error) {
 	it.Close()
 	for _, k := range keys {
 		if err := txn.Delete(k); err != nil {
-			return 0, fmt.Errorf("delete key with prefix %q: %w", string(prefix), err)
+			return 0, apperror.Wrapf(apperror.KindInternal, "delete key with prefix %q", err, string(prefix))
 		}
 	}
 	return len(keys), nil
@@ -1299,7 +1300,7 @@ func (vs *VectorStore) DeleteCollection(name string) error {
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("delete collection %q: %w", name, err)
+		return apperror.Wrapf(apperror.KindInternal, "delete collection %q", err, name)
 	}
 
 	// BM25 索引已在内存清理阶段整体丢弃（per-collection 隔离），此处无需再处理
@@ -1337,7 +1338,7 @@ func (vs *VectorStore) ListCollections() ([]CollectionInfo, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list collections: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "list collections", err)
 	}
 	if result == nil {
 		result = []CollectionInfo{}
@@ -1425,7 +1426,7 @@ func (vs *VectorStore) DeleteDocument(collection string, docID string) error {
 		it.Close()
 		for _, k := range vecKeys {
 			if err := txn.Delete(k); err != nil {
-				return fmt.Errorf("delete vector key: %w", err)
+				return apperror.Wrap(apperror.KindInternal, "delete vector key", err)
 			}
 			deletedCount++
 		}
@@ -1444,7 +1445,7 @@ func (vs *VectorStore) DeleteDocument(collection string, docID string) error {
 		it2.Close()
 		for _, k := range chunkKeys {
 			if err := txn.Delete(k); err != nil {
-				return fmt.Errorf("delete chunk key: %w", err)
+				return apperror.Wrap(apperror.KindInternal, "delete chunk key", err)
 			}
 		}
 
@@ -1463,7 +1464,7 @@ func (vs *VectorStore) DeleteDocument(collection string, docID string) error {
 		it3.Close()
 		for _, k := range metaKeys {
 			if err := txn.Delete(k); err != nil {
-				return fmt.Errorf("delete chunkmeta key: %w", err)
+				return apperror.Wrap(apperror.KindInternal, "delete chunkmeta key", err)
 			}
 		}
 
@@ -1494,7 +1495,7 @@ func (vs *VectorStore) DeleteDocument(collection string, docID string) error {
 		return txn.Set(collectionKey(collection), data)
 	})
 	if err != nil {
-		return fmt.Errorf("delete document %q from %q: %w", docID, collection, err)
+		return apperror.Wrapf(apperror.KindInternal, "delete document %q from %q", err, docID, collection)
 	}
 
 	// 事务成功后清理 BM25 索引

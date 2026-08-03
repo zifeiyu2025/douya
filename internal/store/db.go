@@ -5,13 +5,14 @@ package store
 
 import (
 	"database/sql"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
+
+	"douya/internal/apperror"
 
 	_ "github.com/mattn/go-sqlite3" // 注册 SQLite3 驱动（database/sql 需要）
 )
@@ -178,7 +179,8 @@ var allowedTables = map[string]bool{
 
 func GetTableColumns(db *sql.DB, tableName string) (map[string]bool, error) {
 	if !allowedTables[tableName] {
-		return nil, fmt.Errorf("table %q is not in allowed list", tableName)
+		// 表名不在白名单内属于调用方传入非法参数，归为 InvalidInput
+		return nil, apperror.Newf(apperror.KindInvalidInput, "table %q is not in allowed list", tableName)
 	}
 	// 安全说明（基于 GO-INJECT-001 #6）：tableName 已通过上方 allowedTables 白名单校验
 	// （仅允许 "conversations" 和 "messages"），故字符串拼接是安全的。
@@ -242,12 +244,12 @@ func migrateEncryptExistingData(db *sql.DB, encKey []byte) error {
 
 	// 加密 conversations.title（通常数量较少，可直接加载）
 	if err := migrateConversations(db, encKey); err != nil {
-		return fmt.Errorf("migrate conversations: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "migrate conversations", err)
 	}
 
 	// 加密 messages 的敏感字段（分批处理）
 	if err := migrateMessages(db, encKey); err != nil {
-		return fmt.Errorf("migrate messages: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "migrate messages", err)
 	}
 
 	log.Info().Msg("[db] encryption migration completed")
@@ -255,7 +257,7 @@ func migrateEncryptExistingData(db *sql.DB, encKey []byte) error {
 	// 标记迁移完成
 	_, err = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('encryption_migration_done', 'yes')")
 	if err != nil {
-		return fmt.Errorf("mark migration done: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "mark migration done", err)
 	}
 
 	return nil
@@ -265,7 +267,7 @@ func migrateEncryptExistingData(db *sql.DB, encKey []byte) error {
 func migrateConversations(db *sql.DB, encKey []byte) error {
 	rows, err := db.Query("SELECT id, title FROM conversations")
 	if err != nil {
-		return fmt.Errorf("query conversations: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "query conversations", err)
 	}
 	defer rows.Close()
 
@@ -273,7 +275,7 @@ func migrateConversations(db *sql.DB, encKey []byte) error {
 	for rows.Next() {
 		var id, title string
 		if err := rows.Scan(&id, &title); err != nil {
-			return fmt.Errorf("scan conversation: %w", err)
+			return apperror.Wrap(apperror.KindInternal, "scan conversation", err)
 		}
 		// 只加密非空且未加密的标题
 		if title == "" || (len(title) >= 4 && title[:4] == "enc:") {
@@ -330,7 +332,7 @@ func migrateMessages(db *sql.DB, encKey []byte) error {
 			)
 		}
 		if err != nil {
-			return fmt.Errorf("query messages batch: %w", err)
+			return apperror.Wrap(apperror.KindInternal, "query messages batch", err)
 		}
 
 		// 收集本批所有需要更新的行（先加密，再统一写入事务）
@@ -342,7 +344,7 @@ func migrateMessages(db *sql.DB, encKey []byte) error {
 			var content, thinkingContent, searchResults, images, attachments, toolCalls sql.NullString
 			if err := rows.Scan(&id, &content, &thinkingContent, &searchResults, &images, &attachments, &toolCalls); err != nil {
 				rows.Close()
-				return fmt.Errorf("scan message: %w", err)
+				return apperror.Wrap(apperror.KindInternal, "scan message", err)
 			}
 			lastID = id // 更新游标为当前批最后一条 id
 

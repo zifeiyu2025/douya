@@ -12,6 +12,8 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/rs/zerolog/log"
+
+	"douya/internal/apperror"
 )
 
 // IngestDocumentWithMeta 将文档分块、向量化并写入向量库和文档元数据存储。
@@ -51,7 +53,7 @@ func IngestDocumentWithMeta(ctx context.Context, vs *VectorStore, ds *DocumentSt
 	// 阶段 3：创建集合（已存在则忽略）
 	dim := len(allVectors[0])
 	if err := vs.CreateCollection(collectionName, dim); err != nil && !errors.Is(err, ErrCollectionExists) {
-		return nil, fmt.Errorf("create collection failed: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "create collection failed", err)
 	}
 
 	// 生成 chunk ID
@@ -87,7 +89,7 @@ func IngestDocumentWithMeta(ctx context.Context, vs *VectorStore, ds *DocumentSt
 			Float64("ratio", float64(failedCount)/float64(len(ids))).
 			Msg("[rag] chunk write failure ratio exceeds threshold, rolling back")
 		rollbackChunkWrites(vs, collectionName, writtenIDs)
-		return nil, fmt.Errorf("chunk write failure ratio %.2f exceeds threshold %.2f (%d/%d failed)",
+		return nil, apperror.Newf(apperror.KindInternal, "chunk write failure ratio %.2f exceeds threshold %.2f (%d/%d failed)",
 			float64(failedCount)/float64(len(ids)), chunkWriteFailureThreshold, failedCount, len(ids))
 	}
 
@@ -96,7 +98,7 @@ func IngestDocumentWithMeta(ctx context.Context, vs *VectorStore, ds *DocumentSt
 		// 向量写入失败，回滚已写的 chunk 文本+元数据，避免孤立数据
 		log.Warn().Err(err).Msg("[rag] addVectorsCore failed, rolling back chunk writes")
 		rollbackChunkWrites(vs, collectionName, writtenIDs)
-		return nil, fmt.Errorf("add vectors failed: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "add vectors failed", err)
 	}
 
 	// 阶段 6：存储文档级元数据
@@ -123,7 +125,7 @@ func IngestDocumentWithMeta(ctx context.Context, vs *VectorStore, ds *DocumentSt
 func prepareChunksForIngest(text string, fileName string, docID string, chunkCfg ChunkConfig, collectionName string) ([]Chunk, error) {
 	chunks := ChunkDocument(text, chunkCfg)
 	if len(chunks) == 0 {
-		return nil, fmt.Errorf("no chunks produced from document")
+		return nil, apperror.New(apperror.KindInternal, "no chunks produced from document")
 	}
 
 	// 任务 33：单文档 chunk 数量上限保护，避免超大文档导致内存暴涨或写入耗时过长
@@ -134,7 +136,7 @@ func prepareChunksForIngest(text string, fileName string, docID string, chunkCfg
 			Int("chunks", len(chunks)).
 			Int("limit", maxChunksPerDocument).
 			Msg("[rag] document exceeds max chunks limit, rejecting ingestion")
-		return nil, fmt.Errorf("document produced %d chunks, exceeds max limit %d", len(chunks), maxChunksPerDocument)
+		return nil, apperror.Newf(apperror.KindInvalidInput, "document produced %d chunks, exceeds max limit %d", len(chunks), maxChunksPerDocument)
 	}
 
 	// 为每个 chunk 注入元数据（source/doc_id/chunk_idx）
@@ -170,13 +172,13 @@ func generateChunkEmbeddings(ctx context.Context, embedder Embedder, chunks []Ch
 		batch := texts[i:end]
 		batchVecs, err := embedder.Embed(ctx, batch)
 		if err != nil {
-			return nil, fmt.Errorf("embedding batch %d-%d failed: %w", i, end, err)
+			return nil, apperror.Wrapf(apperror.KindUnavailable, "embedding batch %d-%d failed", err, i, end)
 		}
 		allVectors = append(allVectors, batchVecs...)
 	}
 
 	if len(allVectors) != len(chunks) {
-		return nil, fmt.Errorf("embedding count mismatch: got %d vectors for %d chunks", len(allVectors), len(chunks))
+		return nil, apperror.Newf(apperror.KindInternal, "embedding count mismatch: got %d vectors for %d chunks", len(allVectors), len(chunks))
 	}
 
 	return allVectors, nil
@@ -219,7 +221,7 @@ func writeChunksTransaction(vs *VectorStore, collectionName string, ids []string
 	})
 	if writeErr != nil {
 		// 单事务整体失败（非逐条 continue），直接返回错误，无需回滚（事务原子失败）
-		return nil, fmt.Errorf("batch write chunks failed: %w", writeErr)
+		return nil, apperror.Wrap(apperror.KindInternal, "batch write chunks failed", writeErr)
 	}
 	return writtenIDs, nil
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"douya/internal/apperror"
 	"douya/internal/chat"
 
 	zlog "github.com/rs/zerolog/log"
@@ -11,12 +12,11 @@ import (
 )
 
 func (a *App) SendMessage(params chat.SendMessageParams) error {
-	if !a.ready.Load() {
-		return fmt.Errorf("应用未就绪，请检查配置和数据。")
+	if err := a.requireReady(); err != nil {
+		return err
 	}
-
-	if !a.serverReady.Load() {
-		return fmt.Errorf("AI 服务未启动，请等待服务就绪或检查配置。")
+	if err := a.requireServer(); err != nil {
+		return err
 	}
 
 	// 纳入 trackedGo 跟踪：shutdown 时 g.Wait() 会等待本 goroutine 退出，
@@ -53,57 +53,81 @@ func (a *App) SendMessage(params chat.SendMessageParams) error {
 }
 
 func (a *App) GetConversations() ([]*chat.Conversation, error) {
-	if !a.ready.Load() {
-		return nil, fmt.Errorf("应用未就绪。")
+	if err := a.requireReady(); err != nil {
+		return nil, err
 	}
 	return a.service.GetConversations()
 }
 
 func (a *App) GetMessages(conversationID string) ([]*chat.Message, error) {
-	if !a.ready.Load() {
-		return nil, fmt.Errorf("应用未就绪。")
+	if err := a.requireReady(); err != nil {
+		return nil, err
+	}
+	if err := validateNonEmpty("会话ID", conversationID); err != nil {
+		return nil, err
 	}
 	return a.service.GetMessages(conversationID)
 }
 
 func (a *App) CreateConversation() (*chat.Conversation, error) {
-	if !a.ready.Load() {
-		return nil, fmt.Errorf("应用未就绪。")
+	if err := a.requireReady(); err != nil {
+		return nil, err
 	}
 	return a.service.CreateConversation()
 }
 
 func (a *App) RenameConversation(id string, title string) error {
-	if !a.ready.Load() {
-		return fmt.Errorf("应用未就绪。")
+	if err := a.requireReady(); err != nil {
+		return err
+	}
+	if err := validateNonEmpty("会话ID", id); err != nil {
+		return err
+	}
+	if err := validateNonEmpty("标题", title); err != nil {
+		return err
 	}
 	return a.service.RenameConversation(id, title)
 }
 
 func (a *App) DeleteConversation(id string) error {
-	if !a.ready.Load() {
-		return fmt.Errorf("应用未就绪。")
+	if err := a.requireReady(); err != nil {
+		return err
+	}
+	if err := validateNonEmpty("会话ID", id); err != nil {
+		return err
 	}
 	return a.service.DeleteConversation(id)
 }
 
 func (a *App) SearchMessages(query string) ([]*chat.Message, error) {
-	if !a.ready.Load() {
-		return nil, fmt.Errorf("应用未就绪。")
+	if err := a.requireReady(); err != nil {
+		return nil, err
 	}
 	return a.service.SearchMessages(query)
 }
 
 func (a *App) ExportConversation(id string, format string) (string, error) {
-	if !a.ready.Load() {
-		return "", fmt.Errorf("应用未就绪。")
+	if err := a.requireReady(); err != nil {
+		return "", err
+	}
+	if err := validateNonEmpty("会话ID", id); err != nil {
+		return "", err
+	}
+	if err := validateNonEmpty("导出格式", format); err != nil {
+		return "", err
 	}
 	return a.service.ExportConversation(id, format)
 }
 
 func (a *App) ExportConversationWithDialog(id string, format string) (bool, error) {
-	if !a.ready.Load() {
-		return false, fmt.Errorf("应用未就绪。")
+	if err := a.requireReady(); err != nil {
+		return false, err
+	}
+	if err := validateNonEmpty("会话ID", id); err != nil {
+		return false, err
+	}
+	if err := validateNonEmpty("导出格式", format); err != nil {
+		return false, err
 	}
 
 	content, err := a.service.ExportConversation(id, format)
@@ -152,15 +176,18 @@ func (a *App) ExportConversationWithDialog(id string, format string) (bool, erro
 
 	err = os.WriteFile(savePath, []byte(content), 0o644)
 	if err != nil {
-		return false, fmt.Errorf("写入文件失败: %w", err)
+		return false, apperror.Wrap(apperror.KindInternal, "写入文件失败", err)
 	}
 
 	return true, nil
 }
 
 func (a *App) DeleteMessage(id string) error {
-	if !a.ready.Load() {
-		return fmt.Errorf("应用未就绪。")
+	if err := a.requireReady(); err != nil {
+		return err
+	}
+	if err := validateNonEmpty("消息ID", id); err != nil {
+		return err
 	}
 	return a.service.DeleteMessage(id)
 }
@@ -169,22 +196,27 @@ func (a *App) DeleteMessage(id string) error {
 // 用户点击 TokenCounter 旁的"立即压缩"按钮时调用，同步返回压缩结果。
 // 注意：此方法会阻塞至摘要生成完成（可能数秒~数十秒），前端需显示 loading。
 func (a *App) CompressConversation(convID string) (*chat.CompressResult, error) {
-	if !a.ready.Load() {
-		return nil, fmt.Errorf("应用未就绪。")
+	if err := a.requireReady(); err != nil {
+		return nil, err
 	}
-	if !a.serverReady.Load() {
-		return nil, fmt.Errorf("AI 服务未启动，请等待服务就绪。")
+	if err := a.requireServer(); err != nil {
+		return nil, err
+	}
+	if err := validateNonEmpty("会话ID", convID); err != nil {
+		return nil, err
 	}
 	return a.service.CompressConversation(convID)
 }
 
 func (a *App) RegenerateMessage(userMessageID string, searchMode string) error {
-	if !a.ready.Load() {
-		return fmt.Errorf("应用未就绪。")
+	if err := a.requireReady(); err != nil {
+		return err
 	}
-
-	if !a.serverReady.Load() {
-		return fmt.Errorf("AI 服务未启动，请等待服务就绪或检查配置。")
+	if err := a.requireServer(); err != nil {
+		return err
+	}
+	if err := validateNonEmpty("用户消息ID", userMessageID); err != nil {
+		return err
 	}
 
 	// 纳入 trackedGo 跟踪：shutdown 时 g.Wait() 会等待本 goroutine 退出，

@@ -7,7 +7,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -51,7 +50,7 @@ func CreateConversation(db *sql.DB, conv *Conversation, encKey []byte) error {
 	// 加密标题
 	encryptedTitle, err := encryptField(conv.Title, encKey)
 	if err != nil {
-		return fmt.Errorf("encrypt conversation title: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "encrypt conversation title", err)
 	}
 
 	err = withDBTimeout(func(ctx context.Context) error {
@@ -62,7 +61,7 @@ func CreateConversation(db *sql.DB, conv *Conversation, encKey []byte) error {
 		return err
 	})
 	if err != nil {
-		return fmt.Errorf("create conversation: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "create conversation", err)
 	}
 	return nil
 }
@@ -81,7 +80,7 @@ func GetConversation(db *sql.DB, id string, encKey []byte) (*Conversation, error
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, apperror.Wrap(apperror.KindNotFound, "会话不存在: "+id, err)
 		}
-		return nil, fmt.Errorf("get conversation: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "get conversation", err)
 	}
 	// 解密标题：失败时降级为占位符，保证会话仍可列出
 	decryptedTitle, decErr := decryptField(conv.Title, encKey)
@@ -109,13 +108,13 @@ func ListConversations(db *sql.DB, encKey []byte) ([]*Conversation, error) {
 			"SELECT id, title, created_at, updated_at FROM conversations ORDER BY updated_at DESC",
 		)
 		if err != nil {
-			return fmt.Errorf("list conversations: %w", err)
+			return apperror.Wrap(apperror.KindInternal, "list conversations", err)
 		}
 		defer rows.Close()
 		for rows.Next() {
 			conv := &Conversation{}
 			if err := rows.Scan(&conv.ID, &conv.Title, &conv.CreatedAt, &conv.UpdatedAt); err != nil {
-				return fmt.Errorf("scan conversation: %w", err)
+				return apperror.Wrap(apperror.KindInternal, "scan conversation", err)
 			}
 			// 解密标题：失败时降级为占位符
 			decryptedTitle, decErr := decryptField(conv.Title, encKey)
@@ -127,7 +126,7 @@ func ListConversations(db *sql.DB, encKey []byte) ([]*Conversation, error) {
 			convs = append(convs, conv)
 		}
 		if err := rows.Err(); err != nil {
-			return fmt.Errorf("iterate conversations: %w", err)
+			return apperror.Wrap(apperror.KindInternal, "iterate conversations", err)
 		}
 		return nil
 	})
@@ -139,7 +138,7 @@ func UpdateConversation(db *sql.DB, conv *Conversation, encKey []byte) error {
 	// 加密标题
 	encryptedTitle, err := encryptField(conv.Title, encKey)
 	if err != nil {
-		return fmt.Errorf("encrypt conversation title: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "encrypt conversation title", err)
 	}
 
 	err = withDBTimeout(func(ctx context.Context) error {
@@ -150,7 +149,7 @@ func UpdateConversation(db *sql.DB, conv *Conversation, encKey []byte) error {
 		return err
 	})
 	if err != nil {
-		return fmt.Errorf("update conversation: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "update conversation", err)
 	}
 	return nil
 }
@@ -159,20 +158,20 @@ func DeleteConversation(db *sql.DB, id string) error {
 	err := withDBTimeout(func(ctx context.Context) error {
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
-			return fmt.Errorf("begin transaction: %w", err)
+			return apperror.Wrap(apperror.KindInternal, "begin transaction", err)
 		}
 		_, err = tx.ExecContext(ctx, "DELETE FROM messages WHERE conversation_id = ?", id)
 		if err != nil {
 			_ = tx.Rollback()
-			return fmt.Errorf("delete messages: %w", err)
+			return apperror.Wrap(apperror.KindInternal, "delete messages", err)
 		}
 		_, err = tx.ExecContext(ctx, "DELETE FROM conversations WHERE id = ?", id)
 		if err != nil {
 			_ = tx.Rollback()
-			return fmt.Errorf("delete conversation: %w", err)
+			return apperror.Wrap(apperror.KindInternal, "delete conversation", err)
 		}
 		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit transaction: %w", err)
+			return apperror.Wrap(apperror.KindInternal, "commit transaction", err)
 		}
 		return nil
 	})
@@ -191,7 +190,7 @@ func DeleteConversationsBatch(db *sql.DB, ids []string) error {
 	err := withDBTimeout(func(ctx context.Context) error {
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
-			return fmt.Errorf("begin transaction: %w", err)
+			return apperror.Wrap(apperror.KindInternal, "begin transaction", err)
 		}
 		// 失败时统一回滚，保证批量删除的原子性
 		success := false
@@ -202,14 +201,14 @@ func DeleteConversationsBatch(db *sql.DB, ids []string) error {
 		}()
 		for _, id := range ids {
 			if _, err := tx.ExecContext(ctx, "DELETE FROM messages WHERE conversation_id = ?", id); err != nil {
-				return fmt.Errorf("delete messages for %s: %w", id, err)
+				return apperror.Wrapf(apperror.KindInternal, "delete messages for %s", err, id)
 			}
 			if _, err := tx.ExecContext(ctx, "DELETE FROM conversations WHERE id = ?", id); err != nil {
-				return fmt.Errorf("delete conversation %s: %w", id, err)
+				return apperror.Wrapf(apperror.KindInternal, "delete conversation %s", err, id)
 			}
 		}
 		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit transaction: %w", err)
+			return apperror.Wrap(apperror.KindInternal, "commit transaction", err)
 		}
 		success = true
 		return nil
@@ -235,13 +234,13 @@ func FindAbnormalConversations(db *sql.DB, encKey []byte) ([]*AbnormalConversati
 			ORDER BY c.updated_at DESC
 		`)
 		if err != nil {
-			return fmt.Errorf("find abnormal conversations: %w", err)
+			return apperror.Wrap(apperror.KindInternal, "find abnormal conversations", err)
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var id, title string
 			if err := rows.Scan(&id, &title); err != nil {
-				return fmt.Errorf("scan abnormal conversation: %w", err)
+				return apperror.Wrap(apperror.KindInternal, "scan abnormal conversation", err)
 			}
 			// 解密标题：失败时降级为占位符
 			decryptedTitle, decErr := decryptField(title, encKey)
@@ -256,7 +255,7 @@ func FindAbnormalConversations(db *sql.DB, encKey []byte) ([]*AbnormalConversati
 			})
 		}
 		if err := rows.Err(); err != nil {
-			return fmt.Errorf("iterate abnormal conversations: %w", err)
+			return apperror.Wrap(apperror.KindInternal, "iterate abnormal conversations", err)
 		}
 		return nil
 	})
@@ -323,7 +322,7 @@ func UpdateConversationLayeredSummary(db *sql.DB, id string, shortSummary, longS
 		return err
 	})
 	if err != nil {
-		return fmt.Errorf("update conversation layered summary: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "update conversation layered summary", err)
 	}
 	return nil
 }
@@ -342,7 +341,7 @@ func GetConversationLayeredSummary(db *sql.DB, id string) (shortSummary, longSum
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", "", 0, apperror.Wrap(apperror.KindNotFound, "会话不存在: "+id, err)
 		}
-		return "", "", 0, fmt.Errorf("get conversation layered summary: %w", err)
+		return "", "", 0, apperror.Wrap(apperror.KindInternal, "get conversation layered summary", err)
 	}
 	if short.Valid {
 		shortSummary = short.String
@@ -363,7 +362,7 @@ func GetConversationSummary(db *sql.DB, id string) (string, error) {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", apperror.Wrap(apperror.KindNotFound, "会话不存在: "+id, err)
 		}
-		return "", fmt.Errorf("get conversation summary: %w", err)
+		return "", apperror.Wrap(apperror.KindInternal, "get conversation summary", err)
 	}
 	if summary.Valid {
 		return summary.String, nil

@@ -3,9 +3,10 @@ package store
 import (
 	"context"
 	"database/sql"
-	"fmt"
 
 	"github.com/rs/zerolog/log"
+
+	"douya/internal/apperror"
 )
 
 func GetSetting(db *sql.DB, key string) (string, error) {
@@ -20,7 +21,7 @@ func GetSetting(db *sql.DB, key string) (string, error) {
 		return "", nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("get setting: %w", err)
+		return "", apperror.Wrap(apperror.KindInternal, "get setting", err)
 	}
 	return value, nil
 }
@@ -33,7 +34,7 @@ func SetSetting(db *sql.DB, key, value string) error {
 		key, value,
 	)
 	if err != nil {
-		return fmt.Errorf("set setting: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "set setting", err)
 	}
 	return nil
 }
@@ -71,7 +72,7 @@ func SetEncryptedSetting(db *sql.DB, key, value string, encKey []byte) error {
 
 	encrypted, err := encryptWithPrefix(value, encKey)
 	if err != nil {
-		return fmt.Errorf("encrypt setting: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "encrypt setting", err)
 	}
 
 	return SetSetting(db, key, encrypted)

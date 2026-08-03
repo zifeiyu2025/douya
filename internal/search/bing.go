@@ -23,13 +23,14 @@ package search
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	"golang.org/x/net/html"
+
+	"douya/internal/apperror"
 )
 
 // bingEndpoint Bing 国内版搜索端点
@@ -64,7 +65,7 @@ func (p *BingProvider) Search(ctx context.Context, query string) (*SearchRespons
 // 免 API Key，直接 GET cn.bing.com/search?q=xxx&cc=cn&setlang=zh-Hans
 func (p *BingProvider) SearchWithOpts(ctx context.Context, query string, opts SearchOpts) (*SearchResponse, error) {
 	if strings.TrimSpace(query) == "" {
-		return nil, fmt.Errorf("bing: query is empty")
+		return nil, apperror.New(apperror.KindInvalidInput, "bing: query is empty")
 	}
 
 	maxResults := opts.MaxResults
@@ -83,7 +84,7 @@ func (p *BingProvider) SearchWithOpts(ctx context.Context, query string, opts Se
 
 	respBody, err := p.doSearch(ctx, http.MethodGet, targetURL, nil, headers)
 	if err != nil {
-		return nil, fmt.Errorf("bing: %w", err)
+		return nil, apperror.Wrap(apperror.KindUnavailable, "bing", err)
 	}
 
 	results := parseBingResults(string(respBody))

@@ -6,6 +6,7 @@ package store
 import (
 	"fmt"
 
+	"douya/internal/apperror"
 	"douya/internal/secrets"
 )
 
@@ -30,7 +31,7 @@ func encryptWithPrefix(plaintext string, encKey []byte) (string, error) {
 	}
 	encrypted, err := secrets.Encrypt(plaintext, encKey)
 	if err != nil {
-		return "", fmt.Errorf("encrypt failed: %w", err)
+		return "", apperror.Wrap(apperror.KindInternal, "encrypt failed", err)
 	}
 	return encPrefix + encrypted, nil
 }
@@ -55,8 +56,9 @@ func decryptWithPrefix(ciphertext string, encKey []byte) (string, error) {
 	plaintext, err := secrets.Decrypt(ciphertext[len(encPrefix):], encKey)
 	if err != nil {
 		// 解密失败：密钥不匹配或密文损坏
-		// 不再静默返回密文，而是明确报错，让调用方能够检测到密钥问题
-		return "", ErrDecryptionFailed
+		// 用 apperror 包装保留类型信息，ErrDecryptionFailed 作为 Cause 保留在错误链中
+		// 上层既可用 errors.Is(err, ErrDecryptionFailed) 判断，也可用 apperror.KindOf(err) 获取类型
+		return "", apperror.Wrap(apperror.KindInternal, "decrypt failed", ErrDecryptionFailed)
 	}
 	return plaintext, nil
 }

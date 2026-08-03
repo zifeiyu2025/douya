@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"douya/internal/apperror"
 	"douya/internal/config"
 	"douya/internal/llm"
 
@@ -42,7 +43,7 @@ func (a *App) GetConfig() *config.Config {
 
 func (a *App) UpdateConfig(cfg *config.Config) error {
 	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("配置验证失败: %w", err)
+		return apperror.Wrap(apperror.KindInvalidConfig, "配置验证失败", err)
 	}
 
 	// 检测性能模式是否变化：性能模式影响 smartparams（ctx-size 等），
@@ -113,6 +114,12 @@ func (a *App) getServerAPIKey() string {
 }
 
 func (a *App) SetServerAPIKey(key string) error {
+	if err := validateNonEmpty("API Key", key); err != nil {
+		return err
+	}
+	if err := validateStringLength("API Key", key, 256); err != nil {
+		return err
+	}
 	return a.service.SetEncryptedSetting("server_api_key", key)
 }
 

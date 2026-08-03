@@ -3,9 +3,10 @@ package rag
 import (
 	"context"
 	"encoding/base64"
-	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"douya/internal/apperror"
 )
 
 type Chunk struct {
@@ -211,10 +212,10 @@ func IngestFile(ctx context.Context, vs *VectorStore, ds *DocumentStore, embedde
 
 	text, err := ParseFileFromBytes(fileData, fileName)
 	if err != nil {
-		return nil, fmt.Errorf("parse file %q: %w", fileName, err)
+		return nil, apperror.Wrapf(apperror.KindInternal, "parse file %q", err, fileName)
 	}
 	if text == "" {
-		return nil, fmt.Errorf("file %q produced no text content", fileName)
+		return nil, apperror.Newf(apperror.KindInternal, "file %q produced no text content", fileName)
 	}
 
 	return IngestDocumentWithMeta(ctx, vs, ds, embedder, collectionName, "", text, fileName, int64(len(fileData)), mimeType, chunkCfg)
@@ -225,7 +226,7 @@ func IngestFileFromBase64(ctx context.Context, vs *VectorStore, ds *DocumentStor
 
 	data, err := base64.StdEncoding.DecodeString(base64Data)
 	if err != nil {
-		return nil, fmt.Errorf("decode base64 for %q: %w", fileName, err)
+		return nil, apperror.Wrapf(apperror.KindInternal, "decode base64 for %q", err, fileName)
 	}
 
 	return IngestFile(ctx, vs, ds, embedder, collectionName, fileName, data, mimeType, chunkCfg)

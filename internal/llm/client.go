@@ -119,7 +119,7 @@ func (c *Client) doSimpleJSONRequest(ctx context.Context, method, reqURL string,
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, method, reqURL, bodyReader)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create %s request: %w", actionDesc, err)
+		return nil, apperror.Wrapf(apperror.KindInternal, "failed to create %s request", err, actionDesc)
 	}
 	if body != nil {
 		httpReq.Header.Set("Content-Type", "application/json")
@@ -128,7 +128,7 @@ func (c *Client) doSimpleJSONRequest(ctx context.Context, method, reqURL string,
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("%s request failed: %w", actionDesc, err)
+		return nil, apperror.Wrapf(apperror.KindUnavailable, "%s request failed", err, actionDesc)
 	}
 	defer resp.Body.Close()
 
@@ -142,7 +142,7 @@ func (c *Client) doSimpleJSONRequest(ctx context.Context, method, reqURL string,
 	}
 	respBody, err := readBody(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read %s response: %w", actionDesc, err)
+		return nil, apperror.Wrapf(apperror.KindInternal, "failed to read %s response", err, actionDesc)
 	}
 	return respBody, nil
 }
@@ -161,12 +161,12 @@ func (c *Client) StreamChatWithConvID(ctx context.Context, req *ChatCompletionRe
 
 	body, err := json.Marshal(req)
 	if err != nil {
-		return fmt.Errorf("failed to marshal request: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "failed to marshal request", err)
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "failed to create request", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	// 启用 SSE Replay Buffer：服务端缓冲 SSE 字节，支持断线重连
@@ -177,7 +177,7 @@ func (c *Client) StreamChatWithConvID(ctx context.Context, req *ChatCompletionRe
 
 	resp, err := c.streamClient.Do(httpReq)
 	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
+		return apperror.Wrap(apperror.KindUnavailable, "failed to send request", err)
 	}
 	defer resp.Body.Close()
 
@@ -219,13 +219,13 @@ func (c *Client) StreamChatWithConvID(ctx context.Context, req *ChatCompletionRe
 
 		if onToken != nil {
 			if err := onToken(chunk); err != nil {
-				return fmt.Errorf("onToken callback error: %w", err)
+				return apperror.Wrap(apperror.KindInternal, "onToken callback error", err)
 			}
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("error reading SSE stream: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "error reading SSE stream", err)
 	}
 
 	return nil
@@ -269,12 +269,12 @@ func (c *Client) Chat(ctx context.Context, req *ChatCompletionRequest) (*ChatCom
 
 	body, err := json.Marshal(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "failed to marshal request", err)
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "failed to create request", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	c.setAuthHeader(httpReq)
@@ -293,24 +293,24 @@ func (c *Client) Chat(ctx context.Context, req *ChatCompletionRequest) (*ChatCom
 func (c *Client) proxyRequest(ctx context.Context, endpoint, actionDesc string, body []byte) ([]byte, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+endpoint, bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create %s request: %w", actionDesc, err)
+		return nil, apperror.Wrapf(apperror.KindInternal, "failed to create %s request", err, actionDesc)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	c.setAuthHeader(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("%s request failed: %w", actionDesc, err)
+		return nil, apperror.Wrapf(apperror.KindUnavailable, "%s request failed", err, actionDesc)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := readBody(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read %s response: %w", actionDesc, err)
+		return nil, apperror.Wrapf(apperror.KindInternal, "failed to read %s response", err, actionDesc)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s returned status %d: %s", actionDesc, resp.StatusCode, string(respBody))
+		return nil, apperror.Newf(apperror.KindUnavailable, "%s returned status %d: %s", actionDesc, resp.StatusCode, string(respBody))
 	}
 
 	return respBody, nil
@@ -361,7 +361,7 @@ func (c *Client) CallTool(ctx context.Context, toolName string, params json.RawM
 	}
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal tool call request: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "failed to marshal tool call request", err)
 	}
 	return c.proxyRequest(ctx, "/tools", "call tool "+toolName, bodyBytes)
 }
@@ -371,12 +371,12 @@ func (c *Client) CallTool(ctx context.Context, toolName string, params json.RawM
 func (c *Client) Embedding(ctx context.Context, req *EmbeddingRequest) (*EmbeddingResponse, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "failed to marshal request", err)
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/embeddings", bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "failed to create request", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	c.setAuthHeader(httpReq)
@@ -429,12 +429,12 @@ func (c *Client) GetMetrics(ctx context.Context, modelName string) (string, erro
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return "", fmt.Errorf("failed to fetch /metrics: %w", err)
+		return "", apperror.Wrap(apperror.KindUnavailable, "failed to fetch /metrics", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("metrics endpoint returned status %d", resp.StatusCode)
+		return "", apperror.Newf(apperror.KindUnavailable, "metrics endpoint returned status %d", resp.StatusCode)
 	}
 
 	body, err := readBody(resp.Body)
@@ -533,7 +533,7 @@ func (c *Client) StopThinking(ctx context.Context, completionID string) error {
 		"model":  c.GetCurrentModel(),
 	})
 	if err != nil {
-		return fmt.Errorf("failed to marshal stop thinking request: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "failed to marshal stop thinking request", err)
 	}
 
 	if _, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions/control", body, "stop thinking", false); err != nil {
@@ -560,7 +560,7 @@ func (c *Client) Rerank(ctx context.Context, query string, documents []string, t
 
 	body, err := json.Marshal(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal rerank request: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "failed to marshal rerank request", err)
 	}
 
 	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/v1/rerank", body, "rerank", true)
@@ -570,7 +570,7 @@ func (c *Client) Rerank(ctx context.Context, query string, documents []string, t
 
 	var result RerankResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal rerank response: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "failed to unmarshal rerank response", err)
 	}
 
 	log.Info().Int("results", len(result.Results)).Msg("[client] Rerank: success")
@@ -715,7 +715,7 @@ func (c *Client) GetServerProps(ctx context.Context, modelName string) (*ServerP
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("props endpoint returned status %d", resp.StatusCode)
+		return nil, apperror.Newf(apperror.KindUnavailable, "props endpoint returned status %d", resp.StatusCode)
 	}
 
 	body, err := readBody(resp.Body)
@@ -740,7 +740,7 @@ func (c *Client) GetServerProps(ctx context.Context, modelName string) (*ServerP
 func (c *Client) LoadModel(ctx context.Context, modelName string) error {
 	body, err := json.Marshal(map[string]string{"model": modelName})
 	if err != nil {
-		return fmt.Errorf("failed to marshal load model request: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "failed to marshal load model request", err)
 	}
 
 	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/models/load", body, "load model", true)
@@ -772,13 +772,13 @@ func (c *Client) WatchModelLoadProgress(ctx context.Context, modelName string, o
 	reqURL := fmt.Sprintf("%s/models/sse", c.baseURL)
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, http.NoBody)
 	if err != nil {
-		return fmt.Errorf("create request failed: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "create request failed", err)
 	}
 	c.setAuthHeader(req)
 
 	resp, err := c.streamClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
+		return apperror.Wrap(apperror.KindUnavailable, "request failed", err)
 	}
 	defer resp.Body.Close()
 
@@ -839,7 +839,7 @@ func (c *Client) WatchModelLoadProgress(ctx context.Context, modelName string, o
 	}
 
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("error reading SSE stream: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "error reading SSE stream", err)
 	}
 
 	return nil
@@ -859,7 +859,7 @@ func (c *Client) ReloadPresets(ctx context.Context) error {
 func (c *Client) UnloadModel(ctx context.Context, modelName string) error {
 	body, err := json.Marshal(map[string]string{"model": modelName})
 	if err != nil {
-		return fmt.Errorf("failed to marshal unload model request: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "failed to marshal unload model request", err)
 	}
 	_, err = c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/models/unload", body, "unload model", false)
 	return err
@@ -922,7 +922,7 @@ func (c *Client) ReloadModels(ctx context.Context) error {
 func (c *Client) DeleteModel(ctx context.Context, modelName string) error {
 	body, err := json.Marshal(map[string]string{"model": modelName})
 	if err != nil {
-		return fmt.Errorf("failed to marshal delete model request: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "failed to marshal delete model request", err)
 	}
 	if _, err := c.doSimpleJSONRequest(ctx, http.MethodDelete, c.baseURL+"/models", body, "delete model", false); err != nil {
 		return err
@@ -936,7 +936,7 @@ func (c *Client) DeleteModel(ctx context.Context, modelName string) error {
 func (c *Client) DownloadModel(ctx context.Context, modelName string) error {
 	body, err := json.Marshal(map[string]string{"model": modelName})
 	if err != nil {
-		return fmt.Errorf("failed to marshal download model request: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "failed to marshal download model request", err)
 	}
 	if _, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/models", body, "download model", false); err != nil {
 		return err
@@ -954,7 +954,7 @@ func (c *Client) CountTokens(ctx context.Context, messages []ChatMessage) (int, 
 	}
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return 0, fmt.Errorf("failed to marshal count tokens request: %w", err)
+		return 0, apperror.Wrap(apperror.KindInternal, "failed to marshal count tokens request", err)
 	}
 
 	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions/input_tokens", body, "count tokens", true)
@@ -966,7 +966,7 @@ func (c *Client) CountTokens(ctx context.Context, messages []ChatMessage) (int, 
 		InputTokens int `json:"input_tokens"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return 0, fmt.Errorf("failed to parse count tokens response: %w", err)
+		return 0, apperror.Wrap(apperror.KindInternal, "failed to parse count tokens response", err)
 	}
 
 	return result.InputTokens, nil
@@ -986,7 +986,7 @@ func (c *Client) GetLoraAdapters(ctx context.Context) ([]LoraAdapter, error) {
 
 	var adapters []LoraAdapter
 	if err := json.Unmarshal(body, &adapters); err != nil {
-		return nil, fmt.Errorf("failed to parse lora adapters response: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "failed to parse lora adapters response", err)
 	}
 
 	return adapters, nil
@@ -996,7 +996,7 @@ func (c *Client) GetLoraAdapters(ctx context.Context) ([]LoraAdapter, error) {
 func (c *Client) SetLoraAdapters(ctx context.Context, adapters []LoraAdapter) error {
 	body, err := json.Marshal(adapters)
 	if err != nil {
-		return fmt.Errorf("failed to marshal set lora adapters request: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "failed to marshal set lora adapters request", err)
 	}
 
 	if _, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/lora-adapters", body, "set lora adapters", false); err != nil {
@@ -1021,7 +1021,7 @@ func (c *Client) GetSlots(ctx context.Context) ([]SlotInfo, error) {
 
 	var slots []SlotInfo
 	if err := json.Unmarshal(body, &slots); err != nil {
-		return nil, fmt.Errorf("failed to parse slots response: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "failed to parse slots response", err)
 	}
 
 	return slots, nil
@@ -1040,7 +1040,7 @@ func (c *Client) OperateSlot(ctx context.Context, slotID int, action string) err
 	switch action {
 	case "save", "restore", "erase":
 	default:
-		return fmt.Errorf("invalid slot action: %s (only save/restore/erase)", action)
+		return apperror.Newf(apperror.KindInvalidInput, "invalid slot action: %s (only save/restore/erase)", action)
 	}
 	query := url.Values{"action": {action}}.Encode()
 	reqURL := fmt.Sprintf("%s/slots/%d?%s", c.baseURL, slotID, query)
@@ -1058,7 +1058,7 @@ func (c *Client) Tokenize(ctx context.Context, text string) ([]int, error) {
 	}
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal tokenize request: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "failed to marshal tokenize request", err)
 	}
 
 	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/tokenize", body, "tokenize", true)
@@ -1070,7 +1070,7 @@ func (c *Client) Tokenize(ctx context.Context, text string) ([]int, error) {
 		Tokens []int `json:"tokens"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse tokenize response: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "failed to parse tokenize response", err)
 	}
 
 	return result.Tokens, nil
@@ -1085,7 +1085,7 @@ func (c *Client) ApplyTemplate(ctx context.Context, messages []ChatMessage) (str
 	}
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal apply template request: %w", err)
+		return "", apperror.Wrap(apperror.KindInternal, "failed to marshal apply template request", err)
 	}
 
 	respBody, err := c.doSimpleJSONRequest(ctx, http.MethodPost, c.baseURL+"/apply-template", body, "apply template", true)
@@ -1097,7 +1097,7 @@ func (c *Client) ApplyTemplate(ctx context.Context, messages []ChatMessage) (str
 		Prompt string `json:"prompt"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return "", fmt.Errorf("failed to parse apply template response: %w", err)
+		return "", apperror.Wrap(apperror.KindInternal, "failed to parse apply template response", err)
 	}
 
 	return result.Prompt, nil
@@ -1188,20 +1188,20 @@ func (c *Client) DeleteStream(ctx context.Context, convID string) error {
 	reqURL := c.baseURL + "/v1/stream/" + url.PathEscape(convID)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, reqURL, http.NoBody)
 	if err != nil {
-		return fmt.Errorf("failed to create delete stream request: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "failed to create delete stream request", err)
 	}
 	c.setAuthHeader(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return fmt.Errorf("delete stream request failed: %w", err)
+		return apperror.Wrap(apperror.KindUnavailable, "delete stream request failed", err)
 	}
 	defer resp.Body.Close()
 
 	// 204 No Content 表示成功；404 表示会话不存在（幂等，视为成功）
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusNotFound {
 		body, _ := readBody(resp.Body)
-		return fmt.Errorf("delete stream returned status %d: %s", resp.StatusCode, string(body))
+		return apperror.Newf(apperror.KindUnavailable, "delete stream returned status %d: %s", resp.StatusCode, string(body))
 	}
 
 	log.Debug().Str("conv_id", convID).Msg("[client] DeleteStream: stream stopped")

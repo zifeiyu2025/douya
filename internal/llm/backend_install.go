@@ -476,8 +476,9 @@ func IsBackendInstalled(bt BackendType, runtimeDir string) bool {
 }
 
 // cudartZipPattern 匹配 CUDA 后端附带的 cudart zip 包文件名。
-// 例如：cudart-llama-bin-win-cuda-13.3-x64.zip
-const cudartZipPattern = "cudart-llama-bin-win-cuda-1[3-9]*-x64.zip"
+// 全量适配：同时匹配 CUDA 12.x 和 13.x
+// 例如：cudart-llama-bin-win-cuda-12.4-x64.zip、cudart-llama-bin-win-cuda-13.3-x64.zip
+const cudartZipPattern = "cudart-llama-bin-win-cuda-1[23]*-x64.zip"
 
 // EnsureCudartInstalled 确保 cudart 包已解压到 runtime/cuda/ 目录。
 //

@@ -5,8 +5,9 @@ package search
 
 import (
 	"context"
-	"fmt"
 	"time"
+
+	"douya/internal/apperror"
 )
 
 // TavilyProvider 使用 Tavily API 的搜索 Provider。
@@ -41,7 +42,7 @@ func (p *TavilyProvider) Search(ctx context.Context, query string) (*SearchRespo
 
 func (p *TavilyProvider) SearchWithOpts(ctx context.Context, query string, opts SearchOpts) (*SearchResponse, error) {
 	if p.apiKey == "" {
-		return nil, fmt.Errorf("tavily api key is empty")
+		return nil, apperror.New(apperror.KindPermission, "tavily api key is empty")
 	}
 
 	maxResults := opts.MaxResults
@@ -67,7 +68,7 @@ func (p *TavilyProvider) SearchWithOpts(ctx context.Context, query string, opts 
 		} `json:"results"`
 	}
 	if err := p.doSearchJSON(ctx, "https://api.tavily.com/search", reqBody, &result); err != nil {
-		return nil, fmt.Errorf("tavily: %w", err)
+		return nil, apperror.Wrap(apperror.KindUnavailable, "tavily", err)
 	}
 
 	searchResp := &SearchResponse{Engine: p.Name()}

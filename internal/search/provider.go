@@ -18,6 +18,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"douya/internal/apperror"
 	"douya/internal/httputil"
 )
 
@@ -82,10 +83,10 @@ func newSearchHTTPClient(timeout time.Duration) *http.Client {
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			host := req.URL.Hostname()
 			if isPrivateOrLoopback(host) {
-				return fmt.Errorf("redirect to private/loopback address blocked: %s", host)
+				return apperror.Newf(apperror.KindPermission, "redirect to private/loopback address blocked: %s", host)
 			}
 			if len(via) >= 10 {
-				return fmt.Errorf("too many redirects")
+				return apperror.New(apperror.KindUnavailable, "too many redirects")
 			}
 			return nil
 		},
@@ -100,15 +101,15 @@ func newSearchHTTPClient(timeout time.Duration) *http.Client {
 func safeDialControl(network, address string, c syscall.RawConn) error {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
-		return fmt.Errorf("safeDialControl: invalid address %q: %w", address, err)
+		return apperror.Wrapf(apperror.KindInternal, "safeDialControl: invalid address %q", err, address)
 	}
 	ip := net.ParseIP(host)
 	if ip == nil {
 		// 理论上不应发生：dialer 在 Control 前已完成 DNS 解析，host 应为 IP
-		return fmt.Errorf("safeDialControl: non-IP address in Control (DNS not resolved?): %q", host)
+		return apperror.Newf(apperror.KindInternal, "safeDialControl: non-IP address in Control (DNS not resolved?): %q", host)
 	}
 	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
-		return fmt.Errorf("safeDialControl: dial to private/loopback blocked: %s", ip)
+		return apperror.Newf(apperror.KindPermission, "safeDialControl: dial to private/loopback blocked: %s", ip)
 	}
 	return nil
 }
@@ -137,7 +138,7 @@ func isPrivateOrLoopback(host string) bool {
 func (b *BaseProvider) doSearch(ctx context.Context, method, rawURL string, body io.Reader, headers map[string]string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
 	if err != nil {
-		return nil, fmt.Errorf("create request failed: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "create request failed", err)
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -145,13 +146,13 @@ func (b *BaseProvider) doSearch(ctx context.Context, method, rawURL string, body
 
 	resp, err := b.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, apperror.Wrap(apperror.KindUnavailable, "request failed", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := httputil.ReadBodyLimited(resp.Body, 10*1024*1024)
 	if err != nil {
-		return nil, fmt.Errorf("read response failed: %w", err)
+		return nil, apperror.Wrap(apperror.KindUnavailable, "read response failed", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -169,7 +170,7 @@ func (b *BaseProvider) doSearch(ctx context.Context, method, rawURL string, body
 			Str("url", sanitizedURL).
 			Int("status", resp.StatusCode).
 			Msg("[search] request failed with non-200 status")
-		return nil, fmt.Errorf("search failed: method=%s url=%s statusCode=%d bodySnippet=%s",
+		return nil, apperror.Newf(apperror.KindUnavailable, "search failed: method=%s url=%s statusCode=%d bodySnippet=%s",
 			method, sanitizedURL, resp.StatusCode, string(bodySnippet))
 	}
 

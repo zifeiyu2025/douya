@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"douya/internal/apperror"
 	"douya/internal/version"
 
 	zlog "github.com/rs/zerolog/log"
@@ -61,7 +62,7 @@ func (a *App) CheckUpdate() (*UpdateInfo, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Get(apiURL)
 	if err != nil {
-		return nil, fmt.Errorf("请求 GitHub API 失败: %w", err)
+		return nil, apperror.Wrap(apperror.KindUnavailable, "请求 GitHub API 失败", err)
 	}
 	defer resp.Body.Close()
 
@@ -71,7 +72,7 @@ func (a *App) CheckUpdate() (*UpdateInfo, error) {
 		if err != nil {
 			body = []byte("<unreadable>")
 		}
-		return nil, fmt.Errorf("GitHub API 返回状态码 %d: %s", resp.StatusCode, string(body))
+		return nil, apperror.Newf(apperror.KindUnavailable, "GitHub API 返回状态码 %d: %s", resp.StatusCode, string(body))
 	}
 
 	// 解析 JSON 响应
@@ -79,7 +80,7 @@ func (a *App) CheckUpdate() (*UpdateInfo, error) {
 	// GitHub Release API 响应通常 < 100KB，1MB 足够且留有余量
 	var release githubRelease
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1024*1024)).Decode(&release); err != nil {
-		return nil, fmt.Errorf("解析 GitHub Release 信息失败: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "解析 GitHub Release 信息失败", err)
 	}
 
 	// 去掉 tag_name 的 "v" 前缀，得到纯版本号
@@ -97,7 +98,7 @@ func (a *App) CheckUpdate() (*UpdateInfo, error) {
 	}
 
 	if downloadURL == "" {
-		return nil, fmt.Errorf("未找到 Windows amd64 版本的下载资源")
+		return nil, apperror.New(apperror.KindNotFound, "未找到 Windows amd64 版本的下载资源")
 	}
 
 	// 比较版本号：当前版本 vs 最新版本
@@ -119,7 +120,7 @@ func (a *App) PerformUpdate(downloadURL string, latestVersion string) error {
 	// 安全：校验下载 URL，防止 SSRF 攻击
 	// 基于 GO-SSRF-001 安全实践：不信任前端传入的 URL，必须为 HTTPS 且来自 GitHub 域名
 	if err := validateUpdateURL(downloadURL); err != nil {
-		return fmt.Errorf("下载地址校验失败: %w", err)
+		return apperror.Wrap(apperror.KindInvalidInput, "下载地址校验失败", err)
 	}
 
 	// 通知前端：开始下载
@@ -131,14 +132,14 @@ func (a *App) PerformUpdate(downloadURL string, latestVersion string) error {
 	// 创建临时目录
 	tempDir, err := os.MkdirTemp("", "douya-update-*")
 	if err != nil {
-		return fmt.Errorf("创建临时目录失败: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "创建临时目录失败", err)
 	}
 
 	// 下载 zip 文件
 	zipPath := filepath.Join(tempDir, fmt.Sprintf("Douya-v%s-windows-amd64.zip", latestVersion))
 	if err := a.downloadWithProgress(downloadURL, zipPath); err != nil {
 		os.RemoveAll(tempDir)
-		return fmt.Errorf("下载更新包失败: %w", err)
+		return apperror.Wrap(apperror.KindUnavailable, "下载更新包失败", err)
 	}
 
 	// 通知前端：开始安装
@@ -149,7 +150,7 @@ func (a *App) PerformUpdate(downloadURL string, latestVersion string) error {
 	// 生成并启动更新脚本
 	if err := a.launchUpdateScript(zipPath, tempDir); err != nil {
 		os.RemoveAll(tempDir) // 清理临时目录，避免残留
-		return fmt.Errorf("启动更新脚本失败: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "启动更新脚本失败", err)
 	}
 
 	// 退出当前应用，让更新脚本替换文件后重启
@@ -172,24 +173,24 @@ func (a *App) downloadWithProgress(downloadURL, destPath string) error {
 	client := &http.Client{Timeout: 10 * time.Minute}
 	resp, err := client.Get(downloadURL)
 	if err != nil {
-		return fmt.Errorf("下载请求失败: %w", err)
+		return apperror.Wrap(apperror.KindUnavailable, "下载请求失败", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("下载返回状态码 %d", resp.StatusCode)
+		return apperror.Newf(apperror.KindUnavailable, "下载返回状态码 %d", resp.StatusCode)
 	}
 
 	// M19 修复：ContentLength 已知时预先校验大小
 	if resp.ContentLength > 0 && resp.ContentLength > maxUpdatePackageSize {
-		return fmt.Errorf("更新包大小 %dMB 超过限制 %dMB，拒绝下载",
+		return apperror.Newf(apperror.KindInvalidInput, "更新包大小 %dMB 超过限制 %dMB，拒绝下载",
 			resp.ContentLength/1024/1024, maxUpdatePackageSize/1024/1024)
 	}
 
 	// 创建目标文件
 	out, err := os.Create(destPath)
 	if err != nil {
-		return fmt.Errorf("创建下载文件失败: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "创建下载文件失败", err)
 	}
 	// 兜底关闭：显式 Close 后将 out 置为 nil，避免 defer 重复关闭
 	defer func() {
@@ -212,12 +213,12 @@ func (a *App) downloadWithProgress(downloadURL, destPath string) error {
 
 	_, err = io.Copy(progressWriter, resp.Body)
 	if err != nil {
-		return fmt.Errorf("下载写入失败: %w", err)
+		return apperror.Wrap(apperror.KindUnavailable, "下载写入失败", err)
 	}
 
 	// 显式关闭文件并检查错误，确保缓冲数据落盘
 	if err := out.Close(); err != nil {
-		return fmt.Errorf("关闭下载文件失败: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "关闭下载文件失败", err)
 	}
 	out = nil // 防止 defer 重复关闭
 	return nil
@@ -241,7 +242,7 @@ func (w *downloadProgressWriter) Write(p []byte) (int, error) {
 
 	// M19 修复：运行时大小检查，防止 ContentLength 未知或被篡改时下载无限增长
 	if w.bytesWritten > maxUpdatePackageSize {
-		return n, fmt.Errorf("下载大小超过限制 %dMB，已写入 %dMB",
+		return n, apperror.Newf(apperror.KindInvalidInput, "下载大小超过限制 %dMB，已写入 %dMB",
 			maxUpdatePackageSize/1024/1024, w.bytesWritten/1024/1024)
 	}
 
@@ -268,7 +269,7 @@ func (a *App) launchUpdateScript(zipPath string, tempDir string) error {
 	appDirPath := appDir()
 	exePath, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("获取可执行文件路径失败: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "获取可执行文件路径失败", err)
 	}
 
 	tempExtract := filepath.Join(tempDir, "extracted")
@@ -412,7 +413,7 @@ try {
 	// 写入脚本文件（UTF-8 BOM 编码）
 	scriptPath := filepath.Join(tempDir, "update.ps1")
 	if err := writeUTF8BOM(scriptPath, script); err != nil {
-		return fmt.Errorf("写入更新脚本失败: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "写入更新脚本失败", err)
 	}
 
 	// 启动 PowerShell 脚本（分离进程，不显示窗口）
@@ -422,7 +423,7 @@ try {
 	}
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("启动更新脚本失败: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "启动更新脚本失败", err)
 	}
 
 	// 分离进程，不等待其完成
@@ -500,12 +501,12 @@ func compareVersions(a, b string) int {
 func validateUpdateURL(rawURL string) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return fmt.Errorf("URL 解析失败: %w", err)
+		return apperror.Wrap(apperror.KindInvalidInput, "URL 解析失败", err)
 	}
 
 	// 仅允许 HTTPS 协议
 	if parsed.Scheme != "https" {
-		return fmt.Errorf("仅允许 HTTPS 协议，当前: %s", parsed.Scheme)
+		return apperror.Newf(apperror.KindInvalidInput, "仅允许 HTTPS 协议，当前: %s", parsed.Scheme)
 	}
 
 	// 仅允许 GitHub 官方域名
@@ -516,7 +517,7 @@ func validateUpdateURL(rawURL string) error {
 	}
 	hostname := parsed.Hostname()
 	if !allowedHosts[hostname] {
-		return fmt.Errorf("仅允许 GitHub 官方域名，当前: %s", hostname)
+		return apperror.Newf(apperror.KindInvalidInput, "仅允许 GitHub 官方域名，当前: %s", hostname)
 	}
 
 	// P0-3 修复：校验 URL 路径前缀，防止前端传入其他 GitHub 仓库的 URL。
@@ -530,7 +531,7 @@ func validateUpdateURL(rawURL string) error {
 	if hostname == "github.com" {
 		expectedPrefix := fmt.Sprintf("/%s/%s/", version.GitHubOwner, version.GitHubRepo)
 		if !strings.HasPrefix(parsed.Path, expectedPrefix) {
-			return fmt.Errorf("URL 路径不匹配本项目仓库，预期前缀: %s，当前路径: %s",
+			return apperror.Newf(apperror.KindInvalidInput, "URL 路径不匹配本项目仓库，预期前缀: %s，当前路径: %s",
 				expectedPrefix, parsed.Path)
 		}
 	}
@@ -538,11 +539,11 @@ func validateUpdateURL(rawURL string) error {
 	// 解析 DNS 并拒绝内网/本地地址（防止 DNS 重绑定攻击）
 	ips, err := net.LookupIP(hostname)
 	if err != nil {
-		return fmt.Errorf("DNS 解析失败: %w", err)
+		return apperror.Wrap(apperror.KindUnavailable, "DNS 解析失败", err)
 	}
 	for _, ip := range ips {
 		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
-			return fmt.Errorf("检测到内网/本地地址: %s", ip.String())
+			return apperror.Newf(apperror.KindInvalidInput, "检测到内网/本地地址: %s", ip.String())
 		}
 	}
 

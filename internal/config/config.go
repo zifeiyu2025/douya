@@ -391,12 +391,12 @@ func Load(path string) (*Config, error) {
 			log.Info().Msg("[config] 配置文件不存在，创建默认配置")
 			cfg := DefaultConfig()
 			if saveErr := Save(path, cfg); saveErr != nil {
-				return nil, fmt.Errorf("创建默认配置文件失败: %w", saveErr)
+				return nil, apperror.Wrap(apperror.KindInvalidConfig, "创建默认配置文件失败", saveErr)
 			}
 			return cfg, nil
 		}
 		log.Error().Err(err).Str("path", path).Msg("[config] 读取配置文件失败")
-		return nil, fmt.Errorf("读取配置文件失败: %w", err)
+		return nil, apperror.Wrap(apperror.KindInvalidConfig, "读取配置文件失败", err)
 	}
 
 	cfg := DefaultConfig()
@@ -869,20 +869,20 @@ func validateTensorSplit(split string) error {
 	}
 	parts := strings.Split(split, ",")
 	if len(parts) < 2 {
-		return fmt.Errorf("must contain at least two comma-separated device weights")
+		return apperror.New(apperror.KindInvalidConfig, "must contain at least two comma-separated device weights")
 	}
 	hasPositive := false
 	for _, part := range parts {
 		value, err := strconv.ParseFloat(strings.TrimSpace(part), 64)
 		if err != nil || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
-			return fmt.Errorf("%q is not a non-negative finite number", part)
+			return apperror.Newf(apperror.KindInvalidConfig, "%q is not a non-negative finite number", part)
 		}
 		if value > 0 {
 			hasPositive = true
 		}
 	}
 	if !hasPositive {
-		return fmt.Errorf("at least one device weight must be greater than zero")
+		return apperror.New(apperror.KindInvalidConfig, "at least one device weight must be greater than zero")
 	}
 	return nil
 }

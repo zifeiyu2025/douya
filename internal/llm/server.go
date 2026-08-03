@@ -392,13 +392,13 @@ func enhanceStartError(err error) error {
 	if strings.Contains(lower, "the specified module could not be found") ||
 		strings.Contains(lower, "dll not found") ||
 		strings.Contains(lower, ".dll") && (strings.Contains(lower, "not found") || strings.Contains(lower, "cannot find")) {
-		return fmt.Errorf("启动引擎失败，可能是 DLL 文件缺失: %w\n请检查 runtime/ 目录是否包含所有必要的 DLL 文件", err)
+		return apperror.Wrap(apperror.KindInternal, "启动引擎失败，可能是 DLL 文件缺失\n请检查 runtime/ 目录是否包含所有必要的 DLL 文件", err)
 	}
 
 	// 引擎 exe 本身不存在
 	if strings.Contains(lower, "the system cannot find the file specified") ||
 		strings.Contains(lower, "no such file or directory") {
-		return fmt.Errorf("启动引擎失败，引擎程序文件不存在: %w\n请检查 config.json 中的 llama_server_path 配置", err)
+		return apperror.Wrap(apperror.KindInternal, "启动引擎失败，引擎程序文件不存在\n请检查 config.json 中的 llama_server_path 配置", err)
 	}
 
 	return err
@@ -484,7 +484,7 @@ func (s *Server) readConPTYOutput() {
 					readCh <- struct {
 						n   int
 						err error
-					}{n: 0, err: fmt.Errorf("pty read panic: %v", r)}
+					}{n: 0, err: apperror.Newf(apperror.KindInternal, "pty read panic: %v", r)}
 				}
 			}()
 			n, err := s.pty.Read(buf)
@@ -748,7 +748,7 @@ func (s *Server) stopProcessWithTimeout(pid int, waitFn func(), cleanupFn func()
 			s.cancel()
 		}
 		s.mu.Unlock()
-		return fmt.Errorf("server did not terminate gracefully, force killed")
+		return apperror.New(apperror.KindInternal, "server did not terminate gracefully, force killed")
 	}
 }
 

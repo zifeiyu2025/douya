@@ -6,10 +6,10 @@ package llm
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/url"
 
+	"douya/internal/apperror"
 	"douya/internal/httputil"
 
 	"github.com/rs/zerolog/log"
@@ -84,7 +84,8 @@ func (c *Client) tryDirectModelEndpoint(ctx context.Context, modelName string) (
 		// 401/403 属于权限错误，直接返回而非降级到 /v1/models
 		// 原因：权限不足时 /v1/models 同样会失败，降级只会浪费时间并掩盖真正的鉴权问题
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-			return nil, false, fmt.Errorf("GetModelInfoByName: direct endpoint returned %d (auth/permission error) for model %q", resp.StatusCode, modelName)
+			// 使用 KindPermission 让上层可用 errors.Is(err, apperror.ErrPermission) 精准识别鉴权失败
+			return nil, false, apperror.Newf(apperror.KindPermission, "direct endpoint returned %d for model %q", resp.StatusCode, modelName)
 		}
 		return nil, false, nil
 	}
@@ -153,7 +154,7 @@ func (c *Client) fetchModelInfoFromList(ctx context.Context, modelName string) (
 	}
 
 	if len(raw.Data) == 0 {
-		return nil, fmt.Errorf("no models returned")
+		return nil, apperror.New(apperror.KindNotFound, "模型列表为空")
 	}
 
 	target := &raw.Data[0]
@@ -168,7 +169,7 @@ func (c *Client) fetchModelInfoFromList(ctx context.Context, modelName string) (
 			}
 		}
 		if !found {
-			return nil, fmt.Errorf("model %q not found in /v1/models list", modelName)
+			return nil, apperror.Newf(apperror.KindNotFound, "模型 %q 不存在于 /v1/models 列表", modelName)
 		}
 	}
 

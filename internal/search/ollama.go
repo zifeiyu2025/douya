@@ -2,8 +2,9 @@ package search
 
 import (
 	"context"
-	"fmt"
 	"time"
+
+	"douya/internal/apperror"
 )
 
 // OllamaProvider 使用 Ollama API 的搜索 Provider。
@@ -43,7 +44,7 @@ func (p *OllamaProvider) SearchWithOpts(ctx context.Context, query string, opts 
 
 func (p *OllamaProvider) Search(ctx context.Context, query string) (*SearchResponse, error) {
 	if p.apiKey == "" {
-		return nil, fmt.Errorf("ollama api key is empty")
+		return nil, apperror.New(apperror.KindPermission, "ollama api key is empty")
 	}
 
 	reqBody := map[string]string{"query": query}
@@ -56,7 +57,7 @@ func (p *OllamaProvider) Search(ctx context.Context, query string) (*SearchRespo
 		} `json:"results"`
 	}
 	if err := p.doSearchJSON(ctx, "https://ollama.com/api/web_search", reqBody, &result); err != nil {
-		return nil, fmt.Errorf("ollama: %w", err)
+		return nil, apperror.Wrap(apperror.KindUnavailable, "ollama", err)
 	}
 
 	searchResp := &SearchResponse{Engine: p.Name()}
