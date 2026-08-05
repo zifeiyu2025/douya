@@ -5,7 +5,6 @@ package llm
 
 import (
 	"archive/zip"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,6 +13,8 @@ import (
 	"unsafe"
 
 	"github.com/rs/zerolog/log"
+
+	"douya/internal/apperror"
 )
 
 // procGetDiskFreeSpaceExW 是 Windows API GetDiskFreeSpaceExW 的延迟加载过程。
@@ -46,7 +47,7 @@ const llamaServerExe = "llama-server.exe"
 func EnsureBackendInstalled(bt BackendType, runtimeDir string, progressCB ExtractProgressFunc) (string, error) {
 	// auto 后端未解析前没有具体路径信息，拒绝处理
 	if bt == BackendAuto {
-		return "", fmt.Errorf("BackendAuto 需先通过 ResolveBackendType 解析成具体后端")
+		return "", apperror.New(apperror.KindInvalidInput, "BackendAuto 需先通过 ResolveBackendType 解析成具体后端")
 	}
 
 	info := GetBackendInfo(bt)
@@ -65,17 +66,17 @@ func EnsureBackendInstalled(bt BackendType, runtimeDir string, progressCB Extrac
 	// 步骤 3：查找 zip 包
 	zipPath, err := findBackendZip(bt, runtimeDir)
 	if err != nil {
-		return "", fmt.Errorf("查找 %s 后端 zip 包失败: %w", info.DisplayName, err)
+		return "", apperror.Wrapf(apperror.KindNotFound, "查找 %s 后端 zip 包失败", err, info.DisplayName)
 	}
 
 	// 步骤 4：检查磁盘空间（估算：zip 大小 × 2）
 	zipInfo, err := os.Stat(zipPath)
 	if err != nil {
-		return "", fmt.Errorf("读取 zip 文件信息失败: %w", err)
+		return "", apperror.Wrap(apperror.KindNotFound, "读取 zip 文件信息失败", err)
 	}
 	requiredBytes := zipInfo.Size() * 2
 	if err := checkDiskSpace(destDir, requiredBytes); err != nil {
-		return "", fmt.Errorf("磁盘空间不足，无法解压 %s: %w", info.DisplayName, err)
+		return "", apperror.Wrapf(apperror.KindInternal, "磁盘空间不足，无法解压 %s", err, info.DisplayName)
 	}
 
 	// 步骤 5：解压（带进度回调 + 失败重试）
@@ -98,7 +99,7 @@ func EnsureBackendInstalled(bt BackendType, runtimeDir string, progressCB Extrac
 		if removeErr := os.Remove(zipPath); removeErr != nil {
 			log.Error().Err(removeErr).Str("zip", zipPath).Msg("[backend] 删除损坏 zip 文件失败")
 		}
-		return "", fmt.Errorf("解压 %s 失败（zip 包可能已损坏，已自动删除，请重新下载）: %w", filepath.Base(zipPath), err)
+		return "", apperror.Wrapf(apperror.KindInternal, "解压 %s 失败（zip 包可能已损坏，已自动删除，请重新下载）", err, filepath.Base(zipPath))
 	}
 
 	// 步骤 6：验证 llama-server.exe 存在
@@ -112,7 +113,7 @@ func EnsureBackendInstalled(bt BackendType, runtimeDir string, progressCB Extrac
 		if removeErr := os.Remove(zipPath); removeErr != nil {
 			log.Error().Err(removeErr).Str("zip", zipPath).Msg("[backend] 删除不完整 zip 文件失败")
 		}
-		return "", fmt.Errorf("解压完成但 %s 不存在，zip 包可能损坏（已自动删除，请重新下载）", serverPath)
+		return "", apperror.Newf(apperror.KindInternal, "解压完成但 %s 不存在，zip 包可能损坏（已自动删除，请重新下载）", serverPath)
 	}
 
 	log.Info().
@@ -134,17 +135,17 @@ func EnsureBackendInstalled(bt BackendType, runtimeDir string, progressCB Extrac
 func findBackendZip(bt BackendType, runtimeDir string) (string, error) {
 	info := GetBackendInfo(bt)
 	if info.ZipPattern == "" {
-		return "", fmt.Errorf("后端 %s 没有定义 ZipPattern", info.DisplayName)
+		return "", apperror.Newf(apperror.KindInvalidConfig, "后端 %s 没有定义 ZipPattern", info.DisplayName)
 	}
 
 	pattern := filepath.Join(runtimeDir, info.ZipPattern)
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
-		return "", fmt.Errorf("glob 匹配失败 (%s): %w", pattern, err)
+		return "", apperror.Wrapf(apperror.KindInternal, "glob 匹配失败 (%s)", err, pattern)
 	}
 
 	if len(matches) == 0 {
-		return "", fmt.Errorf("未找到 %s 后端的 zip 包，请从官方发布页下载", info.DisplayName)
+		return "", apperror.Newf(apperror.KindNotFound, "未找到 %s 后端的 zip 包，请从官方发布页下载", info.DisplayName)
 	}
 
 	// 多个匹配时按文件名排序取第一个（llama-b* 前缀保证版本递增排序）
@@ -255,7 +256,7 @@ func extractBackendZipWithRetry(zipPath, destDir string, progressCB ExtractProgr
 		log.Warn().Err(cleanErr).Str("dest", destDir).Msg("[backend] 清理目标目录失败，尝试直接重试")
 	}
 	if mkdirErr := os.MkdirAll(destDir, 0o755); mkdirErr != nil {
-		return fmt.Errorf("重试前创建目录失败: %w (原始错误: %v)", mkdirErr, err)
+		return apperror.Wrapf(apperror.KindInternal, "重试前创建目录失败 (原始错误: %v)", mkdirErr, err)
 	}
 
 	retryErr := extractBackendZip(zipPath, destDir, progressCB)
@@ -264,7 +265,7 @@ func extractBackendZipWithRetry(zipPath, destDir string, progressCB ExtractProgr
 		return nil
 	}
 	// 重试仍失败：返回最后一次错误（包含重试上下文）
-	return fmt.Errorf("重试解压仍失败 (首次错误: %v, 重试错误: %w)", err, retryErr)
+	return apperror.Wrapf(apperror.KindInternal, "重试解压仍失败 (首次错误: %v)", retryErr, err)
 }
 
 // extractBackendZip 将 zip 包解压到 destDir。
@@ -286,13 +287,13 @@ func extractBackendZip(zipPath, destDir string, progressCB ExtractProgressFunc) 
 	// 打开 zip 文件
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
-		return fmt.Errorf("打开 zip 失败: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "打开 zip 失败", err)
 	}
 	defer r.Close()
 
 	// 创建目标目录（MkdirAll 幂等，已存在不报错）
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return fmt.Errorf("创建目标目录失败: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "创建目标目录失败", err)
 	}
 
 	// 清理 destDir 路径，用于后续 zip slip 检查
@@ -334,7 +335,7 @@ func extractBackendZip(zipPath, destDir string, progressCB ExtractProgressFunc) 
 		// 验证清理后的路径仍在 destDir 下（或是 destDir 本身）
 		if cleanDestPath != cleanDest &&
 			!strings.HasPrefix(cleanDestPath, cleanDest+string(os.PathSeparator)) {
-			return fmt.Errorf("zip slip 检测到：路径 %q 逃逸出目标目录 %q", f.Name, destDir)
+			return apperror.Newf(apperror.KindInvalidInput, "zip slip 检测到：路径 %q 逃逸出目标目录 %q", f.Name, destDir)
 		}
 
 		// 幂等检查：目标文件已存在且大小相同时跳过
@@ -350,7 +351,7 @@ func extractBackendZip(zipPath, destDir string, progressCB ExtractProgressFunc) 
 
 		// 解压并写入文件
 		if err := extractZipFile(f, destPath); err != nil {
-			return fmt.Errorf("解压 %s 失败: %w", f.Name, err)
+			return apperror.Wrapf(apperror.KindInternal, "解压 %s 失败", err, f.Name)
 		}
 		extractedFiles++
 
@@ -377,25 +378,25 @@ func extractZipFile(f *zip.File, destPath string) error {
 	// 打开 zip 内文件
 	rc, err := f.Open()
 	if err != nil {
-		return fmt.Errorf("打开 zip 内文件失败: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "打开 zip 内文件失败", err)
 	}
 	defer rc.Close()
 
 	// 确保父目录存在（兼容含子目录路径的 zip）
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
-		return fmt.Errorf("创建父目录失败: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "创建父目录失败", err)
 	}
 
 	// 创建目标文件（覆盖已存在的文件）
 	out, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
-		return fmt.Errorf("创建目标文件失败: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "创建目标文件失败", err)
 	}
 	defer out.Close()
 
 	// 拷贝文件内容
 	if _, err := io.Copy(out, rc); err != nil {
-		return fmt.Errorf("写入文件内容失败: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "写入文件内容失败", err)
 	}
 	return nil
 }
@@ -428,7 +429,7 @@ func checkDiskSpace(path string, requiredBytes int64) error {
 	// 路径转换为 UTF-16 指针（Windows API 要求）
 	pathPtr, err := syscall.UTF16PtrFromString(checkPath)
 	if err != nil {
-		return fmt.Errorf("路径转换 UTF-16 失败: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "路径转换 UTF-16 失败", err)
 	}
 
 	var freeBytesAvailable uint64
@@ -444,11 +445,11 @@ func checkDiskSpace(path string, requiredBytes int64) error {
 		uintptr(unsafe.Pointer(&totalFreeBytes)),
 	)
 	if ret == 0 {
-		return fmt.Errorf("获取磁盘剩余空间失败: %w", callErr)
+		return apperror.Wrap(apperror.KindInternal, "获取磁盘剩余空间失败", callErr)
 	}
 
 	if int64(freeBytesAvailable) < requiredBytes {
-		return fmt.Errorf("磁盘空间不足：需要 %d 字节，可用 %d 字节", requiredBytes, freeBytesAvailable)
+		return apperror.Newf(apperror.KindInternal, "磁盘空间不足：需要 %d 字节，可用 %d 字节", requiredBytes, freeBytesAvailable)
 	}
 
 	return nil
@@ -507,10 +508,10 @@ func EnsureCudartInstalled(runtimeDir string, progressCB ExtractProgressFunc) er
 	pattern := filepath.Join(runtimeDir, cudartZipPattern)
 	zipMatches, err := filepath.Glob(pattern)
 	if err != nil {
-		return fmt.Errorf("glob 匹配 cudart 包失败 (%s): %w", pattern, err)
+		return apperror.Wrapf(apperror.KindInternal, "glob 匹配 cudart 包失败 (%s)", err, pattern)
 	}
 	if len(zipMatches) == 0 {
-		return fmt.Errorf("未找到 cudart zip 包，请从官方发布页下载")
+		return apperror.New(apperror.KindNotFound, "未找到 cudart zip 包，请从官方发布页下载")
 	}
 
 	zipPath := zipMatches[0]
@@ -529,7 +530,7 @@ func EnsureCudartInstalled(runtimeDir string, progressCB ExtractProgressFunc) er
 		if removeErr := os.Remove(zipPath); removeErr != nil {
 			log.Error().Err(removeErr).Str("zip", zipPath).Msg("[backend] 删除损坏 cudart zip 文件失败")
 		}
-		return fmt.Errorf("解压 cudart 包失败（zip 包可能已损坏，已自动删除）: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "解压 cudart 包失败（zip 包可能已损坏，已自动删除）", err)
 	}
 
 	// 验证 cudart64_*.dll 存在
@@ -542,7 +543,7 @@ func EnsureCudartInstalled(runtimeDir string, progressCB ExtractProgressFunc) er
 		if removeErr := os.Remove(zipPath); removeErr != nil {
 			log.Error().Err(removeErr).Str("zip", zipPath).Msg("[backend] 删除不完整 cudart zip 文件失败")
 		}
-		return fmt.Errorf("解压完成但 cudart64_*.dll 不存在，zip 包可能损坏（已自动删除）")
+		return apperror.New(apperror.KindInternal, "解压完成但 cudart64_*.dll 不存在，zip 包可能损坏（已自动删除）")
 	}
 
 	log.Info().

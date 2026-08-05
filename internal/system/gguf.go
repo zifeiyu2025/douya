@@ -5,7 +5,6 @@ package system
 
 import (
 	"encoding/binary"
-	"fmt"
 	"io"
 	"os"
 	"slices"
@@ -13,6 +12,8 @@ import (
 	"sync"
 
 	"github.com/rs/zerolog/log"
+
+	"douya/internal/apperror"
 )
 
 const ggufMagic = 0x46554747
@@ -28,7 +29,7 @@ type cacheEntry struct {
 // ParseGGUFMetadataCached 返回缓存的 GGUF 元数据，若未缓存则解析并存储
 func ParseGGUFMetadataCached(path string) (*GGUFMetadata, error) {
 	if path == "" {
-		return nil, fmt.Errorf("empty path")
+		return nil, apperror.New(apperror.KindInvalidInput, "empty path")
 	}
 	if v, ok := ggufCache.Load(path); ok {
 		e := v.(*cacheEntry)
@@ -289,7 +290,7 @@ func matchAnyKeyword(target string, keywords []string) bool {
 func ParseGGUFKV(path string) (map[string]any, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("open gguf: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "open gguf", err)
 	}
 	defer f.Close()
 
@@ -297,27 +298,27 @@ func ParseGGUFKV(path string) (map[string]any, error) {
 
 	magic, err := r.readUint32()
 	if err != nil {
-		return nil, fmt.Errorf("read magic: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "read magic", err)
 	}
 	if magic != ggufMagic {
-		return nil, fmt.Errorf("not a GGUF file (magic: 0x%08x)", magic)
+		return nil, apperror.Newf(apperror.KindInvalidInput, "not a GGUF file (magic: 0x%08x)", magic)
 	}
 
 	version, err := r.readUint32()
 	if err != nil {
-		return nil, fmt.Errorf("read version: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "read version", err)
 	}
 	if version < 2 || version > 3 {
-		return nil, fmt.Errorf("unsupported GGUF version: %d", version)
+		return nil, apperror.Newf(apperror.KindInvalidInput, "unsupported GGUF version: %d", version)
 	}
 
 	if _, err := r.readUint64(); err != nil {
-		return nil, fmt.Errorf("read n_tensors: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "read n_tensors", err)
 	}
 
 	nKV, err := r.readUint64()
 	if err != nil {
-		return nil, fmt.Errorf("read n_kv: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "read n_kv", err)
 	}
 
 	kvMap := make(map[string]any, nKV)
@@ -404,7 +405,7 @@ func (g *ggufReader) readString() (string, error) {
 		return "", err
 	}
 	if length > 1<<20 {
-		return "", fmt.Errorf("string too long: %d", length)
+		return "", apperror.Newf(apperror.KindInvalidInput, "string too long: %d", length)
 	}
 	buf := make([]byte, length)
 	if _, err := io.ReadFull(g.r, buf); err != nil {
@@ -452,7 +453,7 @@ func (g *ggufReader) readValue(valueType uint32) (any, error) {
 	case ggufTypeFLOAT64:
 		return g.readFloat64()
 	default:
-		return nil, fmt.Errorf("unknown GGUF value type: %d", valueType)
+		return nil, apperror.Newf(apperror.KindInvalidInput, "unknown GGUF value type: %d", valueType)
 	}
 }
 
@@ -492,7 +493,7 @@ func (g *ggufReader) skipArrayElements(elemType uint32, count uint64) error {
 				return err
 			}
 		default:
-			return fmt.Errorf("unknown array element type: %d", elemType)
+			return apperror.Newf(apperror.KindInvalidInput, "unknown array element type: %d", elemType)
 		}
 	}
 	return nil

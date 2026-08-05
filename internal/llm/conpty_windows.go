@@ -3,11 +3,12 @@
 package llm
 
 import (
-	"fmt"
 	"strings"
 	"syscall"
 
 	"github.com/UserExistsError/conpty"
+
+	"douya/internal/apperror"
 )
 
 // startWithConPTY 使用 Windows ConPTY（伪控制台）启动 llama-server
@@ -25,7 +26,7 @@ func startWithConPTY(path string, args []string, dir string, env []string, width
 		conpty.ConPtyEnv(env),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("conpty start failed: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "conpty start failed", err)
 	}
 	return pty, nil
 }

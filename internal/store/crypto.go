@@ -4,8 +4,6 @@
 package store
 
 import (
-	"fmt"
-
 	"douya/internal/apperror"
 	"douya/internal/secrets"
 )
@@ -16,7 +14,7 @@ const encPrefix = "enc:"
 // ErrDecryptionFailed 解密失败错误
 // 用于区分"密钥不匹配"与"明文兼容"两种场景，调用方据此决定如何处理
 // 安全实践（基于 B-1.13/B-1.14）：统一 store 包的加密/解密错误，消除重复定义
-var ErrDecryptionFailed = fmt.Errorf("decryption failed: key mismatch or corrupted ciphertext")
+var ErrDecryptionFailed = apperror.New(apperror.KindInternal, "decryption failed: key mismatch or corrupted ciphertext")
 
 // encryptWithPrefix 使用 AES-GCM 加密字符串，返回带 "enc:" 前缀的密文
 // 安全实践（基于 B-1.13/B-1.14）：统一 setting.go 和 message.go 的加密逻辑

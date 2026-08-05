@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+
+	"douya/internal/apperror"
 )
 
 // GitHubReleasesAPI 是 llama.cpp releases 的 GitHub API 地址。
@@ -69,25 +71,25 @@ type githubRelease struct {
 // 返回：匹配到的 asset、release 标签名，或错误
 func FindReleaseAsset(bt BackendType) (asset githubAsset, tagName string, err error) {
 	if bt == BackendAuto {
-		return githubAsset{}, "", fmt.Errorf("BackendAuto 需先通过 ResolveBackendType 解析成具体后端")
+		return githubAsset{}, "", apperror.New(apperror.KindInvalidInput, "BackendAuto 需先通过 ResolveBackendType 解析成具体后端")
 	}
 
 	info := GetBackendInfo(bt)
 	if info.ReleaseAssetRegex == "" {
-		return githubAsset{}, "", fmt.Errorf("后端 %s 没有定义 ReleaseAssetRegex", info.DisplayName)
+		return githubAsset{}, "", apperror.Newf(apperror.KindInvalidConfig, "后端 %s 没有定义 ReleaseAssetRegex", info.DisplayName)
 	}
 
 	// 编译正则
 	re, err := regexp.Compile(info.ReleaseAssetRegex)
 	if err != nil {
-		return githubAsset{}, "", fmt.Errorf("编译 ReleaseAssetRegex 失败: %w", err)
+		return githubAsset{}, "", apperror.Wrap(apperror.KindInvalidConfig, "编译 ReleaseAssetRegex 失败", err)
 	}
 
 	// 查询 GitHub API
 	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequest("GET", GitHubReleasesAPI, nil)
 	if err != nil {
-		return githubAsset{}, "", fmt.Errorf("创建 GitHub API 请求失败: %w", err)
+		return githubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "创建 GitHub API 请求失败", err)
 	}
 	// GitHub API 要求设置 User-Agent
 	req.Header.Set("User-Agent", "Douya-LocalAI")
@@ -95,22 +97,22 @@ func FindReleaseAsset(bt BackendType) (asset githubAsset, tagName string, err er
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return githubAsset{}, "", fmt.Errorf("请求 GitHub API 失败: %w", err)
+		return githubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "请求 GitHub API 失败", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return githubAsset{}, "", fmt.Errorf("GitHub API 返回非 200 状态码: %d", resp.StatusCode)
+		return githubAsset{}, "", apperror.Newf(apperror.KindUnavailable, "GitHub API 返回非 200 状态码: %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return githubAsset{}, "", fmt.Errorf("读取 GitHub API 响应失败: %w", err)
+		return githubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "读取 GitHub API 响应失败", err)
 	}
 
 	var release githubRelease
 	if err := json.Unmarshal(body, &release); err != nil {
-		return githubAsset{}, "", fmt.Errorf("解析 GitHub API 响应失败: %w", err)
+		return githubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "解析 GitHub API 响应失败", err)
 	}
 
 	// 在 assets 中匹配对应后端，收集所有匹配项
@@ -123,7 +125,7 @@ func FindReleaseAsset(bt BackendType) (asset githubAsset, tagName string, err er
 	}
 
 	if len(matched) == 0 {
-		return githubAsset{}, release.TagName, fmt.Errorf("在最新 release %s 中未找到匹配 %s 后端的 asset（正则: %s）",
+		return githubAsset{}, release.TagName, apperror.Newf(apperror.KindNotFound, "在最新 release %s 中未找到匹配 %s 后端的 asset（正则: %s）",
 			release.TagName, info.DisplayName, info.ReleaseAssetRegex)
 	}
 
@@ -183,13 +185,13 @@ func cudaMajorVersion(assetName string) int {
 // 返回：下载完成的 zip 文件绝对路径，或错误
 func DownloadBackendZip(bt BackendType, runtimeDir string, progressCB func(DownloadProgress)) (string, error) {
 	if bt == BackendAuto {
-		return "", fmt.Errorf("BackendAuto 需先通过 ResolveBackendType 解析成具体后端")
+		return "", apperror.New(apperror.KindInvalidInput, "BackendAuto 需先通过 ResolveBackendType 解析成具体后端")
 	}
 
 	// 步骤 1：查找匹配的 GitHub asset
 	asset, tagName, err := FindReleaseAsset(bt)
 	if err != nil {
-		return "", fmt.Errorf("查找 %s 后端 release asset 失败: %w", GetBackendInfo(bt).DisplayName, err)
+		return "", apperror.Wrapf(apperror.KindUnavailable, "查找 %s 后端 release asset 失败", err, GetBackendInfo(bt).DisplayName)
 	}
 
 	destPath := filepath.Join(runtimeDir, asset.Name)
@@ -229,24 +231,24 @@ func DownloadBackendZip(bt BackendType, runtimeDir string, progressCB func(Downl
 	client := &http.Client{Timeout: 0} // 下载不设超时，大文件可能需要几分钟
 	req, err := http.NewRequest("GET", asset.BrowserDownloadURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("创建下载请求失败: %w", err)
+		return "", apperror.Wrap(apperror.KindUnavailable, "创建下载请求失败", err)
 	}
 	req.Header.Set("User-Agent", "Douya-LocalAI")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("下载请求失败: %w", err)
+		return "", apperror.Wrap(apperror.KindUnavailable, "下载请求失败", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("下载返回非 200 状态码: %d", resp.StatusCode)
+		return "", apperror.Newf(apperror.KindUnavailable, "下载返回非 200 状态码: %d", resp.StatusCode)
 	}
 
 	// 创建临时文件
 	tmpFile, err := os.Create(tmpPath)
 	if err != nil {
-		return "", fmt.Errorf("创建临时文件失败: %w", err)
+		return "", apperror.Wrap(apperror.KindInternal, "创建临时文件失败", err)
 	}
 
 	totalSize := resp.ContentLength
@@ -265,7 +267,7 @@ func DownloadBackendZip(bt BackendType, runtimeDir string, progressCB func(Downl
 			if _, writeErr := tmpFile.Write(buf[:n]); writeErr != nil {
 				tmpFile.Close()
 				_ = os.Remove(tmpPath)
-				return "", fmt.Errorf("写入临时文件失败: %w", writeErr)
+				return "", apperror.Wrap(apperror.KindInternal, "写入临时文件失败", writeErr)
 			}
 			downloaded += int64(n)
 
@@ -293,7 +295,7 @@ func DownloadBackendZip(bt BackendType, runtimeDir string, progressCB func(Downl
 		if readErr != nil {
 			tmpFile.Close()
 			_ = os.Remove(tmpPath)
-			return "", fmt.Errorf("下载读取失败: %w", readErr)
+			return "", apperror.Wrap(apperror.KindUnavailable, "下载读取失败", readErr)
 		}
 	}
 
@@ -304,14 +306,14 @@ func DownloadBackendZip(bt BackendType, runtimeDir string, progressCB func(Downl
 	// 只在 ContentLength 已知（totalSize > 0）时校验，未知时不校验（chunked 传输）。
 	if totalSize > 0 && downloaded != totalSize {
 		_ = os.Remove(tmpPath)
-		return "", fmt.Errorf("下载文件不完整：已下载 %d 字节，预期 %d 字节（可能网络中断或服务器截断响应）",
+		return "", apperror.Newf(apperror.KindUnavailable, "下载文件不完整：已下载 %d 字节，预期 %d 字节（可能网络中断或服务器截断响应）",
 			downloaded, totalSize)
 	}
 
 	// 步骤 3：重命名临时文件为最终文件名
 	if err := os.Rename(tmpPath, destPath); err != nil {
 		_ = os.Remove(tmpPath)
-		return "", fmt.Errorf("重命名临时文件失败: %w", err)
+		return "", apperror.Wrap(apperror.KindInternal, "重命名临时文件失败", err)
 	}
 
 	// 推送完成进度
@@ -354,29 +356,29 @@ func FindCudartAsset() (asset githubAsset, tagName string, err error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequest("GET", GitHubReleasesAPI, nil)
 	if err != nil {
-		return githubAsset{}, "", fmt.Errorf("创建 GitHub API 请求失败: %w", err)
+		return githubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "创建 GitHub API 请求失败", err)
 	}
 	req.Header.Set("User-Agent", "Douya-LocalAI")
 	req.Header.Set("Accept", "application/vnd.github+json")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return githubAsset{}, "", fmt.Errorf("请求 GitHub API 失败: %w", err)
+		return githubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "请求 GitHub API 失败", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return githubAsset{}, "", fmt.Errorf("GitHub API 返回非 200 状态码: %d", resp.StatusCode)
+		return githubAsset{}, "", apperror.Newf(apperror.KindUnavailable, "GitHub API 返回非 200 状态码: %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return githubAsset{}, "", fmt.Errorf("读取 GitHub API 响应失败: %w", err)
+		return githubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "读取 GitHub API 响应失败", err)
 	}
 
 	var release githubRelease
 	if err := json.Unmarshal(body, &release); err != nil {
-		return githubAsset{}, "", fmt.Errorf("解析 GitHub API 响应失败: %w", err)
+		return githubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "解析 GitHub API 响应失败", err)
 	}
 
 	// 收集所有匹配的 cudart asset（12.x 和 13.x）
@@ -388,7 +390,7 @@ func FindCudartAsset() (asset githubAsset, tagName string, err error) {
 	}
 
 	if len(matched) == 0 {
-		return githubAsset{}, release.TagName, fmt.Errorf("在最新 release %s 中未找到 cudart 包", release.TagName)
+		return githubAsset{}, release.TagName, apperror.Newf(apperror.KindNotFound, "在最新 release %s 中未找到 cudart 包", release.TagName)
 	}
 
 	// 优先选高版本（13.x 优于 12.x），与主后端版本保持一致
@@ -418,7 +420,7 @@ func FindCudartAsset() (asset githubAsset, tagName string, err error) {
 func DownloadCudartZip(runtimeDir string, progressCB func(DownloadProgress)) (string, error) {
 	asset, tagName, err := FindCudartAsset()
 	if err != nil {
-		return "", fmt.Errorf("查找 cudart release asset 失败: %w", err)
+		return "", apperror.Wrap(apperror.KindUnavailable, "查找 cudart release asset 失败", err)
 	}
 
 	destPath := filepath.Join(runtimeDir, asset.Name)
@@ -434,7 +436,7 @@ func DownloadCudartZip(runtimeDir string, progressCB func(DownloadProgress)) (st
 		Msg("[backend] 开始下载 cudart zip 包")
 
 	if err := downloadFile(asset.BrowserDownloadURL, destPath, asset.Size, BackendCUDA, asset.Name, tagName, progressCB); err != nil {
-		return "", fmt.Errorf("下载 cudart zip 包失败: %w", err)
+		return "", apperror.Wrap(apperror.KindUnavailable, "下载 cudart zip 包失败", err)
 	}
 
 	log.Info().
@@ -450,25 +452,25 @@ func downloadFile(downloadURL, destPath string, totalSize int64, bt BackendType,
 	tmpPath := destPath + ".tmp"
 	out, err := os.Create(tmpPath)
 	if err != nil {
-		return fmt.Errorf("创建临时文件失败: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "创建临时文件失败", err)
 	}
 	defer out.Close()
 
 	req, err := http.NewRequest("GET", downloadURL, nil)
 	if err != nil {
-		return fmt.Errorf("创建下载请求失败: %w", err)
+		return apperror.Wrap(apperror.KindUnavailable, "创建下载请求失败", err)
 	}
 	req.Header.Set("User-Agent", "Douya-LocalAI")
 
 	client := &http.Client{Timeout: 0} // 下载不限超时
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("下载请求失败: %w", err)
+		return apperror.Wrap(apperror.KindUnavailable, "下载请求失败", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("下载返回非 200 状态码: %d", resp.StatusCode)
+		return apperror.Newf(apperror.KindUnavailable, "下载返回非 200 状态码: %d", resp.StatusCode)
 	}
 
 	if totalSize <= 0 {
@@ -483,7 +485,7 @@ func downloadFile(downloadURL, destPath string, totalSize int64, bt BackendType,
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
 			if _, werr := out.Write(buf[:n]); werr != nil {
-				return fmt.Errorf("写入文件失败: %w", werr)
+				return apperror.Wrap(apperror.KindInternal, "写入文件失败", werr)
 			}
 			downloaded += int64(n)
 
@@ -510,22 +512,22 @@ func downloadFile(downloadURL, destPath string, totalSize int64, bt BackendType,
 			break
 		}
 		if readErr != nil {
-			return fmt.Errorf("读取响应失败: %w", readErr)
+			return apperror.Wrap(apperror.KindUnavailable, "读取响应失败", readErr)
 		}
 	}
 
 	if err := out.Close(); err != nil {
-		return fmt.Errorf("关闭文件失败: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "关闭文件失败", err)
 	}
 
 	// P0-1 修复：校验下载字节数，防止截断响应被误认为成功
 	if totalSize > 0 && downloaded != totalSize {
 		_ = os.Remove(tmpPath)
-		return fmt.Errorf("下载文件不完整：已下载 %d 字节，预期 %d 字节", downloaded, totalSize)
+		return apperror.Newf(apperror.KindUnavailable, "下载文件不完整：已下载 %d 字节，预期 %d 字节", downloaded, totalSize)
 	}
 
 	if err := os.Rename(tmpPath, destPath); err != nil {
-		return fmt.Errorf("重命名临时文件失败: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "重命名临时文件失败", err)
 	}
 
 	if progressCB != nil {
@@ -550,13 +552,13 @@ func downloadFile(downloadURL, destPath string, totalSize int64, bt BackendType,
 // 用户取消下载时，context 被取消，下载立即终止并清理临时文件。
 func DownloadBackendZipWithContext(ctx context.Context, bt BackendType, runtimeDir string, progressCB func(DownloadProgress)) (string, error) {
 	if bt == BackendAuto {
-		return "", fmt.Errorf("BackendAuto 需先通过 ResolveBackendType 解析成具体后端")
+		return "", apperror.New(apperror.KindInvalidInput, "BackendAuto 需先通过 ResolveBackendType 解析成具体后端")
 	}
 
 	// 步骤 1：查找匹配的 GitHub asset
 	asset, tagName, err := FindReleaseAsset(bt)
 	if err != nil {
-		return "", fmt.Errorf("查找 %s 后端 release asset 失败: %w", GetBackendInfo(bt).DisplayName, err)
+		return "", apperror.Wrapf(apperror.KindUnavailable, "查找 %s 后端 release asset 失败", err, GetBackendInfo(bt).DisplayName)
 	}
 
 	destPath := filepath.Join(runtimeDir, asset.Name)
@@ -594,23 +596,23 @@ func DownloadBackendZipWithContext(ctx context.Context, bt BackendType, runtimeD
 	// 使用带 context 的请求，支持取消
 	req, err := http.NewRequestWithContext(ctx, "GET", asset.BrowserDownloadURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("创建下载请求失败: %w", err)
+		return "", apperror.Wrap(apperror.KindUnavailable, "创建下载请求失败", err)
 	}
 	req.Header.Set("User-Agent", "Douya-LocalAI")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("下载请求失败: %w", err)
+		return "", apperror.Wrap(apperror.KindUnavailable, "下载请求失败", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("下载返回非 200 状态码: %d", resp.StatusCode)
+		return "", apperror.Newf(apperror.KindUnavailable, "下载返回非 200 状态码: %d", resp.StatusCode)
 	}
 
 	tmpFile, err := os.Create(tmpPath)
 	if err != nil {
-		return "", fmt.Errorf("创建临时文件失败: %w", err)
+		return "", apperror.Wrap(apperror.KindInternal, "创建临时文件失败", err)
 	}
 
 	totalSize := resp.ContentLength
@@ -644,7 +646,7 @@ func DownloadBackendZipWithContext(ctx context.Context, bt BackendType, runtimeD
 			if _, writeErr := tmpFile.Write(buf[:n]); writeErr != nil {
 				tmpFile.Close()
 				_ = os.Remove(tmpPath)
-				return "", fmt.Errorf("写入临时文件失败: %w", writeErr)
+				return "", apperror.Wrap(apperror.KindInternal, "写入临时文件失败", writeErr)
 			}
 			downloaded += int64(n)
 
@@ -671,7 +673,7 @@ func DownloadBackendZipWithContext(ctx context.Context, bt BackendType, runtimeD
 		if readErr != nil {
 			tmpFile.Close()
 			_ = os.Remove(tmpPath)
-			return "", fmt.Errorf("下载读取失败: %w", readErr)
+			return "", apperror.Wrap(apperror.KindUnavailable, "下载读取失败", readErr)
 		}
 	}
 
@@ -680,12 +682,12 @@ func DownloadBackendZipWithContext(ctx context.Context, bt BackendType, runtimeD
 	// P0-1 修复：校验下载字节数，防止截断响应被误认为成功
 	if totalSize > 0 && downloaded != totalSize {
 		_ = os.Remove(tmpPath)
-		return "", fmt.Errorf("下载文件不完整：已下载 %d 字节，预期 %d 字节", downloaded, totalSize)
+		return "", apperror.Newf(apperror.KindUnavailable, "下载文件不完整：已下载 %d 字节，预期 %d 字节", downloaded, totalSize)
 	}
 
 	if err := os.Rename(tmpPath, destPath); err != nil {
 		_ = os.Remove(tmpPath)
-		return "", fmt.Errorf("重命名临时文件失败: %w", err)
+		return "", apperror.Wrap(apperror.KindInternal, "重命名临时文件失败", err)
 	}
 
 	if progressCB != nil {

@@ -10,6 +10,8 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+
+	"douya/internal/apperror"
 )
 
 // 日志保留天数
@@ -96,7 +98,7 @@ func (iww ignoreErrorWriter) Write(p []byte) (int, error) {
 func SetLevel(level string) error {
 	l := parseLevel(level)
 	if l == zerolog.NoLevel {
-		return fmt.Errorf("unknown log level: %q (supported: trace/debug/info/warn/error/fatal/panic/disabled)", level)
+		return apperror.Newf(apperror.KindInvalidInput, "unknown log level: %q (supported: trace/debug/info/warn/error/fatal/panic/disabled)", level)
 	}
 	zerolog.SetGlobalLevel(l)
 	log.Info().Str("level", l.String()).Msg("日志级别已动态调整")

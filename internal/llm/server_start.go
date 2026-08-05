@@ -15,6 +15,8 @@ import (
 
 	"github.com/UserExistsError/conpty"
 	"github.com/rs/zerolog/log"
+
+	"douya/internal/apperror"
 )
 
 // Start 启动 llama-server 进程。
@@ -32,7 +34,7 @@ import (
 func (s *Server) Start() error {
 	// 安全校验：开启局域网暴露时必须启用 API Key，防止局域网内未授权设备调用本地算力
 	if s.config.ExposeServer && (!s.config.ServerAPIKeyEnabled || s.config.APIKey == "") {
-		return fmt.Errorf("开启局域网暴露必须先启用服务 API Key 并设置密钥")
+		return apperror.New(apperror.KindInvalidConfig, "开启局域网暴露必须先启用服务 API Key 并设置密钥")
 	}
 	s.mu.Lock()
 

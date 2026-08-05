@@ -7,12 +7,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 
+	"douya/internal/apperror"
 	"douya/internal/chat"
 	"douya/internal/config"
 	"douya/internal/llm"
@@ -175,7 +175,7 @@ func (a *App) trackedGo(fn func()) {
 // 用于消除各 App 方法开头重复的 if !a.ready.Load() { return ... } 模式。
 func (a *App) requireReady() error {
 	if !a.ready.Load() {
-		return fmt.Errorf("应用未就绪。")
+		return apperror.New(apperror.KindUnavailable, "应用未就绪")
 	}
 	return nil
 }
@@ -185,7 +185,7 @@ func (a *App) requireReady() error {
 // 用于消除需要 AI 推理能力的方法中重复的 serverReady 检查。
 func (a *App) requireServer() error {
 	if !a.serverReady.Load() {
-		return fmt.Errorf("AI 服务未启动，请等待服务就绪或检查配置。")
+		return apperror.New(apperror.KindUnavailable, "AI 服务未启动，请等待服务就绪或检查配置")
 	}
 	return nil
 }

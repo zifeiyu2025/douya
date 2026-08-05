@@ -504,8 +504,8 @@ func (s *Service) executeToolCallStream(cancelCtx context.Context, convID string
 		"工具调用生成超时",
 		apperror.New(apperror.KindTimeout, "tool call stream timeout"),
 		"[chat] tool call context exceeded, trimming and retrying",
-		"tool call stream (retry after context trim): %w",
-		"stream chat after search: %w",
+		"tool call stream (retry after context trim)",
+		"stream chat after search",
 	)
 	if result == streamStopped {
 		return true, err

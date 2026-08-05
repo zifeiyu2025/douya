@@ -14,6 +14,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"douya/internal/apperror"
 	"douya/internal/system"
 )
 
@@ -127,19 +128,19 @@ func GetGPUVRAMBytes(hw *system.HardwareInfo) (uint64, error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 	output, err := cmd.Output()
 	if err != nil {
-		return 0, fmt.Errorf("nvidia-smi not available and no HardwareInfo provided: %w", err)
+		return 0, apperror.Wrap(apperror.KindInternal, "nvidia-smi not available and no HardwareInfo provided", err)
 	}
 
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	if len(lines) == 0 {
-		return 0, fmt.Errorf("no GPU found")
+		return 0, apperror.New(apperror.KindInternal, "no GPU found")
 	}
 
 	// 取第一块 GPU 的 VRAM（MiB）
 	firstLine := strings.TrimSpace(lines[0])
 	mib, err := strconv.ParseUint(firstLine, 10, 64)
 	if err != nil {
-		return 0, fmt.Errorf("parse VRAM value %q: %w", firstLine, err)
+		return 0, apperror.Wrapf(apperror.KindInternal, "parse VRAM value %q", err, firstLine)
 	}
 
 	// MiB → Bytes

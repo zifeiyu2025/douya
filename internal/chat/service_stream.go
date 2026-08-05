@@ -519,8 +519,8 @@ func (s *Service) savePartialContentIfAny(convID string, acc *StreamAccumulator)
 //  2. 若是上下文溢出：裁剪消息 → emit context_trimmed → 用 retryConvID 重试
 //     - 重试成功：返回 (false, nil)，调用方继续往下执行
 //     - 重试失败（用户取消）：emit stopped + savePartialContentIfAny，返回 (true, nil)
-//     - 重试失败（其他错误）：emit error，返回 (true, fmt.Errorf(retryErrFmt, retryErr))
-//  3. 若不是上下文溢出：emit error，返回 (true, fmt.Errorf(nonExceedErrFmt, origErr))
+//     - 重试失败（其他错误）：emit error，返回 (true, apperror.Wrap(KindInternal, retryErrFmt, retryErr))
+//  3. 若不是上下文溢出：emit error，返回 (true, apperror.Wrap(KindInternal, nonExceedErrFmt, origErr))
 //
 // 关于 retryCancel：原 handleToolCallLoop 在 for 循环内立即调用 retryCancel() 避免 defer 累积泄漏；
 // 提取为独立函数后，每次调用都会同步返回，defer retryCancel() 不会累积，因此统一使用 defer 更安全
@@ -542,7 +542,7 @@ func (s *Service) retryStreamAfterContextExceeded(
 	if exceedInfo == nil || !exceedInfo.Exceeded {
 		// 非上下文溢出错误：emit error 并返回
 		s.emitForConv(convID, "error", enhanceErrorWithHint(origErr.Error()))
-		return true, fmt.Errorf(nonExceedErrFmt, origErr)
+		return true, apperror.Wrap(apperror.KindInternal, nonExceedErrFmt, origErr)
 	}
 
 	// 上下文溢出：裁剪消息后重试
@@ -579,7 +579,7 @@ func (s *Service) retryStreamAfterContextExceeded(
 		return true, nil
 	}
 	s.emitForConv(convID, "error", enhanceErrorWithHint("上下文过长，裁剪后仍无法生成，请尝试缩短对话或新建对话"))
-	return true, fmt.Errorf(retryErrFmt, retryErr)
+	return true, apperror.Wrap(apperror.KindInternal, retryErrFmt, retryErr)
 }
 
 // streamExecResult 描述流式请求执行后的状态，供 runStreamWithStandardErrors 返回。

@@ -231,8 +231,8 @@ func (s *Service) executeStreamAndHandleErrors(streamCtx context.Context, cancel
 		"生成超时，请重试",
 		apperror.New(apperror.KindTimeout, "stream chat timeout"),
 		"[chat] context exceeded, trimming and retrying",
-		"stream chat (retry after context trim): %w",
-		"stream chat: %w",
+		"stream chat (retry after context trim)",
+		"stream chat",
 	)
 	if result == streamStopped {
 		return err

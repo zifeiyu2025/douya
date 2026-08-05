@@ -5,12 +5,13 @@ package pdfutil
 
 import (
 	"bytes"
-	"fmt"
 	"regexp"
 	"strings"
 	"sync"
 
 	pdf "github.com/ledongthuc/pdf"
+
+	"douya/internal/apperror"
 )
 
 // ExtractText 提取 PDF 文本内容。
@@ -52,12 +53,12 @@ func ExtractTextWithFallback(data []byte, fallback string) string {
 func ExtractTextWithLib(data []byte) (string, error) {
 	reader, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
-		return "", fmt.Errorf("pdf reader: %w", err)
+		return "", apperror.Wrap(apperror.KindInternal, "pdf reader", err)
 	}
 
 	pageCount := reader.NumPage()
 	if pageCount == 0 {
-		return "", fmt.Errorf("no pages in PDF")
+		return "", apperror.New(apperror.KindInternal, "no pages in PDF")
 	}
 
 	// 并行解析各页，结果存入按页码索引的数组以保证顺序
@@ -97,7 +98,7 @@ func ExtractTextWithLib(data []byte) (string, error) {
 
 	result := buf.String()
 	if result == "" {
-		return "", fmt.Errorf("no text extracted from PDF")
+		return "", apperror.New(apperror.KindInternal, "no text extracted from PDF")
 	}
 	return result, nil
 }
