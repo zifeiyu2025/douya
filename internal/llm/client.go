@@ -462,6 +462,12 @@ type MetricsSummary struct {
 	ProcessingRequests    int     `json:"processing_requests"`      // 处理中的请求数（llamacpp:requests_processing）
 	DeferredRequests      int     `json:"deferred_requests"`        // 排队中的请求数（llamacpp:requests_deferred）
 	BusySlotsPerDecode    float64 `json:"busy_slots_per_decode"`    // 每次 decode 平均繁忙 slot 数（llamacpp:n_busy_slots_per_decode）
+
+	// 推测解码指标（llama.cpp b10287 / PR #26389 引入，命名对齐 vLLM）
+	// 推测解码未启用时这些计数器恒为 0；启用后用于评估命中率（accepted/draft）
+	SpecDraftTokensTotal   float64 `json:"spec_draft_tokens_total"`   // 草稿模型生成的 token 总数（llamacpp:spec_decode_num_draft_tokens_total）
+	SpecAcceptedTokensTotal float64 `json:"spec_accepted_tokens_total"` // 被目标模型接受的草稿 token 总数（llamacpp:spec_decode_num_accepted_tokens_total）
+	SpecDraftsTotal        float64 `json:"spec_drafts_total"`         // 推测解码验证步骤总数（llamacpp:spec_decode_num_drafts_total）
 }
 
 // ParseMetrics 解析 Prometheus 格式文本，提取关键指标。
@@ -517,6 +523,12 @@ func ParseMetrics(text string) MetricsSummary {
 			s.DeferredRequests = int(value)
 		case "llamacpp:n_busy_slots_per_decode":
 			s.BusySlotsPerDecode = value
+		case "llamacpp:spec_decode_num_draft_tokens_total":
+			s.SpecDraftTokensTotal = value
+		case "llamacpp:spec_decode_num_accepted_tokens_total":
+			s.SpecAcceptedTokensTotal = value
+		case "llamacpp:spec_decode_num_drafts_total":
+			s.SpecDraftsTotal = value
 		}
 	}
 	return s

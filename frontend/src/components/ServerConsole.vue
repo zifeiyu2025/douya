@@ -106,6 +106,40 @@
                 <span class="detail-value">{{ formatNumber(metrics.n_decode_total) }}</span>
               </div>
             </div>
+            <!-- 推测解码指标：仅在草稿 token 总数 > 0 时显示（说明推测解码已启用并产生数据） -->
+            <!-- 命中率 = accepted / draft，反映推测解码的实际加速效果 -->
+            <div v-if="metrics.spec_draft_tokens_total > 0" class="metrics-detail">
+              <div class="detail-title">
+                推测解码统计
+                <span class="detail-title-hint">命中率反映草稿模型预测准确度</span>
+              </div>
+              <div class="detail-row detail-row-highlight">
+                <span class="detail-label">草稿命中率</span>
+                <span class="detail-value">
+                  {{ (metrics.spec_accepted_tokens_total / metrics.spec_draft_tokens_total * 100).toFixed(1) }}%
+                </span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">已接受草稿 token</span>
+                <span class="detail-value">{{ formatNumber(metrics.spec_accepted_tokens_total) }}</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">草稿 token 总数</span>
+                <span class="detail-value">{{ formatNumber(metrics.spec_draft_tokens_total) }}</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">验证步骤数</span>
+                <span class="detail-value">{{ formatNumber(metrics.spec_drafts_total) }}</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">平均每步接受 token</span>
+                <span class="detail-value">
+                  {{ metrics.spec_drafts_total > 0
+                    ? (metrics.spec_accepted_tokens_total / metrics.spec_drafts_total).toFixed(2)
+                    : '0.00' }}
+                </span>
+              </div>
+            </div>
           </div>
           <!-- 空状态：友好引导，不报错 -->
           <div v-else class="metrics-empty">
@@ -389,6 +423,14 @@ onUnmounted(() => {
   font-weight: 600;
   color: var(--text-color-2);
   margin-bottom: 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.detail-title-hint {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-color-3);
 }
 .detail-row {
   display: flex;
@@ -402,6 +444,11 @@ onUnmounted(() => {
 .detail-value {
   color: var(--text-color);
   font-variant-numeric: tabular-nums;
+}
+.detail-row-highlight .detail-label,
+.detail-row-highlight .detail-value {
+  color: var(--primary-color);
+  font-weight: 600;
 }
 .metrics-empty {
   padding: 40px 0;

@@ -680,6 +680,11 @@ export interface MetricsSummary {
   processing_requests: number
   deferred_requests: number
   busy_slots_per_decode: number
+  // 推测解码指标（llama.cpp b10287 / PR #26389 引入）
+  // 推测解码未启用时这些计数器恒为 0；启用后用于评估命中率（accepted/draft）
+  spec_draft_tokens_total: number // 草稿模型生成的 token 总数
+  spec_accepted_tokens_total: number // 被目标模型接受的草稿 token 总数
+  spec_drafts_total: number // 推测解码验证步骤总数
 }
 
 export interface ModelOption {
