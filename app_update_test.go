@@ -2,6 +2,77 @@ package main
 
 import "testing"
 
+// TestFindWindowsAsset 测试 Windows 安装包资产匹配逻辑
+// 覆盖当前发布命名（windows.zip）与历史命名（windows-amd64.zip），
+// 防止因上游资产命名变化导致"检查更新"误报 NotFound。
+func TestFindWindowsAsset(t *testing.T) {
+	tests := []struct {
+		name   string
+		assets []githubAsset
+		want   string // 期望的 BrowserDownloadURL，空串表示不命中
+	}{
+		{
+			name: "当前发布命名 windows.zip",
+			assets: []githubAsset{
+				{Name: "Douya-v0.11.6-windows.zip", BrowserDownloadURL: "https://example.com/windows.zip"},
+			},
+			want: "https://example.com/windows.zip",
+		},
+		{
+			name: "历史命名 windows-amd64.zip",
+			assets: []githubAsset{
+				{Name: "Douya-v0.10.0-windows-amd64.zip", BrowserDownloadURL: "https://example.com/windows-amd64.zip"},
+			},
+			want: "https://example.com/windows-amd64.zip",
+		},
+		{
+			name: "同时存在时优先 amd64",
+			assets: []githubAsset{
+				{Name: "Douya-v0.11.6-windows.zip", BrowserDownloadURL: "https://example.com/windows.zip"},
+				{Name: "Douya-v0.11.6-windows-amd64.zip", BrowserDownloadURL: "https://example.com/windows-amd64.zip"},
+			},
+			want: "https://example.com/windows-amd64.zip",
+		},
+		{
+			name: "混合资产中命中 windows",
+			assets: []githubAsset{
+				{Name: "Douya-v0.11.6-linux.zip", BrowserDownloadURL: "https://example.com/linux.zip"},
+				{Name: "Douya-v0.11.6-macos.zip", BrowserDownloadURL: "https://example.com/macos.zip"},
+				{Name: "Douya-v0.11.6-windows.zip", BrowserDownloadURL: "https://example.com/windows.zip"},
+			},
+			want: "https://example.com/windows.zip",
+		},
+		{
+			name: "无 Windows 资产返回空",
+			assets: []githubAsset{
+				{Name: "Douya-v0.11.6-linux.zip", BrowserDownloadURL: "https://example.com/linux.zip"},
+			},
+			want: "",
+		},
+		{
+			name:   "空资产返回空",
+			assets: nil,
+			want:   "",
+		},
+		{
+			name: "无关命名不误匹配",
+			assets: []githubAsset{
+				{Name: "source-code.zip", BrowserDownloadURL: "https://example.com/source.zip"},
+			},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := findWindowsAsset(tt.assets)
+			if got != tt.want {
+				t.Errorf("findWindowsAsset() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestCompareVersions 测试版本号比较逻辑
 // 生活类比：就像比较两个学生的成绩单——先比第一位（主版本），
 // 相同再比第二位（次版本），再相同比第三位（补丁号）。

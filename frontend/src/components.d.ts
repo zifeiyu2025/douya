@@ -38,6 +38,7 @@ declare module 'vue' {
     NetworkSettings: typeof import('./components/settings/NetworkSettings.vue')['default']
     NForm: typeof import('naive-ui')['NForm']
     NIcon: typeof import('naive-ui')['NIcon']
+    NSwitch: typeof import('naive-ui')['NSwitch']
     NText: typeof import('naive-ui')['NText']
     PerformanceModeSelector: typeof import('./components/settings/PerformanceModeSelector.vue')['default']
     PerformanceSettings: typeof import('./components/settings/PerformanceSettings.vue')['default']

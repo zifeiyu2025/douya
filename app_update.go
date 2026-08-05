@@ -34,15 +34,18 @@ type UpdateInfo struct {
 	PublishedAt    string `json:"published_at"`
 }
 
+// githubAsset GitHub Release 资产
+type githubAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+}
+
 // githubRelease GitHub Release API 响应结构
 type githubRelease struct {
 	TagName     string `json:"tag_name"`
 	Body        string `json:"body"`
 	PublishedAt string `json:"published_at"`
-	Assets      []struct {
-		Name               string `json:"name"`
-		BrowserDownloadURL string `json:"browser_download_url"`
-	} `json:"assets"`
+	Assets      []githubAsset `json:"assets"`
 }
 
 // GetAppVersion 返回当前应用版本号
@@ -86,19 +89,11 @@ func (a *App) CheckUpdate() (*UpdateInfo, error) {
 	// 去掉 tag_name 的 "v" 前缀，得到纯版本号
 	latestVersion := strings.TrimPrefix(release.TagName, "v")
 
-	// 查找匹配的 Windows amd64 资产
-	// 匹配模式：Douya-v*-windows-amd64.zip
-	assetPattern := regexp.MustCompile(`^Douya-v.+windows-amd64\.zip$`)
-	var downloadURL string
-	for _, asset := range release.Assets {
-		if assetPattern.MatchString(asset.Name) {
-			downloadURL = asset.BrowserDownloadURL
-			break
-		}
-	}
+	// 查找匹配的 Windows 资产（兼容 windows.zip 与 windows-amd64.zip 两种命名）
+	downloadURL := findWindowsAsset(release.Assets)
 
 	if downloadURL == "" {
-		return nil, apperror.New(apperror.KindNotFound, "未找到 Windows amd64 版本的下载资源")
+		return nil, apperror.New(apperror.KindNotFound, "未找到 Windows 版本的下载资源")
 	}
 
 	// 比较版本号：当前版本 vs 最新版本
@@ -135,8 +130,8 @@ func (a *App) PerformUpdate(downloadURL string, latestVersion string) error {
 		return apperror.Wrap(apperror.KindInternal, "创建临时目录失败", err)
 	}
 
-	// 下载 zip 文件
-	zipPath := filepath.Join(tempDir, fmt.Sprintf("Douya-v%s-windows-amd64.zip", latestVersion))
+	// 下载 zip 文件（临时文件名与发布资产命名保持一致）
+	zipPath := filepath.Join(tempDir, fmt.Sprintf("Douya-v%s-windows.zip", latestVersion))
 	if err := a.downloadWithProgress(downloadURL, zipPath); err != nil {
 		os.RemoveAll(tempDir)
 		return apperror.Wrap(apperror.KindUnavailable, "下载更新包失败", err)
@@ -453,6 +448,24 @@ func writeUTF8BOM(path, content string) error {
 	// 写入内容
 	_, err = f.WriteString(content)
 	return err
+}
+
+// findWindowsAsset 在发布资产中查找 Windows 安装包
+// 兼容两种命名：Douya-v0.11.6-windows.zip（当前发布命名）与 Douya-v0.11.6-windows-amd64.zip（历史命名）
+// 优先匹配更精确的 windows-amd64，避免未来命名回退后误选其他平台资产
+func findWindowsAsset(assets []githubAsset) string {
+	assetPatterns := []*regexp.Regexp{
+		regexp.MustCompile(`^Douya-v.+windows-amd64\.zip$`),
+		regexp.MustCompile(`^Douya-v.+windows\.zip$`),
+	}
+	for _, pattern := range assetPatterns {
+		for _, asset := range assets {
+			if pattern.MatchString(asset.Name) {
+				return asset.BrowserDownloadURL
+			}
+		}
+	}
+	return ""
 }
 
 // compareVersions 比较两个语义化版本号
