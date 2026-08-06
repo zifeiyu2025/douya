@@ -101,6 +101,7 @@ import { inject, watch } from 'vue'
 import { NFormItem, NSelect, NInput, NDivider, NAlert, NTag, useMessage } from 'naive-ui'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
 import HelpTip from '../ui/HelpTip.vue'
+import { openExternal } from '../../utils/externalLink'
 
 defineOptions({ name: 'WebSearchSettings' })
 
@@ -119,9 +120,6 @@ const {
 } = ctx
 
 const message = useMessage()
-const openExternal = (url: string) => {
-  window.open(url, '_blank')
-}
 
 // 切换搜索模式时，如果开启且没有 API Key，给出提示
 watch(
