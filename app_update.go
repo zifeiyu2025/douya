@@ -123,7 +123,7 @@ func (a *App) PerformUpdate(downloadURL string, latestVersion string) error {
 	}
 
 	// 通知前端：开始下载
-	wailsRuntime.EventsEmit(a.ctx, "update:progress", map[string]any{
+	wailsRuntime.EventsEmit(a.ctx, EventUpdateProgress, map[string]any{
 		"stage":   "downloading",
 		"percent": 0,
 	})
@@ -142,7 +142,7 @@ func (a *App) PerformUpdate(downloadURL string, latestVersion string) error {
 	}
 
 	// 通知前端：开始安装
-	wailsRuntime.EventsEmit(a.ctx, "update:progress", map[string]any{
+	wailsRuntime.EventsEmit(a.ctx, EventUpdateProgress, map[string]any{
 		"stage": "installing",
 	})
 
@@ -259,7 +259,7 @@ func (w *downloadProgressWriter) Write(p []byte) (int, error) {
 			if percent > 100 {
 				percent = 100
 			}
-			wailsRuntime.EventsEmit(w.ctx, "update:progress", map[string]any{
+			wailsRuntime.EventsEmit(w.ctx, EventUpdateProgress, map[string]any{
 				"stage":   "downloading",
 				"percent": percent,
 			})

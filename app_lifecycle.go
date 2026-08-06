@@ -212,7 +212,7 @@ func (a *App) beforeClose(ctx context.Context) bool {
 	default: // "ask" 或未设置
 		// M5 修复：ALT+F4 / 系统关闭按钮 与前端关闭按钮行为一致，
 		// 通过事件通知前端弹出询问对话框，而非直接隐藏到托盘。
-		runtime.EventsEmit(ctx, "window:closeRequest", nil)
+		runtime.EventsEmit(ctx, EventWindowCloseRequest, nil)
 		return true
 	}
 }
@@ -280,7 +280,7 @@ func (a *App) GracefulExit() {
 			if a.service != nil {
 				a.service.StopGeneration()
 			}
-			runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]any{
+			runtime.EventsEmit(a.ctx, EventShutdownProgress, map[string]any{
 				"stage":   "stopping_generation",
 				"message": "正在停止生成...",
 			})
@@ -294,7 +294,7 @@ func (a *App) GracefulExit() {
 			a.serverMu.Unlock()
 
 			if srv != nil {
-				runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]any{
+				runtime.EventsEmit(a.ctx, EventShutdownProgress, map[string]any{
 					"stage":   "stopping_server",
 					"message": "正在关闭服务...",
 				})
@@ -305,7 +305,7 @@ func (a *App) GracefulExit() {
 			}
 
 			if a.ragVS != nil {
-				runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]any{
+				runtime.EventsEmit(a.ctx, EventShutdownProgress, map[string]any{
 					"stage":   "closing_rag",
 					"message": "正在关闭知识库...",
 				})
@@ -315,7 +315,7 @@ func (a *App) GracefulExit() {
 			}
 
 			if a.db != nil {
-				runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]any{
+				runtime.EventsEmit(a.ctx, EventShutdownProgress, map[string]any{
 					"stage":   "closing_db",
 					"message": "正在关闭数据库...",
 				})
@@ -324,7 +324,7 @@ func (a *App) GracefulExit() {
 				}
 			}
 
-			runtime.EventsEmit(a.ctx, "shutdown:progress", map[string]any{
+			runtime.EventsEmit(a.ctx, EventShutdownProgress, map[string]any{
 				"stage":   "done",
 				"message": "再见 👋",
 			})

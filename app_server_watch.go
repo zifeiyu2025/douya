@@ -87,7 +87,7 @@ func (a *App) startServerAndWaitReady(srv *llm.Server, ctx context.Context) erro
 
 	// F-3 修复：preset 文件生成失败时通知前端显示警告横幅
 	if a.presetGenFailed {
-		runtime.EventsEmit(ctx, "server:warning", map[string]any{
+		runtime.EventsEmit(ctx, EventServerWarning, map[string]any{
 			"type":    "preset_failed",
 			"message": "预设文件生成失败，模型加载可能使用默认参数。如遇异常请在设置中检查预设配置。",
 		})
@@ -158,7 +158,7 @@ func (a *App) autoLoadDefaultModel(ctx context.Context, modelForDetect string) {
 	}
 
 	zlog.Info().Str("model", modelForDetect).Msg("[server] auto-loading default model")
-	runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+	runtime.EventsEmit(ctx, EventServerStatus, llm.ServerStatus{
 		Running:     true,
 		ModelReady:  false,
 		Switching:   true,
@@ -389,7 +389,7 @@ func (a *App) makeStatusCallback(ctx context.Context) func(llm.ServerStatus) {
 			a.serverReady.Store(false)
 		}
 		status.ModelReady = a.serverReady.Load()
-		runtime.EventsEmit(ctx, "server:status", status)
+		runtime.EventsEmit(ctx, EventServerStatus, status)
 	}
 }
 
@@ -441,6 +441,6 @@ func (a *App) makeRestartCallback(ctx context.Context) func() {
 		if err := a.service.DetectModelArchitectureForModel(modelForDetect2); err != nil {
 			zlog.Warn().Err(err).Msg("[server] re-detect model architecture after restart load failed")
 		}
-		runtime.EventsEmit(ctx, "server:status", a.runningStatus())
+		runtime.EventsEmit(ctx, EventServerStatus, a.runningStatus())
 	}
 }

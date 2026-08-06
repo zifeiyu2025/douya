@@ -78,6 +78,25 @@ import {
   PerformUpdate
 } from '../../wailsjs/go/main/App'
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
+import {
+  EventChatStream,
+  EventServerStatus,
+  EventChatAbnormalCleanup,
+  EventServerWarning,
+  EventWindowCloseRequest,
+  EventServerSwitchProgress,
+  EventServerMmprojUnavailable,
+  EventSearchAutoDisabled,
+  EventShutdownProgress,
+  EventModelLoadProgress,
+  EventServerLog,
+  EventServerTerminal,
+  EventUpdateProgress,
+  EventBackendSwitched,
+  EventBackendDownloadStart,
+  EventBackendDownloadProgress,
+  EventBackendDownloadComplete
+} from './events'
 import { chat as ChatModel } from '../../wailsjs/go/models'
 
 import type {
@@ -444,58 +463,58 @@ export const wails = {
   // 生活类比：像订报纸——订阅（subscribe）后拿到一个"退订凭证"（unsubscribe 函数），
   // 想不看了就凭它退订，不用记住自己订的是哪份报纸（事件名）。
   subscribeChatStream: (callback: (event: StreamEvent) => void): (() => void) => {
-    EventsOn('chat:stream', callback)
-    return () => EventsOff('chat:stream')
+    EventsOn(EventChatStream, callback)
+    return () => EventsOff(EventChatStream)
   },
   subscribeServerStatus: (callback: (status: ServerStatus) => void): (() => void) => {
-    EventsOn('server:status', callback)
-    return () => EventsOff('server:status')
+    EventsOn(EventServerStatus, callback)
+    return () => EventsOff(EventServerStatus)
   },
   prepareShutdown: PrepareShutdown,
   subscribeAbnormalCleanup: (callback: (data: AbnormalCleanupEvent) => void): (() => void) => {
-    EventsOn('chat:abnormal_cleanup', callback)
-    return () => EventsOff('chat:abnormal_cleanup')
+    EventsOn(EventChatAbnormalCleanup, callback)
+    return () => EventsOff(EventChatAbnormalCleanup)
   },
   subscribeServerWarning: (callback: (data: ServerWarningEvent) => void): (() => void) => {
-    EventsOn('server:warning', callback)
-    return () => EventsOff('server:warning')
+    EventsOn(EventServerWarning, callback)
+    return () => EventsOff(EventServerWarning)
   },
   subscribeCloseRequest: (callback: () => void): (() => void) => {
-    EventsOn('window:closeRequest', callback)
-    return () => EventsOff('window:closeRequest')
+    EventsOn(EventWindowCloseRequest, callback)
+    return () => EventsOff(EventWindowCloseRequest)
   },
   subscribeSwitchProgress: (callback: (progress: SwitchProgressEvent) => void): (() => void) => {
-    EventsOn('server:switchProgress', callback)
-    return () => EventsOff('server:switchProgress')
+    EventsOn(EventServerSwitchProgress, callback)
+    return () => EventsOff(EventServerSwitchProgress)
   },
   subscribeMmprojUnavailable: (callback: () => void): (() => void) => {
-    EventsOn('server:mmprojUnavailable', callback)
-    return () => EventsOff('server:mmprojUnavailable')
+    EventsOn(EventServerMmprojUnavailable, callback)
+    return () => EventsOff(EventServerMmprojUnavailable)
   },
   subscribeSearchAutoDisabled: (callback: () => void): (() => void) => {
-    EventsOn('search:autoDisabled', callback)
-    return () => EventsOff('search:autoDisabled')
+    EventsOn(EventSearchAutoDisabled, callback)
+    return () => EventsOff(EventSearchAutoDisabled)
   },
   subscribeShutdownProgress: (
     callback: (progress: ShutdownProgressEvent) => void
   ): (() => void) => {
-    EventsOn('shutdown:progress', callback)
-    return () => EventsOff('shutdown:progress')
+    EventsOn(EventShutdownProgress, callback)
+    return () => EventsOff(EventShutdownProgress)
   },
   subscribeModelLoadProgress: (
     callback: (progress: ModelLoadProgressEvent) => void
   ): (() => void) => {
-    EventsOn('modelLoadProgress', callback)
-    return () => EventsOff('modelLoadProgress')
+    EventsOn(EventModelLoadProgress, callback)
+    return () => EventsOff(EventModelLoadProgress)
   },
   subscribeServerLog: (callback: (line: string) => void): (() => void) => {
-    EventsOn('server:log', callback)
-    return () => EventsOff('server:log')
+    EventsOn(EventServerLog, callback)
+    return () => EventsOff(EventServerLog)
   },
   // ConPTY 终端原始字节流（base64 编码，用于 xterm.js 渲染）
   subscribeTerminalData: (callback: (data: string) => void): (() => void) => {
-    EventsOn('server:terminal', callback)
-    return () => EventsOff('server:terminal')
+    EventsOn(EventServerTerminal, callback)
+    return () => EventsOff(EventServerTerminal)
   },
   getTerminalHistory: async (): Promise<string> => {
     return await GetTerminalHistory()
@@ -567,8 +586,8 @@ export const wails = {
     await PerformUpdate(downloadURL, latestVersion)
   },
   subscribeUpdateProgress: (callback: (progress: UpdateProgressEvent) => void): (() => void) => {
-    EventsOn('update:progress', callback)
-    return () => EventsOff('update:progress')
+    EventsOn(EventUpdateProgress, callback)
+    return () => EventsOff(EventUpdateProgress)
   },
   // ============ MCP 服务器管理 ============
   // 新架构：豆芽不直接管理 MCP 子进程，而是生成 mcp_servers.json 交给 llama-server 加载。
@@ -609,27 +628,27 @@ export const wails = {
   },
   // 监听后端切换事件：切换配置后后端会推送最新状态，前端据此刷新显示
   subscribeBackendSwitched: (callback: (status: BackendStatus) => void): (() => void) => {
-    EventsOn('backend:switched', callback)
-    return () => EventsOff('backend:switched')
+    EventsOn(EventBackendSwitched, callback)
+    return () => EventsOff(EventBackendSwitched)
   },
   // 监听后端下载开始事件：启动阶段用户同意下载后推送，前端据此切换 splash 到下载阶段
   subscribeBackendDownloadStart: (callback: (info: BackendDownloadStart) => void): (() => void) => {
-    EventsOn('backend:downloadStart', callback)
-    return () => EventsOff('backend:downloadStart')
+    EventsOn(EventBackendDownloadStart, callback)
+    return () => EventsOff(EventBackendDownloadStart)
   },
   // 监听后端下载进度事件：下载过程中实时推送进度信息
   subscribeBackendDownloadProgress: (
     callback: (progress: BackendDownloadProgress) => void
   ): (() => void) => {
-    EventsOn('backend:downloadProgress', callback)
-    return () => EventsOff('backend:downloadProgress')
+    EventsOn(EventBackendDownloadProgress, callback)
+    return () => EventsOff(EventBackendDownloadProgress)
   },
   // 监听后端下载完成事件：下载和安装完成后推送结果
   subscribeBackendDownloadComplete: (
     callback: (result: BackendDownloadComplete) => void
   ): (() => void) => {
-    EventsOn('backend:downloadComplete', callback)
-    return () => EventsOff('backend:downloadComplete')
+    EventsOn(EventBackendDownloadComplete, callback)
+    return () => EventsOff(EventBackendDownloadComplete)
   }
 } as const
 

@@ -128,7 +128,7 @@ func (a *App) watchServerHealth(ctx context.Context, watchCtx context.Context) {
 				// 自动重新加载模型
 				zlog.Info().Str("model", modelName).Msg("[router-monitor] attempting to reload crashed model")
 				a.serverReady.Store(false)
-				wailsruntime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+				wailsruntime.EventsEmit(ctx, EventServerStatus, llm.ServerStatus{
 					Running:     false,
 					ModelReady:  false,
 					Switching:   true,

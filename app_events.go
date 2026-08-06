@@ -11,6 +11,30 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+// 前后端事件名常量
+// 生活类比：事件名是前后端之间的"电报频道号"——双方约定好频道号才能互相收发消息。
+// 全部集中在这里定义，避免 60+ 处硬编码字符串散落各处，防止"频道号写错"导致的通信故障。
+const (
+	EventChatStream              = "chat:stream"
+	EventChatAbnormalCleanup     = "chat:abnormal_cleanup"
+	EventServerStatus            = "server:status"
+	EventServerLog               = "server:log"
+	EventServerTerminal          = "server:terminal"
+	EventServerWarning           = "server:warning"
+	EventServerSwitchProgress    = "server:switchProgress"
+	EventServerMmprojUnavailable = "server:mmprojUnavailable"
+	EventModelLoadProgress       = "modelLoadProgress"
+	EventBackendSwitched         = "backend:switched"
+	EventBackendDownloadStart    = "backend:downloadStart"
+	EventBackendDownloadProgress = "backend:downloadProgress"
+	EventBackendDownloadComplete = "backend:downloadComplete"
+	EventWindowCloseRequest      = "window:closeRequest"
+	EventShutdownProgress        = "shutdown:progress"
+	EventSearchAutoDisabled      = "search:autoDisabled"
+	EventUpdateCheck             = "update:check"
+	EventUpdateProgress          = "update:progress"
+)
+
 // wailsChatEventPublisher is the Wails adapter for the chat.EventPublisher
 // output port. It intentionally lives in the application host layer so the
 // chat package remains usable by non-Wails hosts.
@@ -24,6 +48,6 @@ func newWailsChatEventPublisher(ctx context.Context) chat.EventPublisher {
 
 func (p wailsChatEventPublisher) Publish(event chat.StreamEvent) {
 	if p.ctx != nil {
-		runtime.EventsEmit(p.ctx, "chat:stream", event)
+		runtime.EventsEmit(p.ctx, EventChatStream, event)
 	}
 }

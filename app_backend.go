@@ -152,7 +152,7 @@ func (a *App) SwitchBackend(bt string) error {
 	// 步骤 4：推送状态更新到前端
 	// 前端收到事件后应刷新状态显示，并提示用户"切换已保存，重启应用后生效"
 	status := a.GetBackendStatus()
-	wailsruntime.EventsEmit(a.ctx, "backend:switched", status)
+	wailsruntime.EventsEmit(a.ctx, EventBackendSwitched, status)
 
 	zlog.Info().Str("backend", bt).Msg("[backend] 显卡后端切换成功（需重启应用生效）")
 	return nil
@@ -165,8 +165,8 @@ func (a *App) SwitchBackend(bt string) error {
 // 然后自动拆箱安装（解压）。全程通过事件推送进度，驾驶员只需等待。
 //
 // 该方法是异步的：立即返回 nil，下载和安装过程在后台 goroutine 中执行。
-// 下载进度通过 "backend:downloadProgress" 事件推送到前端，
-// 下载和安装完成后通过 "backend:downloadComplete" 事件通知前端。
+// 下载进度通过 backend:downloadProgress 事件推送到前端，
+// 下载和安装完成后通过 backend:downloadComplete 事件通知前端。
 //
 // 参数：
 //   - bt: 后端类型字符串（cuda/hip/sycl/vulkan/openvino/cpu，不能是 auto）
@@ -184,7 +184,7 @@ func (a *App) DownloadBackend(bt string) error {
 		defer func() {
 			if r := recover(); r != nil {
 				zlog.Warn().Interface("panic", r).Str("backend", bt).Msg("[backend] 下载 goroutine panic")
-				wailsruntime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+				wailsruntime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
 					Backend: llm.BackendType(bt),
 					Status:  "failed",
 					Error:   fmt.Sprintf("下载后端发生内部错误：%v", r),
@@ -196,12 +196,12 @@ func (a *App) DownloadBackend(bt string) error {
 
 		// 下载 zip 包，进度通过事件推送
 		zipPath, err := llm.DownloadBackendZip(backendType, runtimeDir, func(p llm.DownloadProgress) {
-			wailsruntime.EventsEmit(a.ctx, "backend:downloadProgress", p)
+			wailsruntime.EventsEmit(a.ctx, EventBackendDownloadProgress, p)
 		})
 		if err != nil {
 			zlog.Error().Err(err).Str("backend", bt).Msg("[backend] 下载后端 zip 包失败")
 			// 推送失败进度
-			wailsruntime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+			wailsruntime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
 				Backend: backendType,
 				Status:  "failed",
 				Error:   err.Error(),
@@ -211,7 +211,7 @@ func (a *App) DownloadBackend(bt string) error {
 
 		// 解压安装（推送按文件数的解压进度）
 		zlog.Info().Str("backend", bt).Str("zip", zipPath).Msg("[backend] 下载完成，开始解压安装")
-		wailsruntime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+		wailsruntime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
 			Backend:   backendType,
 			Status:    "installing",
 			Label:     "解压安装中",
@@ -224,7 +224,7 @@ func (a *App) DownloadBackend(bt string) error {
 			if total > 0 {
 				percent = float64(current) / float64(total) * 100
 			}
-			wailsruntime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+			wailsruntime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
 				Backend: backendType,
 				Status:  "installing",
 				Label:   "解压安装中",
@@ -242,11 +242,11 @@ func (a *App) DownloadBackend(bt string) error {
 		} else {
 			completePayload["server_path"] = serverPath
 		}
-		wailsruntime.EventsEmit(a.ctx, "backend:downloadComplete", completePayload)
+		wailsruntime.EventsEmit(a.ctx, EventBackendDownloadComplete, completePayload)
 
 		// 推送 completed 状态的进度事件，让前端进度条更新到100%
 		if installErr == nil {
-			wailsruntime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+			wailsruntime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
 				Backend: backendType,
 				Status:  "completed",
 				Label:   "下载完成",
@@ -256,7 +256,7 @@ func (a *App) DownloadBackend(bt string) error {
 
 		// 刷新后端状态并推送（更新已安装后端列表）
 		status := a.GetBackendStatus()
-		wailsruntime.EventsEmit(a.ctx, "backend:switched", status)
+		wailsruntime.EventsEmit(a.ctx, EventBackendSwitched, status)
 
 		if installErr != nil {
 			zlog.Error().Err(installErr).Str("backend", bt).Msg("[backend] 解压安装失败")

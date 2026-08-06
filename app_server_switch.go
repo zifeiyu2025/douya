@@ -45,7 +45,7 @@ func (a *App) tryWatchModelLoadProgress(ctx context.Context, modelName string) c
 
 		err := a.getClient().WatchModelLoadProgress(sseCtx, modelName, func(event llm.ModelLoadEvent) {
 			// 推送实时加载进度到前端
-			wailsruntime.EventsEmit(ctx, "modelLoadProgress", map[string]any{
+			wailsruntime.EventsEmit(ctx, EventModelLoadProgress, map[string]any{
 				"model":    event.Model,
 				"status":   event.Status,
 				"progress": event.ProgressPercent,
@@ -63,7 +63,7 @@ func (a *App) tryWatchModelLoadProgress(ctx context.Context, modelName string) c
 
 // emitSwitchingStatus emits a server status event indicating a model switch is in progress.
 func (a *App) emitSwitchingStatus(modelName string) {
-	wailsruntime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
+	wailsruntime.EventsEmit(a.ctx, EventServerStatus, llm.ServerStatus{
 		Running:     false,
 		ModelReady:  false,
 		Switching:   true,
@@ -82,7 +82,7 @@ func (a *App) emitErrorStatus(ctx context.Context, errMsg string) {
 	a.lastServerError = errMsg
 	a.lastServerErrMu.Unlock()
 	a.serverLoadFailed.Store(true)
-	wailsruntime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+	wailsruntime.EventsEmit(ctx, EventServerStatus, llm.ServerStatus{
 		Running:    false,
 		ModelReady: false,
 		Error:      errMsg,
@@ -92,7 +92,7 @@ func (a *App) emitErrorStatus(ctx context.Context, errMsg string) {
 // emitSwitchSuccess emits a server status event indicating the model switch succeeded.
 func (a *App) emitSwitchSuccess(modelName string) {
 	caps := a.service.GetModelCapabilities()
-	wailsruntime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
+	wailsruntime.EventsEmit(a.ctx, EventServerStatus, llm.ServerStatus{
 		Running:      true,
 		ModelReady:   true,
 		CurrentModel: modelName,
@@ -119,7 +119,7 @@ func (a *App) emitSwitchProgressCtx(ctx context.Context, stage, targetModel stri
 		"targetModel": targetModel,
 	}
 	maps.Copy(payload, extras)
-	wailsruntime.EventsEmit(ctx, "server:switchProgress", payload)
+	wailsruntime.EventsEmit(ctx, EventServerSwitchProgress, payload)
 }
 
 // tryReloadWithoutMmproj 尝试去掉 mmproj 后重新加载模型
@@ -159,7 +159,7 @@ func (a *App) tryReloadWithoutMmproj(ctx context.Context, modelName string, prog
 	a.emitSwitchSuccess(modelName)
 
 	// 通知前端多模态不可用
-	wailsruntime.EventsEmit(ctx, "server:mmprojUnavailable", map[string]string{
+	wailsruntime.EventsEmit(ctx, EventServerMmprojUnavailable, map[string]string{
 		"model": modelName,
 		"hint":  "多模态投影器不兼容，已切换为纯文本模式",
 	})
@@ -367,7 +367,7 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 						}
 					}
 					// 通知前端多模态不可用
-					wailsruntime.EventsEmit(a.ctx, "server:mmprojUnavailable", map[string]string{
+					wailsruntime.EventsEmit(a.ctx, EventServerMmprojUnavailable, map[string]string{
 						"model": modelName,
 						"hint":  "未找到匹配的多模态投影文件，已切换为纯文本模式",
 					})
@@ -795,7 +795,7 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 		}
 		if err := config.Save(filepath.Join(appDir(), "config.json"), cfg); err != nil {
 			zlog.Error().Err(err).Msg("[router] save config after model switch failed")
-			wailsruntime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
+			wailsruntime.EventsEmit(a.ctx, EventServerStatus, llm.ServerStatus{
 				Running:      true,
 				ModelReady:   true,
 				CurrentModel: modelName,
@@ -808,7 +808,7 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 	a.service.SetDetectedModelName(modelName)
 	if err := a.service.DetectModelArchitectureForModel(modelName); err != nil {
 		zlog.Error().Err(err).Msg("[router] detect model architecture after switch failed")
-		wailsruntime.EventsEmit(a.ctx, "server:status", llm.ServerStatus{
+		wailsruntime.EventsEmit(a.ctx, EventServerStatus, llm.ServerStatus{
 			Running:      true,
 			ModelReady:   true,
 			CurrentModel: modelName,

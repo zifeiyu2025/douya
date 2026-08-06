@@ -23,7 +23,7 @@ func (a *App) downloadBackendWithRetry(bt llm.BackendType, runtimeDir string, ma
 			Msg("[startup] 下载后端尝试")
 		// 推送重试进度到前端
 		if attempt > 1 {
-			runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+			runtime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
 				Backend: bt,
 				Status:  "retrying",
 				Error:   fmt.Sprintf("第 %d/%d 次重试中...", attempt, maxRetries),
@@ -38,7 +38,7 @@ func (a *App) downloadBackendWithRetry(bt llm.BackendType, runtimeDir string, ma
 		return nil
 	}
 	// 全部重试失败：补推 downloadComplete 事件（success=false），确保前端能收到完成通知
-	runtime.EventsEmit(a.ctx, "backend:downloadComplete", map[string]any{
+	runtime.EventsEmit(a.ctx, EventBackendDownloadComplete, map[string]any{
 		"backend": bt.String(),
 		"success": false,
 		"error":   fmt.Sprintf("已重试 %d 次仍失败: %v", maxRetries, lastErr),
@@ -58,7 +58,7 @@ func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) e
 	// 需要先下载 CPU 包（完整包），解压到后端子目录提供核心文件
 	if llm.IsModularBackend(bt) {
 		zlog.Info().Str("backend", bt.String()).Msg("[startup] 模块化后端检测到，先下载 CPU 基础包")
-		runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+		runtime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
 			Backend: bt,
 			Status:  "downloading",
 			Label:   "CPU 基础包",
@@ -67,13 +67,13 @@ func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) e
 		// 下载 CPU 包到 runtime/ 目录
 		if _, err := llm.DownloadBackendZip(llm.BackendCPU, runtimeDir, func(p llm.DownloadProgress) {
 			p.Label = "CPU 基础包"
-			runtime.EventsEmit(a.ctx, "backend:downloadProgress", p)
+			runtime.EventsEmit(a.ctx, EventBackendDownloadProgress, p)
 		}); err != nil {
 			return apperror.Wrap(apperror.KindInternal, "下载 CPU 基础包失败", err)
 		}
 		// 解压 CPU 包到后端子目录
 		info := llm.GetBackendInfo(bt)
-		runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+		runtime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
 			Backend: bt,
 			Status:  "installing",
 			Label:   "安装 CPU 基础包",
@@ -84,7 +84,7 @@ func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) e
 			if total > 0 {
 				percent = float64(current) / float64(total) * 100
 			}
-			runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+			runtime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
 				Backend: bt,
 				Status:  "installing",
 				Label:   "安装 CPU 基础包",
@@ -99,7 +99,7 @@ func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) e
 	zlog.Info().Str("backend", bt.String()).Msg("[startup] 开始下载后端主包")
 	_, dlErr := llm.DownloadBackendZip(bt, runtimeDir, func(p llm.DownloadProgress) {
 		p.Label = "推理后端"
-		runtime.EventsEmit(a.ctx, "backend:downloadProgress", p)
+		runtime.EventsEmit(a.ctx, EventBackendDownloadProgress, p)
 	})
 	if dlErr != nil {
 		return apperror.Wrap(apperror.KindInternal, "下载后端主包失败", dlErr)
@@ -111,7 +111,7 @@ func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) e
 	if bt == llm.BackendCUDA {
 		zlog.Info().Msg("[startup] CUDA 后端检测到，开始下载 cudart 包")
 		// 通知前端切换到 cudart 下载阶段
-		runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+		runtime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
 			Backend: bt,
 			Status:  "downloading",
 			Label:   "cudart 依赖包",
@@ -119,7 +119,7 @@ func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) e
 		})
 		_, cudartErr := llm.DownloadCudartZip(runtimeDir, func(p llm.DownloadProgress) {
 			p.Label = "cudart 依赖包"
-			runtime.EventsEmit(a.ctx, "backend:downloadProgress", p)
+			runtime.EventsEmit(a.ctx, EventBackendDownloadProgress, p)
 		})
 		if cudartErr != nil {
 			// cudart 下载失败直接返回错误，交由上层 downloadBackendWithRetry 重试。
@@ -133,7 +133,7 @@ func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) e
 
 	// 步骤 3：解压安装（推送按文件数的解压进度）
 	zlog.Info().Str("backend", bt.String()).Msg("[startup] 下载完成，开始解压安装")
-	runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+	runtime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
 		Backend: bt,
 		Status:  "installing",
 		Label:   "解压安装中",
@@ -145,7 +145,7 @@ func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) e
 		if total > 0 {
 			percent = float64(current) / float64(total) * 100
 		}
-		runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+		runtime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
 			Backend: bt,
 			Status:  "installing",
 			Label:   "解压安装中",
@@ -167,7 +167,7 @@ func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) e
 	// 如果不解压，validatePaths 会检测到厂商 DLL 缺失，导致下次启动时又提示下载（无限循环）。
 	if bt == llm.BackendCUDA {
 		zlog.Info().Msg("[startup] CUDA 后端检测到，开始解压 cudart 包")
-		runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+		runtime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
 			Backend: bt,
 			Status:  "installing",
 			Label:   "安装 cudart 依赖包",
@@ -178,7 +178,7 @@ func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) e
 			if total > 0 {
 				percent = float64(current) / float64(total) * 100
 			}
-			runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+			runtime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
 				Backend: bt,
 				Status:  "installing",
 				Label:   "安装 cudart 依赖包",
@@ -188,7 +188,7 @@ func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) e
 			// cudart 解压失败不阻止重启：主包已安装，用户系统 PATH 中可能有 cudart
 			// 但 validatePaths 会检测到缺失，下次启动可能又提示下载
 			zlog.Warn().Err(cudartInstallErr).Msg("[startup] cudart 包解压失败")
-			runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+			runtime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
 				Backend: bt,
 				Status:  "cudart_failed",
 				Label:   "cudart 依赖包",
@@ -198,7 +198,7 @@ func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) e
 	}
 
 	// 成功：推送 complete 事件
-	runtime.EventsEmit(a.ctx, "backend:downloadComplete", map[string]any{
+	runtime.EventsEmit(a.ctx, EventBackendDownloadComplete, map[string]any{
 		"backend": bt.String(),
 		"success": true,
 	})
@@ -206,7 +206,7 @@ func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) e
 	zlog.Info().Str("backend", bt.String()).Msg("[startup] 下载并安装完成，准备自动重启应用")
 
 	// 推送"重启中"状态，前端据此显示"重启中"文字
-	runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+	runtime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
 		Backend: bt,
 		Status:  "completed",
 		Label:   "重启中",

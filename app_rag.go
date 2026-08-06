@@ -284,7 +284,7 @@ func (a *App) SetRAGEnabled(enabled bool) {
 		newCfg.SearchMode = "off"
 		// 通知前端搜索已自动关闭
 		if a.ctx != nil {
-			runtime.EventsEmit(a.ctx, "search:autoDisabled", nil)
+			runtime.EventsEmit(a.ctx, EventSearchAutoDisabled, nil)
 		}
 	}
 	cfg := &newCfg

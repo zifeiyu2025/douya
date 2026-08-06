@@ -171,7 +171,7 @@ func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
 	zlog.Info().Str("backend", resolvedBackend.String()).Msg("[startup] 用户选择从 GitHub 下载后端")
 
 	// 通知前端进入下载阶段（splashScreen 将切换到 downloading 阶段并显示进度条）
-	runtime.EventsEmit(ctx, "backend:downloadStart", map[string]any{
+	runtime.EventsEmit(ctx, EventBackendDownloadStart, map[string]any{
 		"backend": resolvedBackend.String(),
 		"name":    info.DisplayName,
 	})
@@ -186,7 +186,7 @@ func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
 		defer func() {
 			if r := recover(); r != nil {
 				zlog.Warn().Interface("panic", r).Msg("[startup] 下载后端 goroutine panic")
-				runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+				runtime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
 					Backend: backendToDownload,
 					Status:  "failed",
 					Error:   fmt.Sprintf("下载后端发生内部错误：%v", r),
@@ -195,7 +195,7 @@ func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
 		}()
 		if dlErr := a.downloadBackendWithRetry(backendToDownload, runtimeDir, 3); dlErr != nil {
 			zlog.Error().Err(dlErr).Str("backend", backendToDownload.String()).Msg("[startup] 下载后端失败（已重试 3 次）")
-			runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+			runtime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
 				Backend: backendToDownload,
 				Status:  "failed",
 				Error:   fmt.Sprintf("已重试 3 次仍失败：%v", dlErr),
@@ -254,7 +254,7 @@ func (a *App) handleMissingModels(ctx context.Context) {
 		Title:   "模型目录为空",
 		Message: msg.String(),
 	})
-	runtime.EventsEmit(ctx, "server:status", llm.ServerStatus{
+	runtime.EventsEmit(ctx, EventServerStatus, llm.ServerStatus{
 		Running:    false,
 		ModelReady: false,
 		Error:      "模型目录为空，请下载 .gguf 模型文件后放入 models 目录",
@@ -396,7 +396,7 @@ func (a *App) initLogChannel() {
 					select {
 					case l := <-a.logChan:
 						if a.ctx != nil {
-							runtime.EventsEmit(a.ctx, "server:log", l)
+							runtime.EventsEmit(a.ctx, EventServerLog, l)
 						}
 					default:
 						return
@@ -404,7 +404,7 @@ func (a *App) initLogChannel() {
 				}
 			case l := <-a.logChan:
 				if a.ctx != nil {
-					runtime.EventsEmit(a.ctx, "server:log", l)
+					runtime.EventsEmit(a.ctx, EventServerLog, l)
 				}
 			}
 		}
@@ -430,7 +430,7 @@ func (a *App) initServer() {
 	// 数据已批量合并（50ms 窗口），直接同步发送即可
 	a.server.SetOnTerminalData(func(data []byte) {
 		if a.ctx != nil {
-			runtime.EventsEmit(a.ctx, "server:terminal", data)
+			runtime.EventsEmit(a.ctx, EventServerTerminal, data)
 		}
 	})
 }
@@ -510,8 +510,8 @@ func (a *App) checkLlamaCppUpdate() {
 	info := llm.CheckForUpdate(serverPath)
 
 	// 通过 EventsEmit 推送结果到前端
-	// 前端监听 "update:check" 事件，根据 HasUpdate 决定是否显示更新提示
-	runtime.EventsEmit(a.ctx, "update:check", map[string]any{
+	// 前端监听 EventUpdateCheck 事件，根据 HasUpdate 决定是否显示更新提示
+	runtime.EventsEmit(a.ctx, EventUpdateCheck, map[string]any{
 		"local_version":  info.LocalVersion,
 		"local_commit":   info.LocalCommit,
 		"remote_version": info.RemoteVersion,
@@ -556,7 +556,7 @@ func (a *App) cleanupOrphanSessions(ctx context.Context) {
 			a.cleanupResult = removed
 			a.cleanupResultMu.Unlock()
 
-			runtime.EventsEmit(ctx, "chat:abnormal_cleanup", map[string]any{
+			runtime.EventsEmit(ctx, EventChatAbnormalCleanup, map[string]any{
 				"count":   len(removed),
 				"removed": removed,
 			})

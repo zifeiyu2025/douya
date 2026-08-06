@@ -29,7 +29,7 @@ func (a *App) SendMessage(params chat.SendMessageParams) error {
 				if convID == "" {
 					convID = params.ConversationID
 				}
-				runtime.EventsEmit(a.ctx, "chat:stream", chat.StreamEvent{
+				runtime.EventsEmit(a.ctx, EventChatStream, chat.StreamEvent{
 					Type:           "error",
 					Content:        fmt.Sprintf("内部错误: %v", r),
 					ConversationID: convID,
@@ -42,7 +42,7 @@ func (a *App) SendMessage(params chat.SendMessageParams) error {
 			if convID == "" {
 				convID = params.ConversationID
 			}
-			runtime.EventsEmit(a.ctx, "chat:stream", chat.StreamEvent{
+			runtime.EventsEmit(a.ctx, EventChatStream, chat.StreamEvent{
 				Type:           "error",
 				Content:        err.Error(),
 				ConversationID: convID,
@@ -226,7 +226,7 @@ func (a *App) RegenerateMessage(userMessageID string, searchMode string) error {
 			if r := recover(); r != nil {
 				zlog.Error().Interface("panic", r).Msg("RegenerateMessage panic")
 				convID := a.service.CurrentConvID()
-				runtime.EventsEmit(a.ctx, "chat:stream", chat.StreamEvent{
+				runtime.EventsEmit(a.ctx, EventChatStream, chat.StreamEvent{
 					Type:           "error",
 					Content:        fmt.Sprintf("内部错误: %v", r),
 					ConversationID: convID,
@@ -236,7 +236,7 @@ func (a *App) RegenerateMessage(userMessageID string, searchMode string) error {
 		if err := a.service.RegenerateMessage(userMessageID, searchMode); err != nil {
 			zlog.Error().Err(err).Msg("RegenerateMessage error")
 			convID := a.service.CurrentConvID()
-			runtime.EventsEmit(a.ctx, "chat:stream", chat.StreamEvent{
+			runtime.EventsEmit(a.ctx, EventChatStream, chat.StreamEvent{
 				Type:           "error",
 				Content:        err.Error(),
 				ConversationID: convID,
