@@ -500,6 +500,21 @@ func (a *App) switchPrepare(modelName string) string {
 	return previousModel
 }
 
+// buildStackOverflowSuggestion 构建栈溢出崩溃后的后端切换/调参建议。
+// B-1 提取：统一 app_server_switch.go 与 app_server_watch.go 两处重复且措辞不一致的提示文本。
+// 生活类比：像医院统一的"用药说明"——同一病症（栈溢出）无论哪个科室（switch/watch 调用点）诊断出来，
+// 给患者的建议必须完全一致，不能一个科室说 A、另一个说 B。
+func buildStackOverflowSuggestion(currentBackend string) string {
+	if currentBackend == "vulkan" {
+		return "Vulkan 后端对该模型的兼容性较差，建议切换后端：\n" +
+			"  - NVIDIA 显卡：切换到 CUDA 后端（性能最佳）\n" +
+			"  - 其他显卡：切换到 CPU 后端（兼容性最好，速度较慢）\n" +
+			"\n可在「设置 → 显卡后端」中切换，切换后需重启应用生效。"
+	}
+	return "可能原因：gpu_layers 过大、ctx-size 过大、或模型架构不兼容。\n" +
+		"建议：1) 减小 gpu_layers；2) 减小 ctx-size；3) 切换到 CPU 后端。"
+}
+
 // classifyWaitError 根据等待错误内容分类"模型崩溃"还是"加载超时"，并组装用户可见的错误消息。
 // RF-2 修复：抽取 switchLoadModel 中两处重复的字符串匹配 + 错误消息拼接逻辑。
 // 生活类比：客服收到投诉后先分类（是产品坏了还是物流慢了），再按类别套模板回复，而不是每次重新写。
@@ -518,12 +533,7 @@ func (a *App) classifyWaitError(waitErr error, stderrHint string) string {
 		if a.resolvedBackend != "" {
 			currentBackend = string(a.resolvedBackend)
 		}
-		hint := "模型加载失败: 栈溢出崩溃（0xC0000409）。\n"
-		if currentBackend == "vulkan" {
-			hint += "Vulkan 后端对该模型兼容性较差，请在「设置 → 显卡后端」切换到 CUDA 或 CPU 后端后重启应用。"
-		} else {
-			hint += "建议：1) 减小 gpu_layers；2) 减小 ctx-size；3) 切换到 CPU 后端。"
-		}
+		hint := "模型加载失败: 栈溢出崩溃（0xC0000409）。\n" + buildStackOverflowSuggestion(currentBackend)
 		if stderrHint != "" {
 			hint += fmt.Sprintf("\n\n详细信息: %s", stderrHint)
 		}

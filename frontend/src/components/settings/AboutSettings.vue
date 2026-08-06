@@ -151,15 +151,15 @@ import {
   CloseCircleOutline
 } from '@vicons/ionicons5'
 import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime'
+import { GetGitHubURL } from '../../../wailsjs/go/main/App'
 import { wails, type UpdateInfo } from '../../services/wails'
 import appIcon from '../../assets/images/appicon.png'
 import llamaIcon from '../../assets/images/llama-icon.png'
 import pkg from '../../../package.json'
 
-const GITHUB_URL = 'https://github.com/zifeiyu2025/douya'
-
 const message = useMessage()
 const currentVersion = ref(pkg.version)
+const githubUrl = ref('https://github.com/zifeiyu2025/douya')
 const updateStatus = ref<
   'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'installing' | 'error'
 >('idle')
@@ -174,10 +174,15 @@ async function loadVersion() {
     // 后端方法未就绪时使用 package.json 中的版本（构建时注入，无需手动维护）
     currentVersion.value = pkg.version
   }
+  try {
+    githubUrl.value = await GetGitHubURL()
+  } catch {
+    // 后端方法未就绪时使用默认 URL，保证"访问主页"按钮始终可用
+  }
 }
 
 function openGitHub() {
-  BrowserOpenURL(GITHUB_URL)
+  BrowserOpenURL(githubUrl.value)
 }
 
 async function copyQQ() {

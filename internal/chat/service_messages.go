@@ -470,15 +470,9 @@ func applyDynamicSystemPrompt(base, searchMode string, caps llm.ModelCapabilitie
 		}
 	}
 
-	// 根据搜索模式动态追加引用规则
+	// 根据搜索模式动态追加引用规则（引用规则与模型工具能力无关，无需分支）
 	if searchMode == "auto" || searchMode == "on" {
-		if !caps.ToolCallSupport {
-			// 弱模型路径：搜索结果以 tool 消息注入
-			systemContent += "\n\n## 引用规则\n- 联网搜索结果自然融入回答，采用自然叙述方式而非 [1][2] 等编号引用格式。\n- 不要在回答中提及搜索过程，包括“搜索”“工具”“结果”“联网”“根据搜索结果”等过程性表述，直接以事实回答。"
-		} else {
-			// 强模型路径：工具调用搜索
-			systemContent += "\n\n## 引用规则\n- 搜索结果自然融入回答，采用自然叙述方式而非 [1][2] 等编号引用格式。\n- 不要在回答中提及搜索过程，包括“搜索”“工具”“结果”“联网”“根据搜索结果”等过程性表述，直接以事实回答。"
-		}
+		systemContent += "\n\n## 引用规则\n- 联网搜索结果自然融入回答，采用自然叙述方式而非 [1][2] 等编号引用格式。\n- 不要在回答中提及搜索过程，包括“搜索”“工具”“结果”“联网”“根据搜索结果”等过程性表述，直接以事实回答。"
 	}
 
 	return systemContent

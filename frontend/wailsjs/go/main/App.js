@@ -294,6 +294,10 @@ export function GetAppVersion() {
   return window['go']['main']['App']['GetAppVersion']();
 }
 
+export function GetGitHubURL() {
+  return window['go']['main']['App']['GetGitHubURL']();
+}
+
 export function CheckUpdate() {
   return window['go']['main']['App']['CheckUpdate']();
 }

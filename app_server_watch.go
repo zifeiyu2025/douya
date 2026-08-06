@@ -6,7 +6,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	zlog "github.com/rs/zerolog/log"
@@ -252,16 +251,7 @@ func (a *App) handleModelLoadFailure(ctx context.Context, modelForDetect string,
 		zlog.Error().Err(err).Str("model", modelForDetect).Str("backend", currentBackend).
 			Msg("[server] model load failed with stack overflow crash")
 
-		hint := "检测到模型加载时发生栈溢出崩溃（0xC0000409）。\n\n"
-		if currentBackend == "vulkan" {
-			hint += "Vulkan 后端对该模型的兼容性较差，建议切换后端：\n"
-			hint += "  - NVIDIA 显卡：切换到 CUDA 后端（性能最佳）\n"
-			hint += "  - 其他显卡：切换到 CPU 后端（兼容性最好，速度较慢）\n"
-			hint += "\n可在「设置 → 显卡后端」中切换，切换后需重启应用生效。"
-		} else {
-			hint += "可能原因：gpu_layers 过大、ctx-size 过大、或模型架构不兼容。\n"
-			hint += "建议：1) 减小 gpu_layers；2) 减小 ctx-size；3) 切换到 CPU 后端。"
-		}
+		hint := "检测到模型加载时发生栈溢出崩溃（0xC0000409）。\n\n" + buildStackOverflowSuggestion(currentBackend)
 		a.emitErrorStatus(ctx, hint)
 		return
 	}
@@ -291,10 +281,7 @@ func (a *App) handleModelLoadFailure(ctx context.Context, modelForDetect string,
 
 			// B-1：后台等待失败也检测栈溢出，给出同样建议
 			if isStackOverflowCrash(bgErr.Error()) {
-				hint := "检测到模型加载时发生栈溢出崩溃（0xC0000409）。"
-				if currentBackend == "vulkan" {
-					hint += "\n\nVulkan 后端对该模型兼容性较差，请在「设置 → 显卡后端」切换到 CUDA 或 CPU 后端后重启应用。"
-				}
+				hint := "检测到模型加载时发生栈溢出崩溃（0xC0000409）。\n\n" + buildStackOverflowSuggestion(currentBackend)
 				a.emitErrorStatus(ctx, hint)
 				return
 			}
@@ -307,14 +294,10 @@ func (a *App) handleModelLoadFailure(ctx context.Context, modelForDetect string,
 	})
 }
 
-// isStackOverflowCrash 检测错误信息是否包含栈溢出崩溃特征
-// 0xC0000409 (STATUS_STACK_BUFFER_OVERRUN) = -1073740791
-// 0xC00000FD (STATUS_STACK_OVERFLOW) = -1073741571
+// isStackOverflowCrash 检测错误信息是否包含栈溢出崩溃特征。
+// 统一委托给 llm.IsStackOverflowExit（单一事实来源），此处仅保留语义化别名。
 func isStackOverflowCrash(errStr string) bool {
-	return strings.Contains(errStr, "exit_code=-1073740791") ||
-		strings.Contains(errStr, "exit_code: 3221226507") ||
-		strings.Contains(errStr, "exit_code=-1073741571") ||
-		strings.Contains(errStr, "exit_code: 3221225725")
+	return llm.IsStackOverflowExit(errStr)
 }
 
 // startServerWatcher 启动状态监控和健康检查两个长生命周期 goroutine。

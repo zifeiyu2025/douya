@@ -58,6 +58,32 @@ func isValidCacheType(t string) bool {
 // 而是用模板"exit_code 后面跟着一个数字"把数字抠出来，再按数值判断病情。
 var exitCodeRegexp = regexp.MustCompile(`exit_code[=: ]\s*(-?\d+)`)
 
+// stackOverflowExitCodes 栈溢出相关退出码（含无符号正数形式）
+// 0xC0000409 STATUS_STACK_BUFFER_OVERRUN = -1073740791 / 3221226507
+// 0xC00000FD STATUS_STACK_OVERFLOW = -1073741571 / 3221225725
+var stackOverflowExitCodes = map[int]bool{
+	-1073740791: true, // STATUS_STACK_BUFFER_OVERRUN
+	3221226507:  true,
+	-1073741571: true, // STATUS_STACK_OVERFLOW
+	3221225725:  true,
+}
+
+// IsStackOverflowExit 检测错误信息是否包含栈溢出崩溃退出码。
+// 供 app 层复用（app_server_watch.go isStackOverflowCrash 原先用 strings.Contains
+// 硬匹配四种格式，格式一旦变化即漏匹配；统一走正则提取 + 数值判断，单一事实来源）。
+// 生活类比：像统一的"诊断仪"——app 层不再各自用土办法猜，都插到这台仪器上读数。
+func IsStackOverflowExit(errStr string) bool {
+	m := exitCodeRegexp.FindStringSubmatch(errStr)
+	if m == nil {
+		return false
+	}
+	code, err := strconv.Atoi(m[1])
+	if err != nil {
+		return false
+	}
+	return stackOverflowExitCodes[code]
+}
+
 type ServerConfig struct {
 	ModelsDir     string
 	MmprojAuto    bool

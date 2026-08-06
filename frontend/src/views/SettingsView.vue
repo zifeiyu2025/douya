@@ -364,8 +364,16 @@ const currentModelRef = computed(() => {
 
 const activeModelRefRaw = computed(() => {
   const ref = currentModelRef.value
-  if (!ref)
-    return { temperature: 0.6, top_p: 0.95, top_k: 20, context_size: 8192, repeat_penalty: 1.0 }
+  if (!ref) {
+    // 无推荐参数时回退到全局默认采样参数（与 DEFAULT_CONFIG 一致，避免"点推荐 vs 默认"行为差异）
+    return {
+      temperature: DEFAULT_CONFIG.temperature,
+      top_p: DEFAULT_CONFIG.top_p,
+      top_k: DEFAULT_CONFIG.top_k,
+      context_size: DEFAULT_CONFIG.context_size,
+      repeat_penalty: DEFAULT_CONFIG.repeat_penalty
+    }
+  }
   const useThinking = settingsStore.thinkingEnabled && ref.raw_thinking
   return useThinking ? ref.raw_thinking! : ref.raw
 })

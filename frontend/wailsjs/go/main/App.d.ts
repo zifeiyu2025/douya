@@ -152,6 +152,7 @@ export function SwitchBackend(arg1:string):Promise<void>;
 export function DownloadBackend(arg1:string):Promise<void>;
 
 export function GetAppVersion():Promise<string>;
+export function GetGitHubURL():Promise<string>;
 
 export function CheckUpdate():Promise<main.UpdateInfo>;
 

@@ -53,16 +53,20 @@ func (a *App) GetAppVersion() string {
 	return version.Version
 }
 
+// GetGitHubURL 返回 GitHub 仓库主页 URL（供前端"访问主页"按钮使用，URL 唯一来源为 version 包）
+func (a *App) GetGitHubURL() string {
+	return version.GitHubURL()
+}
+
 // CheckUpdate 检查是否有新版本
 // 生活类比：就像手机应用商店的"检查更新"功能，看看有没有新版本可以下载
 func (a *App) CheckUpdate() (*UpdateInfo, error) {
-	// 拼接 GitHub API 地址
-	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest",
-		version.GitHubOwner, version.GitHubRepo)
+	// 拼接 GitHub API 地址（URL 构造统一走 version 包，避免多处硬编码）
+	apiURL := version.GitHubAPIURL() + "/releases/latest"
 
 	// 安全：使用带超时的 HTTP 客户端，避免网络异常时无限期挂起
 	// 基于 GO-HTTPCLIENT-001 安全实践
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: githubAPITimeout}
 	resp, err := client.Get(apiURL)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.KindUnavailable, "请求 GitHub API 失败", err)
@@ -157,15 +161,21 @@ func (a *App) PerformUpdate(downloadURL string, latestVersion string) error {
 	return nil
 }
 
+// 更新流程超时/大小常量（命名自文档化，避免魔法数字）
+const (
+	githubAPITimeout     = 30 * time.Second // 检查更新 API 请求超时
+	updateDownloadTimeout = 10 * time.Minute // 大文件下载超时
+	maxUpdatePackageSize = 500 * 1024 * 1024 // 500MB，限制最大下载大小
+)
+
 // downloadWithProgress 下载文件并报告进度
 // M19 修复：限制最大下载大小为 500MB，避免异常大响应耗尽磁盘
 // 生活类比：快递员收件时检查包裹大小，超过限制的拒收，避免仓库被撑爆
-const maxUpdatePackageSize = 500 * 1024 * 1024 // 500MB
 
 func (a *App) downloadWithProgress(downloadURL, destPath string) error {
 	// 安全：使用带超时的 HTTP 客户端，避免下载挂起耗尽资源
 	// 基于 GO-HTTPCLIENT-001 安全实践：大文件下载设置 10 分钟超时
-	client := &http.Client{Timeout: 10 * time.Minute}
+	client := &http.Client{Timeout: updateDownloadTimeout}
 	resp, err := client.Get(downloadURL)
 	if err != nil {
 		return apperror.Wrap(apperror.KindUnavailable, "下载请求失败", err)
@@ -450,15 +460,18 @@ func writeUTF8BOM(path, content string) error {
 	return err
 }
 
+// windowsAssetPatterns Windows 安装包资产匹配正则（包级缓存，避免每次检查更新时重复编译）
+var windowsAssetPatterns = []*regexp.Regexp{
+	// 优先匹配更精确的 windows-amd64（历史命名），避免未来命名回退后误选其他平台资产
+	regexp.MustCompile(`^Douya-v.+windows-amd64\.zip$`),
+	// 回退匹配当前发布命名 windows.zip
+	regexp.MustCompile(`^Douya-v.+windows\.zip$`),
+}
+
 // findWindowsAsset 在发布资产中查找 Windows 安装包
 // 兼容两种命名：Douya-v0.11.6-windows.zip（当前发布命名）与 Douya-v0.11.6-windows-amd64.zip（历史命名）
-// 优先匹配更精确的 windows-amd64，避免未来命名回退后误选其他平台资产
 func findWindowsAsset(assets []githubAsset) string {
-	assetPatterns := []*regexp.Regexp{
-		regexp.MustCompile(`^Douya-v.+windows-amd64\.zip$`),
-		regexp.MustCompile(`^Douya-v.+windows\.zip$`),
-	}
-	for _, pattern := range assetPatterns {
+	for _, pattern := range windowsAssetPatterns {
 		for _, asset := range assets {
 			if pattern.MatchString(asset.Name) {
 				return asset.BrowserDownloadURL
