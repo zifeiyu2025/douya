@@ -390,16 +390,21 @@ func TestEnsureBackendInstalled_AlreadyInstalled(t *testing.T) {
 // TestEnsureBackendInstalled_CUDAStandardLayout 验证 CUDA 标准布局（runtime/cuda/子目录）。
 //
 // 新版目录结构：所有后端都在各自子目录下，CUDA 后端位于 runtime/cuda/。
-// EnsureBackendInstalled 应识别 cuda/ 子目录下的 llama-server.exe 并返回路径。
+// CUDA 是模块化后端，幂等检查需要同时存在 llama-server.exe 和 ggml-cuda.dll。
 func TestEnsureBackendInstalled_CUDAStandardLayout(t *testing.T) {
 	tmpDir := t.TempDir()
-	// 模拟标准布局：llama-server.exe 在 runtime/cuda/ 子目录
+	// 模拟标准布局：llama-server.exe + ggml-cuda.dll 在 runtime/cuda/ 子目录
 	cudaDir := filepath.Join(tmpDir, "cuda")
 	if err := os.MkdirAll(cudaDir, 0o755); err != nil {
 		t.Fatalf("创建目录失败: %v", err)
 	}
 	cudaServerPath := filepath.Join(cudaDir, "llama-server.exe")
 	if err := os.WriteFile(cudaServerPath, []byte("fake exe"), 0o644); err != nil {
+		t.Fatalf("创建文件失败: %v", err)
+	}
+	// CUDA 是模块化后端，幂等检查额外验证后端专属 DLL
+	cudaDLLPath := filepath.Join(cudaDir, "ggml-cuda.dll")
+	if err := os.WriteFile(cudaDLLPath, []byte("fake dll"), 0o644); err != nil {
 		t.Fatalf("创建文件失败: %v", err)
 	}
 

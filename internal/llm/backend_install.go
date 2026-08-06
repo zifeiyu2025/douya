@@ -54,13 +54,36 @@ func EnsureBackendInstalled(bt BackendType, runtimeDir string, progressCB Extrac
 	destDir := filepath.Join(runtimeDir, info.Subdir)
 	serverPath := filepath.Join(destDir, llamaServerExe)
 
-	// 步骤 2：幂等检查——目标子目录已有 llama-server.exe，直接返回
+	// 步骤 2：幂等检查——目标子目录已有 llama-server.exe 且后端专属 DLL 存在，直接返回
+	//
+	// 模块化后端（CUDA/Vulkan/SYCL/HIP）的官方包只含后端 DLL，需要先解压 CPU 包作为基础。
+	// 如果只检查 llama-server.exe，CPU 包已解压但后端包未解压时会误判为已安装。
+	// 因此模块化后端额外检查后端专属 DLL（如 ggml-cuda.dll）是否存在。
 	if _, err := os.Stat(serverPath); err == nil {
-		log.Debug().
-			Str("backend", bt.String()).
-			Str("path", serverPath).
-			Msg("[backend] 后端已安装，跳过解压")
-		return serverPath, nil
+		if info.BackendDLL != "" {
+			// 模块化后端：额外检查后端专属 DLL
+			backendDLLPath := filepath.Join(destDir, info.BackendDLL)
+			if _, dllErr := os.Stat(backendDLLPath); dllErr != nil {
+				// 后端 DLL 不存在，需要继续解压后端包
+				log.Debug().
+					Str("backend", bt.String()).
+					Str("missing_dll", info.BackendDLL).
+					Msg("[backend] llama-server.exe 已存在但后端专属 DLL 缺失，继续解压后端包")
+			} else {
+				log.Debug().
+					Str("backend", bt.String()).
+					Str("path", serverPath).
+					Msg("[backend] 后端已安装（含专属 DLL），跳过解压")
+				return serverPath, nil
+			}
+		} else {
+			// 完整后端（CPU/OpenVINO）：llama-server.exe 存在即视为已安装
+			log.Debug().
+				Str("backend", bt.String()).
+				Str("path", serverPath).
+				Msg("[backend] 后端已安装，跳过解压")
+			return serverPath, nil
+		}
 	}
 
 	// 步骤 3：查找 zip 包
@@ -102,18 +125,24 @@ func EnsureBackendInstalled(bt BackendType, runtimeDir string, progressCB Extrac
 		return "", apperror.Wrapf(apperror.KindInternal, "解压 %s 失败（zip 包可能已损坏，已自动删除，请重新下载）", err, filepath.Base(zipPath))
 	}
 
-	// 步骤 6：验证 llama-server.exe 存在
-	if _, err := os.Stat(serverPath); err != nil {
+	// 步骤 6：验证关键文件存在
+	// 完整后端（CPU/OpenVINO）：验证 llama-server.exe
+	// 模块化后端（CUDA/Vulkan/SYCL/HIP）：验证后端专属 DLL（后端包只含此 DLL）
+	verifyPath := serverPath
+	if info.BackendDLL != "" {
+		verifyPath = filepath.Join(destDir, info.BackendDLL)
+	}
+	if _, err := os.Stat(verifyPath); err != nil {
 		// 同样删除不完整的 zip 包
 		log.Warn().
 			Err(err).
 			Str("zip", zipPath).
-			Str("expected", serverPath).
-			Msg("[backend] 解压后 llama-server.exe 不存在，zip 包可能不完整，删除 zip 文件")
+			Str("expected", verifyPath).
+			Msg("[backend] 解压后关键文件不存在，zip 包可能不完整，删除 zip 文件")
 		if removeErr := os.Remove(zipPath); removeErr != nil {
 			log.Error().Err(removeErr).Str("zip", zipPath).Msg("[backend] 删除不完整 zip 文件失败")
 		}
-		return "", apperror.Newf(apperror.KindInternal, "解压完成但 %s 不存在，zip 包可能损坏（已自动删除，请重新下载）", serverPath)
+		return "", apperror.Newf(apperror.KindInternal, "解压完成但 %s 不存在，zip 包可能损坏（已自动删除，请重新下载）", verifyPath)
 	}
 
 	log.Info().
@@ -121,6 +150,77 @@ func EnsureBackendInstalled(bt BackendType, runtimeDir string, progressCB Extrac
 		Str("path", serverPath).
 		Msg("[backend] 后端安装完成")
 	return serverPath, nil
+}
+
+// EnsureCPUBaseInstalled 确保 CPU 包已解压到指定子目录，作为模块化后端的基础。
+//
+// 生活类比：模块化后端（CUDA/Vulkan/SYCL/HIP）的官方包就像只含发动机本体的"裸机"，
+// 需要一个"底盘"来承载——CPU 包就是那个底盘，提供 llama-server.exe + 核心 DLL。
+// 先把底盘装好（解压 CPU 包），再装发动机（解压后端 DLL），车才能跑。
+//
+// 幂等：目标目录已有 llama-server.exe 则跳过（CPU 基础已就位）。
+// 注意：CPU zip 包不会被删除，因为完整后端（CPU 后端）可能也需要它。
+//
+// 参数：
+//   - destSubdir: 目标子目录名（如 "cuda"），CPU 包内容解压到 runtime/{destSubdir}/
+//   - runtimeDir: runtime 目录的绝对路径
+//   - progressCB: 解压进度回调（可为 nil）
+func EnsureCPUBaseInstalled(destSubdir, runtimeDir string, progressCB ExtractProgressFunc) error {
+	destDir := filepath.Join(runtimeDir, destSubdir)
+	serverPath := filepath.Join(destDir, llamaServerExe)
+
+	// 幂等检查：llama-server.exe 已存在则跳过（CPU 基础包已解压过）
+	if _, err := os.Stat(serverPath); err == nil {
+		log.Debug().Str("dest", destDir).Msg("[backend] CPU 基础包已就位，跳过")
+		return nil
+	}
+
+	// 查找 CPU zip 包
+	zipPath, err := findBackendZip(BackendCPU, runtimeDir)
+	if err != nil {
+		return apperror.Wrapf(apperror.KindNotFound, "查找 CPU 基础包失败: %v", err)
+	}
+
+	// 检查磁盘空间
+	zipInfo, err := os.Stat(zipPath)
+	if err != nil {
+		return apperror.Wrap(apperror.KindNotFound, "读取 CPU zip 文件信息失败", err)
+	}
+	if err := checkDiskSpace(destDir, zipInfo.Size()*2); err != nil {
+		return apperror.Wrapf(apperror.KindInternal, "磁盘空间不足，无法解压 CPU 基础包: %v", err)
+	}
+
+	// 解压 CPU 包到目标子目录
+	log.Info().
+		Str("zip", zipPath).
+		Str("dest", destDir).
+		Msg("[backend] 解压 CPU 基础包到后端子目录")
+	if err := extractBackendZipWithRetry(zipPath, destDir, progressCB); err != nil {
+		log.Warn().
+			Err(err).
+			Str("zip", zipPath).
+			Msg("[backend] CPU 基础包解压失败，删除可能损坏的 zip")
+		if removeErr := os.Remove(zipPath); removeErr != nil {
+			log.Error().Err(removeErr).Str("zip", zipPath).Msg("[backend] 删除损坏 CPU zip 失败")
+		}
+		return apperror.Wrapf(apperror.KindInternal, "解压 CPU 基础包失败: %v", err)
+	}
+
+	// 验证 llama-server.exe 存在
+	if _, err := os.Stat(serverPath); err != nil {
+		log.Warn().
+			Err(err).
+			Str("zip", zipPath).
+			Str("expected", serverPath).
+			Msg("[backend] CPU 基础包解压后 llama-server.exe 不存在，删除 zip")
+		if removeErr := os.Remove(zipPath); removeErr != nil {
+			log.Error().Err(removeErr).Str("zip", zipPath).Msg("[backend] 删除不完整 CPU zip 失败")
+		}
+		return apperror.Newf(apperror.KindInternal, "CPU 基础包解压后 %s 不存在，zip 包可能损坏", serverPath)
+	}
+
+	log.Info().Str("dest", destDir).Msg("[backend] CPU 基础包安装完成")
+	return nil
 }
 
 // findBackendZip 在 runtimeDir 下查找指定后端的 zip 包。

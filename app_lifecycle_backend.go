@@ -47,12 +47,55 @@ func (a *App) downloadBackendWithRetry(bt llm.BackendType, runtimeDir string, ma
 }
 
 // downloadAndInstallBackend 下载并安装后端，CUDA 后端会额外下载并解压 cudart 包。
-// 下载和安装过程通过事件推送进度到前端，完成后自动重启应用。
+// 模块化后端（CUDA/Vulkan/SYCL/HIP）会先下载 CPU 包作为基础，再下载后端专属包。
 //
 // 生活类比：买发动机时，CUDA 发动机需要额外配一套"管线配件包"（cudart），
-// 两包货都到齐后才能装车。其他发动机（CPU/Vulkan 等）一包就够了。
+// 两包货都到齐后才能装车。模块化发动机（CUDA/Vulkan/SYCL/HIP）只是裸机，
+// 还得先配一个"底盘"（CPU 包），发动机装底盘上才能跑。
 func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) error {
-	// 步骤 1：下载后端主包（推理引擎 + 核心 DLL）
+	// 步骤 0：模块化后端先下载 CPU 包作为基础
+	// 官方预编译包中，CUDA/Vulkan/SYCL/HIP 只含后端 DLL，不含 llama-server.exe 等核心文件
+	// 需要先下载 CPU 包（完整包），解压到后端子目录提供核心文件
+	if llm.IsModularBackend(bt) {
+		zlog.Info().Str("backend", bt.String()).Msg("[startup] 模块化后端检测到，先下载 CPU 基础包")
+		runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+			Backend: bt,
+			Status:  "downloading",
+			Label:   "CPU 基础包",
+			Percent: 0,
+		})
+		// 下载 CPU 包到 runtime/ 目录
+		if _, err := llm.DownloadBackendZip(llm.BackendCPU, runtimeDir, func(p llm.DownloadProgress) {
+			p.Label = "CPU 基础包"
+			runtime.EventsEmit(a.ctx, "backend:downloadProgress", p)
+		}); err != nil {
+			return apperror.Wrap(apperror.KindInternal, "下载 CPU 基础包失败", err)
+		}
+		// 解压 CPU 包到后端子目录
+		info := llm.GetBackendInfo(bt)
+		runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+			Backend: bt,
+			Status:  "installing",
+			Label:   "安装 CPU 基础包",
+			Percent: 0,
+		})
+		if err := llm.EnsureCPUBaseInstalled(info.Subdir, runtimeDir, func(current, total int) {
+			percent := 0.0
+			if total > 0 {
+				percent = float64(current) / float64(total) * 100
+			}
+			runtime.EventsEmit(a.ctx, "backend:downloadProgress", llm.DownloadProgress{
+				Backend: bt,
+				Status:  "installing",
+				Label:   "安装 CPU 基础包",
+				Percent: percent,
+			})
+		}); err != nil {
+			return apperror.Wrap(apperror.KindInternal, "解压 CPU 基础包失败", err)
+		}
+	}
+
+	// 步骤 1：下载后端主包（后端专属 DLL）
 	zlog.Info().Str("backend", bt.String()).Msg("[startup] 开始下载后端主包")
 	_, dlErr := llm.DownloadBackendZip(bt, runtimeDir, func(p llm.DownloadProgress) {
 		p.Label = "推理后端"

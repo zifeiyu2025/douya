@@ -61,6 +61,11 @@ type BackendInfo struct {
 	// VendorDLLs 厂商特定 DLL（如 CUDA 的 cublas/cudart），其他后端可为空。
 	// 这些 DLL 通常随厂商驱动或运行时包分发，不一定是 llama.cpp 自带
 	VendorDLLs []string
+	// BackendDLL 后端专属 DLL 名（如 "ggml-cuda.dll"），用于幂等检查。
+	// 空字符串表示该后端的官方包是完整的（如 CPU/OpenVINO），包含所有核心文件；
+	// 非空表示该后端的官方包是模块化的（如 CUDA/Vulkan/SYCL/HIP），
+	// 只含后端专属 DLL，需要先下载 CPU 包作为基础。
+	BackendDLL string
 	// Description 后端描述，用于前端 tooltip 等场景
 	Description string
 }
@@ -136,7 +141,8 @@ func GetBackendInfo(bt BackendType) BackendInfo {
 				"cublas64_*.dll",
 				"cublasLt64_*.dll",
 			},
-			Description: "NVIDIA CUDA 后端，性能最佳，仅支持 N 卡",
+			BackendDLL:   "ggml-cuda.dll", // 模块化后端：官方包只含此 DLL，需 CPU 包作基础
+			Description:  "NVIDIA CUDA 后端，性能最佳，仅支持 N 卡",
 		}
 	case BackendHIP:
 		return BackendInfo{
@@ -148,7 +154,8 @@ func GetBackendInfo(bt BackendType) BackendInfo {
 			RequiredDLLs: append(append([]string{}, coreDLLs...),
 				"ggml-hip.dll", mtmdDLL),
 			VendorDLLs: []string{}, // HIP 通常静态链接，无额外厂商 DLL
-			Description: "AMD HIP 后端，仅支持 A 卡",
+			BackendDLL:   "ggml-hip.dll", // 模块化后端：官方包只含此 DLL，需 CPU 包作基础
+			Description:   "AMD HIP 后端，仅支持 A 卡",
 		}
 	case BackendSYCL:
 		return BackendInfo{
@@ -160,7 +167,8 @@ func GetBackendInfo(bt BackendType) BackendInfo {
 			RequiredDLLs: append(append([]string{}, coreDLLs...),
 				"ggml-sycl.dll", mtmdDLL),
 			VendorDLLs: []string{},
-			Description: "Intel SYCL 后端，仅支持 I 卡，兼容性需手动验证",
+			BackendDLL:   "ggml-sycl.dll", // 模块化后端：官方包只含此 DLL，需 CPU 包作基础
+			Description:   "Intel SYCL 后端，仅支持 I 卡，兼容性需手动验证",
 		}
 	case BackendVulkan:
 		return BackendInfo{
@@ -172,7 +180,8 @@ func GetBackendInfo(bt BackendType) BackendInfo {
 			RequiredDLLs: append(append([]string{}, coreDLLs...),
 				"ggml-vulkan.dll", mtmdDLL),
 			VendorDLLs: []string{},
-			Description: "Vulkan 跨厂商后端，N/A/I 卡通用，性能通常不如原生后端",
+			BackendDLL:   "ggml-vulkan.dll", // 模块化后端：官方包只含此 DLL，需 CPU 包作基础
+			Description:   "Vulkan 跨厂商后端，N/A/I 卡通用，性能通常不如原生后端",
 		}
 	case BackendOpenVINO:
 		return BackendInfo{
@@ -341,6 +350,22 @@ func IsValidBackendType(s string) bool {
 		return true
 	}
 	return false
+}
+
+// IsModularBackend 判断后端的官方预编译包是否为模块化（只含后端 DLL，不含核心文件）。
+//
+// 生活类比：有些发动机是"总成"（自带底盘、线束，买来就能用），有些只是"裸机"
+// （只有发动机本体，需要另外配底盘和线束）。模块化后端就像裸机，需要先有 CPU
+// 包作为"底盘"（提供 llama-server.exe + 核心 DLL），再装上后端 DLL 才能运行。
+//
+// 官方预编译包结构（通过分析 llama.cpp release.yml 构建脚本确认）：
+//   - CPU / OpenVINO：完整包（含 llama-server.exe + 所有核心 DLL）→ false
+//   - CUDA / Vulkan / SYCL / HIP：模块化包（仅含后端 DLL）→ true
+//
+// 调用方在下载安装流程中，对模块化后端需要先下载 CPU 包作为基础。
+func IsModularBackend(bt BackendType) bool {
+	info := GetBackendInfo(bt)
+	return info.BackendDLL != ""
 }
 
 // AllBackendTypes 返回所有后端类型列表，用于前端下拉框展示。
