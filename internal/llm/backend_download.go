@@ -41,18 +41,22 @@ type DownloadProgress struct {
 	Label       string      // 当前下载内容的描述，如"推理后端"、"cudart 依赖包"
 }
 
-// githubAsset 表示 GitHub release 中的一个资源文件。
+// GitHubAsset 表示 GitHub release 中的一个资源文件。
 // 仅提取下载所需的字段，忽略其他元数据。
-type githubAsset struct {
+// 同时被 main 包更新检查（app_update.go）复用，字段变更需两端同步确认。
+type GitHubAsset struct {
 	Name               string `json:"name"`                 // 文件名，如 "llama-b10167-bin-win-cuda-13.3-x64.zip"
 	BrowserDownloadURL string `json:"browser_download_url"` // 直链下载地址
 	Size               int64  `json:"size"`                 // 文件大小（字节）
 }
 
-// githubRelease 表示 GitHub release 的精简结构。
-type githubRelease struct {
-	TagName string         `json:"tag_name"` // release 标签，如 "b10167"
-	Assets  []githubAsset `json:"assets"`   // release 包含的资源文件列表
+// GitHubRelease 表示 GitHub release 的精简结构。
+// 同时被 main 包更新检查（app_update.go）复用，字段变更需两端同步确认。
+type GitHubRelease struct {
+	TagName     string        `json:"tag_name"`     // release 标签，如 "b10167"
+	Body        string        `json:"body"`         // release 说明（更新检查展示用）
+	PublishedAt string        `json:"published_at"` // release 发布时间（更新检查展示用）
+	Assets      []GitHubAsset `json:"assets"`       // release 包含的资源文件列表
 }
 
 // FindReleaseAsset 查询 GitHub API，在最新 release 中匹配指定后端的 asset。
@@ -69,27 +73,27 @@ type githubRelease struct {
 //   - bt: 后端类型（不能是 BackendAuto）
 //
 // 返回：匹配到的 asset、release 标签名，或错误
-func FindReleaseAsset(bt BackendType) (asset githubAsset, tagName string, err error) {
+func FindReleaseAsset(bt BackendType) (asset GitHubAsset, tagName string, err error) {
 	if bt == BackendAuto {
-		return githubAsset{}, "", apperror.New(apperror.KindInvalidInput, "BackendAuto 需先通过 ResolveBackendType 解析成具体后端")
+		return GitHubAsset{}, "", apperror.New(apperror.KindInvalidInput, "BackendAuto 需先通过 ResolveBackendType 解析成具体后端")
 	}
 
 	info := GetBackendInfo(bt)
 	if info.ReleaseAssetRegex == "" {
-		return githubAsset{}, "", apperror.Newf(apperror.KindInvalidConfig, "后端 %s 没有定义 ReleaseAssetRegex", info.DisplayName)
+		return GitHubAsset{}, "", apperror.Newf(apperror.KindInvalidConfig, "后端 %s 没有定义 ReleaseAssetRegex", info.DisplayName)
 	}
 
 	// 编译正则
 	re, err := regexp.Compile(info.ReleaseAssetRegex)
 	if err != nil {
-		return githubAsset{}, "", apperror.Wrap(apperror.KindInvalidConfig, "编译 ReleaseAssetRegex 失败", err)
+		return GitHubAsset{}, "", apperror.Wrap(apperror.KindInvalidConfig, "编译 ReleaseAssetRegex 失败", err)
 	}
 
 	// 查询 GitHub API
 	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequest("GET", GitHubReleasesAPI, nil)
 	if err != nil {
-		return githubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "创建 GitHub API 请求失败", err)
+		return GitHubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "创建 GitHub API 请求失败", err)
 	}
 	// GitHub API 要求设置 User-Agent
 	req.Header.Set("User-Agent", "Douya-LocalAI")
@@ -97,27 +101,27 @@ func FindReleaseAsset(bt BackendType) (asset githubAsset, tagName string, err er
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return githubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "请求 GitHub API 失败", err)
+		return GitHubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "请求 GitHub API 失败", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return githubAsset{}, "", apperror.Newf(apperror.KindUnavailable, "GitHub API 返回非 200 状态码: %d", resp.StatusCode)
+		return GitHubAsset{}, "", apperror.Newf(apperror.KindUnavailable, "GitHub API 返回非 200 状态码: %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return githubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "读取 GitHub API 响应失败", err)
+		return GitHubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "读取 GitHub API 响应失败", err)
 	}
 
-	var release githubRelease
+	var release GitHubRelease
 	if err := json.Unmarshal(body, &release); err != nil {
-		return githubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "解析 GitHub API 响应失败", err)
+		return GitHubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "解析 GitHub API 响应失败", err)
 	}
 
 	// 在 assets 中匹配对应后端，收集所有匹配项
 	// CUDA 后端官方同时提供 12.x 和 13.x 两个版本，需要优先选 13.x
-	var matched []githubAsset
+	var matched []GitHubAsset
 	for _, a := range release.Assets {
 		if re.MatchString(a.Name) {
 			matched = append(matched, a)
@@ -125,7 +129,7 @@ func FindReleaseAsset(bt BackendType) (asset githubAsset, tagName string, err er
 	}
 
 	if len(matched) == 0 {
-		return githubAsset{}, release.TagName, apperror.Newf(apperror.KindNotFound, "在最新 release %s 中未找到匹配 %s 后端的 asset（正则: %s）",
+		return GitHubAsset{}, release.TagName, apperror.Newf(apperror.KindNotFound, "在最新 release %s 中未找到匹配 %s 后端的 asset（正则: %s）",
 			release.TagName, info.DisplayName, info.ReleaseAssetRegex)
 	}
 
@@ -351,38 +355,38 @@ var cudaVersionPriorityRegex = regexp.MustCompile(`cuda-(\d+)\.(\d+)`)
 // 仅在 CUDA 后端下载时需要额外下载此包，解压到同一目录提供 cudart64_*.dll 等厂商 DLL。
 //
 // 生活类比：买发动机时附带的"配件包"——发动机主包是引擎本体，cudart 包是配套的管线和接头。
-func FindCudartAsset() (asset githubAsset, tagName string, err error) {
+func FindCudartAsset() (asset GitHubAsset, tagName string, err error) {
 	// 查询 GitHub API（复用 FindReleaseAsset 的请求逻辑，但不走后端正则）
 	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequest("GET", GitHubReleasesAPI, nil)
 	if err != nil {
-		return githubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "创建 GitHub API 请求失败", err)
+		return GitHubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "创建 GitHub API 请求失败", err)
 	}
 	req.Header.Set("User-Agent", "Douya-LocalAI")
 	req.Header.Set("Accept", "application/vnd.github+json")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return githubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "请求 GitHub API 失败", err)
+		return GitHubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "请求 GitHub API 失败", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return githubAsset{}, "", apperror.Newf(apperror.KindUnavailable, "GitHub API 返回非 200 状态码: %d", resp.StatusCode)
+		return GitHubAsset{}, "", apperror.Newf(apperror.KindUnavailable, "GitHub API 返回非 200 状态码: %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return githubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "读取 GitHub API 响应失败", err)
+		return GitHubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "读取 GitHub API 响应失败", err)
 	}
 
-	var release githubRelease
+	var release GitHubRelease
 	if err := json.Unmarshal(body, &release); err != nil {
-		return githubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "解析 GitHub API 响应失败", err)
+		return GitHubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "解析 GitHub API 响应失败", err)
 	}
 
 	// 收集所有匹配的 cudart asset（12.x 和 13.x）
-	var matched []githubAsset
+	var matched []GitHubAsset
 	for _, a := range release.Assets {
 		if cudartAssetRegex.MatchString(a.Name) {
 			matched = append(matched, a)
@@ -390,7 +394,7 @@ func FindCudartAsset() (asset githubAsset, tagName string, err error) {
 	}
 
 	if len(matched) == 0 {
-		return githubAsset{}, release.TagName, apperror.Newf(apperror.KindNotFound, "在最新 release %s 中未找到 cudart 包", release.TagName)
+		return GitHubAsset{}, release.TagName, apperror.Newf(apperror.KindNotFound, "在最新 release %s 中未找到 cudart 包", release.TagName)
 	}
 
 	// 优先选高版本（13.x 优于 12.x），与主后端版本保持一致

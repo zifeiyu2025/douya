@@ -101,7 +101,7 @@ func GetLocalVersion(serverPath string) (version int, commit string, err error) 
 //
 // 生活类比：打电话给应用商店（GitHub API），问"llama.cpp 最新版是什么编号？"。
 //
-// 复用 backend_download.go 中的 GitHubReleasesAPI 常量和 githubRelease 结构。
+// 复用 backend_download.go 中的 GitHubReleasesAPI 常量和 GitHubRelease 结构。
 //
 // 返回：
 //   - version: 构建编号（如 10220），0 表示解析失败
@@ -132,7 +132,7 @@ func GetLatestReleaseTag() (version int, tag string, err error) {
 		return 0, "", apperror.Wrap(apperror.KindInternal, "读取 GitHub API 响应失败", err)
 	}
 
-	var release githubRelease
+	var release GitHubRelease
 	if err := json.Unmarshal(body, &release); err != nil {
 		return 0, "", apperror.Wrap(apperror.KindInternal, "解析 GitHub API 响应失败", err)
 	}

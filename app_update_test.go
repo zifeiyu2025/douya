@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"douya/internal/llm"
+)
 
 // TestFindWindowsAsset 测试 Windows 安装包资产匹配逻辑
 // 覆盖当前发布命名（windows.zip）与历史命名（windows-amd64.zip），
@@ -8,26 +12,26 @@ import "testing"
 func TestFindWindowsAsset(t *testing.T) {
 	tests := []struct {
 		name   string
-		assets []githubAsset
+		assets []llm.GitHubAsset
 		want   string // 期望的 BrowserDownloadURL，空串表示不命中
 	}{
 		{
 			name: "当前发布命名 windows.zip",
-			assets: []githubAsset{
+			assets: []llm.GitHubAsset{
 				{Name: "Douya-v0.11.6-windows.zip", BrowserDownloadURL: "https://example.com/windows.zip"},
 			},
 			want: "https://example.com/windows.zip",
 		},
 		{
 			name: "历史命名 windows-amd64.zip",
-			assets: []githubAsset{
+			assets: []llm.GitHubAsset{
 				{Name: "Douya-v0.10.0-windows-amd64.zip", BrowserDownloadURL: "https://example.com/windows-amd64.zip"},
 			},
 			want: "https://example.com/windows-amd64.zip",
 		},
 		{
 			name: "同时存在时优先 amd64",
-			assets: []githubAsset{
+			assets: []llm.GitHubAsset{
 				{Name: "Douya-v0.11.6-windows.zip", BrowserDownloadURL: "https://example.com/windows.zip"},
 				{Name: "Douya-v0.11.6-windows-amd64.zip", BrowserDownloadURL: "https://example.com/windows-amd64.zip"},
 			},
@@ -35,7 +39,7 @@ func TestFindWindowsAsset(t *testing.T) {
 		},
 		{
 			name: "混合资产中命中 windows",
-			assets: []githubAsset{
+			assets: []llm.GitHubAsset{
 				{Name: "Douya-v0.11.6-linux.zip", BrowserDownloadURL: "https://example.com/linux.zip"},
 				{Name: "Douya-v0.11.6-macos.zip", BrowserDownloadURL: "https://example.com/macos.zip"},
 				{Name: "Douya-v0.11.6-windows.zip", BrowserDownloadURL: "https://example.com/windows.zip"},
@@ -44,7 +48,7 @@ func TestFindWindowsAsset(t *testing.T) {
 		},
 		{
 			name: "无 Windows 资产返回空",
-			assets: []githubAsset{
+			assets: []llm.GitHubAsset{
 				{Name: "Douya-v0.11.6-linux.zip", BrowserDownloadURL: "https://example.com/linux.zip"},
 			},
 			want: "",
@@ -56,7 +60,7 @@ func TestFindWindowsAsset(t *testing.T) {
 		},
 		{
 			name: "无关命名不误匹配",
-			assets: []githubAsset{
+			assets: []llm.GitHubAsset{
 				{Name: "source-code.zip", BrowserDownloadURL: "https://example.com/source.zip"},
 			},
 			want: "",

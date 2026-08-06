@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"douya/internal/apperror"
+	"douya/internal/llm"
 	"douya/internal/version"
 
 	zlog "github.com/rs/zerolog/log"
@@ -32,20 +33,6 @@ type UpdateInfo struct {
 	DownloadURL    string `json:"download_url"`
 	ReleaseNotes   string `json:"release_notes"`
 	PublishedAt    string `json:"published_at"`
-}
-
-// githubAsset GitHub Release 资产
-type githubAsset struct {
-	Name               string `json:"name"`
-	BrowserDownloadURL string `json:"browser_download_url"`
-}
-
-// githubRelease GitHub Release API 响应结构
-type githubRelease struct {
-	TagName     string `json:"tag_name"`
-	Body        string `json:"body"`
-	PublishedAt string `json:"published_at"`
-	Assets      []githubAsset `json:"assets"`
 }
 
 // GetAppVersion 返回当前应用版本号
@@ -85,7 +72,7 @@ func (a *App) CheckUpdate() (*UpdateInfo, error) {
 	// 解析 JSON 响应
 	// 安全实践（基于 GO-HTTP-002 #5）：限制响应体大小为 1MB，防止恶意/异常响应耗尽内存
 	// GitHub Release API 响应通常 < 100KB，1MB 足够且留有余量
-	var release githubRelease
+	var release llm.GitHubRelease
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1024*1024)).Decode(&release); err != nil {
 		return nil, apperror.Wrap(apperror.KindInternal, "解析 GitHub Release 信息失败", err)
 	}
@@ -470,7 +457,7 @@ var windowsAssetPatterns = []*regexp.Regexp{
 
 // findWindowsAsset 在发布资产中查找 Windows 安装包
 // 兼容两种命名：Douya-v0.11.6-windows.zip（当前发布命名）与 Douya-v0.11.6-windows-amd64.zip（历史命名）
-func findWindowsAsset(assets []githubAsset) string {
+func findWindowsAsset(assets []llm.GitHubAsset) string {
 	for _, pattern := range windowsAssetPatterns {
 		for _, asset := range assets {
 			if pattern.MatchString(asset.Name) {

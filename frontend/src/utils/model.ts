@@ -1,3 +1,6 @@
+// 量化后缀正则：匹配模型名末尾的量化后缀（如 -Q4_K_M、-IQ4_XS、-BF16）。
+// 注意：此正则与 Go 端 internal/llm/preset.go 的 quantSuffixRe 必须保持完全一致，
+// 修改时必须两端同步，否则前后端对模型量化后缀的识别结果会不一致。
 const QUANT_SUFFIX_RE = /-(Q\d+(_[A-Z0-9]+)+|IQ\d+_[A-Z0-9]+|BF16|F16|F32)$/i
 
 const QUANT_SUFFIX_IN_FILENAME_RE = /-(Q\d+(_[A-Z0-9]+)+|IQ\d+_[A-Z0-9]+|BF16|F16|F32)(?=\.gguf$)/i

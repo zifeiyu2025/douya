@@ -13,6 +13,9 @@ import (
 )
 
 var (
+	// quantSuffixRe 匹配模型名末尾的量化后缀（如 -Q4_K_M、-IQ4_XS、-BF16）。
+	// 注意：此正则与前端 frontend/src/utils/model.ts 的 QUANT_SUFFIX_RE 必须保持完全一致，
+	// 修改时必须两端同步，否则前后端对模型量化后缀的识别结果会不一致。
 	quantSuffixRe = regexp.MustCompile(`(?i)-(Q\d+(_[A-Z0-9]+)+|IQ\d+_[A-Z0-9]+|BF16|F16|F32)$`)
 	uncensoredRe  = regexp.MustCompile(`(?i)[-_]U[-_]`)
 )
