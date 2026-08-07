@@ -26,7 +26,10 @@ const __dirname = dirname(__filename)
 
 // 读取源码文件路径（用于 SubTask 21.2 / 21.3 的代码审查）
 const APP_VUE_PATH = resolve(__dirname, '../App.vue')
-const APPEARANCE_SETTINGS_VUE_PATH = resolve(__dirname, '../components/settings/AppearanceSettings.vue')
+const APPEARANCE_SETTINGS_VUE_PATH = resolve(
+  __dirname,
+  '../components/settings/AppearanceSettings.vue'
+)
 
 describe('Task 21: 背景图双主题支持', () => {
   beforeEach(() => {

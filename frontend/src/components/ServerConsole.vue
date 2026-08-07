@@ -116,16 +116,25 @@
               <div class="detail-row detail-row-highlight">
                 <span class="detail-label">草稿命中率</span>
                 <span class="detail-value">
-                  {{ (metrics.spec_accepted_tokens_total / metrics.spec_draft_tokens_total * 100).toFixed(1) }}%
+                  {{
+                    (
+                      (metrics.spec_accepted_tokens_total / metrics.spec_draft_tokens_total) *
+                      100
+                    ).toFixed(1)
+                  }}%
                 </span>
               </div>
               <div class="detail-row">
                 <span class="detail-label">已接受草稿 token</span>
-                <span class="detail-value">{{ formatNumber(metrics.spec_accepted_tokens_total) }}</span>
+                <span class="detail-value">
+                  {{ formatNumber(metrics.spec_accepted_tokens_total) }}
+                </span>
               </div>
               <div class="detail-row">
                 <span class="detail-label">草稿 token 总数</span>
-                <span class="detail-value">{{ formatNumber(metrics.spec_draft_tokens_total) }}</span>
+                <span class="detail-value">
+                  {{ formatNumber(metrics.spec_draft_tokens_total) }}
+                </span>
               </div>
               <div class="detail-row">
                 <span class="detail-label">验证步骤数</span>
@@ -134,9 +143,11 @@
               <div class="detail-row">
                 <span class="detail-label">平均每步接受 token</span>
                 <span class="detail-value">
-                  {{ metrics.spec_drafts_total > 0
-                    ? (metrics.spec_accepted_tokens_total / metrics.spec_drafts_total).toFixed(2)
-                    : '0.00' }}
+                  {{
+                    metrics.spec_drafts_total > 0
+                      ? (metrics.spec_accepted_tokens_total / metrics.spec_drafts_total).toFixed(2)
+                      : '0.00'
+                  }}
                 </span>
               </div>
             </div>

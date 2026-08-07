@@ -198,7 +198,18 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { NFormItem, NSelect, NButton, NTag, NCard, NIcon, NModal, NProgress, useDialog, useMessage } from 'naive-ui'
+import {
+  NFormItem,
+  NSelect,
+  NButton,
+  NTag,
+  NCard,
+  NIcon,
+  NModal,
+  NProgress,
+  useDialog,
+  useMessage
+} from 'naive-ui'
 import { HardwareChipOutline, SpeedometerOutline, ServerOutline } from '@vicons/ionicons5'
 import {
   wails,

@@ -156,9 +156,7 @@
         <n-form-item>
           <template #label>
             主 GPU
-            <HelpTip
-              content="多卡场景指定主计算 GPU（索引从 0 开始）。-1=自动选择，0=第一块卡"
-            />
+            <HelpTip content="多卡场景指定主计算 GPU（索引从 0 开始）。-1=自动选择，0=第一块卡" />
           </template>
           <n-input-number
             v-model:value="formConfig.main_gpu"
@@ -190,7 +188,9 @@
         <n-form-item>
           <template #label>
             CPU 线程数
-            <HelpTip content="推理使用的 CPU 线程数。0=自动（按 CPU 核心数），降低可避免 CPU 过载" />
+            <HelpTip
+              content="推理使用的 CPU 线程数。0=自动（按 CPU 核心数），降低可避免 CPU 过载"
+            />
           </template>
           <n-input-number
             v-model:value="formConfig.threads"

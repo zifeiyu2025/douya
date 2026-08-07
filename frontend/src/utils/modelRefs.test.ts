@@ -276,7 +276,7 @@ describe('matchModelRef', () => {
       ['Arcee-8B', 'Arcee'],
       ['Dots1-14B', 'Dots1'],
       ['Dream-7B', 'Dream'],
-      ['SmallThinker-3B', 'SmallThinker'],
+      ['SmallThinker-3B', 'SmallThinker']
     ]
     for (const [name, expected] of cases) {
       const result = matchModelRef(name, MODEL_REFS)

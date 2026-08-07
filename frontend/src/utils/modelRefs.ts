@@ -1089,7 +1089,7 @@ export const MODEL_REFS: Record<string, ModelRefConfig> = {
     ],
     note: 'IBM Granite Speech 语音多模态模型，llama.cpp 原生 Template 思考模式'
   },
-  'cohere2moe': {
+  cohere2moe: {
     name: 'Cohere Command A (MoE)',
     raw: { temperature: 0.7, top_p: 0.9, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
     raw_thinking: {
@@ -1229,7 +1229,7 @@ export const MODEL_REFS: Record<string, ModelRefConfig> = {
     ],
     note: 'MiniMax M2 MoE 架构，llama.cpp 原生 Template 思考模式。无审查/蒸馏变体参数一致'
   },
-  'smollm3': {
+  smollm3: {
     name: 'SmolLM3',
     raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
     raw_thinking: {
@@ -1369,7 +1369,7 @@ export const MODEL_REFS: Record<string, ModelRefConfig> = {
     ],
     note: '月之暗面 Kimi Linear，llama.cpp 原生 Template 思考模式。无审查/蒸馏变体参数一致'
   },
-  'arcee': {
+  arcee: {
     name: 'Arcee',
     raw: { temperature: 0.7, top_p: 0.9, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
     raw_thinking: {
@@ -1397,7 +1397,7 @@ export const MODEL_REFS: Record<string, ModelRefConfig> = {
     ],
     note: 'Arcee AI 模型，llama.cpp 原生 Template 思考模式。无审查/蒸馏变体参数一致'
   },
-  'dots1': {
+  dots1: {
     name: 'Dots1',
     raw: { temperature: 0.7, top_p: 0.9, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
     raw_thinking: {
@@ -1425,7 +1425,7 @@ export const MODEL_REFS: Record<string, ModelRefConfig> = {
     ],
     note: 'Dots1 模型，llama.cpp 原生 Template 思考模式。无审查/蒸馏变体参数一致'
   },
-  'dream': {
+  dream: {
     name: 'Dream',
     raw: { temperature: 0.7, top_p: 0.9, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
     raw_thinking: {
@@ -1453,7 +1453,7 @@ export const MODEL_REFS: Record<string, ModelRefConfig> = {
     ],
     note: 'Dream 模型，llama.cpp 原生 Template 思考模式。无审查/蒸馏变体参数一致'
   },
-  'smallthinker': {
+  smallthinker: {
     name: 'SmallThinker',
     raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
     raw_thinking: {
@@ -1482,7 +1482,7 @@ export const MODEL_REFS: Record<string, ModelRefConfig> = {
     note: 'SmallThinker 端侧思考模型，llama.cpp 原生 Template 思考模式。无审查/蒸馏变体参数一致'
   },
   // DeepSeek 系列（Reasoning 思考模式：通过 reasoning 参数控制）
-  'deepseek3': {
+  deepseek3: {
     name: 'DeepSeek 3 / 3.2 / 32',
     raw: { temperature: 0.6, top_p: 0.95, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
     raw_thinking: {
@@ -1510,7 +1510,7 @@ export const MODEL_REFS: Record<string, ModelRefConfig> = {
     ],
     note: 'DeepSeek 3 / 3.2 / 32 系列，llama.cpp 原生 Reasoning 思考模式。无审查/蒸馏变体参数一致'
   },
-  'deepseek2': {
+  deepseek2: {
     name: 'DeepSeek 2',
     raw: { temperature: 0.6, top_p: 0.95, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
     raw_thinking: {
@@ -1538,7 +1538,7 @@ export const MODEL_REFS: Record<string, ModelRefConfig> = {
     ],
     note: 'DeepSeek 2 系列，llama.cpp 原生 Reasoning 思考模式。无审查/蒸馏变体参数一致'
   },
-  'deepseek4': {
+  deepseek4: {
     name: 'DeepSeek 4',
     raw: { temperature: 0.6, top_p: 0.95, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
     raw_thinking: {
