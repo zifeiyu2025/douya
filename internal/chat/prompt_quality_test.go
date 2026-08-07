@@ -21,7 +21,7 @@ func TestSystemPrompt_NoStaticCitationRules(t *testing.T) {
 }
 
 // TestSystemPrompt_SearchModeHasCitationRule 验证当 searchMode 为 "auto" 或 "on" 时，
-// 系统提示词包含"搜索结果自然融入回答，不使用编号引用"的动态规则。
+// 系统提示词包含"搜索结果自然融入回答"的动态规则。
 func TestSystemPrompt_SearchModeHasCitationRule(t *testing.T) {
 	base := buildBaseSystemPrompt("本地模型", "", "append")
 	now := time.Now()
@@ -34,9 +34,6 @@ func TestSystemPrompt_SearchModeHasCitationRule(t *testing.T) {
 		}
 		if !strings.Contains(content, "自然融入回答") {
 			t.Errorf("searchMode=%q 时，系统提示词应包含'自然融入回答'，实际输出:\n%s", mode, content)
-		}
-		if !strings.Contains(content, "而非 [1][2]") {
-			t.Errorf("searchMode=%q 时，系统提示词应包含'而非 [1][2]'（避免编号引用），实际输出:\n%s", mode, content)
 		}
 	}
 }

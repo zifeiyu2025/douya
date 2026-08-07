@@ -901,8 +901,8 @@ func TestSearchResultInstruction_Content(t *testing.T) {
 	if !strings.Contains(zh, "仅基于") {
 		t.Errorf("中文指令应包含 '仅基于'，实际: %q", zh)
 	}
-	if !strings.Contains(zh, "编号引用格式") {
-		t.Errorf("中文指令应包含 '编号引用格式'，实际: %q", zh)
+	if !strings.Contains(zh, "自然连贯") {
+		t.Errorf("中文指令应包含 '自然连贯'，实际: %q", zh)
 	}
 }
 
@@ -912,8 +912,8 @@ func TestSearchResultInstruction_EnglishContent(t *testing.T) {
 	if !strings.Contains(en, "strictly") {
 		t.Errorf("英文指令应包含 'strictly'，实际: %q", en)
 	}
-	if !strings.Contains(en, "numbered citation") {
-		t.Errorf("英文指令应包含 'numbered citation'，实际: %q", en)
+	if !strings.Contains(en, "natural, coherent") {
+		t.Errorf("英文指令应包含 'natural, coherent'，实际: %q", en)
 	}
 }
 

@@ -1862,10 +1862,6 @@ func TestSendMessage_SystemPromptContainsSearchGuidance(t *testing.T) {
 	if !strings.Contains(systemMsg.ContentString(), "工具") {
 		t.Errorf("system prompt should contain search guidance, got: %s", systemMsg.ContentString())
 	}
-	// 引用规则动态生成：auto 模式应包含"不使用编号引用"规则
-	if !strings.Contains(systemMsg.ContentString(), "[1][2]") {
-		t.Errorf("system prompt should mention citation requirements, got: %s", systemMsg.ContentString())
-	}
 }
 
 func TestSendMessage_SearchEnabled_UsesSeparateContextBlock(t *testing.T) {

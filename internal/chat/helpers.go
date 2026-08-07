@@ -933,9 +933,9 @@ func CompressContext(
 
 func searchResultInstruction(lang string) string {
 	if lang == "zh" {
-		return "\n请仅基于以上信息回答用户的问题，无法确认时明确说明，不要使用[1][2]等编号引用格式。"
+		return "\n请仅基于以上信息回答用户的问题，无法确认时明确说明，将信息提炼总结后组织成自然连贯的回答呈现。"
 	}
-	return "\nAnswer the user's question based strictly on the above information. If you cannot confirm, state it clearly. Do not use numbered citation formats like [1][2]."
+	return "\nAnswer the user's question based strictly on the above information. If you cannot confirm, state it clearly. Summarize the key points and present them as a natural, coherent response."
 }
 
 // DetectLanguage is the exported version for testing.

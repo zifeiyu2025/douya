@@ -183,25 +183,19 @@ func TestEstimateAttachmentTokens_UnknownType(t *testing.T) {
 }
 
 // TestSearchResultInstruction_Chinese 验证中文搜索结果指令
-// 指令应禁止使用 [1][2] 编号引用格式
+// 指令应引导模型总结信息并自然表达
 func TestSearchResultInstruction_Chinese(t *testing.T) {
 	got := SearchResultInstruction("zh")
-	if !strings.Contains(got, "不要使用") {
-		t.Errorf("中文指令应包含 '不要使用'，实际: %q", got)
-	}
-	if !strings.Contains(got, "[1][2]") {
-		t.Errorf("中文指令应提及 '[1][2]'，实际: %q", got)
+	if !strings.Contains(got, "自然连贯") {
+		t.Errorf("中文指令应包含 '自然连贯'，实际: %q", got)
 	}
 }
 
 // TestSearchResultInstruction_English 验证英文搜索结果指令
 func TestSearchResultInstruction_English(t *testing.T) {
 	got := SearchResultInstruction("en")
-	if !strings.Contains(got, "Do not use") {
-		t.Errorf("英文指令应包含 'Do not use'，实际: %q", got)
-	}
-	if !strings.Contains(got, "[1][2]") {
-		t.Errorf("英文指令应提及 '[1][2]'，实际: %q", got)
+	if !strings.Contains(got, "natural, coherent") {
+		t.Errorf("英文指令应包含 'natural, coherent'，实际: %q", got)
 	}
 }
 
