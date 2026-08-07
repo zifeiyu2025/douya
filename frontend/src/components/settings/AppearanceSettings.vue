@@ -79,7 +79,7 @@
   <!-- AI 头像 -->
   <n-form-item label="AI 头像">
     <div class="avatar-row">
-      <div class="avatar-preview avatar-square">
+      <div class="avatar-preview avatar-round">
         <img :src="formConfig.ai_avatar || defaultAiAvatar" class="avatar-img" />
       </div>
       <div class="avatar-btns">
@@ -267,9 +267,6 @@ function handleModeChange(mode: 'auto' | 'light' | 'dark') {
 }
 .avatar-round {
   border-radius: 50%;
-}
-.avatar-square {
-  border-radius: 12px;
 }
 .avatar-img {
   width: 100%;
