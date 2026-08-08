@@ -7,7 +7,7 @@
 **隐私优先的本地 AI 桌面助手 · 基于 llama.cpp · 完全离线**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.11.7-blue.svg)](https://github.com/zifeiyu2025/douya/releases)
+[![Version](https://img.shields.io/badge/version-v0.11.8-blue.svg)](https://github.com/zifeiyu2025/douya/releases)
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![Vue](https://img.shields.io/badge/Vue-3-42b883?logo=vue.js&logoColor=white)](https://vuejs.org/)
 [![Wails](https://img.shields.io/badge/Wails-v2-red.svg)](https://wails.io/)
