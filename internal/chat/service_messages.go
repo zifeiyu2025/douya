@@ -35,7 +35,7 @@ const maxSearchSnippetRunes = 200
 // B-2.2：原 formatSearchResults 仅一行委托 formatSearchResultsWithLang(results, "zh")，
 // 已内联到唯一调用方 FormatSearchResults（测试导出函数），删除冗余包装。
 
-func formatSearchResultsWithLang(results []search.SearchResult, lang string) string {
+func formatSearchResultsWithLang(results []search.SearchResult, _ string) string {
 	var sb strings.Builder
 	sb.WriteString("<search_results>\n")
 	// 限制注入条数：只取前 maxSearchResultsToInject 条，减少 prompt 体积，加快 prompt eval

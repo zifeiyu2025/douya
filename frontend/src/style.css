@@ -1895,9 +1895,7 @@ html.dark .app-layout::before {
 }
 
 /* 6. 图标样式：保留 NaiveUI 默认图标，颜色由 themeOverrides 接管（Task 2 移除 color !important） */
-.n-message .n-message__icon {
-  /* color 由 Naive UI 根据 message type 自动着色（themeOverrides 已配置） */
-}
+
 
 /* 7. 关闭按钮（无 filter 发光，仅用 color 过渡）
  * Task 2：color !important 已移除，由 themeOverrides 的 common.closeColor 接管。
@@ -1906,9 +1904,7 @@ html.dark .app-layout::before {
 .n-message .n-message__close {
   transition: color 0.2s ease;
 }
-.n-message .n-message__close:hover {
-  /* hover 色由 Naive UI 默认交互样式处理 */
-}
+
 
 /* 8. 深色模式微调
  * Task 2：深色模式背景色和边框色已由 useThemeOverrides.ts 的 darkOverrides 提供

@@ -96,7 +96,7 @@ describe('useThemeOverrides', () => {
 
     it('common has key tokens as strings', () => {
       const overrides = useThemeOverrides()
-      const common = overrides.value.common
+      const common = overrides.value.common!!
       // 关键 token 存在且为字符串
       expect(typeof common.primaryColor).toBe('string')
       expect(common.primaryColor).toBeTruthy()
@@ -117,7 +117,7 @@ describe('useThemeOverrides', () => {
       // 显式切到亮色
       store.setMode('light')
       await nextTick()
-      const common = overrides.value.common
+      const common = overrides.value.common!
       // 亮色 accent-primary
       expect(common.primaryColor).toBe('#0969da')
       // 亮色 --bg-primary
@@ -134,7 +134,7 @@ describe('useThemeOverrides', () => {
       // 显式切到深色
       store.setMode('dark')
       await nextTick()
-      const common = overrides.value.common
+      const common = overrides.value.common!
       // 深色 accent-primary
       expect(common.primaryColor).toBe('#4493f8')
       // 深色 --bg-primary（纯黑）
@@ -151,20 +151,23 @@ describe('useThemeOverrides', () => {
       // 先亮色：primaryColor 为浅蓝
       store.setMode('light')
       await nextTick()
-      expect(overrides.value.common.primaryColor).toBe('#0969da')
-      expect(overrides.value.common.bodyColor).toBe('#fbfbfc')
+      const commonLight = overrides.value.common!
+      expect(commonLight.primaryColor).toBe('#0969da')
+      expect(commonLight.bodyColor).toBe('#fbfbfc')
 
       // 切到深色：primaryColor 变为深蓝，bodyColor 变为纯黑
       store.setMode('dark')
       await nextTick()
-      expect(overrides.value.common.primaryColor).toBe('#4493f8')
-      expect(overrides.value.common.bodyColor).toBe('#000000')
+      const commonDark = overrides.value.common!
+      expect(commonDark.primaryColor).toBe('#4493f8')
+      expect(commonDark.bodyColor).toBe('#000000')
 
       // 切回亮色：再次回到浅蓝
       store.setMode('light')
       await nextTick()
-      expect(overrides.value.common.primaryColor).toBe('#0969da')
-      expect(overrides.value.common.bodyColor).toBe('#fbfbfc')
+      const commonLight2 = overrides.value.common!
+      expect(commonLight2.primaryColor).toBe('#0969da')
+      expect(commonLight2.bodyColor).toBe('#fbfbfc')
     })
   })
 })

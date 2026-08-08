@@ -34,8 +34,8 @@ describe('switchStateMachine', () => {
       expect(switchState.value.phase).toBe('switching')
       if (switchState.value.phase === 'switching') {
         expect(switchState.value.progressStage).toBe('preparing')
+        expect(switchState.value.targetModel).toBe('new-model')
       }
-      expect(switchState.value.targetModel).toBe('new-model')
     })
   })
 

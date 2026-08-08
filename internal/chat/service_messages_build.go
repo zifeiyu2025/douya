@@ -223,7 +223,7 @@ func (s *Service) resolveSystemContent(cfg *config.Config, searchMode string, ca
 // calculateContextBudget 估算系统提示词和 RAG 的 token 数，并计算有效上下文上限。
 // 返回 (estimatedTokens, effectiveMax)。
 // effectiveMax = maxContext - reserve，其中 reserve 取 max(maxContext/10, 512) 和主动压缩预留的较大值。
-func (s *Service) calculateContextBudget(cfg *config.Config, maxContext int, systemContent string, ragContext string, dbMsgs []*store.Message, currentAttachments []Attachment) (int, int) {
+func (s *Service) calculateContextBudget(cfg *config.Config, maxContext int, systemContent string, ragContext string, _ []*store.Message, _ []Attachment) (int, int) {
 	estimatedTokens := estimateTokensByLang(systemContent, detectLanguage(systemContent)) + 10
 	if ragContext != "" {
 		estimatedTokens += estimateTokensByLang(ragContext, detectLanguage(ragContext)) + 10
