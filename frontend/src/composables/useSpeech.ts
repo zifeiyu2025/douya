@@ -7,6 +7,7 @@
  * 基于浏览器原生 Web Speech API 实现，从 ChatInput.vue 抽取。
  */
 import { ref, computed, type Ref } from 'vue'
+import { logWarn } from '../utils/logger'
 
 // ===== SpeechRecognition 类型定义 =====
 // 浏览器原生 API 没有完整的 TS 类型，这里手动声明用到的部分
@@ -88,7 +89,7 @@ export function useVoiceInput(inputText: Ref<string>) {
     }
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      console.warn('语音识别错误:', event.error)
+      logWarn('语音识别错误', event.error)
       if (event.error === 'not-allowed') {
         isListening.value = false
         voiceInterimText.value = ''
@@ -126,7 +127,7 @@ export function useVoiceInput(inputText: Ref<string>) {
     try {
       rec.start()
     } catch {
-      console.warn('无法启动语音识别')
+      logWarn('无法启动语音识别')
     }
   }
 

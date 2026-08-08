@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"douya/internal/apperror"
@@ -20,10 +22,15 @@ import (
 type Config struct {
 	// Version 配置 schema 版本号，用于版本化迁移。
 	// 0 表示旧版本（无此字段的历史配置），加载时按迁移链升级到当前版本。
-	Version         int    `json:"version"`
-	ModelPath       string `json:"model_path"`
-	MmprojAuto      bool   `json:"mmproj_auto"`
-	MmprojOffload   bool   `json:"mmproj_offload"`
+	Version    int    `json:"version"`
+	ModelPath  string `json:"model_path"`
+	MmprojAuto bool   `json:"mmproj_auto"`
+	// MmprojOffload mmproj GPU 卸载开关。
+	// nil=自动（按 smartparams 硬件判断），true=强制启用，false=强制关闭。
+	// 使用 *bool 是为了区分"未设置"与"显式 false"：
+	// 之前是 bool 且默认 true，导致用户设 mmproj_offload=false 时被 `if cfg.MmprojOffload { d.MmprojOffload = true }`
+	// 单方向覆盖，"关闭"路径永远不可达。改为 *bool 后 false 可真正生效。
+	MmprojOffload   *bool  `json:"mmproj_offload"`
 	LlamaServerPath string `json:"llama_server_path"`
 	// BackendType 计算后端类型（auto/cuda/hip/sycl/vulkan/openvino/cpu）。
 	// auto 表示根据硬件自动检测最合适的后端，其他值明确指定后端类型。
@@ -54,10 +61,18 @@ type Config struct {
 	Reasoning                  string  `json:"reasoning"`
 	ReasoningBudget            int     `json:"reasoning_budget"`
 	ReasoningFormat            string  `json:"reasoning_format"`
+	// 思考强度（模板级 reasoning_effort，空=不传递跟随模型默认）
+	// 由聊天请求通过 chat_template_kwargs.reasoning_effort 透传给支持该参数的模板
+	// （如 DeepSeek-V4 / openai-gpt-oss-120b / 腾讯混元 Hy3 等），
+	// 服务器层仅对顶层 "none" 有语义，其余值需模板自行解释。
+	ReasoningEffort string `json:"reasoning_effort"`
 	// 推理内容保留开关（nil=不传递，true=--reasoning-preserve，false=--no-reasoning-preserve）
-	ReasoningPreserve     *bool   `json:"reasoning_preserve"`
-	SystemPrompt          string  `json:"system_prompt"`
-	SystemPromptMode      string  `json:"system_prompt_mode"` // "append" (追加) or "replace" (替换), 默认 "append"
+	ReasoningPreserve *bool  `json:"reasoning_preserve"`
+	SystemPrompt      string `json:"system_prompt"`
+	SystemPromptMode  string `json:"system_prompt_mode"` // "append" (追加) or "replace" (替换), 默认 "append"
+	// 编程助手模式：控制默认提示词使用通用版还是编程版。
+	// "auto"（默认）：检测到 coder 类模型自动启用编程版；"on"：始终启用；"off"：始终禁用。
+	ProgrammingMode       string  `json:"programming_mode"`
 	ChatBackground        string  `json:"chat_background"`
 	ChatBackgroundOpacity float64 `json:"chat_background_opacity"`
 	UserAvatar            string  `json:"user_avatar"`
@@ -101,51 +116,51 @@ type Config struct {
 	Device                  string  `json:"device"`
 	// 多 GPU 原生参数。空 split_mode 表示不覆盖 llama.cpp 默认的 layer 模式；
 	// main_gpu=-1 表示不传递，让 llama.cpp 使用默认设备。
-	SplitMode               string  `json:"split_mode"`
-	TensorSplit             string  `json:"tensor_split"`
-	MainGPU                 int     `json:"main_gpu"`
-	Parallel                int     `json:"parallel"`
-	CacheTypeK              string  `json:"cache_type_k"`
-	CacheTypeV              string  `json:"cache_type_v"`
-	SpecType                string  `json:"spec_type"`
-	SpecDraftNMax           int     `json:"spec_draft_n_max"`
-	SpecDraftNMin           int     `json:"spec_draft_n_min"`
-	CacheTypeKDraft         string  `json:"cache_type_k_draft"`
-	CacheTypeVDraft         string  `json:"cache_type_v_draft"`
-	SpecNgramModNMin        int     `json:"spec_ngram_mod_n_min"`
-	SpecNgramModNMax        int     `json:"spec_ngram_mod_n_max"`
-	SpecNgramModNMatch      int     `json:"spec_ngram_mod_n_match"`
-	SpecNgramSimpleSizeN    int     `json:"spec_ngram_simple_size_n"`
-	SpecNgramSimpleSizeM    int     `json:"spec_ngram_simple_size_m"`
-	SpecNgramSimpleMinHits  int     `json:"spec_ngram_simple_min_hits"`
-	SpecNgramMapKSizeN      int     `json:"spec_ngram_map_k_size_n"`
-	SpecNgramMapKSizeM      int     `json:"spec_ngram_map_k_size_m"`
-	SpecNgramMapKMinHits    int     `json:"spec_ngram_map_k_min_hits"`
-	SpecNgramMapK4VSizeN    int     `json:"spec_ngram_map_k4v_size_n"`
-	SpecNgramMapK4VSizeM    int     `json:"spec_ngram_map_k4v_size_m"`
-	SpecNgramMapK4VMinHits  int     `json:"spec_ngram_map_k4v_min_hits"`
-	LookupCacheStatic       string  `json:"lookup_cache_static"`
-	LookupCacheDynamic      string  `json:"lookup_cache_dynamic"`
-	SpecDraftModel          string  `json:"spec_draft_model"`
-	ServerAPIKeyEnabled     bool    `json:"server_api_key_enabled"`
-	ExposeServer            bool    `json:"expose_server"` // 暴露服务器地址，允许局域网访问
-	EnableWebUI             bool    `json:"enable_web_ui"` // 启用 llama-server 自带的原生 Web UI（默认关闭）
-	SwaFull                 bool    `json:"swa_full"`
-	CtxCheckpoints          int     `json:"ctx_checkpoints"`
-	CheckpointMinStep       int     `json:"checkpoint_min_step"`
-	Tools                   string  `json:"tools"`
-	PrefillAssistant        bool    `json:"prefill_assistant"`
-	SlotPromptSimilarity    float64 `json:"slot_prompt_similarity"`
-	SkipChatParsing         bool    `json:"skip_chat_parsing"`
-	APIPrefix               string  `json:"api_prefix"`
-	SimpleIO                bool    `json:"simple_io"`
-	GPULayers               int     `json:"gpu_layers"`   // 0=自动（99全部卸载），正数=指定层数
-	FlashAttn               *bool   `json:"flash_attn"`   // nil=自动，指针类型区分"未设置"和"false"
-	Mlock                   *bool   `json:"mlock"`        // nil=自动
-	Threads                 int     `json:"threads"`      // 0=自动
-	ThreadsHTTP             int     `json:"threads_http"` // HTTP 请求处理线程数（0=自动，llama.cpp 默认）
-	BatchSize               int     `json:"batch_size"`   // 0=自动
-	CloseAction             string  `json:"close_action"` // "ask"(默认), "tray"(最小化到托盘), "exit"(直接退出)
+	SplitMode              string  `json:"split_mode"`
+	TensorSplit            string  `json:"tensor_split"`
+	MainGPU                int     `json:"main_gpu"`
+	Parallel               int     `json:"parallel"`
+	CacheTypeK             string  `json:"cache_type_k"`
+	CacheTypeV             string  `json:"cache_type_v"`
+	SpecType               string  `json:"spec_type"`
+	SpecDraftNMax          int     `json:"spec_draft_n_max"`
+	SpecDraftNMin          int     `json:"spec_draft_n_min"`
+	CacheTypeKDraft        string  `json:"cache_type_k_draft"`
+	CacheTypeVDraft        string  `json:"cache_type_v_draft"`
+	SpecNgramModNMin       int     `json:"spec_ngram_mod_n_min"`
+	SpecNgramModNMax       int     `json:"spec_ngram_mod_n_max"`
+	SpecNgramModNMatch     int     `json:"spec_ngram_mod_n_match"`
+	SpecNgramSimpleSizeN   int     `json:"spec_ngram_simple_size_n"`
+	SpecNgramSimpleSizeM   int     `json:"spec_ngram_simple_size_m"`
+	SpecNgramSimpleMinHits int     `json:"spec_ngram_simple_min_hits"`
+	SpecNgramMapKSizeN     int     `json:"spec_ngram_map_k_size_n"`
+	SpecNgramMapKSizeM     int     `json:"spec_ngram_map_k_size_m"`
+	SpecNgramMapKMinHits   int     `json:"spec_ngram_map_k_min_hits"`
+	SpecNgramMapK4VSizeN   int     `json:"spec_ngram_map_k4v_size_n"`
+	SpecNgramMapK4VSizeM   int     `json:"spec_ngram_map_k4v_size_m"`
+	SpecNgramMapK4VMinHits int     `json:"spec_ngram_map_k4v_min_hits"`
+	LookupCacheStatic      string  `json:"lookup_cache_static"`
+	LookupCacheDynamic     string  `json:"lookup_cache_dynamic"`
+	SpecDraftModel         string  `json:"spec_draft_model"`
+	ServerAPIKeyEnabled    bool    `json:"server_api_key_enabled"`
+	ExposeServer           bool    `json:"expose_server"` // 暴露服务器地址，允许局域网访问
+	EnableWebUI            bool    `json:"enable_web_ui"` // 启用 llama-server 自带的原生 Web UI（默认关闭）
+	SwaFull                bool    `json:"swa_full"`
+	CtxCheckpoints         int     `json:"ctx_checkpoints"`
+	CheckpointMinStep      int     `json:"checkpoint_min_step"`
+	Tools                  string  `json:"tools"`
+	PrefillAssistant       bool    `json:"prefill_assistant"`
+	SlotPromptSimilarity   float64 `json:"slot_prompt_similarity"`
+	SkipChatParsing        bool    `json:"skip_chat_parsing"`
+	APIPrefix              string  `json:"api_prefix"`
+	SimpleIO               bool    `json:"simple_io"`
+	GPULayers              int     `json:"gpu_layers"`   // 0=自动（99全部卸载），正数=指定层数
+	FlashAttn              *bool   `json:"flash_attn"`   // nil=自动，指针类型区分"未设置"和"false"
+	Mlock                  *bool   `json:"mlock"`        // nil=自动
+	Threads                int     `json:"threads"`      // 0=自动
+	ThreadsHTTP            int     `json:"threads_http"` // HTTP 请求处理线程数（0=自动，llama.cpp 默认）
+	BatchSize              int     `json:"batch_size"`   // 0=自动
+	CloseAction            string  `json:"close_action"` // "ask"(默认), "tray"(最小化到托盘), "exit"(直接退出)
 	// RAG 重排序配置
 	RerankerModelPath string `json:"reranker_model_path"` // reranker 模型路径（可选，为空则不启用重排序）
 	RerankTopN        int    `json:"rerank_top_n"`        // 重排序后返回的 top-N 结果数（默认5）
@@ -179,6 +194,13 @@ type Config struct {
 	// Agent 模式与 MCP CORS 代理（llama.cpp 新特性）
 	Agent      bool `json:"agent"`        // 一键启用 CORS 代理 + 所有内置工具
 	UIMcpProxy bool `json:"ui_mcp_proxy"` // 仅启用 MCP CORS 代理（Agent 已包含此项）
+	// 细粒度 CORS 配置（上游 --cors-*，llama.cpp #25655）
+	// 优先于 llama.cpp 内置的 localhost 默认值，用于自定义浏览器跨域来源。
+	// 生活类比：像校门口访客登记——默认只放行本班（localhost），登记表可额外写明放行哪些班级（外部来源）。
+	CorsOrigins     string `json:"cors_origins"`     // 允许的来源，逗号分隔（如 "http://localhost:5173,*"），空=使用 llama.cpp 默认
+	CorsMethods     string `json:"cors_methods"`     // 允许的 HTTP 方法，逗号分隔（空=使用 llama.cpp 默认）
+	CorsHeaders     string `json:"cors_headers"`     // 允许的请求头，逗号分隔（空=使用 llama.cpp 默认）
+	CorsCredentials bool   `json:"cors_credentials"` // 是否允许携带凭证（true 且 origins=* 时服务端会回显 Origin 并始终允许凭证）
 	// 后端采样（实验性，将采样逻辑移到 GPU 执行，不兼容 grammar 和 reasoning budget）
 	BackendSampling bool `json:"backend_sampling"`
 	// PerformanceMode 性能模式：compatible（兼容）/ balanced（平衡）/ performance（性能）。
@@ -225,15 +247,19 @@ type Config struct {
 
 func DefaultConfig() *Config {
 	return &Config{
-		Version:                    1, // 当前配置 schema 版本号
-		ModelPath:                  "",
-		MmprojAuto:                 true,
-		MmprojOffload:              true,
-		LlamaServerPath:            "runtime/llama-server.exe",
-		BackendType:                "auto", // 默认自动检测最合适的后端
-		APIBase:                    "http://127.0.0.1:8080",
-		Port:                       8080,
-		ContextSize:                8192,
+		Version:         2, // 当前配置 schema 版本号（P4.3 与 currentConfigVersion/migrate 对齐）
+		ModelPath:       "",
+		MmprojAuto:      true,
+		MmprojOffload:   nil,
+		LlamaServerPath: "runtime/llama-server.exe",
+		BackendType:     "auto", // 默认自动检测最合适的后端
+		APIBase:         "http://127.0.0.1:8080",
+		Port:            8080,
+		// P4.1 修复：默认 context_size 改为 0（未设置），让 smart-params 按
+		// GPU 显存预算计算合适的上下文长度。此前默认 8192 会覆盖智能计算
+		// （resolveIntDerived 中任何 >0 用户值都赢），导致 4-6GB 显卡首启
+		// 用 8192 上下文反而 KV OOM。0 表示"未设置"，走智能值。
+		ContextSize:                0,
 		ProactiveCompressThreshold: 0.8, // P1-A1: 80% 时主动压缩，为后续对话留出 20% 空间
 		Temperature:                0.8, // 与 llama.cpp 默认值对齐
 		TopP:                       0.95,
@@ -249,8 +275,10 @@ func DefaultConfig() *Config {
 		Reasoning:                  "off",
 		ReasoningBudget:            0,
 		ReasoningFormat:            "",
+		ReasoningEffort:            "",
 		SystemPrompt:               "",
 		SystemPromptMode:           "append", // 默认使用追加模式
+		ProgrammingMode:            "auto",   // 默认自动检测（coder 模型启用编程版提示词）
 		ChatBackground:             "",
 		ChatBackgroundOpacity:      0.9,
 		UserAvatar:                 "",
@@ -363,23 +391,28 @@ func DefaultConfig() *Config {
 		Agent:           false,
 		UIMcpProxy:      false,
 		BackendSampling: false,
+		// 细粒度 CORS：空值走 llama.cpp 默认（localhost），保持与升级前行为一致
+		CorsOrigins:     "",
+		CorsMethods:     "",
+		CorsHeaders:     "",
+		CorsCredentials: false,
 		// PerformanceMode 性能模式：默认 balanced（平衡），兼顾性能与稳定性
 		PerformanceMode: "balanced",
 		// TTS 文本转语音默认配置
 		// 默认启用朗读按钮，发音人留空（自动按优先级挑选晓晓等自然语音）
-		TtsEnabled: true,
-		TtsVoice:   "",
-		TtsRate:    1.0,
-		TtsPitch:   1.0,
-		TtsVolume:  1.0,
-		SsePingInterval: 0,
-		LoraPaths:       "",
+		TtsEnabled:       true,
+		TtsVoice:         "",
+		TtsRate:          1.0,
+		TtsPitch:         1.0,
+		TtsVolume:        1.0,
+		SsePingInterval:  0,
+		LoraPaths:        "",
 		ChatTemplateFile: "",
-		DirectIO:        false,
-		CPUMoe:          false,
-		NCpuMoe:         0,
-		OpOffload:       nil,
-		MCPServers:      []MCPServerConfig{},
+		DirectIO:         false,
+		CPUMoe:           false,
+		NCpuMoe:          0,
+		OpOffload:        nil,
+		MCPServers:       []MCPServerConfig{},
 	}
 }
 
@@ -427,7 +460,7 @@ func Load(path string) (*Config, error) {
 		// 用户可以再自己调整口味。
 		log.Error().Err(err).Msg("[config] 解析配置文件失败，备份原文件后用默认配置启动")
 		backupPath := path + ".corrupt-" + time.Now().Format("20060102-150405")
-		if backupErr := os.WriteFile(backupPath, data, 0o644); backupErr != nil {
+		if backupErr := os.WriteFile(backupPath, data, 0o600); backupErr != nil {
 			log.Warn().Err(backupErr).Msg("[config] 备份损坏的配置文件失败")
 		} else {
 			log.Info().Str("backup", backupPath).Msg("[config] 已备份损坏的配置文件")
@@ -510,7 +543,8 @@ func ensureConfigFields(path string, userData []byte, cfg *Config) {
 
 	if missing {
 		if merged, err := json.MarshalIndent(userMap, "", "  "); err == nil {
-			if writeErr := os.WriteFile(path, merged, 0o644); writeErr != nil {
+			// P3.7：改用原子写，避免写一半崩溃留下损坏的 config.json
+			if writeErr := writeFileAtomic(path, merged, 0o600); writeErr != nil {
 				log.Warn().Err(writeErr).Msg("[config] 写入补全字段后的配置失败")
 			}
 		}
@@ -519,7 +553,9 @@ func ensureConfigFields(path string, userData []byte, cfg *Config) {
 
 // currentConfigVersion 当前配置 schema 版本号，与 DefaultConfig 中的 Version 保持一致。
 // 每次新增 schema 变更时递增此常量，并在 migrate 中追加对应迁移分支。
-const currentConfigVersion = 1
+// P4.3 修复：此前为 1，但 migrate 中已有 v1→v2 分支（CacheReuse），
+// 实际迁移产物版本是 2，常量与 DefaultConfig 的 1 均不匹配真实 schema 版本。
+const currentConfigVersion = 2
 
 // migrate 执行配置 schema 版本迁移链。
 // 根据 cfg.Version 逐步升级到 currentConfigVersion。
@@ -599,6 +635,11 @@ func LoadRaw(path string) (map[string]any, error) {
 	return raw, nil
 }
 
+// configSaveMu 串行化 Save 写盘，避免多 goroutine 并发写 config.json 互相覆盖/交错。
+// 生活类比：多个人同时往同一张表格上写字会写得乱七八糟，
+// 加一把"笔筒锁"（互斥锁），一次只让一个人写。
+var configSaveMu sync.Mutex
+
 func Save(path string, cfg *Config) error {
 	log.Debug().Str("path", path).Msg("[config] 保存配置文件")
 	data, err := json.MarshalIndent(cfg, "", "  ")
@@ -606,13 +647,42 @@ func Save(path string, cfg *Config) error {
 		log.Error().Err(err).Msg("[config] 序列化配置失败")
 		return err
 	}
-	// 注：配置文件不收紧 ACL（icacls），本地单用户应用收益有限且可能导致运行时权限问题。
-	// 敏感数据（API Key）已用 AES-GCM 加密存储。见安全审查 #6（已评估，风险可接受）。
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	// 注：配置含 MCP 服务器 Env 等明文凭据，收紧为 0o600 仅所有者可读写，
+	// 避免同机其他用户读取。API Key 本身已用 AES-GCM 加密存储。
+	// 见安全审查 #6（M3 修复：原 0o644 全局可读）。
+	configSaveMu.Lock()
+	defer configSaveMu.Unlock()
+	if err := writeFileAtomic(path, data, 0o600); err != nil {
 		log.Error().Err(err).Str("path", path).Msg("[config] 写入配置文件失败")
 		return err
 	}
 	return nil
+}
+
+// writeFileAtomic 原子写文件：先写临时文件再重命名。
+// 避免写一半时进程崩溃留下损坏的 config.json（下次启动 Load 会失败）。
+// 生活类比：写作业先打草稿（临时文件），确认无误再誊写到作业本（重命名），
+// 即使中途被叫走，作业本也保持完好。
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpName, perm); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
 
 // intFieldRule 描述一个 int 字段的校验规则，由 repairInvalidFields 与 Validate 共享，
@@ -641,7 +711,9 @@ type floatFieldRule struct {
 // 默认值不在表中硬编码，而是通过 get(DefaultConfig()) 动态获取，保证与 DefaultConfig 单一来源。
 var intFieldRules = []intFieldRule{
 	{"port", func(c *Config) int { return c.Port }, 1, 65535, func(c *Config, v int) { c.Port = v }, "invalid port: %d (must be 1-65535)"},
-	{"context_size", func(c *Config) int { return c.ContextSize }, 1, 131072, func(c *Config, v int) { c.ContextSize = v }, "invalid context_size: %d (must be 1-131072)"},
+	// P4.1 修复：context_size 允许 0（表示"未设置"，走 smart-params 智能计算）。
+	// 此前默认 8192 且 min=1，0 会被 Validate 拒绝；现在 0 是合法的"自动"值。
+	{"context_size", func(c *Config) int { return c.ContextSize }, 0, 131072, func(c *Config, v int) { c.ContextSize = v }, "invalid context_size: %d (must be 0-131072, 0=auto)"},
 	{"top_k", func(c *Config) int { return c.TopK }, 0, math.MaxInt32, func(c *Config, v int) { c.TopK = v }, "invalid top_k: %d (必须 >= 0)"},
 	{"dry_allowed_length", func(c *Config) int { return c.DryAllowedLength }, 0, math.MaxInt32, func(c *Config, v int) { c.DryAllowedLength = v }, "invalid dry_allowed_length: %d (必须 >= 0)"},
 	{"rag_top_k", func(c *Config) int { return c.RAGTopK }, 1, math.MaxInt32, func(c *Config, v int) { c.RAGTopK = v }, "invalid rag_top_k: %d (必须 > 0)"},
@@ -734,6 +806,13 @@ func (c *Config) repairInvalidFields() []string {
 		repaired = append(repaired, fmt.Sprintf("system_prompt_mode: %q -> %q", c.SystemPromptMode, defaults.SystemPromptMode))
 		c.SystemPromptMode = defaults.SystemPromptMode
 	}
+	// ReasoningEffort 枚举修复：空值保留（不传递跟随模型默认），非法值回退到空
+	switch c.ReasoningEffort {
+	case "", "low", "medium", "high", "max":
+	default:
+		repaired = append(repaired, fmt.Sprintf("reasoning_effort: %q -> %q", c.ReasoningEffort, defaults.ReasoningEffort))
+		c.ReasoningEffort = defaults.ReasoningEffort
+	}
 	// PerformanceMode 修复：空值保留（向后兼容，运行时按 balanced 处理），
 	// 非法值回退到默认 balanced
 	switch c.PerformanceMode {
@@ -804,11 +883,22 @@ func (c *Config) Validate() error {
 	default:
 		return apperror.Newf(apperror.KindInvalidConfig, "invalid system_prompt_mode: %q (必须是 append / replace)", c.SystemPromptMode)
 	}
+	switch c.ProgrammingMode {
+	case "auto", "on", "off", "":
+	default:
+		return apperror.Newf(apperror.KindInvalidConfig, "invalid programming_mode: %q (必须是 auto / on / off)", c.ProgrammingMode)
+	}
 	// PerformanceMode 枚举校验：空值合法（向后兼容旧配置），运行时按 balanced 处理
 	switch c.PerformanceMode {
 	case "compatible", "balanced", "performance", "":
 	default:
 		return apperror.Newf(apperror.KindInvalidConfig, "invalid performance_mode: %q (必须是 compatible / balanced / performance)", c.PerformanceMode)
+	}
+	// ReasoningEffort 枚举校验：空值合法（不传递跟随模型默认）
+	switch c.ReasoningEffort {
+	case "", "low", "medium", "high", "max":
+	default:
+		return apperror.Newf(apperror.KindInvalidConfig, "invalid reasoning_effort: %q (必须是 low / medium / high / max，或留空跟随模型默认)", c.ReasoningEffort)
 	}
 	// TTS 参数范围校验：超范围自动钳制不报错（用户友好）
 	// 生活类比：收音机音量旋钮就算拧过头也不会爆炸，最多就是最大音量。

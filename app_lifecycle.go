@@ -71,6 +71,8 @@ func (a *App) startup(ctx context.Context) {
 	// startServerAndWatch 是一次性启动流程（同步执行模型检测/加载后返回），
 	// 内部会通过 trackedGo 启动 watcher/health 等长生命周期 goroutine。
 	// 此处不直接 trackedGo：它使用 Wails ctx 而非 rootCtx，且 shutdown 不必等待模型加载完成。
+	// P2.2 修复：startServerWithAutoFallback / autoLoadDefaultModel 内部已加入
+	// a.exiting 检查与 rootCtx 派生 context，用户退出时能立即中断启动，避免拉起孤儿进程。
 	go a.startServerAndWatch(a.server, ctx)
 }
 
@@ -88,10 +90,28 @@ func (a *App) startup(ctx context.Context) {
 //
 // waitForServerStop 当前实现下不影响行为（srv.Stop 本身为同步阻塞），
 // 保留该参数以匹配任务规约签名，并为未来"异步停止"差异预留扩展点。
-func (a *App) shutdownInternal(_ context.Context, waitForServerStop bool) {
+// teardown 是统一的资源释放流程，由 shutdownInternal 与 GracefulExit 共用。
+// stopOnce 保证幂等：无论调用多少次，关闭逻辑只执行一次。
+//
+// emitProgress 可选：GracefulExit 传入以推送 EventShutdownProgress 进度；
+// shutdownInternal 传 nil（无前端进度展示需求）。
+//
+// 资源释放顺序（生活类比：下班关店流程）：
+//  1. 停止生成（让正在进行的对话停下来）
+//  2. rootCancel（广播"下班了"，通知被跟踪的长生命周期 goroutine 退出）
+//  3. watchCancel（取消 server watch ctx，watcher/health 监听随之退出）
+//  4. g.Wait（在门口签到表前等所有被跟踪 goroutine 出来，避免锁门时还有人留在里面）
+//  5. srv.Stop + CloseJob（关闭 llama-server 进程）
+//  6. ragVS.Close（关闭知识库向量存储）
+//  7. db.Close（关闭数据库）
+func (a *App) teardown(emitProgress func(stage string)) {
 	a.stopOnce.Do(func() {
 		if a.service != nil {
 			a.service.StopGeneration()
+		}
+
+		if emitProgress != nil {
+			emitProgress("stopping_generation")
 		}
 
 		// 1. 取消应用级 rootCtx，通知所有被跟踪的长生命周期 goroutine 退出
@@ -113,6 +133,9 @@ func (a *App) shutdownInternal(_ context.Context, waitForServerStop bool) {
 
 		// 4. 停止 llama-server 进程（同步：taskkill + 3s 超时 + force kill）
 		if srv != nil {
+			if emitProgress != nil {
+				emitProgress("stopping_server")
+			}
 			if err := srv.Stop(); err != nil {
 				zlog.Error().Err(err).Msg("shutting down: stop server failed")
 			}
@@ -123,20 +146,33 @@ func (a *App) shutdownInternal(_ context.Context, waitForServerStop bool) {
 
 		// 6. 关闭 RAG 向量库
 		if a.ragVS != nil {
+			if emitProgress != nil {
+				emitProgress("closing_rag")
+			}
 			if err := a.ragVS.Close(); err != nil {
 				zlog.Error().Err(err).Msg("shutting down: close RAG vector store failed")
 			}
 		}
 
-		// 6. 关闭数据库
+		// 7. 关闭数据库
 		if a.db != nil {
+			if emitProgress != nil {
+				emitProgress("closing_db")
+			}
 			if err := a.db.Close(); err != nil {
 				zlog.Error().Err(err).Msg("shutting down: close database failed")
 			}
 		}
 
-		_ = waitForServerStop // 当前实现统一同步停止，保留参数以匹配任务规约签名
+		if emitProgress != nil {
+			emitProgress("done")
+		}
 	})
+}
+
+func (a *App) shutdownInternal(_ context.Context, waitForServerStop bool) {
+	_ = waitForServerStop // 当前实现统一同步停止，保留参数以匹配任务规约签名
+	a.teardown(nil)
 }
 
 func (a *App) shutdown(ctx context.Context) {
@@ -247,16 +283,21 @@ func (a *App) HandleCloseRequest() string {
 
 // SetCloseAction 设置关闭行为并持久化
 func (a *App) SetCloseAction(action string) {
-	// 采用"复制→修改副本→替换指针"模式，避免直接修改 getConfig() 返回的指针
-	old := a.getConfig()
-	newCfg := *old
-	newCfg.CloseAction = action
-	a.setConfig(&newCfg)
+	// P3.5 重构：updateConfig 统一"复制→修改副本→替换指针"模式
+	var cfg *config.Config
+	if err := a.updateConfig(func(c *config.Config) error {
+		c.CloseAction = action
+		cfg = c
+		return nil
+	}); err != nil {
+		zlog.Warn().Err(err).Msg("[SetCloseAction] 配置更新失败")
+		return
+	}
 	// 保存前校验，失败记录日志但不阻塞保存（避免阻塞关闭动作设置功能）
-	if err := newCfg.Validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		zlog.Warn().Err(err).Msg("[SetCloseAction] 配置校验失败，仍保存")
 	}
-	if err := config.Save(filepath.Join(appDir(), "config.json"), &newCfg); err != nil {
+	if err := config.Save(filepath.Join(appDir(), "config.json"), cfg); err != nil {
 		zlog.Warn().Err(err).Msg("[SetCloseAction] 配置保存失败")
 	}
 }
@@ -271,62 +312,25 @@ func (a *App) GracefulExit() {
 
 	go func() {
 		// L-1：优雅关闭流程涉及 DB/进程/事件多类资源，panic 会中断关闭导致资源泄漏
-		defer func() {
-			if r := recover(); r != nil {
-				zlog.Warn().Interface("panic", r).Msg("[shutdown] GracefulExit panic, exit forced")
+		defer recoverLog("[shutdown] GracefulExit panic, exit forced")
+
+		// P3.2 重构：GracefulExit 与 shutdownInternal 共用 teardown，
+		// 仅额外传入进度回调推送 EventShutdownProgress。
+		a.teardown(func(stage string) {
+			messages := map[string]string{
+				"stopping_generation": "正在停止生成...",
+				"stopping_server":     "正在关闭服务...",
+				"closing_rag":         "正在关闭知识库...",
+				"closing_db":          "正在关闭数据库...",
+				"done":                "再见 👋",
 			}
-		}()
-		a.stopOnce.Do(func() {
-			if a.service != nil {
-				a.service.StopGeneration()
+			msg, ok := messages[stage]
+			if !ok {
+				msg = stage
 			}
 			runtime.EventsEmit(a.ctx, EventShutdownProgress, map[string]any{
-				"stage":   "stopping_generation",
-				"message": "正在停止生成...",
-			})
-
-			a.serverMu.Lock()
-			if a.watchCancel != nil {
-				a.watchCancel()
-				a.watchCancel = nil
-			}
-			srv := a.server
-			a.serverMu.Unlock()
-
-			if srv != nil {
-				runtime.EventsEmit(a.ctx, EventShutdownProgress, map[string]any{
-					"stage":   "stopping_server",
-					"message": "正在关闭服务...",
-				})
-				if err := srv.Stop(); err != nil {
-					zlog.Error().Err(err).Msg("graceful exit: stop server failed")
-				}
-				srv.CloseJob()
-			}
-
-			if a.ragVS != nil {
-				runtime.EventsEmit(a.ctx, EventShutdownProgress, map[string]any{
-					"stage":   "closing_rag",
-					"message": "正在关闭知识库...",
-				})
-				if err := a.ragVS.Close(); err != nil {
-					zlog.Error().Err(err).Msg("graceful exit: close RAG vector store failed")
-				}
-			}
-
-			if a.db != nil {
-				runtime.EventsEmit(a.ctx, EventShutdownProgress, map[string]any{
-					"stage":   "closing_db",
-					"message": "正在关闭数据库...",
-				})
-				if err := a.db.Close(); err != nil {
-					zlog.Error().Err(err).Msg("graceful exit: close database failed")
-				}
-			}
-
-			runtime.EventsEmit(a.ctx, EventShutdownProgress, map[string]any{
-				"stage":   "done",
-				"message": "再见 👋",
+				"stage":   stage,
+				"message": msg,
 			})
 		})
 
@@ -382,11 +386,7 @@ func (a *App) RestartApp() {
 	// 短暂等待确保 bat 脚本已开始执行，然后退出当前进程
 	go func() {
 		// 防止 panic 导致整个进程崩溃
-		defer func() {
-			if r := recover(); r != nil {
-				zlog.Warn().Interface("panic", r).Msg("[restart] 退出等待 goroutine panic")
-			}
-		}()
+		defer recoverLog("[restart] 退出等待 goroutine panic")
 		time.Sleep(500 * time.Millisecond)
 		a.forceQuit()
 	}()

@@ -6,6 +6,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -240,21 +241,29 @@ func (s *Service) executeStreamAndHandleErrors(streamCtx context.Context, cancel
 	return nil
 }
 
+// recordCalibration 记录 prompt_tokens 反馈校准数据。
+// 普通回复与 tool call 循环结束路径均会调用，使校准能覆盖工具调用场景（此前的缺口）。
+// 生活类比：每次结账时记录实际找零与预估的差距，下次好更准地估算金额。
+func (s *Service) recordCalibration(acc *StreamAccumulator, llmMessages []llm.ChatMessage) {
+	if acc.PromptTokens <= 0 {
+		return
+	}
+	estimated := estimateMessagesTokens(llmMessages)
+	s.tokenCalibMu.Lock()
+	s.lastPromptTokens = acc.PromptTokens
+	s.lastEstimatedTokens = estimated
+	s.tokenCalibMu.Unlock()
+	log.Debug().Int("actual", acc.PromptTokens).Int("estimated", estimated).Float64("ratio", float64(acc.PromptTokens)/float64(max(estimated, 1))).Msg("[chat] token estimation calibration")
+}
+
 // finalizeStreamResult 处理流式结果：tool call 循环或保存 AI 消息。
 func (s *Service) finalizeStreamResult(cancelCtx context.Context, convID string, llmMessages []llm.ChatMessage, acc *StreamAccumulator) error {
 	if acc.FinishReason == "tool_calls" && len(acc.toolCalls()) > 0 {
 		return s.handleToolCallLoop(cancelCtx, convID, llmMessages, acc, 3)
 	}
 
-	// 记录 prompt_tokens 反馈校准数据
-	if acc.PromptTokens > 0 {
-		estimated := estimateMessagesTokens(llmMessages)
-		s.tokenCalibMu.Lock()
-		s.lastPromptTokens = acc.PromptTokens
-		s.lastEstimatedTokens = estimated
-		s.tokenCalibMu.Unlock()
-		log.Debug().Int("actual", acc.PromptTokens).Int("estimated", estimated).Float64("ratio", float64(acc.PromptTokens)/float64(max(estimated, 1))).Msg("[chat] token estimation calibration")
-	}
+	// 记录 prompt_tokens 反馈校准数据（普通回复路径）
+	s.recordCalibration(acc, llmMessages)
 
 	// 空内容不保存，避免产生空 assistant 消息
 	content := acc.FullContent.String()
@@ -277,7 +286,11 @@ func (s *Service) finalizeStreamResult(cancelCtx context.Context, convID string,
 		aiMsg.SearchResults = acc.LastSearchJSON
 	}
 	if err := store.CreateMessage(s.db, aiMsg, secrets.CipherKey(s.cipher)); err != nil {
+		// M6 修复：保存失败时不发送 assistant_message，否则 UI 显示的消息在刷新后消失。
+		// 改为发送 error 事件，让前端知道该条回复未持久化。
 		log.Error().Err(err).Msg("save ai message")
+		s.emitForConv(convID, "error", enhanceErrorWithHint(fmt.Sprintf("保存回复失败，此条回复可能未持久化: %v", err)))
+		return nil
 	}
 	chatMsg := storeMsgToChat(aiMsg)
 	chatMsg.TokensPerSecond = acc.TokensPerSecond

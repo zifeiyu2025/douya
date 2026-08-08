@@ -190,7 +190,38 @@ OpenCoder、Open Claw 等开源编程助手通常在设置界面提供 OpenAI �
 
 ---
 
-## 八、安全提示
+## 九、上下文窗口配置（重要）
+
+豆芽对**外部智能体的请求不做任何拦截或自动裁剪**（智能体直连 llama-server），上下文超出时会返回错误（`exceed_context_size_error`）。因此，请把各智能体的 `context-window`（上下文窗口）配置为豆芽的上下文大小（设置 → 上下文大小），让智能体自行管理历史裁剪。
+
+### 查询豆芽当前的上下文大小
+
+```bash
+curl http://127.0.0.1:8080/v1/models \
+  -H "Authorization: Bearer <你的APIKey>"
+```
+
+返回的 `context_length` / `ctx` 字段即为当前上下文窗口大小（默认 8192，可在豆芽设置中调整）。
+
+### 各智能体的上下文窗口配置
+
+| 工具 | 配置方式 | 示例 |
+|------|----------|------|
+| **Claude Code** | `~/.claude/settings.json` 的 provider 配置，或环境变量 | `"env": {"CLAUDE_CODE_CONTEXT_WINDOW": "8192"}`（部分版本支持） |
+| **Codex** | `~/.codex/config.json` | `{"model_context_window": 8192}` |
+| **opencode** | `opencode.json` 的 model 配置 | `{"model": {"context_window": 8192}}` |
+| **OpenCoder / Open Claw** | 模型设置 → 上下文窗口 | 填入与豆芽一致的数值 |
+
+> 具体字段名以各工具当前版本的文档为准。核心原则：**把窗口设置为豆芽的上下文大小（或略小，如 8192→8000），留出余量给工具调用与生成。**
+
+### 相关建议
+
+- **溢出报错排查**：若智能体频繁报 `context size exceeded`，优先检查其 `context-window` 是否大于豆芽的上下文大小。
+- **context-shift 兜底**：豆芽「KV 缓存 → 上下文移位」开关开启后，llama-server 对多轮生成的 KV 满溢有滑窗兜底（不适用于单次超长请求）。建议保持开启。
+
+---
+
+## 十、安全提示
 
 1. **仅 HTTP 协议**：llama-server 不提供 HTTPS，API Key 在网络中明文传输。建议仅在可信局域网使用。
 2. **务必设置 API Key**：开启局域网暴露后，任何能访问该端口的设备都可调用你的模型。设置 API Key 可防止未授权访问。
@@ -200,7 +231,7 @@ OpenCoder、Open Claw 等开源编程助手通常在设置界面提供 OpenAI �
 
 ---
 
-## 九、故障排查
+## 十一、故障排查
 
 ### 连接超时 / 无法连接
 - 检查豆芽是否正在运行，llama-server 是否已启动

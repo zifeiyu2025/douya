@@ -212,12 +212,15 @@ func mockGPUDeps(
 	rocmFn func() (int64, bool),
 ) func() {
 	origExists, origLookPath, origWMI, origROCm := fileExists, execLookPath, queryWMI, queryROCmVRAM
+	origReg := queryDisplayAdapterRegistry
 	fileExists = existsFn
 	execLookPath = lookPathFn
 	queryWMI = wmiFn
 	queryROCmVRAM = rocmFn
+	queryDisplayAdapterRegistry = func(string) (string, int64) { return "", 0 }
 	return func() {
 		fileExists, execLookPath, queryWMI, queryROCmVRAM = origExists, origLookPath, origWMI, origROCm
+		queryDisplayAdapterRegistry = origReg
 	}
 }
 
@@ -231,10 +234,10 @@ func TestDetectAMDGPUFound(t *testing.T) {
 	defer func() { amdDriverDLLs = origDLLs }()
 
 	restore := mockGPUDeps(
-		func(p string) bool { return p == "mock-amd.dll" }, // mock: 只有 mock-amd.dll 存在
-		func(string) (string, error) { return "", errNotFound }, // mock: PATH 中找不到
+		func(p string) bool { return p == "mock-amd.dll" },                     // mock: 只有 mock-amd.dll 存在
+		func(string) (string, error) { return "", errNotFound },                // mock: PATH 中找不到
 		func(string) (string, int64) { return "AMD Radeon RX 7900 XTX", 8192 }, // mock WMI
-		func() (int64, bool) { return 0, false }, // mock: rocm-smi 不可用
+		func() (int64, bool) { return 0, false },                               // mock: rocm-smi 不可用
 	)
 	defer restore()
 
@@ -284,6 +287,96 @@ func TestDetectAMDGPUWithROCm(t *testing.T) {
 	}
 	if hw.GPUName != "AMD GPU" {
 		t.Errorf("期望 GPUName=AMD GPU，实际 %q", hw.GPUName)
+	}
+}
+
+// TestDetectAMDGPUWithRegistry 测试 rocm-smi 和 WMI 都不可用时，
+// 回退到注册表 qwMemorySize（QWORD，无 4GB 上限）获取精确 VRAM。
+//
+// 生活类比：行驶证（rocm-smi）不在，车管所（WMI）登记只能填 4 位数会溢出，
+// 最后改查车辆登记档案（注册表），档案是 64 位的精确记录。
+func TestDetectAMDGPUWithRegistry(t *testing.T) {
+	origDLLs := amdDriverDLLs
+	amdDriverDLLs = []string{"mock-amd.dll"}
+	defer func() { amdDriverDLLs = origDLLs }()
+
+	restore := mockGPUDeps(
+		func(p string) bool { return p == "mock-amd.dll" },
+		func(string) (string, error) { return "", errNotFound },
+		func(string) (string, int64) { return "AMD Radeon (WMI)", 2048 }, // WMI 溢出后偏小
+		func() (int64, bool) { return 0, false },                         // rocm-smi 不可用
+	)
+	defer restore()
+
+	// 覆盖 mockGPUDeps 中默认的"注册表无结果"，返回 24GB 精确值
+	origReg := queryDisplayAdapterRegistry
+	queryDisplayAdapterRegistry = func(string) (string, int64) {
+		return "AMD Radeon RX 7900 XTX", 24576
+	}
+	defer func() { queryDisplayAdapterRegistry = origReg }()
+
+	hw := &HardwareInfo{}
+	detectAMDGPU(hw)
+
+	if hw.GPUVRAMMB != 24576 {
+		t.Errorf("期望 VRAM=24576（注册表优先于 WMI），实际 %d", hw.GPUVRAMMB)
+	}
+	if hw.GPUName != "AMD Radeon RX 7900 XTX" {
+		t.Errorf("期望 GPUName 来自注册表，实际 %q", hw.GPUName)
+	}
+}
+
+// TestParseRegistryAdapterOutput 测试注册表显卡查询输出解析。
+// 验证 qwMemorySize（字节）正确转换为 MB，且多行取第一个有效值。
+func TestParseRegistryAdapterOutput(t *testing.T) {
+	cases := []struct {
+		name     string
+		output   string
+		wantName string
+		wantMB   int64
+	}{
+		{
+			name:     "单显卡 24GB",
+			output:   "AMD Radeon RX 7900 XTX|25769803776\n",
+			wantName: "AMD Radeon RX 7900 XTX",
+			wantMB:   24576,
+		},
+		{
+			name:     "多显卡取第一行",
+			output:   "NVIDIA GeForce RTX 4090|25769803776\nAMD Radeon RX 6600|8589934592\n",
+			wantName: "NVIDIA GeForce RTX 4090",
+			wantMB:   24576,
+		},
+		{
+			name:     "空输出",
+			output:   "",
+			wantName: "",
+			wantMB:   0,
+		},
+		{
+			name:     "非法数值被跳过",
+			output:   "AMD Radeon|not-a-number\n",
+			wantName: "",
+			wantMB:   0,
+		},
+		{
+			name:     "零显存被跳过",
+			output:   "AMD Radeon|0\n",
+			wantName: "",
+			wantMB:   0,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotName, gotMB := parseRegistryAdapterOutput(tc.output)
+			if gotName != tc.wantName {
+				t.Errorf("期望名称 %q，实际 %q", tc.wantName, gotName)
+			}
+			if gotMB != tc.wantMB {
+				t.Errorf("期望 VRAM %d MB，实际 %d MB", tc.wantMB, gotMB)
+			}
+		})
 	}
 }
 
@@ -659,4 +752,25 @@ func TestDetectPriority(t *testing.T) {
 			t.Error("期望 HasGPU=true（Vulkan 兜底）")
 		}
 	})
+}
+
+// TestNvidiaTotalVRAMMB 验证 nvidia-smi 显存查询：正常解析 MB 值，
+// 无 nvidia-smi 时返回错误。通过覆盖包级变量 mock 实现。
+func TestNvidiaTotalVRAMMB(t *testing.T) {
+	orig := NvidiaTotalVRAMMB
+	defer func() { NvidiaTotalVRAMMB = orig }()
+
+	NvidiaTotalVRAMMB = func() (int64, error) { return 24576, nil }
+	got, err := NvidiaTotalVRAMMB()
+	if err != nil {
+		t.Fatalf("mock 查询不应报错: %v", err)
+	}
+	if got != 24576 {
+		t.Errorf("期望 VRAM=24576 MB，实际 %d", got)
+	}
+
+	NvidiaTotalVRAMMB = func() (int64, error) { return 0, errNotFound }
+	if _, err := NvidiaTotalVRAMMB(); err == nil {
+		t.Error("nvidia-smi 不可用时应返回错误")
+	}
 }

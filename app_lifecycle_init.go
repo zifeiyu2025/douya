@@ -22,8 +22,9 @@ import (
 
 // cleanupOrphanProcesses 清理上次进程残留的孤儿 llama-server。
 // 生活类比：开店前先清理前一天遗留的垃圾，避免影响今天的运营。
+// P2.5 修复：只清理本应用 runtime 目录下的 llama-server，避免误杀用户手动启动的同名进程。
 func (a *App) cleanupOrphanProcesses() {
-	llm.KillOrphanLlamaServers()
+	llm.KillOrphanLlamaServers(filepath.Join(appDir(), "runtime"))
 }
 
 // initHardware 检测硬件信息（CPU/GPU/内存等），供后续选择推理后端使用。
@@ -80,8 +81,15 @@ func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
 	resolvedBackend := llm.ResolveBackendTypeWithRuntime(a.hwInfo, cfg.BackendType, runtimeDir)
 	serverPath, err := llm.EnsureBackendInstalled(resolvedBackend, runtimeDir, nil)
 	if err != nil {
-		zlog.Warn().Err(err).Str("backend", resolvedBackend.String()).Msg("[startup] 后端安装失败，尝试回退到 CPU")
-		if resolvedBackend != llm.BackendCPU {
+		// P1.3 修复：仅 auto/未设置 模式允许静默回退 CPU。
+		// 用户手动指定后端（如 cuda）时，EnsureBackendInstalled 失败说明该后端确实缺失，
+		// 此时不应悄悄用 CPU 顶上——否则 config_backend=cuda 却跑 CPU，用户毫不知情。
+		// 手动后端缺失场景：保留解析结果、serverPath 为空，由后续 validatePaths
+		// 统一弹出下载确认框，让用户明确选择。
+		isAuto := cfg.BackendType == "" || cfg.BackendType == string(llm.BackendAuto)
+		zlog.Warn().Err(err).Str("backend", resolvedBackend.String()).Bool("auto", isAuto).
+			Msg("[startup] 后端安装失败")
+		if isAuto && resolvedBackend != llm.BackendCPU {
 			fallbackPath, cpuErr := llm.EnsureBackendInstalled(llm.BackendCPU, runtimeDir, nil)
 			if cpuErr != nil {
 				// CPU 后端也失败：不终止启动，validatePaths 会报告缺失文件
@@ -93,8 +101,7 @@ func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
 		}
 	}
 
-	a.resolvedBackend = resolvedBackend
-	a.resolvedServerPath = serverPath
+	a.setResolvedBackend(resolvedBackend, serverPath)
 
 	// CUDA 后端：确保 cudart 包也已解压（幂等）
 	// 主包已安装但 cudart 包未解压时，validatePaths 会检测到厂商 DLL 缺失，
@@ -176,8 +183,7 @@ func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
 		"name":    info.DisplayName,
 	})
 
-	a.resolvedBackend = resolvedBackend
-	a.resolvedServerPath = ""
+	a.setResolvedBackend(resolvedBackend, "")
 
 	// 异步下载+安装（CUDA 额外下载 cudart 包，失败重试最多 3 次）
 	backendToDownload := resolvedBackend
@@ -488,14 +494,10 @@ func (a *App) buildService(ctx context.Context) {
 //   - 有更新时通过 EventsEmit 推送前端，前端可显示更新提示
 func (a *App) checkLlamaCppUpdate() {
 	// panic 保护，避免网络异常等导致进程崩溃
-	defer func() {
-		if r := recover(); r != nil {
-			zlog.Warn().Interface("panic", r).Msg("[update-check] panic")
-		}
-	}()
+	defer recoverLog("[update-check] panic")
 
 	// 获取 llama-server.exe 路径（优先用已缓存的解析路径）
-	serverPath := a.resolvedServerPath
+	_, serverPath := a.resolvedBackendSnapshot()
 	if serverPath == "" {
 		// 未缓存时从配置解析（兼容热重载场景）
 		cfg := a.getConfig()
@@ -509,23 +511,14 @@ func (a *App) checkLlamaCppUpdate() {
 	zlog.Info().Str("server", serverPath).Msg("[update-check] 开始检查 llama.cpp 更新")
 	info := llm.CheckForUpdate(serverPath)
 
-	// 通过 EventsEmit 推送结果到前端
-	// 前端监听 EventUpdateCheck 事件，根据 HasUpdate 决定是否显示更新提示
-	runtime.EventsEmit(a.ctx, EventUpdateCheck, map[string]any{
-		"local_version":  info.LocalVersion,
-		"local_commit":   info.LocalCommit,
-		"remote_version": info.RemoteVersion,
-		"remote_tag":     info.RemoteTag,
-		"has_update":     info.HasUpdate,
-		"check_error":    info.CheckError,
-	})
-
+	// P3.6 修复：前端不使用 EventUpdateCheck 事件（用的是同步 CheckUpdate RPC，
+	// 见 AboutSettings.vue handleCheckUpdate），事件推送无人接收，移除死代码。
 	if info.HasUpdate {
 		zlog.Info().
 			Int("local", info.LocalVersion).
 			Int("remote", info.RemoteVersion).
 			Str("remote_tag", info.RemoteTag).
-			Msg("[update-check] 检测到 llama.cpp 有更新，已通知前端")
+			Msg("[update-check] 检测到 llama.cpp 有更新")
 	} else if info.CheckError != "" {
 		zlog.Debug().Str("error", info.CheckError).Msg("[update-check] 检查失败")
 	}
@@ -534,16 +527,23 @@ func (a *App) checkLlamaCppUpdate() {
 // cleanupOrphanSessions 清理异常会话（如上次崩溃残留的对话）。
 // 异步执行，不阻塞 startup；panic 会被 recover 保护，避免影响主进程。
 //
-// 注：此处未使用 trackedGo，因为该 goroutine 为短生命周期且已有 defer recover()，
-// 完成后即退出，无需 ctx 取消。见安全审查 #26。
+// P2.4 修复：改为 trackedGo 跟踪。此前是裸 goroutine，shutdown 时 g.Wait() 不等它，
+// 可能 db.Close() 执行时该 goroutine 仍在查询数据库（use-after-close）。
+// 该 goroutine 是短生命周期的（一次 DB 清理即退出），纳入跟踪后 shutdown 会等待其完成，
+// 消除与 db.Close 的竞争。
 func (a *App) cleanupOrphanSessions(ctx context.Context) {
-	go func() {
+	// bgCtx 派生自 rootCtx，确保 shutdown 时 rootCancel 能尽早中断清理流程
+	bgCtx := ctx
+	if a.rootCtx != nil {
+		bgCtx = a.rootCtx
+	}
+	a.trackedGo(func() {
 		// 防止 panic 导致整个进程崩溃（启动清理涉及 DB 操作和消息解密，可能 panic）
-		defer func() {
-			if r := recover(); r != nil {
-				zlog.Warn().Interface("panic", r).Msg("[startup] CleanupAbnormalConversations panic")
-			}
-		}()
+		defer recoverLog("[startup] CleanupAbnormalConversations panic")
+		if err := bgCtx.Err(); err != nil {
+			zlog.Info().Msg("[startup] skip orphan session cleanup (shutting down)")
+			return
+		}
 		removed := a.service.CleanupAbnormalConversations()
 		if len(removed) > 0 {
 			titles := make([]string, 0, len(removed))
@@ -561,5 +561,5 @@ func (a *App) cleanupOrphanSessions(ctx context.Context) {
 				"removed": removed,
 			})
 		}
-	}()
+	})
 }

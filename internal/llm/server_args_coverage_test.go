@@ -167,14 +167,17 @@ func TestAppendRuntimeArgs_NoDegrade(t *testing.T) {
 	}
 }
 
-// TestAppendRuntimeArgs_Mlock 验证 Mlock=true 时传递 --mlock
+// TestAppendRuntimeArgs_Mlock 验证 Mlock=true 时通过 --load-mode mlock 生效
 func TestAppendRuntimeArgs_Mlock(t *testing.T) {
 	s := newTestServer()
 	s.config.Mlock = true
 
 	args := s.appendRuntimeArgs(nil)
-	if !containsArg(args, "--mlock") {
-		t.Errorf("期望包含 --mlock，实际 args: %v", args)
+	if got := argValue(args, "--load-mode"); got != "mlock" {
+		t.Errorf("期望 --load-mode mlock，实际 %q，args: %v", got, args)
+	}
+	if containsArg(args, "--mlock") {
+		t.Errorf("废弃参数 --mlock 不应再传递（已迁移到 --load-mode），实际 args: %v", args)
 	}
 }
 
@@ -290,19 +293,22 @@ func TestAppendKVCacheArgs_NoContextShift(t *testing.T) {
 	}
 }
 
-// TestAppendKVCacheArgs_NoMmap 验证 Mmap=false 时传递 --no-mmap
-// 风险：Mmap 关闭时未传递 --no-mmap，会导致模型权重被映射到内存，浪费 RAM。
-func TestAppendKVCacheArgs_NoMmap(t *testing.T) {
+// TestAppendRuntimeArgs_NoMmap 验证 Mmap=false 时传 --load-mode none（迁移自 --no-mmap）
+// 风险：Mmap 关闭时未传递加载模式，会导致模型权重被映射到内存，浪费 RAM。
+func TestAppendRuntimeArgs_NoMmap(t *testing.T) {
 	s := newTestServer()
 	s.config.Mmap = false
 
-	args := s.appendKVCacheArgs(nil)
-	if !containsArg(args, "--no-mmap") {
-		t.Errorf("期望包含 --no-mmap，实际 args: %v", args)
+	args := s.appendRuntimeArgs(nil)
+	if got := argValue(args, "--load-mode"); got != "none" {
+		t.Errorf("期望 --load-mode none，实际 %q，args: %v", got, args)
+	}
+	if containsArg(args, "--no-mmap") {
+		t.Errorf("废弃参数 --no-mmap 不应再传递（已迁移到 --load-mode），实际 args: %v", args)
 	}
 }
 
-// TestAppendKVCacheArgs_MmapEnabled 验证 Mmap=true 时不传递 --no-mmap
+// TestAppendKVArgs_MmapEnabled 验证 Mmap=true（模式 mmap 为默认）时不在 KVCache 传 --no-mmap
 func TestAppendKVCacheArgs_MmapEnabled(t *testing.T) {
 	s := newTestServer()
 	s.config.Mmap = true
@@ -477,6 +483,41 @@ func TestAppendNewFeatureArgs_AgentOverridesUIMcpProxy(t *testing.T) {
 	}
 }
 
+// TestAppendNewFeatureArgs_CORS 验证细粒度 CORS 配置参数透传（仅显式配置时传递）
+func TestAppendNewFeatureArgs_CORS(t *testing.T) {
+	s := newTestServer()
+	s.config.CorsOrigins = "http://localhost:5173,http://192.168.1.5:3000"
+	s.config.CorsMethods = "GET,POST"
+	s.config.CorsHeaders = "Content-Type,X-Tool-Cwd"
+	s.config.CorsCredentials = true
+
+	args := s.appendNewFeatureArgs(nil)
+	if got := argValue(args, "--cors-origins"); got != "http://localhost:5173,http://192.168.1.5:3000" {
+		t.Errorf("期望 --cors-origins=%q，实际 %q", "http://localhost:5173,http://192.168.1.5:3000", got)
+	}
+	if got := argValue(args, "--cors-methods"); got != "GET,POST" {
+		t.Errorf("期望 --cors-methods=GET,POST，实际 %q", got)
+	}
+	if got := argValue(args, "--cors-headers"); got != "Content-Type,X-Tool-Cwd" {
+		t.Errorf("期望 --cors-headers=%q，实际 %q", "Content-Type,X-Tool-Cwd", got)
+	}
+	if !containsArg(args, "--cors-credentials") {
+		t.Errorf("期望包含 --cors-credentials，实际 args: %v", args)
+	}
+}
+
+// TestAppendNewFeatureArgs_CORS_Empty 验证 CORS 为空时不传递任何 --cors-* 参数（用 llama.cpp 默认）
+func TestAppendNewFeatureArgs_CORS_Empty(t *testing.T) {
+	s := newTestServer()
+
+	args := s.appendNewFeatureArgs(nil)
+	for _, f := range []string{"--cors-origins", "--cors-methods", "--cors-headers", "--cors-credentials"} {
+		if containsArg(args, f) {
+			t.Errorf("期望空配置时不传递 %s，实际 args: %v", f, args)
+		}
+	}
+}
+
 // TestAppendNewFeatureArgs_NoPrefillAssistant 验证 PrefillAssistant=false 时传递 --no-prefill-assistant
 func TestAppendNewFeatureArgs_NoPrefillAssistant(t *testing.T) {
 	s := newTestServer()
@@ -537,14 +578,56 @@ func TestAppendCPUMoeArgs_CPUMoe(t *testing.T) {
 	}
 }
 
-// TestAppendCPUMoeArgs_DirectIO 验证 DirectIO=true 传递 --direct-io
-func TestAppendCPUMoeArgs_DirectIO(t *testing.T) {
+// TestAppendRuntimeArgs_DirectIO 验证 DirectIO=true 时传 --load-mode dio（迁移自 --direct-io）
+func TestAppendRuntimeArgs_DirectIO(t *testing.T) {
 	s := newTestServer()
 	s.config.DirectIO = true
 
-	args := s.appendCPUMoeArgs(nil)
-	if !containsArg(args, "--direct-io") {
-		t.Errorf("期望包含 --direct-io，实际 args: %v", args)
+	args := s.appendRuntimeArgs(nil)
+	if got := argValue(args, "--load-mode"); got != "dio" {
+		t.Errorf("期望 --load-mode dio，实际 %q，args: %v", got, args)
+	}
+	if containsArg(args, "--direct-io") {
+		t.Errorf("废弃参数 --direct-io 不应再传递（已迁移到 --load-mode），实际 args: %v", args)
+	}
+}
+
+// TestLoadMode_Precedence 验证下发优先级：DirectIO > Mlock > !Mmap。
+func TestLoadMode_Precedence(t *testing.T) {
+	tests := []struct {
+		name     string
+		directIO bool
+		mlock    bool
+		mmap     bool
+		want     string
+	}{
+		{"默认mmap", false, false, true, "mmap"},
+		{"仅Mmap开", false, false, true, "mmap"},
+		{"关闭Mmap", false, false, false, "none"},
+		{"仅Mlock", false, true, true, "mlock"},
+		{"Mlock且关Mmap_优先级Mlock", false, true, false, "mlock"},
+		{"仅DirectIO", true, false, true, "dio"},
+		{"DirectIO且Mlock_优先级DirectIO", true, true, true, "dio"},
+		{"全开_优先级DirectIO", true, true, false, "dio"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sc := &ServerConfig{DirectIO: tc.directIO, Mlock: tc.mlock, Mmap: tc.mmap}
+			if got := sc.LoadMode(); got != tc.want {
+				t.Errorf("LoadMode() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestAppendRuntimeArgs_DefaultMmap 验证 默认负载模式 mmap 不额外传 --load-mode（上游默认值）
+func TestAppendRuntimeArgs_DefaultMmap(t *testing.T) {
+	s := newTestServer()
+	s.config.Mmap = true
+
+	args := s.appendRuntimeArgs(nil)
+	if got := argValue(args, "--load-mode"); got != "" {
+		t.Errorf("期望默认 mmap 时省略 --load-mode（换取上游默认），实际 %q，args: %v", got, args)
 	}
 }
 

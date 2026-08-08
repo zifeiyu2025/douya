@@ -68,13 +68,14 @@ func (s *Server) Start() error {
 	}
 	s.lastStartTime.Store(time.Now().UnixNano())
 
-	// 重置崩溃降级级别：每次主动 Start() 都意味着新的一次启动尝试
-	// 旧的降级级别（来自上次崩溃链）应失效，避免残留的降级参数影响本次启动
-	// 修复 bug：原实现只在 WatchWithCallback 重启成功后重置，用户手动 Start() 时残留
-	if old := s.crashDegradeLevel.Load(); old > 0 {
-		log.Info().Int32("old_level", old).Msg("[server] manual start, resetting crash degrade level")
-		s.crashDegradeLevel.Store(0)
-	}
+	// P4.5 修复（移除 crashDegradeLevel 重置）：此前此处把崩溃降级级别清零，
+	// 会破坏 WatchWithCallback 的降级链升级（1→2）。
+	// 流程：崩溃 → 设置 level=1 → Start() 构建参数（应用降级）→ 立即清零 →
+	// 再次崩溃时读到 level=0 → 重新设 level=1，永远到不了 level 2（gpu-layers auto）。
+	// 真正需要清空的场景：
+	//   - 启动成功后重置：已在 WatchWithCallback 重启成功分支处理（server.go）
+	//   - 手动/回退重建 server：initServer 每次创建全新 Server（level 从 0 开始）
+	// 因此此处无需清零，删掉可让降级链正确升级。
 
 	// 尝试用 ConPTY 启动（获得原生终端输出：ANSI 颜色码、进度条）
 	// 生活类比：ConPTY 就像一个"虚拟显示器"，让 llama-server 以为自己在真正的终端里运行
@@ -276,9 +277,22 @@ func (s *Server) startWithConPTYSuccess(pty *conpty.ConPty, args []string, runti
 //   - 如果 ctx 已取消（s.ctx.Err() != nil），视为正常退出，不记录错误
 //   - 否则构建错误信息（含 stderr 尾部输出），ConPTY 路径额外检测 DLL 缺失
 //   - 更新 s.status 为 Running: false（带 Error 字段）
+//   - M9 修复：进程自然退出（非 Stop 调用）时关闭 ConPTY 句柄。
+//     若不关闭，崩溃→自动重启循环会不断残留未释放的 ConPTY 句柄和阻塞的 Read goroutine，
+//     导致句柄/ goroutine 累积泄漏。关闭后可解锁阻塞的 pty.Read goroutine 使其退出。
 func (s *Server) updateStatusAfterExit(err error, exitCode uint32, isConPTY bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// M9 修复：进程已退出，关闭 ConPTY 句柄释放资源，避免崩溃→自动重启循环累积未
+	// 释放的 ConPTY 句柄和阻塞的 Read goroutine。
+	// 注意：此处只 Close 不置空——readConPTYOutput 的 startRead 闭包会并发读取 s.pty 字段，
+	// 置空会引入字段读写的数据竞争。ConPTY 的 Read 在 Close 后会返回，从而解锁阻塞的
+	// 读取 goroutine 使其退出；下一次 watchdog 重启时会通过 startWithConPTYSuccess 覆盖为新实例。
+	// Close 幂等：既可由主动 Stop（stopInternal cleanupFn）调用，也可在此自然退出路径调用，无副作用。
+	if s.pty != nil {
+		_ = s.pty.Close()
+	}
 
 	s.status = ServerStatus{Running: false}
 

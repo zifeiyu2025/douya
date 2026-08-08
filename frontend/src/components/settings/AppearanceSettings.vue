@@ -64,7 +64,7 @@
       <div class="avatar-btns">
         <n-upload
           :show-file-list="false"
-          :custom-request="(data: any) => handleAvatarUpload(data, 'user_avatar')"
+          :custom-request="(data) => handleAvatarUpload(data, 'user_avatar')"
           accept="image/*"
         >
           <n-button size="small" ghost>上传</n-button>
@@ -85,7 +85,7 @@
       <div class="avatar-btns">
         <n-upload
           :show-file-list="false"
-          :custom-request="(data: any) => handleAvatarUpload(data, 'ai_avatar')"
+          :custom-request="(data) => handleAvatarUpload(data, 'ai_avatar')"
           accept="image/*"
         >
           <n-button size="small" ghost>上传</n-button>

@@ -7,39 +7,15 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"syscall"
-	"time"
-
-	"github.com/rs/zerolog/log"
 
 	"douya/internal/apperror"
 	"douya/internal/system"
 )
 
-// waitForVRAMRelease blocks until nvidia-smi reports no llama-server GPU usage.
-// Times out after vramCheckTimeout seconds.
-func (s *Server) WaitForVRAMRelease() {
-	log.Info().Msg("[VRAM] waiting for VRAM to be released...")
-	deadline := time.Now().Add(vramCheckTimeout * time.Second)
-	for time.Now().Before(deadline) {
-		free, err := checkVRAMFree()
-		if err != nil {
-			// 无 NVIDIA GPU 是预期降级场景，用 Warn 而非 Error
-			log.Warn().Err(err).Msg("[VRAM] nvidia-smi not available (no NVIDIA GPU?), skip waiting")
-			return
-		}
-		if free {
-			log.Info().Msg("[VRAM] released successfully")
-			return
-		}
-		time.Sleep(vramCheckInterval)
-	}
-	log.Warn().Msg("[VRAM] timeout waiting for VRAM release, proceeding anyway")
-}
-
 // checkVRAMFree returns true if no llama-server process is using GPU memory.
+// P3.6：此前还有未使用的 WaitForVRAMRelease 方法（依赖此函数），已删除。
 func checkVRAMFree() (bool, error) {
 	cmd := exec.Command("nvidia-smi", "--query-compute-apps=pid,name,used_memory", "--format=csv,noheader,nounits")
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
@@ -123,28 +99,13 @@ func GetGPUVRAMBytes(hw *system.HardwareInfo) (uint64, error) {
 	}
 
 	// 回退：hw 为 nil 或无 GPU 信息时，尝试 nvidia-smi（保持向后兼容）
+	// P3.3 重构：nvidia-smi 查询委托给 system.NvidiaTotalVRAMMB（与 system.detectGPU 共用单一实现）
 	// 生活类比：登记证找不到，才回退到去车上看仪表盘
-	cmd := exec.Command("nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits")
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-	output, err := cmd.Output()
+	vramMB, err := system.NvidiaTotalVRAMMB()
 	if err != nil {
 		return 0, apperror.Wrap(apperror.KindInternal, "nvidia-smi not available and no HardwareInfo provided", err)
 	}
-
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	if len(lines) == 0 {
-		return 0, apperror.New(apperror.KindInternal, "no GPU found")
-	}
-
-	// 取第一块 GPU 的 VRAM（MiB）
-	firstLine := strings.TrimSpace(lines[0])
-	mib, err := strconv.ParseUint(firstLine, 10, 64)
-	if err != nil {
-		return 0, apperror.Wrapf(apperror.KindInternal, "parse VRAM value %q", err, firstLine)
-	}
-
-	// MiB → Bytes
-	return mib * 1024 * 1024, nil
+	return uint64(vramMB) * 1024 * 1024, nil
 }
 
 // FormatBytes 将字节数格式化为人类可读的字符串

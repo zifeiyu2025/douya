@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"douya/internal/apperror"
 	"github.com/rs/zerolog/log"
 )
 
@@ -99,10 +100,18 @@ func detectAMDGPU(hw *HardwareInfo) {
 		hw.GPUName = gpuName
 	}
 
-	// VRAM：优先 rocm-smi（精度高），回退 WMI（受 uint32 限制）
+	// VRAM：优先 rocm-smi（精度高），回退到注册表的 qwMemorySize（精确），
+	// 最后才用 WMI AdapterRAM（受 uint32 限制，>4GB 会溢出）
 	if vram, ok := queryROCmVRAM(); ok && vram > 0 {
 		hw.GPUVRAMMB = vram
 		log.Info().Int64("vram_mb", hw.GPUVRAMMB).Str("source", "rocm-smi").Msg("[system] AMD VRAM from rocm-smi")
+	} else if regName, regVRAM := queryDisplayAdapterRegistry("AMD"); regVRAM > 0 {
+		// 注册表 qwMemorySize 是 QWORD（字节），无 4GB 上限，比 WMI 精确
+		if regName != "" {
+			hw.GPUName = regName
+		}
+		hw.GPUVRAMMB = regVRAM
+		log.Info().Int64("vram_mb", hw.GPUVRAMMB).Str("source", "registry").Msg("[system] AMD VRAM from display adapter registry")
 	} else if wmiVRAM > 0 {
 		hw.GPUVRAMMB = wmiVRAM
 		log.Info().Int64("vram_mb", hw.GPUVRAMMB).Str("source", "wmi").Msg("[system] AMD VRAM from WMI (may be inaccurate for >4GB cards)")
@@ -185,6 +194,44 @@ func detectVulkanDevice(hw *HardwareInfo) {
 	hw.GPUName = "Vulkan Device"
 	// VRAM 不可用，设为 0；smartparams 会走 HasCUDABackend 之外的回退逻辑
 	hw.GPUVRAMMB = 0
+}
+
+// NvidiaTotalVRAMMB 通过 nvidia-smi 查询第一块 NVIDIA GPU 的总显存（MB）。
+//
+// P3.3 重构：此查询原在 system.detectGPU（hardware.go，与 name 一起查）
+// 与 llm.GetGPUVRAMBytes（vram.go，单独查 memory.total）各实现一遍。
+// 统一收敛到 system 包，供两处复用。
+// 设计为可替换的变量，便于测试时注入 mock。
+var NvidiaTotalVRAMMB = func() (int64, error) {
+	path, err := execLookPath("nvidia-smi")
+	if err != nil {
+		// PATH 中找不到，遍历常见安装路径
+		path = ""
+		for _, p := range nvidiaSMIPaths {
+			if _, statErr := os.Stat(p); statErr == nil {
+				path = p
+				break
+			}
+		}
+		if path == "" {
+			return 0, apperror.New(apperror.KindNotFound, "nvidia-smi not found in PATH or common locations")
+		}
+	}
+	cmd := exec.Command(path, "--query-gpu=memory.total", "--format=csv,noheader,nounits")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) == 0 {
+		return 0, apperror.New(apperror.KindInternal, "nvidia-smi returned empty output")
+	}
+	vramMB, err := strconv.ParseInt(strings.TrimSpace(lines[0]), 10, 64)
+	if err != nil {
+		return 0, apperror.Wrapf(apperror.KindInternal, "parse VRAM value %q", err, lines[0])
+	}
+	return vramMB, nil
 }
 
 // queryWMI 通过 Windows WMI 查询显卡信息。
@@ -278,6 +325,77 @@ var queryROCmVRAM = func() (vramMB int64, ok bool) {
 		return bytes / (1024 * 1024), true
 	}
 	return 0, false
+}
+
+// queryDisplayAdapterRegistry 通过注册表查询显卡名称和 VRAM（MB）。
+//
+// 数据源：HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}
+// 下的驱动子键（0000/0001/...），每个显示适配器对应一个子键，其中：
+//   - DriverDesc                        ：显卡名称（如 "AMD Radeon RX 7900 XTX"）
+//   - HardwareInformation.qwMemorySize  ：显存大小（QWORD，单位字节，无 uint32 的 4GB 上限）
+//
+// 为什么用它：WMI 的 AdapterRAM 是 uint32 类型，8GB/16GB/24GB 大于约 4GB 会整数回绕
+// 导致返回值严重偏小甚至为 0，这是上一版 AMD 显存检测偏小的根因之一。
+// 而 GPU 驱动会把精确显存写入注册表 qwMemorySize（QWORD，64 位），可正确处理 >4GB 显卡。
+//
+// 生活类比：行驶证（WMI）的"排量"字段只有 4 位数会溢出，改查车辆登记档案（注册表），
+// 档案里记录的是精确的缸数×排量（QWORD），多大排量都不会出错。
+//
+// 参数 nameFilter 用于按厂商过滤子键（匹配 DriverDesc），为空表示不过滤。
+//
+// 设计为可替换的变量，便于测试时注入 mock，避免真实执行 powershell。
+var queryDisplayAdapterRegistry = func(nameFilter string) (gpuName string, vramMB int64) {
+	// 空过滤器时跳过名称匹配（返回所有显卡），非空时仅保留 DriverDesc 包含关键字的显卡
+	filterClause := ""
+	if nameFilter != "" {
+		filterClause = fmt.Sprintf(`-and $driverDesc -like "*%s*"`, nameFilter)
+	}
+	psTemplate := fmt.Sprintf(`$class = 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'
+Get-ChildItem -Path $class -ErrorAction SilentlyContinue | ForEach-Object {
+  $driverDesc = if ($_.Property -contains 'DriverDesc') { (Get-ItemProperty -Path $_.PSPath).DriverDesc } else { '' }
+  $subKey = Get-ItemProperty -Path $_.PSPath -Name 'HardwareInformation.qwMemorySize' -ErrorAction SilentlyContinue
+  if ($subKey) {
+    $mem = $subKey.'HardwareInformation.qwMemorySize'
+    if ($mem -gt 0 -and $driverDesc%s) {
+      "$($driverDesc)|$mem"
+    }
+  }
+}`, filterClause)
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", psTemplate)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	output, err := cmd.Output()
+	if err != nil {
+		log.Warn().Err(err).Msg("[system] display adapter registry query failed")
+		return "", 0
+	}
+	return parseRegistryAdapterOutput(string(output))
+}
+
+// parseRegistryAdapterOutput 解析注册表显卡查询输出（"Name|bytes" 每行一个）。
+func parseRegistryAdapterOutput(output string) (gpuName string, vramMB int64) {
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		name := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+		bytes, err := strconv.ParseInt(val, 10, 64)
+		if err != nil || bytes <= 0 {
+			continue
+		}
+		if gpuName == "" {
+			gpuName = name
+		}
+		if vramMB == 0 {
+			vramMB = bytes / (1024 * 1024)
+		}
+	}
+	return gpuName, vramMB
 }
 
 // parseWMIOutput 解析 wmic 的 /value 格式输出。

@@ -59,11 +59,7 @@ func (a *App) watchServerHealth(ctx context.Context, watchCtx context.Context) {
 		// 原 return（serverLoadFailed）通过 stop 标志传出闭包
 		stop := false
 		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					zlog.Warn().Interface("panic", r).Msg("[router-monitor] health check panic, will retry next tick")
-				}
-			}()
+			defer recoverLog("[router-monitor] health check panic, will retry next tick")
 
 			// 启动/加载已彻底失败，停止健康监控，避免覆盖错误状态
 			if a.serverLoadFailed.Load() {
@@ -128,12 +124,7 @@ func (a *App) watchServerHealth(ctx context.Context, watchCtx context.Context) {
 				// 自动重新加载模型
 				zlog.Info().Str("model", modelName).Msg("[router-monitor] attempting to reload crashed model")
 				a.serverReady.Store(false)
-				wailsruntime.EventsEmit(ctx, EventServerStatus, llm.ServerStatus{
-					Running:     false,
-					ModelReady:  false,
-					Switching:   true,
-					SwitchingTo: modelName,
-				})
+				wailsruntime.EventsEmit(ctx, EventServerStatus, switchingStatus(modelName))
 
 				loadErr := a.getClient().LoadModel(watchCtx, modelName)
 				if loadErr != nil && !isAlreadyRunningError(loadErr) {
@@ -155,6 +146,8 @@ func (a *App) watchServerHealth(ctx context.Context, watchCtx context.Context) {
 				} else {
 					zlog.Info().Str("model", modelName).Msg("[router-monitor] model reloaded successfully")
 					a.serverReady.Store(true)
+					// 监控重载成功后清除"加载失败"标记，恢复健康检查与状态推送
+					a.clearServerLoadFailure()
 					a.emitSwitchSuccess(modelName)
 				}
 			}
@@ -262,10 +255,11 @@ func (a *App) StopThinking() error {
 
 // GetServerLogs 获取 llama-server 控制台的最近日志
 func (a *App) GetServerLogs() string {
-	if a.server == nil {
+	srv := a.getServer()
+	if srv == nil {
 		return ""
 	}
-	return a.server.LastOutput()
+	return srv.LastOutput()
 }
 
 // GetTerminalHistory 获取终端历史日志（纯文本，用于 xterm.js 初始化时回显）
@@ -276,7 +270,8 @@ func (a *App) GetTerminalHistory() string {
 
 // ResizeTerminal 调整 ConPTY 终端尺寸（前端 xterm.js 尺寸变化时调用）
 func (a *App) ResizeTerminal(cols, rows int) error {
-	if a.server == nil {
+	srv := a.getServer()
+	if srv == nil {
 		return nil
 	}
 	if err := validatePositiveInt("终端列数", cols); err != nil {
@@ -285,15 +280,16 @@ func (a *App) ResizeTerminal(cols, rows int) error {
 	if err := validatePositiveInt("终端行数", rows); err != nil {
 		return err
 	}
-	return a.server.ResizeTerminal(cols, rows)
+	return srv.ResizeTerminal(cols, rows)
 }
 
 // IsConPTYMode 返回当前是否使用 ConPTY 模式（前端据此决定用 xterm.js 还是文本日志）
 func (a *App) IsConPTYMode() bool {
-	if a.server == nil {
+	srv := a.getServer()
+	if srv == nil {
 		return false
 	}
-	return a.server.IsConPTYMode()
+	return srv.IsConPTYMode()
 }
 
 // ===== D3: 日志级别动态调整 =====

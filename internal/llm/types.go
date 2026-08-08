@@ -176,17 +176,22 @@ type ChatCompletionRequest struct {
 	ReasoningBudget  int           `json:"reasoning_budget_tokens,omitempty"`
 	ReasoningControl bool          `json:"reasoning_control,omitempty"`
 	// 请求级 reasoning 扩展字段（v9744+）
-	ReasoningFormat         string           `json:"reasoning_format,omitempty"`           // 请求级覆盖思考格式：none/deepseek/deepseek-legacy
-	ReasoningBudgetStartTag string           `json:"reasoning_budget_start_tag,omitempty"` // 思考预算区间起始标记
-	ReasoningBudgetEndTag   string           `json:"reasoning_budget_end_tag,omitempty"`   // 思考预算区间结束标记
-	ReasoningInContent      *bool            `json:"reasoning_in_content,omitempty"`       // deepseek-legacy 流式时是否在 content 中保留 think 标签
-	TimingsPerToken         bool             `json:"timings_per_token,omitempty"`          // 每个 token 返回 timings 数据，用于实时速度显示
-	ReturnProgress          bool             `json:"return_progress,omitempty"`            // 在流式响应中返回 prompt 处理进度
-	Tools                   []ToolDefinition `json:"tools,omitempty"`
-	ToolChoice              any              `json:"tool_choice,omitempty"`         // 工具选择策略："auto"（默认）/"none"/"required" 或 {"type":"function","function":{"name":...}}
-	ParallelToolCalls       *bool            `json:"parallel_tool_calls,omitempty"` // 是否允许并发工具调用，nil=服务端默认
-	ChatTemplateKwargs      map[string]any   `json:"chat_template_kwargs,omitempty"`
-	StreamOptions           *StreamOptions   `json:"stream_options,omitempty"`
+	ReasoningFormat         string `json:"reasoning_format,omitempty"`           // 请求级覆盖思考格式：none/deepseek/deepseek-legacy
+	ReasoningBudgetStartTag string `json:"reasoning_budget_start_tag,omitempty"` // 思考预算区间起始标记
+	ReasoningBudgetEndTag   string `json:"reasoning_budget_end_tag,omitempty"`   // 思考预算区间结束标记
+	ReasoningInContent      *bool  `json:"reasoning_in_content,omitempty"`       // deepseek-legacy 流式时是否在 content 中保留 think 标签
+	// OAI reasoning_effort 扩展（避免与 llama.cpp 服务器级 --reasoning 冲突）
+	// llama.cpp #26045：仅 "none" 有语义（设置 enable_thinking=false，按请求关闭推理），
+	// 其余值由模型自行解释、插件可忽略。豆芽复用 reasoning=off 状态写入 "none"；
+	// 非 none 的思考强度通过 chat_template_kwargs.reasoning_effort 透传给模板（见 service_model.go）。
+	ReasoningEffort    string           `json:"reasoning_effort,omitempty"`
+	TimingsPerToken    bool             `json:"timings_per_token,omitempty"` // 每个 token 返回 timings 数据，用于实时速度显示
+	ReturnProgress     bool             `json:"return_progress,omitempty"`   // 在流式响应中返回 prompt 处理进度
+	Tools              []ToolDefinition `json:"tools,omitempty"`
+	ToolChoice         any              `json:"tool_choice,omitempty"`         // 工具选择策略："auto"（默认）/"none"/"required" 或 {"type":"function","function":{"name":...}}
+	ParallelToolCalls  *bool            `json:"parallel_tool_calls,omitempty"` // 是否允许并发工具调用，nil=服务端默认
+	ChatTemplateKwargs map[string]any   `json:"chat_template_kwargs,omitempty"`
+	StreamOptions      *StreamOptions   `json:"stream_options,omitempty"`
 	// llama.cpp 新增请求参数
 	NCacheReuse          int              `json:"n_cache_reuse,omitempty"`          // 请求级 KV 缓存复用块大小
 	TMaxPredictMs        int              `json:"t_max_predict_ms,omitempty"`       // 预测时间限制（毫秒）

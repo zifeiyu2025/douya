@@ -4,6 +4,7 @@
 package llm
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 )
@@ -307,5 +308,59 @@ func TestClientSetCurrentModel(t *testing.T) {
 	c.SetCurrentModel("llama3:8b")
 	if got := c.GetCurrentModel(); got != "llama3:8b" {
 		t.Errorf("再次设置后模型应为 'llama3:8b'，实际: %q", got)
+	}
+}
+
+// TestBaseIsLoopback 验证 baseIsLoopback 对 loopback / 非 loopback 地址的判断。
+// M1 修复回归：内部 API Key 只应发送给本机回环地址，防止改写 api_base 后 Key 外泄。
+func TestBaseIsLoopback(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseURL string
+		want    bool
+	}{
+		{"ipv4回环", "http://127.0.0.1:8080", true},
+		{"localhost", "http://localhost:8080", true},
+		{"localhost无端口", "http://localhost", true},
+		{"ipv6回环", "http://[::1]:8080", true},
+		{"局域网IP", "http://192.168.1.10:8080", false},
+		{"内网IP", "http://10.0.0.1:8080", false},
+		{"公网域名", "http://example.com:8080", false},
+		{"含路径", "http://invalid-host:port/path", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := NewClient(tc.baseURL, "secret")
+			if got := c.baseIsLoopback(); got != tc.want {
+				t.Errorf("baseIsLoopback(%q) = %v, want %v", tc.baseURL, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSetAuthHeader_LoopbackOnly 验证认证头仅在 loopback 目标上附加内部 Key。
+// M1 修复回归：非回环 host（如被改写的 api_base 指向远程地址）不发送内部 Key。
+func TestSetAuthHeader_LoopbackOnly(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseURL string
+		apiKey  string
+		want    string // 期望的完整 Authorization 值，空表示应不设置
+	}{
+		{"回环发送", "http://127.0.0.1:8080", "k123", "Bearer k123"},
+		{"localhost发送", "http://localhost:8080", "k123", "Bearer k123"},
+		{"非回环不发送", "http://192.168.1.10:8080", "k123", ""},
+		{"非回环不发送_公网", "https://example.com:8443", "k123", ""},
+		{"回环空key", "http://127.0.0.1:8080", "", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := NewClient(tc.baseURL, tc.apiKey)
+			req, _ := http.NewRequest("GET", c.BaseURL()+"/health", nil)
+			c.SetAuthHeader(req)
+			if got := req.Header.Get("Authorization"); got != tc.want {
+				t.Errorf("SetAuthHeader(%q) Authorization = %q, want %q", tc.baseURL, got, tc.want)
+			}
+		})
 	}
 }

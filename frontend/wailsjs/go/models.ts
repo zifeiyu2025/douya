@@ -199,7 +199,7 @@ export namespace config {
 	export class Config {
 	    model_path: string;
 	    mmproj_auto: boolean;
-	    mmproj_offload: boolean;
+	    mmproj_offload: boolean | null;
 	    llama_server_path: string;
 	    api_base: string;
 	    port: number;

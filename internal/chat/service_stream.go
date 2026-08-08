@@ -182,10 +182,10 @@ func (s *Service) refreshMcpToolsCache() {
 	// 豆芽内部使用 OpenAI ToolDefinition 格式（{type, function:{...}} 顶层），
 	// 这里做一次字段提取，把 definition 内的内容提到顶层。
 	var rawTools []struct {
-		Type       string `json:"type"`       // 顶层 type（"mcp" 或 "function"）
-		Tool       string `json:"tool"`       // 工具名（与 function.name 相同）
+		Type       string `json:"type"` // 顶层 type（"mcp" 或 "function"）
+		Tool       string `json:"tool"` // 工具名（与 function.name 相同）
 		Definition struct {
-			Type     string `json:"type"`
+			Type     string          `json:"type"`
 			Function llm.FunctionDef `json:"function"`
 		} `json:"definition"`
 	}
@@ -448,7 +448,7 @@ func (a *StreamAccumulator) resetForNextCall() {
 		a.FirstRoundThinkingDuration = a.ThinkingDuration
 	}
 	a.FullContent.Reset()
-	a.TokenBuf.Reset()       // L5 修复：重置 token 缓冲，避免异常中断后的残留影响下一轮首 token 判断
+	a.TokenBuf.Reset()            // L5 修复：重置 token 缓冲，避免异常中断后的残留影响下一轮首 token 判断
 	a.LastTokenEmit = time.Time{} // L5 修复：重置发射时间，避免下一轮 time.Since 偏大提前触发批量发送
 	a.FirstTokenSent = false      // 重置首 token 标志，确保下一轮首 token 仍能立即发送
 	a.FinishReason = ""
@@ -505,7 +505,10 @@ func (s *Service) savePartialContentIfAny(convID string, acc *StreamAccumulator)
 		aiMsg.SearchResults = acc.LastSearchJSON
 	}
 	if err := store.CreateMessage(s.db, aiMsg, secrets.CipherKey(s.cipher)); err != nil {
+		// M6 修复：保存失败时不发 assistant_message（否则刷新后消息消失），改为发 error 事件。
 		log.Error().Err(err).Msg("save partial ai message on stop")
+		s.emitForConv(convID, "error", enhanceErrorWithHint(fmt.Sprintf("保存部分回复失败: %v", err)))
+		return
 	}
 	s.emitForConv(convID, "assistant_message", storeMsgToChat(aiMsg))
 }
@@ -556,11 +559,12 @@ func (s *Service) retryStreamAfterContextExceeded(
 
 	log.Info().Int("prompt_tokens", exceedInfo.PromptTokens).Int("context_size", actualCtx).Int("messages_after_trim", len(trimmed)).Msg(logMsg)
 
-	s.emitForConv(convID, "context_trimmed", map[string]any{
-		"reason":         "exceed_context_size",
-		"prompt_tokens":  exceedInfo.PromptTokens,
-		"context_size":   actualCtx,
-		"messages_after": len(trimmed),
+	s.compressionStats.inc(trimReasonExceed)
+	s.emitForConv(convID, "context_trimmed", ContextTrimEventContent{
+		Reason:        string(trimReasonExceed),
+		PromptTokens:  exceedInfo.PromptTokens,
+		ContextSize:   actualCtx,
+		MessagesAfter: len(trimmed),
 	})
 
 	retryCtx, retryCancel := context.WithTimeout(cancelCtx, streamRequestTimeout)
@@ -793,8 +797,9 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 	}
 
 	if trimmed {
-		s.emitForConv(convID, "context_trimmed", map[string]any{
-			"reason": "preventive_trim",
+		s.compressionStats.inc(trimReasonPreventive)
+		s.emitForConv(convID, "context_trimmed", ContextTrimEventContent{
+			Reason: string(trimReasonPreventive),
 		})
 	}
 

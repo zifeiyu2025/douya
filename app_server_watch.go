@@ -6,19 +6,22 @@ package main
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	zlog "github.com/rs/zerolog/log"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"douya/internal/apperror"
 	"douya/internal/chat"
+	"douya/internal/config"
 	"douya/internal/llm"
 )
 
 // startServerAndWatch 启动 llama-server 并监控其状态。
 //
 // 拆分说明：原 237 行函数按启动流程拆为调度器 + 8 子函数：
-//   - startServerAndWaitReady:   启动引擎并等待就绪
+//   - startServerWithAutoFallback: 启动引擎并等待就绪（失败自动回退后端）
 //   - selectAndDetectDefaultModel: 选择默认模型并检测架构
 //   - autoLoadDefaultModel:      启动后自动加载默认模型
 //   - makeLoadProgressCallback:  创建加载进度回调
@@ -34,8 +37,10 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 	// 推送首次启动进度：准备启动引擎
 	a.emitSwitchProgressCtx(ctx, "preparing", "", nil)
 
-	// 1. 启动引擎并等待就绪
-	if err := a.startServerAndWaitReady(srv, ctx); err != nil {
+	// 1. 启动引擎并等待就绪（失败时自动回退其它已安装后端）
+	srv, ok := a.startServerWithAutoFallback(ctx, srv)
+	if !ok {
+		// 失败处理（弹窗 + 退出）已在 startServerWithAutoFallback 内完成
 		return
 	}
 
@@ -55,30 +60,154 @@ func (a *App) startServerAndWatch(srv *llm.Server, ctx context.Context) {
 	a.startServerWatcher(srv, ctx)
 }
 
-// startServerAndWaitReady 启动引擎并等待就绪。
-// 启动失败或等待就绪超时均返回 error，调用方根据返回值决定是否继续后续流程。
+// startServerWithAutoFallback 启动引擎并等待就绪，启动失败时自动回退到其它已安装后端。
 //
-// 失败处理统一流程（C2+M2+M3 修复）：
-//   - 回退成功：先回退配置 → 推送"已回退"状态 → 弹窗提示 → forceQuit 退出
-//   - 回退失败：弹 ErrorDialog → forceQuit 退出（避免应用处于不可用状态）
+// 生活类比：发动机打不着火时，司机先在方向盘上换装备用发动机（已下载的备胎），
+// 而不是直接弃车。回退顺序：已解析后端 → Vulkan → CPU。
 //
-// 为什么所有失败路径都 forceQuit：
+// 与 handleBackendStartupFailure 的分工：
+//   - 本函数处理"自动回退"（auto 模式下尝试已安装的替代后端）
+//   - 全部后端都失败后，才调用 handleBackendStartupFailure（处理配置回退与退出）
 //
-//	服务器未启动时应用无法对话，继续运行只会让用户面对一个不可用的界面。
-//	统一 forceQuit 让用户重启后走完整启动流程，避免半死不活的状态。
-func (a *App) startServerAndWaitReady(srv *llm.Server, ctx context.Context) error {
-	if err := srv.Start(); err != nil {
-		zlog.Error().Err(err).Msg("start llama-server failed")
-		a.handleBackendStartupFailure(ctx, "启动 llama-server", err)
-		return err
+// 返回新启动成功的 server；失败（含已 forceQuit）返回 nil。
+func (a *App) startServerWithAutoFallback(ctx context.Context, initial *llm.Server) (*llm.Server, bool) {
+	chain := a.backendFallbackChain()
+	var lastErr error
+	var lastPhase string
+
+	// P2.2 修复：启动等待使用 rootCtx 派生的 context，
+	// shutdown 时 rootCancel 能立即终止 WaitForReady，避免退出流程被 60s 阻塞。
+	waitCtx := ctx
+	if a.rootCtx != nil {
+		waitCtx = a.rootCtx
 	}
 
-	if err := srv.WaitForReady(60e9); err != nil {
-		zlog.Error().Err(err).Msg("wait for server ready failed")
-		a.handleBackendStartupFailure(ctx, "llama-server 就绪", err)
-		return err
+	for i, bt := range chain {
+		// 退出检查：用户已在启动过程中关闭应用，立即终止，避免拉起进程
+		if a.exiting.Load() {
+			zlog.Info().Msg("[startup] exiting detected, aborting server startup")
+			return nil, false
+		}
+
+		var srv *llm.Server
+		if i == 0 {
+			// 首次尝试：直接用传入的 server（已按解析后的后端构建）
+			srv = initial
+		} else {
+			// 回退尝试：切换 resolvedBackend 并重建 server
+			runtimeDir := filepath.Join(appDir(), "runtime")
+			if !llm.IsBackendInstalled(bt, runtimeDir) {
+				zlog.Warn().Str("backend", bt.String()).Msg("[startup] 回退后端未安装，跳过")
+				continue
+			}
+			serverPath, err := llm.EnsureBackendInstalled(bt, runtimeDir, nil)
+			if err != nil {
+				zlog.Warn().Err(err).Str("backend", bt.String()).Msg("[startup] 回退后端安装失败，跳过")
+				continue
+			}
+			a.setResolvedBackend(bt, serverPath)
+			a.initServer()
+			srv = a.getServer()
+			zlog.Info().Str("backend", bt.String()).Msg("[startup] 已切换到回退后端，重建 server")
+		}
+
+		if err := srv.Start(); err != nil {
+			lastErr, lastPhase = err, "启动 llama-server"
+			zlog.Error().Err(err).Str("backend", bt.String()).Msg("[startup] start llama-server failed")
+			continue
+		}
+
+		if err := srv.WaitForReadyCtx(waitCtx, 60*time.Second); err != nil {
+			// 退出过程中取消等待：不再回退，直接返回
+			if waitCtx.Err() != nil || a.exiting.Load() {
+				zlog.Info().Msg("[startup] wait for ready cancelled (exiting)")
+				_ = srv.Stop()
+				return nil, false
+			}
+			lastErr, lastPhase = err, "llama-server 就绪"
+			zlog.Error().Err(err).Str("backend", bt.String()).Msg("[startup] wait for server ready failed")
+			// 启动后未就绪：清理这个启动了一半的进程，再尝试下一个后端
+			_ = srv.Stop()
+			continue
+		}
+
+		// 启动成功
+		if i > 0 {
+			// 回退成功：更新配置中的 BackendType 并持久化，下次启动直接用回退后端
+			zlog.Warn().Str("backend", bt.String()).Msg("[startup] 后端启动失败，已自动回退到 " + bt.String())
+			a.persistFallbackBackend(bt)
+		}
+		a.serverStartReady(ctx)
+		return srv, true
 	}
 
+	if lastErr == nil {
+		lastErr, lastPhase = apperror.New(apperror.KindUnavailable, "无可用的后端"), "启动 llama-server"
+	}
+	a.handleBackendStartupFailure(ctx, lastPhase, lastErr)
+	return nil, false
+}
+
+// backendFallbackChain 计算启动后端回退链。
+//
+// 生活类比：司机默认用什么发动机（initial 的后端），备胎库里有 Vulkan 和 CPU——
+// 顺序是"优先已解析后端，其次 Vulkan（跨厂商），最后 CPU（兜底）"。
+func (a *App) backendFallbackChain() []llm.BackendType {
+	cfg := a.getConfig()
+	resolvedBackend, _ := a.resolvedBackendSnapshot()
+	// 手动指定了后端时尊重用户选择，不自动回退
+	if cfg != nil && cfg.BackendType != "" && cfg.BackendType != string(llm.BackendAuto) {
+		return []llm.BackendType{resolvedBackend}
+	}
+
+	seen := map[llm.BackendType]bool{}
+	var chain []llm.BackendType
+	add := func(bt llm.BackendType) {
+		if bt == llm.BackendAuto || seen[bt] {
+			return
+		}
+		seen[bt] = true
+		chain = append(chain, bt)
+	}
+
+	if resolvedBackend != "" {
+		add(resolvedBackend)
+	}
+	add(llm.BackendVulkan)
+	add(llm.BackendCPU)
+	return chain
+}
+
+// persistFallbackBackend 将回退成功后的后端持久化到配置，下次启动直接使用，避免重复失败。
+func (a *App) persistFallbackBackend(bt llm.BackendType) {
+	cfg := a.getConfig()
+	if cfg == nil || cfg.BackendType == string(bt) {
+		return
+	}
+	var updated *config.Config
+	if err := a.updateConfig(func(c *config.Config) error {
+		// 写入具体后端，避免下次又解析到失败的后端。
+		c.BackendType = string(bt)
+		c.LastSuccessfulBackend = ""
+		if err := c.Validate(); err != nil {
+			return err
+		}
+		updated = c
+		return nil
+	}); err != nil {
+		zlog.Warn().Err(err).Msg("[startup] 回退后端配置校验失败")
+		return
+	}
+	cfgPath := filepath.Join(appDir(), "config.json")
+	if err := config.Save(cfgPath, updated); err != nil {
+		zlog.Warn().Err(err).Msg("[startup] 保存回退后端配置失败")
+		return
+	}
+	zlog.Info().Str("backend", string(bt)).Msg("[startup] 已持久化回退后端配置")
+}
+
+// serverStartReady 处理启动成功后的统一收尾逻辑。
+func (a *App) serverStartReady(ctx context.Context) {
 	// 启动成功：清空回退备份（撕掉旧照片，避免下次正常启动被误判为需要回退）
 	a.clearBackendRollback()
 
@@ -97,17 +226,11 @@ func (a *App) startServerAndWaitReady(srv *llm.Server, ctx context.Context) erro
 	// /tools 端点由 llama-server 提供，不依赖模型加载，可在模型加载前并行拉取。
 	// 失败不影响主流程：下次 buildAvailableTools 时会再次尝试懒加载。
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				zlog.Warn().Interface("panic", r).Msg("[startup] refresh MCP tools panic")
-			}
-		}()
+		defer recoverLog("[startup] refresh MCP tools panic")
 		if a.service != nil {
 			a.service.RefreshMcpToolsCache()
 		}
 	}()
-
-	return nil
 }
 
 // selectAndDetectDefaultModel 从预设中选择默认模型并检测其架构。
@@ -169,7 +292,19 @@ func (a *App) autoLoadDefaultModel(ctx context.Context, modelForDetect string) {
 	sseCancel := a.tryWatchModelLoadProgress(ctx, modelForDetect)
 	defer sseCancel()
 
-	loadErr := a.getClient().LoadModel(ctx, modelForDetect)
+	// P2.2 修复：初始加载的 HTTP 调用使用 rootCtx 派生 context，
+	// 用户退出时 rootCancel 能立即中断 LoadModel/WaitForModelLoaded，
+	// 避免 goroutine 在 shutdown 后仍继续向 llama-server 发起加载。
+	loadCtx := ctx
+	if a.rootCtx != nil {
+		loadCtx = a.rootCtx
+	}
+	if a.exiting.Load() {
+		zlog.Info().Msg("[server] exiting detected, skip auto-loading default model")
+		return
+	}
+
+	loadErr := a.getClient().LoadModel(loadCtx, modelForDetect)
 	if loadErr != nil && !isAlreadyRunningError(loadErr) {
 		// 非预期错误（非 "already running"），报告失败
 		zlog.Error().Err(loadErr).Str("model", modelForDetect).Msg("[server] auto-load default model failed")
@@ -185,7 +320,7 @@ func (a *App) autoLoadDefaultModel(ctx context.Context, modelForDetect string) {
 
 	progressCallback := a.makeLoadProgressCallback(ctx, modelForDetect)
 
-	if err := a.getClient().WaitForModelLoaded(ctx, modelForDetect, httpClientTimeout, progressCallback); err != nil {
+	if err := a.getClient().WaitForModelLoaded(loadCtx, modelForDetect, httpClientTimeout, progressCallback); err != nil {
 		a.handleModelLoadFailure(ctx, modelForDetect, err, progressCallback)
 		return
 	}
@@ -219,6 +354,8 @@ func (a *App) makeLoadProgressCallback(ctx context.Context, modelForDetect strin
 func (a *App) handleModelLoadSuccess(_ context.Context, modelForDetect string, logMsg string) {
 	zlog.Info().Str("model", modelForDetect).Msg(logMsg)
 	a.serverReady.Store(true)
+	// 模型加载成功后清除"加载失败"标记，让监控/状态推送恢复正常
+	a.clearServerLoadFailure()
 	// 模型加载完成后重新检测架构，因为首次检测时 mmproj 可能尚未加载
 	if err := a.service.DetectModelArchitectureForModel(modelForDetect); err != nil {
 		zlog.Warn().Err(err).Msg("[server] re-detect model architecture after load failed")
@@ -243,10 +380,7 @@ func (a *App) handleModelLoadFailure(ctx context.Context, modelForDetect string,
 	// B-1：检测栈溢出崩溃，给出后端切换建议
 	// 0xC0000409 = -1073740791，Vulkan 后端加载大模型时常见
 	errStr := err.Error()
-	currentBackend := ""
-	if a.resolvedBackend != "" {
-		currentBackend = string(a.resolvedBackend)
-	}
+	currentBackend := a.resolvedBackendString()
 	if isStackOverflowCrash(errStr) {
 		zlog.Error().Err(err).Str("model", modelForDetect).Str("backend", currentBackend).
 			Msg("[server] model load failed with stack overflow crash")
@@ -279,6 +413,15 @@ func (a *App) handleModelLoadFailure(ctx context.Context, modelForDetect string,
 		if bgErr := a.getClient().WaitForModelLoaded(bgCtx, modelForDetect, loadTimeoutMax, progressCallback); bgErr != nil {
 			zlog.Error().Err(bgErr).Str("model", modelForDetect).Msg("[server] auto-load default model background wait also failed")
 
+			// P1.2 修复：后台等待失败前先确认"旧模型仍是我们当前关心的模型"。
+			// 场景：初始加载超时后进入后台等待，期间用户手动切换到其它可用模型并成功——
+			// 此时旧模型的等待失败不应覆盖已恢复的健康状态，否则会把新状态打回错误。
+			// 生活类比：急诊医生已经在抢救别的病人了，之前那台设备的报警声不再按原样上报。
+			if !a.isBackgroundModelStillRelevant(modelForDetect) {
+				zlog.Warn().Str("model", modelForDetect).Msg("[server] background wait failed but model context changed, skip error status")
+				return
+			}
+
 			// B-1：后台等待失败也检测栈溢出，给出同样建议
 			if isStackOverflowCrash(bgErr.Error()) {
 				hint := "检测到模型加载时发生栈溢出崩溃（0xC0000409）。\n\n" + buildStackOverflowSuggestion(currentBackend)
@@ -298,6 +441,18 @@ func (a *App) handleModelLoadFailure(ctx context.Context, modelForDetect string,
 // 统一委托给 llm.IsStackOverflowExit（单一事实来源），此处仅保留语义化别名。
 func isStackOverflowCrash(errStr string) bool {
 	return llm.IsStackOverflowExit(errStr)
+}
+
+// isBackgroundModelStillRelevant 判断后台等待的模型是否仍是当前关注的模型。
+// 返回 false 表示用户已切换模型或正处于切换中，后台旧模型的失败不再上报。
+func (a *App) isBackgroundModelStillRelevant(modelName string) bool {
+	if a.currentModel() != modelName {
+		return false
+	}
+	if a.modelSessionSnapshot().Switching {
+		return false
+	}
+	return true
 }
 
 // startServerWatcher 启动状态监控和健康检查两个长生命周期 goroutine。

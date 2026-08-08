@@ -6,8 +6,10 @@
 import type { ModelCapabilities } from './chat'
 
 /** 切换进度阶段 */
+// 'retrying'：模型加载进入后台等待/重试阶段（后端 app_server_watch.go 推送），
+// 前端将其归入 loading 类展示，不改主状态机。
 export type SwitchProgressStage =
-  'idle' | 'preparing' | 'loading' | 'waiting' | 'detecting' | 'done' | 'failed' | 'rolling_back'
+  'idle' | 'preparing' | 'loading' | 'waiting' | 'detecting' | 'done' | 'failed' | 'rolling_back' | 'retrying'
 
 /**
  * 后端推送的进度阶段（server:switchProgress 事件的 stage 字段）。

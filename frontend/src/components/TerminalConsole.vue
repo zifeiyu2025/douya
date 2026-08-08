@@ -12,6 +12,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import { wails } from '../services/wails'
 import { useThemeStore } from '../stores/theme'
+import { logWarn } from '../utils/logger'
 
 const terminalContainer = ref<HTMLElement>()
 let terminal: Terminal | null = null
@@ -80,7 +81,7 @@ async function initTerminal() {
     const webglAddon = new WebglAddon()
     terminal.loadAddon(webglAddon)
   } catch {
-    console.warn('[terminal] WebGL addon not available, using DOM renderer')
+    logWarn('[terminal] WebGL addon not available, using DOM renderer')
   }
 
   terminal.open(terminalContainer.value)
@@ -93,7 +94,7 @@ async function initTerminal() {
       terminal.write(history)
     }
   } catch (err) {
-    console.warn('[terminal] Failed to load history:', err)
+    logWarn('[terminal] Failed to load history', err)
   }
 
   // 监听后端终端数据事件

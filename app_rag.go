@@ -240,12 +240,18 @@ func (a *App) DeleteDocument(kbName string, docID string) error {
 	if err := validateNonEmpty("文档ID", docID); err != nil {
 		return err
 	}
+	// M10 修复：先删除向量/语料侧数据，再删除元数据。
+	// 若向量删除失败，元数据保留（文档仍可见、可重试）；
+	// 若先删元数据再删向量，失败时会留下"文档从列表消失但向量/BM25 仍可检索"的不可见孤儿语料。
+	if err := a.ragVS.DeleteDocument(kbName, docID); err != nil {
+		return err
+	}
 	if a.ragDS != nil {
 		if err := a.ragDS.Delete(kbName, docID); err != nil {
 			zlog.Error().Err(err).Msg("[rag] delete document meta failed")
 		}
 	}
-	return a.ragVS.DeleteDocument(kbName, docID)
+	return nil
 }
 
 func (a *App) SetActiveKnowledgeBase(kbName string) error {

@@ -74,6 +74,8 @@ type Service struct {
 	mcpToolsCacheMu     sync.RWMutex
 	mcpToolsInitialized bool
 	mcpToolsOnce        sync.Once
+	// 上下文压缩累计统计（并发安全）
+	compressionStats CompressionStats
 }
 
 func NewService(llmClient *llm.Client, searchChain *search.SearchChain, db *sql.DB, cfg *config.Config, cipher secrets.Cipher, appDir string) *Service {
@@ -119,6 +121,12 @@ func (s *Service) getHostContextSnapshot() context.Context {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 	return s.hostCtx
+}
+
+// GetCompressionStats 返回上下文压缩累计统计快照，供日志/前端展示。
+// 原子读取，无需调用方加锁。
+func (s *Service) GetCompressionStats() CompressionStatsSnapshot {
+	return s.compressionStats.snapshot()
 }
 
 // beginGeneration 统一处理"开始新一轮生成"的锁与取消逻辑，消除 SendMessage 和 RegenerateMessage 的重复代码。

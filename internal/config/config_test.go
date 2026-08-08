@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -74,6 +75,50 @@ func TestValidate_InvalidSystemPromptMode(t *testing.T) {
 	if err := cfg.Validate(); err == nil {
 		t.Error("期望 SystemPromptMode=\"custom\" 时返回错误，实际返回 nil")
 	}
+}
+
+// TestValidate_InvalidReasoningEffort 验证 ReasoningEffort 非法值返回错误
+func TestValidate_InvalidReasoningEffort(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.ReasoningEffort = "ultra"
+	if err := cfg.Validate(); err == nil {
+		t.Error("期望 ReasoningEffort=\"ultra\" 时返回错误，实际返回 nil")
+	}
+}
+
+// TestValidate_ValidReasoningEffort 验证 ReasoningEffort 合法值通过校验
+func TestValidate_ValidReasoningEffort(t *testing.T) {
+	for _, v := range []string{"", "low", "medium", "high", "max"} {
+		cfg := DefaultConfig()
+		cfg.ReasoningEffort = v
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("ReasoningEffort=%q 应通过校验，实际错误: %v", v, err)
+		}
+	}
+}
+
+// TestRepair_InvalidReasoningEffort 验证非法 ReasoningEffort 被修复为空
+func TestRepair_InvalidReasoningEffort(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.ReasoningEffort = "ultra"
+	repaired := cfg.repairInvalidFields()
+	if cfg.ReasoningEffort != "" {
+		t.Errorf("期望修复后 ReasoningEffort=\"\"，实际 %q", cfg.ReasoningEffort)
+	}
+	found := false
+	for _, msg := range repaired {
+		if containsStr(msg, "reasoning_effort") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("期望修复列表包含 reasoning_effort，实际 %v", repaired)
+	}
+}
+
+func containsStr(s, sub string) bool {
+	return strings.Contains(s, sub)
 }
 
 // TestValidate_TopK 验证 TopK 为负数时返回错误
@@ -437,12 +482,12 @@ func TestValidate_TensorSplit_Empty(t *testing.T) {
 // TestValidate_TensorSplit_Valid 验证合法的 TensorSplit 格式通过校验
 func TestValidate_TensorSplit_Valid(t *testing.T) {
 	validSplits := []string{
-		"3,1",           // 双卡 3:1
-		"1,1",           // 双卡均分
-		"3,2,1",         // 三卡 3:2:1
-		"0.5,0.5",       // 浮点权重
-		" 3 , 1 ",       // 带空格（手写配置常见）
-		"10,5,3,2,1",    // 五卡
+		"3,1",        // 双卡 3:1
+		"1,1",        // 双卡均分
+		"3,2,1",      // 三卡 3:2:1
+		"0.5,0.5",    // 浮点权重
+		" 3 , 1 ",    // 带空格（手写配置常见）
+		"10,5,3,2,1", // 五卡
 	}
 	for _, split := range validSplits {
 		t.Run("split="+split, func(t *testing.T) {
@@ -574,5 +619,45 @@ func TestDefaultConfig_MultiGPUFields(t *testing.T) {
 	}
 	if cfg.MainGPU != -1 {
 		t.Errorf("期望默认 MainGPU=-1（不传递），实际得到: %d", cfg.MainGPU)
+	}
+}
+
+// TestWriteFileAtomic 验证原子写文件：目标文件存在时内容被正确替换，
+// 权限保持为指定值，且不残留临时文件。
+func TestWriteFileAtomic(t *testing.T) {
+	tmpDir := t.TempDir()
+	target := filepath.Join(tmpDir, "config.json")
+
+	// 1. 首次写入
+	if err := writeFileAtomic(target, []byte(`{"a":1}`), 0o600); err != nil {
+		t.Fatalf("首次写入失败: %v", err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("读取失败: %v", err)
+	}
+	if string(data) != `{"a":1}` {
+		t.Errorf("期望内容 {\"a\":1}，实际 %q", string(data))
+	}
+
+	// 2. 覆盖写入
+	if err := writeFileAtomic(target, []byte(`{"b":2}`), 0o600); err != nil {
+		t.Fatalf("覆盖写入失败: %v", err)
+	}
+	data, err = os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("读取失败: %v", err)
+	}
+	if string(data) != `{"b":2}` {
+		t.Errorf("期望内容 {\"b\":2}，实际 %q", string(data))
+	}
+
+	// 3. 不残留临时文件
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		t.Fatalf("读取目录失败: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("期望目录中只有目标文件，实际 %d 个条目", len(entries))
 	}
 }

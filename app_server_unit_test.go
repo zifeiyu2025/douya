@@ -9,6 +9,9 @@ import (
 	"testing"
 
 	"douya/internal/apperror"
+	"douya/internal/config"
+	"douya/internal/llm"
+	"douya/internal/system"
 )
 
 // --- findModelMatch 测试 ---
@@ -213,5 +216,143 @@ func TestClassifyWaitError_Timeout_WithStderrHint(t *testing.T) {
 	}
 	if !strings.Contains(result, "still loading...") {
 		t.Errorf("应包含 stderrHint 内容，实际: %s", result)
+	}
+}
+
+// --- backendFallbackChain 测试 ---
+
+// TestBackendFallbackChain_Auto 验证 auto 模式下回退链为"已解析后端 → Vulkan → CPU"。
+func TestBackendFallbackChain_Auto(t *testing.T) {
+	app := NewApp()
+	app.resolvedBackend = llm.BackendCUDA
+	app.config = &config.Config{BackendType: string(llm.BackendAuto)}
+
+	chain := app.backendFallbackChain()
+	if len(chain) != 3 {
+		t.Fatalf("期望 3 个候选（CUDA/Vulkan/CPU），实际: %v", chain)
+	}
+	if chain[0] != llm.BackendCUDA || chain[1] != llm.BackendVulkan || chain[2] != llm.BackendCPU {
+		t.Errorf("回退顺序应为 CUDA→Vulkan→CPU，实际: %v", chain)
+	}
+}
+
+// TestBackendFallbackChain_Auto_ResolvedCPU 验证已解析为 CPU 时不重复添加 CPU。
+func TestBackendFallbackChain_Auto_ResolvedCPU(t *testing.T) {
+	app := NewApp()
+	app.resolvedBackend = llm.BackendCPU
+	app.config = &config.Config{BackendType: string(llm.BackendAuto)}
+
+	chain := app.backendFallbackChain()
+	if len(chain) != 2 {
+		t.Fatalf("期望 2 个候选（CPU/Vulkan），实际: %v", chain)
+	}
+	if chain[0] != llm.BackendCPU || chain[1] != llm.BackendVulkan {
+		t.Errorf("期望 CPU→Vulkan，实际: %v", chain)
+	}
+}
+
+// TestBackendFallbackChain_Manual 用户显式指定后端时不自动回退（尊重用户选择）。
+func TestBackendFallbackChain_Manual(t *testing.T) {
+	app := NewApp()
+	app.resolvedBackend = llm.BackendCUDA
+	app.config = &config.Config{BackendType: string(llm.BackendCUDA)}
+
+	chain := app.backendFallbackChain()
+	if len(chain) != 1 || chain[0] != llm.BackendCUDA {
+		t.Errorf("手动指定后端时应仅返回该后端，实际: %v", chain)
+	}
+}
+
+// TestBackendFallbackChain_NilConfig 配置为 nil（未初始化）时按 auto 处理，回退到 Vulkan/CPU。
+func TestBackendFallbackChain_NilConfig(t *testing.T) {
+	app := NewApp()
+	app.resolvedBackend = ""
+
+	chain := app.backendFallbackChain()
+	if len(chain) != 2 || chain[0] != llm.BackendVulkan || chain[1] != llm.BackendCPU {
+		t.Errorf("nil 配置应按 Vulkan→CPU 回退，实际: %v", chain)
+	}
+}
+
+// --- resolveDerivedServerParams 测试（P1.4/P1.5） ---
+
+// boolPtr 返回指向给定布尔值的指针，用于构造 *bool 配置字段。
+func boolPtr(b bool) *bool { return &b }
+
+// TestDerivedMmprojOffload_Nil 验证 mmproj_offload 未设置（nil）时用 smart-params 推荐值。
+func TestDerivedMmprojOffload_Nil(t *testing.T) {
+	cfg := &config.Config{MmprojOffload: nil}
+	sp := system.SmartParams{MmprojOffload: true}
+	d := resolveDerivedServerParams(cfg, sp)
+	if !d.MmprojOffload {
+		t.Error("nil 配置应使用 smart-params 推荐值 true，实际 false")
+	}
+
+	sp.MmprojOffload = false
+	d = resolveDerivedServerParams(cfg, sp)
+	if d.MmprojOffload {
+		t.Error("nil 配置应使用 smart-params 推荐值 false，实际 true")
+	}
+}
+
+// TestDerivedMmprojOffload_ExplicitTrue 验证 mmproj_offload=true 时强制启用。
+func TestDerivedMmprojOffload_ExplicitTrue(t *testing.T) {
+	cfg := &config.Config{MmprojOffload: boolPtr(true)}
+	// smart-params 推荐 false（如 CPU），但用户显式 true 应赢
+	sp := system.SmartParams{MmprojOffload: false}
+	d := resolveDerivedServerParams(cfg, sp)
+	if !d.MmprojOffload {
+		t.Error("用户显式 true 应覆盖 smart-params 的 false")
+	}
+}
+
+// TestDerivedMmprojOffload_ExplicitFalse 验证 mmproj_offload=false 可真正关闭。
+// P1.4 回归：此前 bool 字段 + 单方向 OR 使 false 永远不可达。
+func TestDerivedMmprojOffload_ExplicitFalse(t *testing.T) {
+	cfg := &config.Config{MmprojOffload: boolPtr(false)}
+	// smart-params 推荐 true（GPU 上默认开），但用户显式 false 应赢
+	sp := system.SmartParams{MmprojOffload: true}
+	d := resolveDerivedServerParams(cfg, sp)
+	if d.MmprojOffload {
+		t.Error("用户显式 false 应覆盖 smart-params 的 true，mmproj_offload 仍被强制开启")
+	}
+}
+
+// TestDerivedFlashAttn_On 验证 smart-params 推荐开启 Flash 时派生为 "on"。
+func TestDerivedFlashAttn_On(t *testing.T) {
+	cfg := &config.Config{FlashAttn: nil}
+	sp := system.SmartParams{FlashAttn: true}
+	d := resolveDerivedServerParams(cfg, sp)
+	if d.FlashAttn != "on" {
+		t.Errorf("smart-params 开启时应派生 flash-attn=on，实际 %q", d.FlashAttn)
+	}
+}
+
+// TestDerivedFlashAttn_Off 验证 smart-params 判定关闭 Flash 时派生为 "off"。
+// P1.5 回归：此前派生为 ""，appendStringArg 不产出 --flash-attn，
+// llama.cpp 用自己的默认值（可能 on/auto），"安全关闭"意图丢失。
+func TestDerivedFlashAttn_Off(t *testing.T) {
+	cfg := &config.Config{FlashAttn: nil}
+	sp := system.SmartParams{FlashAttn: false}
+	d := resolveDerivedServerParams(cfg, sp)
+	if d.FlashAttn != "off" {
+		t.Errorf("smart-params 关闭时应派生 flash-attn=off，实际 %q", d.FlashAttn)
+	}
+}
+
+// TestDerivedFlashAttn_UserOverride 验证用户显式设置覆盖 smart-params 推荐。
+func TestDerivedFlashAttn_UserOverride(t *testing.T) {
+	cfg := &config.Config{FlashAttn: boolPtr(true)}
+	sp := system.SmartParams{FlashAttn: false}
+	d := resolveDerivedServerParams(cfg, sp)
+	if d.FlashAttn != "on" {
+		t.Errorf("用户显式 true 应覆盖 smart-params 的 off，实际 %q", d.FlashAttn)
+	}
+
+	cfg = &config.Config{FlashAttn: boolPtr(false)}
+	sp = system.SmartParams{FlashAttn: true}
+	d = resolveDerivedServerParams(cfg, sp)
+	if d.FlashAttn != "off" {
+		t.Errorf("用户显式 false 应覆盖 smart-params 的 on，实际 %q", d.FlashAttn)
 	}
 }

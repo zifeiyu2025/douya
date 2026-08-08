@@ -20,5 +20,6 @@ export const EventBackendDownloadComplete = 'backend:downloadComplete'
 export const EventWindowCloseRequest = 'window:closeRequest'
 export const EventShutdownProgress = 'shutdown:progress'
 export const EventSearchAutoDisabled = 'search:autoDisabled'
-export const EventUpdateCheck = 'update:check'
+// P3.6 修复：EventUpdateCheck 已移除——前端使用同步 CheckUpdate RPC，
+// 无事件监听者。EventUpdateProgress 保留（wails.ts 有订阅）。
 export const EventUpdateProgress = 'update:progress'

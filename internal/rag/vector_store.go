@@ -310,8 +310,16 @@ type vectorBlock struct {
 
 // vectorLRU 简单 LRU 缓存:双向链表 + map,按块的 startKey 字符串索引。
 // 自实现避免引入 hashicorp/golang-lru 新依赖(任务 6 要求优先自实现)。
+//
+// M11 修复:除块数上限 lruCapacity 外,增加"字节预算" maxBytes 约束缓存总内存。
+// 原本仅按块数(256 块 * 4096 = 100 万向量)上限,当向量维度较高时(如 D=768,
+// 每向量 ~6KB)理论上可占用上 GB 内存,与 badgerIndex "避免 OOM" 的设计初衷相悖。
+// 现在按块实际向量字节累计,缓存总量超过 maxBytes 时淘汰最久未用块。
+// 生活类比:书架既按"层数"限高,也按"书的总体积"限容量,双保险防止书架被压塌。
 type vectorLRU struct {
-	capacity int
+	capacity int // 块数上限(读热数据的粒度控制)
+	maxBytes int // 缓存总内存预算(字节),防止内存随维度×块数线性放大
+	curBytes int // 当前缓存的向量字节数
 	mu       sync.Mutex
 	m        map[string]*list.Element
 	ll       *list.List
@@ -322,12 +330,20 @@ type lruEntry struct {
 	block *vectorBlock
 }
 
+// vectorLRUMaxBytes 是单个 badgerIndex LRU 缓存的内存预算上限(256MB)。
+// 设计说明:维度越高每个向量的字节越多,按字节预算而非固定块数更能贴合
+// "避免 RAG 内存随知识库线性增长导致 OOM" 的目标。默认维度 D=768 时,
+// 256MB ≈ 4.3 万向量,远低于原先 100 万向量/256 块的上限。
+const vectorLRUMaxBytes = 256 * 1024 * 1024
+
 func newVectorLRU(capacity int) *vectorLRU {
 	if capacity < 1 {
 		capacity = 1
 	}
 	return &vectorLRU{
 		capacity: capacity,
+		maxBytes: vectorLRUMaxBytes,
+		curBytes: 0,
 		m:        make(map[string]*list.Element),
 		ll:       list.New(),
 	}
@@ -344,25 +360,50 @@ func (l *vectorLRU) get(key string) (*vectorBlock, bool) {
 	return nil, false
 }
 
-// put 写入块,超出容量时淘汰最久未使用的块。
+// put 写入块,超出容量或字节预算时淘汰最久未使用的块。
+// M11 修复:同时校验字节预算(避免块数上限虽符合但向量总内存过大)。
 func (l *vectorLRU) put(key string, block *vectorBlock) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if el, ok := l.m[key]; ok {
+		l.curBytes -= vecEntriesBytes(el.Value.(*lruEntry).block.entries)
 		el.Value.(*lruEntry).block = block
+		l.curBytes += vecEntriesBytes(block.entries)
 		l.ll.MoveToFront(el)
+		l.evictForBytesLocked()
 		return
 	}
 	el := l.ll.PushFront(&lruEntry{key: key, block: block})
 	l.m[key] = el
-	for l.ll.Len() > l.capacity {
+	l.curBytes += vecEntriesBytes(block.entries)
+	l.evictForBytesLocked()
+}
+
+// evictForBytesLocked 从链表尾部淘汰最久未使用的块,直到同时满足:
+// 块数 ≤ capacity 且 缓存字节 ≤ maxBytes。
+// 调用方必须持有 l.mu。
+func (l *vectorLRU) evictForBytesLocked() {
+	for l.ll.Len() > l.capacity || (l.maxBytes > 0 && l.curBytes > l.maxBytes) {
 		oldest := l.ll.Back()
 		if oldest == nil {
 			break
 		}
 		l.ll.Remove(oldest)
+		if l.maxBytes > 0 {
+			l.curBytes -= vecEntriesBytes(oldest.Value.(*lruEntry).block.entries)
+		}
 		delete(l.m, oldest.Value.(*lruEntry).key)
 	}
+}
+
+// vecEntriesBytes 估算一组向量条目的内存字节数。
+// 每个 float64 占 8 字节;这里不包含 map/slice 头等固定开销,只做可比较的相对度量。
+func vecEntriesBytes(entries []vectorEntry) int {
+	total := 0
+	for i := range entries {
+		total += 8 * len(entries[i].vec)
+	}
+	return total
 }
 
 // clear 清空缓存(任务 6:AddVectors/DeleteDocument 后整体失效 collection 缓存)。
@@ -371,6 +412,7 @@ func (l *vectorLRU) clear() {
 	defer l.mu.Unlock()
 	l.m = make(map[string]*list.Element)
 	l.ll = list.New()
+	l.curBytes = 0
 }
 
 // lruCapacity 是单个 badgerIndex LRU 最多缓存的块数。

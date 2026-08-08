@@ -70,8 +70,17 @@ func calculateContextSize(hw *HardwareInfo, resolvedModelPath string) int {
 		availableForKV := vramBytes*(1.0-safetyMargin) - modelBytes
 
 		if availableForKV <= 0 {
-			// 显存不足以加载模型，返回最小上下文
-			return 2048
+			// 显存不足以容纳模型权重，返回最小上下文（512）。
+			// P4.2 修复：此前返回 2048 会超出显存预算，KV cache 分配时仍会 OOM
+			//（崩溃降级链的 ctx 减半也救不回来——2048 就是它的下限）。
+			// 512 是"能对话但很紧"的保守值，配合 llama-server 的 gpu-layers auto
+			// 尽量减小 KV 占用；若仍 OOM，崩溃降级链会进一步把 gpu-layers 设为 auto。
+			// 生活类比：油箱只够跑 10 公里就别硬设 40 公里的续航，先把目的地调近。
+			log.Warn().
+				Float64("vram_gb", vramBytes/1024/1024/1024).
+				Float64("model_gb", modelBytes/1024/1024/1024).
+				Msg("[smart-params] model does not fit in VRAM, using minimum ctx=512")
+			return 512
 		}
 
 		// KV cache 每token 显存消耗
@@ -84,8 +93,10 @@ func calculateContextSize(hw *HardwareInfo, resolvedModelPath string) int {
 		// 反推最大上下文长度
 		maxCtx := int(availableForKV / float64(kvCostPerToken))
 
-		// 对齐到 256 的整数倍
-		maxCtx = max((maxCtx/256)*256, 2048)
+		// P4.2 修复：对齐到 256 的整数倍，但下限改为 512（而非 2048）。
+		// 2048 的下限在显存极紧时会超出预算，512 是更安全的兜底。
+		// 若对齐后仍不足 512，说明可用显存确实非常有限，直接用 512。
+		maxCtx = max((maxCtx/256)*256, 512)
 
 		// 不超过模型原生上下文长度
 		if meta.ContextLength > 0 && maxCtx > meta.ContextLength {

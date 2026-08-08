@@ -101,7 +101,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, onUnmounted, provide } from 'vue'
-import { NForm, NCollapse, NCollapseItem, useMessage } from 'naive-ui'
+import { NForm, NCollapse, NCollapseItem, useMessage, type UploadCustomRequestOptions } from 'naive-ui'
 import { useSettingsStore } from '../stores/settings'
 import { matchModelRef } from '../stores/settings'
 import { MODEL_REFS } from '../utils/modelRefs'
@@ -422,7 +422,7 @@ const maxAvatarSize = 1024 * 1024
  * @param data n-upload custom-request 回调传入的数据
  * @param fieldName 要写入 formConfig 的字段名（'user_avatar' 或 'ai_avatar'）
  */
-async function handleAvatarUpload(data: any, fieldName: 'user_avatar' | 'ai_avatar') {
+async function handleAvatarUpload(data: UploadCustomRequestOptions, fieldName: 'user_avatar' | 'ai_avatar') {
   const file = data.file.file as File
   if (file.size > maxAvatarSize) {
     message.destroyAll()
@@ -584,6 +584,8 @@ const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'fit_target',
   'fit_ctx',
   'system_prompt',
+  'system_prompt_mode',
+  'programming_mode',
   'chat_background',
   'chat_background_opacity',
   'user_avatar',
@@ -678,6 +680,7 @@ const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'reasoning_budget',
   'reasoning_budget_message',
   'reasoning_format',
+  'reasoning_effort',
   'reasoning_preserve',
   // RAG 重排序配置
   'reranker_model_path',

@@ -21,6 +21,7 @@
  *   9. 任意语音                                           ← 实在没有中文就用任何能发音的
  */
 import { ref, computed } from 'vue'
+import { logWarn } from '../utils/logger'
 
 // ===== 类型定义 =====
 // 浏览器原生 API 的类型补充（部分 TS 版本未内置）
@@ -197,7 +198,7 @@ const effectiveVoice = computed<SpeechSynthesisVoice | null>(() => {
     const found = voices.value.find(v => v.name === wanted)
     if (found) return found
     // 找不到指定的发音人 → 退回自动挑选并记录警告
-    console.warn(`[TTS] 未找到指定的发音人 "${wanted}"，将自动挑选`)
+    logWarn(`[TTS] 未找到指定的发音人 "${wanted}"，将自动挑选`)
   }
   // 2. 用户未指定 → 按优先级自动挑选
   return pickBestChineseVoice()
@@ -244,7 +245,7 @@ function resetState(): void {
  */
 function speak(text: string, messageId?: string): void {
   if (!synth) {
-    console.warn('[TTS] 浏览器不支持 SpeechSynthesis API')
+    logWarn('[TTS] 浏览器不支持 SpeechSynthesis API')
     return
   }
   if (!text || !text.trim()) return
@@ -297,7 +298,7 @@ function speak(text: string, messageId?: string): void {
   utterance.onerror = (event: SpeechSynthesisErrorEvent) => {
     // interrupted（被新的 utterance 打断）是正常行为，不算错误
     if (event.error !== 'interrupted') {
-      console.warn('[TTS] 朗读出错:', event.error)
+      logWarn('[TTS] 朗读出错', event.error)
     }
     if (speakingText.value === text) {
       resetState()

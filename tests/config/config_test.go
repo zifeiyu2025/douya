@@ -16,8 +16,9 @@ import (
 func TestDefaultConfig(t *testing.T) {
 	cfg := config.DefaultConfig()
 
-	if cfg.ContextSize != 8192 {
-		t.Fatalf("expected ContextSize=8192, got %d", cfg.ContextSize)
+	// P4.1: 默认 context_size=0（未设置），由 smart-params 按显存预算计算
+	if cfg.ContextSize != 0 {
+		t.Fatalf("expected ContextSize=0 (auto/smart-params), got %d", cfg.ContextSize)
 	}
 	if cfg.Temperature != 0.8 {
 		t.Fatalf("expected Temperature=0.8, got %f", cfg.Temperature)
@@ -218,8 +219,9 @@ func TestLoad_PartialOverride(t *testing.T) {
 	if cfg.Temperature != 0.3 {
 		t.Fatalf("expected Temperature=0.3, got %f", cfg.Temperature)
 	}
-	if cfg.ContextSize != 8192 {
-		t.Fatalf("expected default ContextSize=8192 for unspecified field, got %d", cfg.ContextSize)
+	// P4.1: 未指定 context_size 时默认 0（自动/smart-params）
+	if cfg.ContextSize != 0 {
+		t.Fatalf("expected default ContextSize=0 (auto) for unspecified field, got %d", cfg.ContextSize)
 	}
 }
 

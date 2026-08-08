@@ -11,7 +11,6 @@ import (
 	"douya/internal/apperror"
 
 	"fyne.io/systray"
-	zlog "github.com/rs/zerolog/log"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -33,11 +32,7 @@ func (a *App) onSystrayReady() {
 	// 通过 mQuit 点击或 systray.Quit() 退出，已有 recover 保护。
 	go func() {
 		// L-1：托盘菜单 goroutine 长期运行，panic 会导致菜单失效
-		defer func() {
-			if r := recover(); r != nil {
-				zlog.Warn().Interface("panic", r).Msg("[systray] menu goroutine panic")
-			}
-		}()
+		defer recoverLog("[systray] menu goroutine panic")
 		for {
 			select {
 			case <-mShow.ClickedCh:

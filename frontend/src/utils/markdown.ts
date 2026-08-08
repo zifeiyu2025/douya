@@ -15,6 +15,7 @@ import { marked, type Tokens } from 'marked'
 import DOMPurify from 'dompurify'
 import hljs from 'highlight.js'
 import { isSafeUrl } from './lightSanitize'
+import { logWarn } from './logger'
 
 // highlight.js 官方主题：亮色模式默认加载，深色模式按需动态加载
 import 'highlight.js/styles/github.css'
@@ -42,7 +43,7 @@ const purify = (() => {
     return d(window)
   }
   // 安全降级：无 window 环境（如测试）中用 escapeHtml 转义并保留换行
-  console.error('[security] DOMPurify unavailable, fallback to escapeHtml')
+  logWarn('[security] DOMPurify unavailable, fallback to escapeHtml')
   return {
     sanitize: (html: string) => escapeHtml(html).replace(/\n/g, '<br>')
   }

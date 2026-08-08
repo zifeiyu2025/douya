@@ -24,7 +24,8 @@ func (s *Service) DetectModelArchitecture() error {
 		return s.DetectModelArchitectureForModel("")
 	}
 	info, err := client.GetModelInfo(ctx)
-	if err != nil {
+	if err != nil || info == nil {
+		// 服务器返回 nil-info 但无错误时也回退到通用检测，避免 *info 解引用 panic
 		return s.DetectModelArchitectureForModel("")
 	}
 	return s.DetectModelArchitectureForModel(info.Name)
@@ -133,6 +134,12 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 		return apperror.Wrap(apperror.KindInternal, "failed to get model info", ir.err)
 	}
 	info := ir.info
+
+	// 防御：服务器可能返回 nil-info 但无错误（GetModelInfo 契约未保证 info 非 nil）。
+	// 直接 *info 解引用会 panic，这里显式判空并返回错误。
+	if info == nil {
+		return apperror.New(apperror.KindInternal, "model info is nil despite no error")
+	}
 
 	// Wait for props (optional, best-effort)
 	pr := <-propsCh
@@ -431,6 +438,26 @@ func (s *Service) applyThinkingControl(req *llm.ChatCompletionRequest) {
 	// 此处仅保留 ReasoningBudget 作为请求级预算控制。
 	if budget > 0 {
 		req.ReasoningBudget = budget
+	}
+
+	// 请求级 reasoning_effort 逃逸口（llama.cpp #26045）：当用户配置 reasoning=off 时，
+	// 额外写入 "none"，强制服务端 enable_thinking=false。
+	// 生活类比：服务器默认档位（--reasoning）说了算，但这次请求要单独关掉思考，
+	// 就给调度中心发一条"这单不走思考"的备注（reasoning_effort=none）。
+	if cfg != nil && cfg.Reasoning == "off" {
+		req.ReasoningEffort = "none"
+	}
+
+	// 思考强度透传：当用户配置了 reasoning_effort 且思考未关闭时，
+	// 通过 chat_template_kwargs 转发给模板（DeepSeek-V4 / openai-gpt-oss-120b / Hy3 等），
+	// 由模板注入 "Reasoning Effort: ..." 等引导语。服务器层不识别 low/high/max，
+	// 仅模板侧有语义；对不读取该参数的模板是无害的 no-op。
+	// 生活类比：把"火力档位"写进订单备注，厨师（模板）认就按备注来，不认就按默认做菜。
+	if cfg != nil && cfg.Reasoning != "off" && cfg.ReasoningEffort != "" {
+		if req.ChatTemplateKwargs == nil {
+			req.ChatTemplateKwargs = make(map[string]any)
+		}
+		req.ChatTemplateKwargs["reasoning_effort"] = cfg.ReasoningEffort
 	}
 
 	// 传递请求级 reasoning 扩展字段（仅在用户显式配置时才传递，避免覆盖服务器默认值）

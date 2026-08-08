@@ -4,6 +4,7 @@
 package system
 
 import (
+	"bufio"
 	"encoding/binary"
 	"io"
 	"os"
@@ -294,7 +295,10 @@ func ParseGGUFKV(path string) (map[string]any, error) {
 	}
 	defer f.Close()
 
-	r := &ggufReader{r: f}
+	// P4.4 优化：用 bufio.Reader 包裹文件句柄。
+	// ggufReader 每个标量读取都会 binary.Read(io.Reader)，直接读 os.File 每次触发一次系统调用；
+	// 大模型的元数据段有成百上千个 KV（含数组元素逐个读取），用缓冲区可减少大量 syscall。
+	r := newGGUFReaderBuffered(f)
 
 	magic, err := r.readUint32()
 	if err != nil {
@@ -343,6 +347,14 @@ func ParseGGUFKV(path string) (map[string]any, error) {
 
 type ggufReader struct {
 	r io.Reader
+}
+
+// newGGUFReaderBuffered 创建带缓冲的 ggufReader。
+// 生活类比：读文件就像从井里打水，直接读 os.File 是每次只提一桶（一次系统调用），
+// 用 bufio.Reader 像先注满一个水塔（64KB 缓冲），打水时从水塔接，大大减少提桶次数。
+// 命名带 Buffered 后缀，与测试 helper newGGUFReader（bytes.Reader 构造）区分。
+func newGGUFReaderBuffered(r io.Reader) *ggufReader {
+	return &ggufReader{r: bufio.NewReaderSize(r, 64*1024)}
 }
 
 func (g *ggufReader) readUint8() (uint8, error) {

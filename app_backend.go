@@ -51,8 +51,9 @@ func (a *App) GetBackendStatus() BackendStatus {
 
 	// 解析当前后端：优先用 startup 中缓存的 resolvedBackend（已 EnsureBackendInstalled）
 	// 生活类比：用车辆登记证上的"已装发动机型号"，而非用户配置的"自动/手动"选项
-	if a.resolvedBackend != "" {
-		status.CurrentBackend = string(a.resolvedBackend)
+	resolvedBackend, _ := a.resolvedBackendSnapshot()
+	if resolvedBackend != "" {
+		status.CurrentBackend = string(resolvedBackend)
 	} else if cfg.BackendType != "" && cfg.BackendType != "auto" {
 		// 启动时未缓存但配置中明确指定了后端，直接用配置值
 		status.CurrentBackend = cfg.BackendType
@@ -109,30 +110,34 @@ func (a *App) SwitchBackend(bt string) error {
 	zlog.Info().Str("backend", bt).Msg("[backend] 开始切换显卡后端")
 
 	// 步骤 2：更新配置中的 backend_type
-	cfg := a.getConfig()
-	// 采用"复制→修改副本→替换指针"模式，避免直接修改 a.config 字段破坏快照语义
-	newCfg := *cfg
-	// 回退机制：把当前的后端类型存入 LastSuccessfulBackend（拍照片）。
-	// 下次启动时若新后端启动失败，会根据该字段恢复旧后端（按照片装回去）。
-	// 仅当新旧后端不同时才记录，避免重复切换写入相同值导致回退失效。
-	if cfg.BackendType != bt {
-		newCfg.LastSuccessfulBackend = cfg.BackendType
+	// 采用 updateConfig 的"复制→修改副本→替换指针"模式，避免直接修改 a.config 字段破坏快照语义
+	var updated *config.Config
+	if err := a.updateConfig(func(cfg *config.Config) error {
+		// 回退机制：把当前的后端类型存入 LastSuccessfulBackend（拍照片）。
+		// 下次启动时若新后端启动失败，会根据该字段恢复旧后端（按照片装回去）。
+		// 仅当新旧后端不同时才记录，避免重复切换写入相同值导致回退失效。
+		if cfg.BackendType != bt {
+			cfg.LastSuccessfulBackend = cfg.BackendType
+		}
+		cfg.BackendType = bt
+		if err := cfg.Validate(); err != nil {
+			return apperror.Wrap(apperror.KindInvalidConfig, "配置校验失败", err)
+		}
+		updated = cfg
+		return nil
+	}); err != nil {
+		return err
 	}
-	newCfg.BackendType = bt
-	if err := newCfg.Validate(); err != nil {
-		return apperror.Wrap(apperror.KindInvalidConfig, "配置校验失败", err)
-	}
-	a.setConfig(&newCfg)
 
 	// 持久化配置到磁盘
 	cfgPath := filepath.Join(appDir(), "config.json")
-	if err := config.Save(cfgPath, &newCfg); err != nil {
+	if err := config.Save(cfgPath, updated); err != nil {
 		zlog.Error().Err(err).Msg("[backend] 保存配置失败")
 		return apperror.Wrap(apperror.KindInvalidConfig, "保存配置失败", err)
 	}
 
-	if newCfg.LastSuccessfulBackend != "" {
-		zlog.Info().Str("from", newCfg.LastSuccessfulBackend).Str("to", bt).
+	if updated.LastSuccessfulBackend != "" {
+		zlog.Info().Str("from", updated.LastSuccessfulBackend).Str("to", bt).
 			Msg("[backend] 已记录旧后端，新后端启动失败时将自动回退")
 	}
 
@@ -156,6 +161,24 @@ func (a *App) SwitchBackend(bt string) error {
 
 	zlog.Info().Str("backend", bt).Msg("[backend] 显卡后端切换成功（需重启应用生效）")
 	return nil
+}
+
+// emitInstallProgress 推送"解压安装"进度事件（按文件数计算百分比）。
+// 生活类比：施工队每装好一块板就通过广播报一次进度，避免频繁播报（每文件都推）刷屏。
+//
+// P3.3 重构：app_backend.go 与 app_lifecycle_backend.go 中 6 处重复的
+// "percent := 0.0; if total > 0 {...}; EventsEmit(installing)" 块统一收敛到此。
+func (a *App) emitInstallProgress(bt llm.BackendType, label string, current, total int) {
+	percent := 0.0
+	if total > 0 {
+		percent = float64(current) / float64(total) * 100
+	}
+	wailsruntime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
+		Backend: bt,
+		Status:  "installing",
+		Label:   label,
+		Percent: percent,
+	})
 }
 
 // DownloadBackend 从 GitHub 下载指定后端的 zip 包并自动解压安装。
@@ -220,16 +243,7 @@ func (a *App) DownloadBackend(bt string) error {
 		})
 
 		serverPath, installErr := llm.EnsureBackendInstalled(backendType, runtimeDir, func(current, total int) {
-			percent := 0.0
-			if total > 0 {
-				percent = float64(current) / float64(total) * 100
-			}
-			wailsruntime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
-				Backend: backendType,
-				Status:  "installing",
-				Label:   "解压安装中",
-				Percent: percent,
-			})
+			a.emitInstallProgress(backendType, "解压安装中", current, total)
 		})
 
 		// 推送最终完成事件
@@ -278,10 +292,10 @@ func (a *App) DownloadBackend(bt string) error {
 //  3. LastSuccessfulBackend 与当前 BackendType 不同（否则回退无意义）
 //
 // 回退行为：
-//  - 将 BackendType 恢复为 LastSuccessfulBackend
-//  - 清空 LastSuccessfulBackend（避免下次启动再次回退，形成死循环）
-//  - 持久化到磁盘
-//  - 返回 true 表示已执行回退，调用方应退出应用让用户重启
+//   - 将 BackendType 恢复为 LastSuccessfulBackend
+//   - 清空 LastSuccessfulBackend（避免下次启动再次回退，形成死循环）
+//   - 持久化到磁盘
+//   - 返回 true 表示已执行回退，调用方应退出应用让用户重启
 //
 // 返回 false 表示未执行回退（无备份或不满足条件），调用方按原错误流程处理。
 func (a *App) tryRollbackBackend() bool {
@@ -305,17 +319,22 @@ func (a *App) tryRollbackBackend() bool {
 		Msg("[backend-rollback] 检测到启动失败，回退到上一次成功的后端")
 
 	// 恢复旧后端配置，并清空 LastSuccessfulBackend（避免下次启动再次回退）
-	newCfg := *cfg
-	newCfg.BackendType = prev
-	newCfg.LastSuccessfulBackend = ""
-	if err := newCfg.Validate(); err != nil {
+	var updated *config.Config
+	if err := a.updateConfig(func(cfg *config.Config) error {
+		cfg.BackendType = prev
+		cfg.LastSuccessfulBackend = ""
+		if err := cfg.Validate(); err != nil {
+			return apperror.Wrap(apperror.KindInvalidConfig, "配置校验失败", err)
+		}
+		updated = cfg
+		return nil
+	}); err != nil {
 		zlog.Error().Err(err).Msg("[backend-rollback] 配置校验失败，放弃回退")
 		return false
 	}
-	a.setConfig(&newCfg)
 
 	cfgPath := filepath.Join(appDir(), "config.json")
-	if err := config.Save(cfgPath, &newCfg); err != nil {
+	if err := config.Save(cfgPath, updated); err != nil {
 		zlog.Error().Err(err).Msg("[backend-rollback] 保存回退配置失败")
 		return false
 	}
@@ -333,12 +352,18 @@ func (a *App) clearBackendRollback() {
 	if cfg.LastSuccessfulBackend == "" {
 		return
 	}
-	newCfg := *cfg
-	newCfg.LastSuccessfulBackend = ""
-	a.setConfig(&newCfg)
+	var updated *config.Config
+	if err := a.updateConfig(func(c *config.Config) error {
+		c.LastSuccessfulBackend = ""
+		updated = c
+		return nil
+	}); err != nil {
+		zlog.Warn().Err(err).Msg("[backend] 清空回退备份失败（不影响运行）")
+		return
+	}
 
 	cfgPath := filepath.Join(appDir(), "config.json")
-	if err := config.Save(cfgPath, &newCfg); err != nil {
+	if err := config.Save(cfgPath, updated); err != nil {
 		zlog.Warn().Err(err).Msg("[backend] 清空回退备份失败（不影响运行）")
 	} else {
 		zlog.Info().Msg("[backend] 新后端启动成功，已清空回退备份")

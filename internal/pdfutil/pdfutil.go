@@ -61,13 +61,22 @@ func ExtractTextWithLib(data []byte) (string, error) {
 		return "", apperror.New(apperror.KindInternal, "no pages in PDF")
 	}
 
-	// 并行解析各页，结果存入按页码索引的数组以保证顺序
+	// 并行解析各页，结果存入按页码索引的数组以保证顺序。
+	// M12 修复：用带缓冲的 channel 作为信号量限制并发 worker 数量，
+	// 避免恶意声明大量页面的 PDF 一次性扇出海量 goroutine 导致内存/并发尖峰。
 	pages := make([]string, pageCount)
 	var wg sync.WaitGroup
+	maxWorkers := 8
+	if maxWorkers > pageCount {
+		maxWorkers = pageCount
+	}
+	sem := make(chan struct{}, maxWorkers)
 	for i := 1; i <= pageCount; i++ {
 		wg.Add(1)
+		sem <- struct{}{} // 获取 worker 槽位，满时阻塞等待
 		go func(pageNum int) {
 			defer wg.Done()
+			defer func() { <-sem }() // 释放槽位
 			defer func() {
 				// 防御性 recover：单页 panic 不影响其他页，页面解析异常时保留空字符串
 				_ = recover()

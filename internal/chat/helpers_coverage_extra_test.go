@@ -425,6 +425,83 @@ func TestApplyThinkingControl_TemplateMode_Off(t *testing.T) {
 	if req.ChatTemplateKwargs["enable_thinking"] != false {
 		t.Error("Reasoning=off 时 enable_thinking 应为 false")
 	}
+	// M-TO: reasoning=off 同时写 per-request reasoning_effort=none（llama.cpp #26045 逃逸口）
+	if req.ReasoningEffort != "none" {
+		t.Errorf("Reasoning=off 时 ReasoningEffort 应为 none，实际 %q", req.ReasoningEffort)
+	}
+}
+
+// TestApplyThinkingControl_ReasoningEffort_On 推理开启（非 off）时不发送 reasoning_effort=none
+func TestApplyThinkingControl_ReasoningEffort_On(t *testing.T) {
+	s := &Service{
+		config: &config.Config{Reasoning: "on"},
+	}
+	s.modelCaps = llm.ModelCapabilities{ThinkingMode: llm.ThinkingModeReasoning}
+	req := &llm.ChatCompletionRequest{}
+	s.applyThinkingControl(req)
+	if req.ReasoningEffort == "none" {
+		t.Error("Reasoning=on 时不应发送 reasoning_effort=none")
+	}
+}
+
+// TestApplyThinkingControl_ReasoningEffort_Forward 思考开启且配置了思考强度时，
+// 通过 chat_template_kwargs.reasoning_effort 透传给模板
+func TestApplyThinkingControl_ReasoningEffort_Forward(t *testing.T) {
+	s := &Service{
+		config: &config.Config{Reasoning: "on", ReasoningEffort: "high"},
+	}
+	s.modelCaps = llm.ModelCapabilities{ThinkingMode: llm.ThinkingModeTemplate}
+	req := &llm.ChatCompletionRequest{}
+	s.applyThinkingControl(req)
+	if req.ChatTemplateKwargs == nil || req.ChatTemplateKwargs["reasoning_effort"] != "high" {
+		t.Errorf("应透传 reasoning_effort=high 到 chat_template_kwargs，实际 %v", req.ChatTemplateKwargs)
+	}
+	if req.ReasoningEffort == "none" {
+		t.Error("Reasoning=on + 设置思考强度时不应发送 reasoning_effort=none")
+	}
+}
+
+// TestApplyThinkingControl_ReasoningEffort_ForwardReasoningMode
+// Reasoning 模式（DeepSeek）下同样透传思考强度，且不影响 enable_thinking
+func TestApplyThinkingControl_ReasoningEffort_ForwardReasoningMode(t *testing.T) {
+	s := &Service{
+		config: &config.Config{Reasoning: "on", ReasoningEffort: "max"},
+	}
+	s.modelCaps = llm.ModelCapabilities{ThinkingMode: llm.ThinkingModeReasoning}
+	req := &llm.ChatCompletionRequest{}
+	s.applyThinkingControl(req)
+	if req.ChatTemplateKwargs == nil || req.ChatTemplateKwargs["reasoning_effort"] != "max" {
+		t.Errorf("Reasoning 模式应透传 reasoning_effort=max，实际 %v", req.ChatTemplateKwargs)
+	}
+}
+
+// TestApplyThinkingControl_ReasoningEffort_Off 思考关闭时不透传思考强度
+func TestApplyThinkingControl_ReasoningEffort_Off(t *testing.T) {
+	s := &Service{
+		config: &config.Config{Reasoning: "off", ReasoningEffort: "high"},
+	}
+	s.modelCaps = llm.ModelCapabilities{ThinkingMode: llm.ThinkingModeTemplate}
+	req := &llm.ChatCompletionRequest{}
+	s.applyThinkingControl(req)
+	if req.ChatTemplateKwargs["reasoning_effort"] != nil {
+		t.Error("Reasoning=off 时不应透传 reasoning_effort")
+	}
+	if req.ReasoningEffort != "none" {
+		t.Errorf("Reasoning=off 时 ReasoningEffort 应为 none，实际 %q", req.ReasoningEffort)
+	}
+}
+
+// TestApplyThinkingControl_ReasoningEffort_Empty 未配置思考强度时不写入 kwargs
+func TestApplyThinkingControl_ReasoningEffort_Empty(t *testing.T) {
+	s := &Service{
+		config: &config.Config{Reasoning: "on", ReasoningEffort: ""},
+	}
+	s.modelCaps = llm.ModelCapabilities{ThinkingMode: llm.ThinkingModeTemplate}
+	req := &llm.ChatCompletionRequest{}
+	s.applyThinkingControl(req)
+	if req.ChatTemplateKwargs["reasoning_effort"] != nil {
+		t.Error("ReasoningEffort 为空时不应写入 kwargs")
+	}
 }
 
 // TestApplyThinkingControl_ReasoningMode 推理模式（DeepSeek）
@@ -480,11 +557,11 @@ func TestApplySamplingParams_NoConfig(t *testing.T) {
 func TestApplySamplingParams_WithConfig(t *testing.T) {
 	s := &Service{
 		config: &config.Config{
-			Samplers:        "top_k, top_p, temperature",
-			IgnoreEos:       true,
-			Verbose:         true,
-			AdaptiveTarget:  0.5,
-			AdaptiveDecay:   0.9,
+			Samplers:       "top_k, top_p, temperature",
+			IgnoreEos:      true,
+			Verbose:        true,
+			AdaptiveTarget: 0.5,
+			AdaptiveDecay:  0.9,
 		},
 	}
 	req := &llm.ChatCompletionRequest{}

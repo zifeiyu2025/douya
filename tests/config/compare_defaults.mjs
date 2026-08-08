@@ -95,10 +95,12 @@ for (const line of lines) {
         tsConfig[key] = true;
     } else if (valueStr === 'false') {
         tsConfig[key] = false;
+    } else if (valueStr === '[]') {
+        tsConfig[key] = [];
     } else if (!isNaN(Number(valueStr))) {
         tsConfig[key] = Number(valueStr);
     }
-    // 其他类型（对象、数组等）忽略——DEFAULT_CONFIG 中应全部为标量
+    // 其他类型（对象、数组等）忽略——DEFAULT_CONFIG 中应全部为标量或空数组
 }
 
 // ============================================================
@@ -126,6 +128,10 @@ for (const key of goKeys) {
     // 数字近似比较（避免浮点精度问题）
     if (typeof goVal === 'number' && typeof tsVal === 'number') {
         if (Math.abs(goVal - tsVal) < 1e-9) continue;
+    }
+    // 数组比较（如 mcp_servers 默认空数组 []）
+    if (Array.isArray(goVal) && Array.isArray(tsVal)) {
+        if (goVal.length === tsVal.length) continue;
     }
     mismatches.push({ key, goVal, tsVal });
 }

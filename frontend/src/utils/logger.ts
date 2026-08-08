@@ -27,3 +27,21 @@ export function logError(prefix: string, err: unknown): void {
     console.error(`${prefix} (${errType})`)
   }
 }
+
+/**
+ * 记录警告日志
+ *
+ * 生活类比：像仪表盘上的黄色警示灯——不是故障，但需要留意。
+ * 用于降级、兼容性回退等非致命情况。
+ *
+ * @param prefix 警告描述前缀，始终输出
+ * @param detail 详细信息（可选），生产环境仅输出前缀，开发环境输出完整信息
+ */
+export function logWarn(prefix: string, detail?: unknown): void {
+  if (isDev) {
+    console.warn(prefix, detail)
+  } else {
+    // 生产环境：仅输出前缀，不泄漏细节
+    console.warn(prefix)
+  }
+}

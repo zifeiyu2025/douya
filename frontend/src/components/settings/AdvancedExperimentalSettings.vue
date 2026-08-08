@@ -56,6 +56,62 @@
         />
       </n-form-item>
 
+      <!-- 细粒度 CORS 配置 -->
+      <n-form-item>
+        <template #label>
+          CORS 允许来源
+          <HelpTip
+            content="允许的浏览器跨域来源，逗号分隔（如 http://localhost:5173,*）。留空使用 llama.cpp 默认（仅 localhost）。供浏览器访问 Lua/Web 工具时自定义来源"
+          />
+        </template>
+        <n-input
+          v-model:value="formConfig.cors_origins"
+          placeholder="http://localhost:5173,*"
+          clearable
+          @update:value="autoSave"
+        />
+      </n-form-item>
+
+      <n-form-item>
+        <template #label>
+          CORS 允许方法
+          <HelpTip
+            content="允许的 HTTP 方法，逗号分隔（如 GET,POST,PUT,DELETE）。留空使用 llama.cpp 默认"
+          />
+        </template>
+        <n-input
+          v-model:value="formConfig.cors_methods"
+          placeholder="GET,POST"
+          clearable
+          @update:value="autoSave"
+        />
+      </n-form-item>
+
+      <n-form-item>
+        <template #label>
+          CORS 允许请求头
+          <HelpTip
+            content="允许的请求头，逗号分隔（如 Content-Type,X-Tool-Cwd）。留空使用 llama.cpp 默认"
+          />
+        </template>
+        <n-input
+          v-model:value="formConfig.cors_headers"
+          placeholder="Content-Type"
+          clearable
+          @update:value="autoSave"
+        />
+      </n-form-item>
+
+      <n-form-item>
+        <template #label>
+          CORS 允许凭证
+          <HelpTip
+            content="是否允许跨域携带凭证（Cookie/认证头）。若与允许来源 * 同时启用，llama.cpp 会回显请求 Origin 并始终允许凭证。请仅在可信来源下开启"
+          />
+        </template>
+        <n-switch v-model:value="formConfig.cors_credentials" @update:value="autoSave" />
+      </n-form-item>
+
       <!-- 实验功能 -->
       <n-divider style="margin: 24px 0 16px" />
       <div class="section-header">

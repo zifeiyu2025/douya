@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -85,11 +86,32 @@ func NewClient(baseURL string, apiKey string) *Client {
 	}
 }
 
-// setAuthHeader 为请求设置认证 header（如果配置了 API Key）
+// setAuthHeader 为请求设置认证 header（如果配置了 API Key）。
+// M1 修复：内部 API Key 是给本机 llama-server 用的启动凭据，绝不应当发送到
+// 不可信主机。只有当 api_base 解析为 loopback（127.0.0.1 / localhost / ::1）时才
+// 附加该 Key，防止配置被改写（如配置文件的 api_base 指向远程地址）后 Key 随请求外泄。
 func (c *Client) setAuthHeader(req *http.Request) {
-	if c.apiKey != "" {
+	if c.apiKey != "" && c.baseIsLoopback() {
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
+}
+
+// baseIsLoopback 判断 api_base 的 host 是否为本机回环地址。
+// hostname 解析失败、IP 未知或非回环一律返回 false（保守：不发送内部 Key）。
+func (c *Client) baseIsLoopback() bool {
+	u, err := url.Parse(c.baseURL)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback()
 }
 
 // SetAuthHeader 公开方法，供外部包（如 app.go）设置认证 header

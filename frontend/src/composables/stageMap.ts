@@ -18,5 +18,6 @@ export const STAGE_PERCENT_MAP: Record<SwitchProgressStage, number> = {
   detecting: 90,
   done: 100,
   failed: 100,
-  rolling_back: 50
+  rolling_back: 50,
+  retrying: 10 // 后台等待/重试阶段，归入 loading 类
 }

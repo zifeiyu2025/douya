@@ -3,7 +3,7 @@
 
 import type { Ref } from 'vue'
 import { watch } from 'vue'
-import { logError } from '../../utils/logger'
+import { logError, logWarn } from '../../utils/logger'
 import type {
   ModelSwitchState,
   BackendProgressStage,
@@ -195,7 +195,7 @@ export function useSwitchStateMachine(deps: SwitchStateDeps) {
     }
     startupWatchdogTimer = setTimeout(async () => {
       if (!receivedAnyStatusEvent && !hasEverBeenReady.value) {
-        console.warn('[startup] watchdog: no status event received in 60s, polling manually')
+        logWarn('[startup] watchdog: no status event received in 60s, polling manually')
         try {
           await checkServerStatus()
         } catch (e) {

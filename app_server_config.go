@@ -60,7 +60,7 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 	// 解析后端类型：优先用 startup 中缓存的解析结果（已 EnsureBackendInstalled），
 	// 未缓存时（如热重载场景）重新根据硬件和配置解析。
 	// 生活类比：用户选了"自动挡"，就根据车库里的车（硬件）来选合适的发动机。
-	resolvedBackend := a.resolvedBackend
+	resolvedBackend, resolvedServerPath := a.resolvedBackendSnapshot()
 	if resolvedBackend == "" {
 		// 热重载场景：runtime 已就绪，无需运行时预校验，直接按硬件推断
 		resolvedBackend = llm.ResolveBackendType(a.hwInfo, cfg.BackendType)
@@ -68,7 +68,7 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 
 	// 解析 ServerPath：优先用 startup 中缓存的路径（已 EnsureBackendInstalled），
 	// 未缓存时回退到配置中的 LlamaServerPath（兼容旧版布局）。
-	absServerPath := a.resolvedServerPath
+	absServerPath := resolvedServerPath
 	if absServerPath == "" {
 		absServerPath = resolvePath(cfg.LlamaServerPath)
 	}
@@ -135,9 +135,12 @@ func resolveDerivedServerParams(cfg *config.Config, sp system.SmartParams) *deri
 	}
 
 	// Flash Attention：用户设置优先，支持 on/off/auto 三值
-	d.FlashAttn = ""
-	if sp.FlashAttn {
-		d.FlashAttn = "on"
+	// P1.5 修复：smart-params 判定"关闭 Flash"（Vulkan/CPU 等后端）时必须显式传 off，
+	// 不能留空——留空则 appendStringArg 不产出 --flash-attn，llama.cpp 用自己的默认值
+	// （可能是 on/auto），导致"安全关闭"意图丢失。
+	d.FlashAttn = "on"
+	if !sp.FlashAttn {
+		d.FlashAttn = "off"
 	}
 	if cfg.FlashAttn != nil {
 		if *cfg.FlashAttn {
@@ -153,13 +156,15 @@ func resolveDerivedServerParams(cfg *config.Config, sp system.SmartParams) *deri
 		d.Mlock = *cfg.Mlock
 	}
 
-	// MmprojOffload：用户设置优先（config.json 中 mmproj_offload=true 则启用）
-	// smartparams 根据硬件判断是否有 GPU（有 GPU 则推荐开启）
-	// 日志证据：mmproj_offload 不是 Vulkan 栈溢出根因，gpu_layers 过大才是
-	// 用户可通过 config.json 的 mmproj_offload=false 来关闭
+	// MmprojOffload：三态语义（与 config.FlashAttn/Mlock 一致）。
+	//   nil  → 自动（按 smartparams 硬件判断）
+	//   true → 强制启用
+	//   false → 强制关闭
+	// P1.4 修复：此前是 `if cfg.MmprojOffload { d.MmprojOffload = true }` 单方向 OR，
+	// 用户设 mmproj_offload=false 时永远被 sp.MmprojOffload（GPU 上为 true）覆盖，关闭路径不可达。
 	d.MmprojOffload = sp.MmprojOffload
-	if cfg.MmprojOffload {
-		d.MmprojOffload = true
+	if cfg.MmprojOffload != nil {
+		d.MmprojOffload = *cfg.MmprojOffload
 	}
 
 	// 推测解码参数：用户设置优先，未配置时用智能参数自动启用
@@ -263,24 +268,24 @@ func buildServerConfigFromFields(
 		ContextShift:           cfg.ContextShift,
 		// P0-B3: 启用 context-shift 时保护 system prompt 不被移位。
 		// 512 是保守值，足够覆盖豆芽的 system prompt（约 200-400 token）。
-		KeepSize:                 512,
-		MinP:                     cfg.MinP,
-		DryMultiplier:            cfg.DryMultiplier,
-		DryBase:                  cfg.DryBase,
-		DryAllowedLength:         cfg.DryAllowedLength,
-		DrySequenceBreaker:       cfg.DrySequenceBreaker,
-		DryPenaltyLastN:          cfg.DryPenaltyLastN,
-		GrpAttnN:                 cfg.GrpAttnN,
-		GrpAttnW:                 cfg.GrpAttnW,
-		Jinja:                    cfg.Jinja,
-		CachePrompt:              cfg.CachePrompt,
-		Metrics:                  cfg.Metrics,
-		Verbose:                  cfg.Verbose,
-		SpecDraftThreads:         cfg.SpecDraftThreads,
-		SpecDraftThreadsBatch:    cfg.SpecDraftThreadsBatch,
-		SpecDefault:              cfg.SpecDefault,
-		Device:                   cfg.Device,
-		Parallel:                 cfg.Parallel,
+		KeepSize:              512,
+		MinP:                  cfg.MinP,
+		DryMultiplier:         cfg.DryMultiplier,
+		DryBase:               cfg.DryBase,
+		DryAllowedLength:      cfg.DryAllowedLength,
+		DrySequenceBreaker:    cfg.DrySequenceBreaker,
+		DryPenaltyLastN:       cfg.DryPenaltyLastN,
+		GrpAttnN:              cfg.GrpAttnN,
+		GrpAttnW:              cfg.GrpAttnW,
+		Jinja:                 cfg.Jinja,
+		CachePrompt:           cfg.CachePrompt,
+		Metrics:               cfg.Metrics,
+		Verbose:               cfg.Verbose,
+		SpecDraftThreads:      cfg.SpecDraftThreads,
+		SpecDraftThreadsBatch: cfg.SpecDraftThreadsBatch,
+		SpecDefault:           cfg.SpecDefault,
+		Device:                cfg.Device,
+		Parallel:              cfg.Parallel,
 		// 多 GPU 参数接线：config.go 已有字段与校验（isValidSplitMode/validateTensorSplit），
 		// 此处映射到 ServerConfig，由 server_args.go 生成 --split-mode/--tensor-split/--main-gpu
 		SplitMode:                cfg.SplitMode,
@@ -341,6 +346,10 @@ func buildServerConfigFromFields(
 		Repack:                   cfg.Repack,
 		Agent:                    cfg.Agent,
 		UIMcpProxy:               cfg.UIMcpProxy,
+		CorsOrigins:              cfg.CorsOrigins,
+		CorsMethods:              cfg.CorsMethods,
+		CorsHeaders:              cfg.CorsHeaders,
+		CorsCredentials:          cfg.CorsCredentials,
 		BackendSampling:          cfg.BackendSampling,
 		SsePingInterval:          cfg.SsePingInterval,
 		LoraPaths:                cfg.LoraPaths,

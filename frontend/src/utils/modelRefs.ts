@@ -5,22 +5,19 @@
  * 包含各模型的官方推荐采样参数（温度、Top P、Top K 等）。
  */
 
+/** 模型参考参数的采样配置（raw 和 raw_thinking 共用） */
+export interface ModelRefRaw {
+  temperature: number
+  top_p: number
+  top_k: number
+  context_size: number
+  repeat_penalty: number
+}
+
 export interface ModelRefConfig {
   name: string
-  raw: {
-    temperature: number
-    top_p: number
-    top_k: number
-    context_size: number
-    repeat_penalty: number
-  }
-  raw_thinking?: {
-    temperature: number
-    top_p: number
-    top_k: number
-    context_size: number
-    repeat_penalty: number
-  }
+  raw: ModelRefRaw
+  raw_thinking?: ModelRefRaw
   params: { label: string; value: string }[]
   params_thinking?: { label: string; value: string }[]
   note?: string

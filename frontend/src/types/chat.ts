@@ -240,13 +240,18 @@ export interface SearchAPIKeys {
  * 新增字段时务必同步三处，否则 CI 会报错。
  */
 export interface Config {
+  // 配置 schema 版本号（与 Go Config.Version 对齐）
+  version: number
   model_path: string
   mmproj_auto: boolean
-  mmproj_offload: boolean
+  // mmproj GPU 卸载：null=自动（按硬件判断），true=强制启用，false=强制关闭
+  mmproj_offload: boolean | null
   llama_server_path: string
   // 计算后端类型：auto(自动检测)/cuda/hip/sycl/vulkan/openvino/cpu
   // 生活类比：像选发动机型号——auto 是"让系统帮你选"，其他是明确指定用哪种发动机
   backend_type: string
+  // 上一次成功启动的后端类型（非空表示切换过但新后端未通过启动验证，启动成功后清空）
+  last_successful_backend: string
   // 性能模式：compatible(兼容)/balanced(平衡)/performance(性能)
   // 生活类比：像汽车的 ECO/COMFORT/SPORT 驾驶模式，按模式批量调整参数组合
   performance_mode: string
@@ -278,6 +283,8 @@ export interface Config {
   system_prompt: string
   // 系统提示词模式："append"（追加）或 "replace"（替换），默认 "append"
   system_prompt_mode: 'append' | 'replace' | ''
+  // 编程助手模式："auto"（检测到 coder 模型自动启用）/ "on"（始终启用）/ "off"（始终禁用），默认 "auto"
+  programming_mode: 'auto' | 'on' | 'off'
   chat_background: string
   chat_background_opacity: number
   user_avatar: string
@@ -359,6 +366,10 @@ export interface Config {
   simple_io: boolean
   agent: boolean
   ui_mcp_proxy: boolean
+  cors_origins: string
+  cors_methods: string
+  cors_headers: string
+  cors_credentials: boolean
   lora_paths: string
   gpu_layers: number
   flash_attn: boolean | null
@@ -375,6 +386,8 @@ export interface Config {
   reasoning_budget_start_tag: string
   reasoning_budget_end_tag: string
   reasoning_format: string
+  // 思考强度（模板级 reasoning_effort，空=不传递跟随模型默认；模板支持时生效，如 DeepSeek-V4）
+  reasoning_effort: string
   // 注意：后端 Go 为 *bool（nil=不传递），TS 侧统一为 boolean | null，nil 对应 null
   reasoning_preserve: boolean | null
   // RAG 重排序配置
@@ -507,21 +520,24 @@ export interface SmartParamsInfo {
 }
 
 export const DEFAULT_CONFIG: Config = {
+  version: 2, // 与 Go Config.Version 对齐（配置 schema 版本号，P4.3 统一为 2）
   model_path: '',
   mmproj_auto: true,
-  mmproj_offload: true,
+  mmproj_offload: null,
   llama_server_path: 'runtime/llama-server.exe',
   backend_type: 'auto', // 与 Go DefaultConfig 对齐（自动检测最合适的后端）
+  last_successful_backend: '', // 与 Go DefaultConfig 对齐（无历史回退后端）
   performance_mode: 'balanced', // 与 Go DefaultConfig 对齐（平衡模式，兼顾性能与稳定性）
   // TTS 文本转语音默认配置（与 Go DefaultConfig 对齐）
-  tts_enabled: false, // 默认关闭朗读按钮
+  tts_enabled: true, // 与 Go DefaultConfig 对齐（运行时默认开启朗读按钮）
   tts_voice: '', // 空字符串 = 自动按优先级挑选（晓晓→云希→...）
   tts_rate: 1.0, // 正常语速
   tts_pitch: 1.0, // 正常音调
   tts_volume: 1.0, // 最大音量
   api_base: 'http://127.0.0.1:8080',
   port: 8080,
-  context_size: 8192,
+  // P4.1: 默认 0 = 未设置，让 smart-params 按 GPU 显存预算计算（与 Go DefaultConfig 对齐）
+  context_size: 0,
   proactive_compress_threshold: 0.8, // P1-A1: 80% 时主动压缩，为后续对话留出 20% 空间
   temperature: 0.8, // 与 Go DefaultConfig 对齐（llama.cpp 默认值）
   top_p: 0.95,
@@ -537,8 +553,9 @@ export const DEFAULT_CONFIG: Config = {
   fit_ctx: 0,
   system_prompt: '',
   system_prompt_mode: 'append', // 默认使用追加模式（与 Go DefaultConfig 对齐）
+  programming_mode: 'auto', // 默认自动检测（coder 模型启用编程版提示词，与 Go DefaultConfig 对齐）
   chat_background: '',
-  chat_background_opacity: 0.85,
+  chat_background_opacity: 0.9, // 与 Go DefaultConfig 对齐（默认背景不透明度 0.9）
   user_avatar: '',
   ai_avatar: '',
   search_mode: 'off',
@@ -613,6 +630,10 @@ export const DEFAULT_CONFIG: Config = {
   simple_io: false,
   agent: false,
   ui_mcp_proxy: false,
+  cors_origins: '',
+  cors_methods: '',
+  cors_headers: '',
+  cors_credentials: false,
   lora_paths: '',
   gpu_layers: 0,
   flash_attn: null,
@@ -627,6 +648,7 @@ export const DEFAULT_CONFIG: Config = {
   reasoning_budget_start_tag: '', // 思考预算区间起始标记（空=不传递）
   reasoning_budget_end_tag: '', // 思考预算区间结束标记（空=不传递）
   reasoning_format: '',
+  reasoning_effort: '', // 思考强度（空=跟随模型默认；模板支持时生效）
   reasoning_preserve: null, // 与 Go DefaultConfig 对齐（nil=不传递）
   reranker_model_path: '',
   rerank_top_n: 5,

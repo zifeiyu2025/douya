@@ -31,8 +31,9 @@ const (
 	EventWindowCloseRequest      = "window:closeRequest"
 	EventShutdownProgress        = "shutdown:progress"
 	EventSearchAutoDisabled      = "search:autoDisabled"
-	EventUpdateCheck             = "update:check"
-	EventUpdateProgress          = "update:progress"
+	// P3.6 修复：EventUpdateCheck 已被移除——前端使用同步 CheckUpdate RPC，
+	// 无事件监听者，emit 是死代码。保留 EventUpdateProgress（前端有订阅）。
+	EventUpdateProgress = "update:progress"
 )
 
 // wailsChatEventPublisher is the Wails adapter for the chat.EventPublisher

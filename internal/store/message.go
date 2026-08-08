@@ -133,14 +133,73 @@ func CreateMessage(db *sql.DB, msg *Message, encKey []byte) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), dbOpTimeout)
 	defer cancel()
-	_, err := db.ExecContext(ctx,
+	if err := insertMessage(ctx, db, &saved); err != nil {
+		return err
+	}
+	return nil
+}
+
+// CreateMessagesTx 在单个数据库事务内批量创建消息。
+// 原子性：一组消息（例如 tool_call 的 assistant+tool 成对消息）要么全部落库，
+// 要么全部回滚，避免失败时留下仅有一半的孤儿数据。
+// CreatedAt/ID 为空的字段会在写入时自动生成并回写到原 slice。
+//
+// 生活类比：同一次调度的多条报表必须一起归档，绝不会出现"只有客户回单、
+// 没有送达记录"的对不上账的情况。
+func CreateMessagesTx(db *sql.DB, msgs []*Message, encKey []byte) error {
+	// 空列表直接返回，避免启动无意义的空事务
+	if len(msgs) == 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), dbOpTimeout)
+	defer cancel()
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return apperror.Wrap(apperror.KindInternal, "begin messages transaction", err)
+	}
+
+	for _, msg := range msgs {
+		saved := *msg
+		if saved.ID == "" {
+			saved.ID = uuid.New().String()
+			msg.ID = saved.ID
+		}
+		if saved.CreatedAt.IsZero() {
+			saved.CreatedAt = time.Now()
+			msg.CreatedAt = saved.CreatedAt
+		}
+		if err := encryptMessage(&saved, encKey); err != nil {
+			_ = tx.Rollback()
+			return apperror.Wrap(apperror.KindInternal, "encrypt message", err)
+		}
+		if err := insertMessage(ctx, tx, &saved); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return apperror.Wrap(apperror.KindInternal, "commit messages transaction", err)
+	}
+	return nil
+}
+
+// insertMessage 执行单条消息 INSERT，execer 可为 *sql.DB 或 *sql.Tx。
+// 由 CreateMessage / CreateMessagesTx 复用，避免 SQL 语句重复。
+func insertMessage(ctx context.Context, execer execer, saved *Message) error {
+	if _, err := execer.ExecContext(ctx,
 		"INSERT INTO messages ("+messageColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		saved.ID, saved.ConversationID, saved.Role, saved.Content, saved.ThinkingContent, saved.ThinkingDuration, saved.SearchResults, saved.Images, saved.Attachments, saved.ToolCalls, saved.ToolCallID, saved.CreatedAt,
-	)
-	if err != nil {
+	); err != nil {
 		return apperror.Wrap(apperror.KindInternal, "create message", err)
 	}
 	return nil
+}
+
+// execer 抽象 *sql.DB 和 *sql.Tx 共有的执行接口，供 insertMessage 复用。
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
 func GetMessagesByConversation(db *sql.DB, convID string, encKey []byte) ([]*Message, error) {

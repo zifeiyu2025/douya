@@ -48,7 +48,11 @@ type App struct {
 	configMu sync.RWMutex
 	server   *llm.Server
 	serverMu sync.RWMutex
-	client   *llm.Client
+	// backendMu 保护 resolvedBackend / resolvedServerPath 的并发读写。
+	// 生活类比：车辆登记证的"已装发动机型号"被多个部门读取（Wails 前端查询后端状态、
+	// 启动流程写入回退结果），用一把锁登记进出，防止读取到写了一半的登记证。
+	backendMu sync.RWMutex
+	client    *llm.Client
 	// clientMu 保护 client 字段的并发读写。
 	// 生活类比：像公共打印机的"使用登记本"——多人可同时查看谁在用（RLock），
 	// 但更换打印机时必须等所有人用完（Lock）。
@@ -150,6 +154,39 @@ func (a *App) setClient(c *llm.Client) {
 	a.client = c
 }
 
+// getServer 返回当前 llama-server 的快照指针（受 serverMu 保护）。
+// 生活类比：从登记本上抄下"当前正在运行的服务"，抄完即可放心使用；
+// 服务可能被 initServer 替换（后端回退场景），必须经由此处读取，避免读到写了一半的指针。
+func (a *App) getServer() *llm.Server {
+	a.serverMu.RLock()
+	defer a.serverMu.RUnlock()
+	return a.server
+}
+
+// setResolvedBackend 在锁保护下更新已解析的后端与服务器路径。
+// 生活类比：车辆登记证上的"已装发动机型号"由维修工（启动流程）更新，
+// 更新时锁门（Lock）防止其他部门读到一半的信息。
+func (a *App) setResolvedBackend(bt llm.BackendType, serverPath string) {
+	a.backendMu.Lock()
+	defer a.backendMu.Unlock()
+	a.resolvedBackend = bt
+	a.resolvedServerPath = serverPath
+}
+
+// resolvedBackendSnapshot 在锁保护下读取已解析后端与服务器路径。
+// 生活类比：各部门查"已装发动机型号"时也要排队（RLock），保证读到完整的值。
+func (a *App) resolvedBackendSnapshot() (bt llm.BackendType, serverPath string) {
+	a.backendMu.RLock()
+	defer a.backendMu.RUnlock()
+	return a.resolvedBackend, a.resolvedServerPath
+}
+
+// resolvedBackendString 在锁保护下读取已解析后端的字符串形式（可能为空）。
+func (a *App) resolvedBackendString() string {
+	bt, _ := a.resolvedBackendSnapshot()
+	return string(bt)
+}
+
 // trackedGo 启动一个被 App 跟踪的长生命周期 goroutine。
 //
 // 生活类比：就像给每个员工（goroutine）发一个工牌，App（公司）在下班（shutdown）时
@@ -168,6 +205,17 @@ func (a *App) trackedGo(fn func()) {
 		}()
 		fn()
 	})
+}
+
+// recoverLog 恢复 panic 并记录警告日志，用于 goroutine 内的 defer 调用。
+// 仅适用于"只需记录日志"的简单 recover 场景；有额外副作用（如 EventsEmit、错误事件发送）
+// 的 recover 仍需手写 defer func() 以保留自定义逻辑。
+// 生活类比：像安全气囊的标准弹出动作——只记录"这里出了问题"，
+// 特殊场景需要联动其他系统（如报警、灭火）的仍需定制化处理。
+func recoverLog(msg string) {
+	if r := recover(); r != nil {
+		zlog.Warn().Interface("panic", r).Msg(msg)
+	}
 }
 
 // requireReady 检查应用是否已就绪（配置加载、数据库初始化等完成）。

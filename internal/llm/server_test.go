@@ -11,6 +11,34 @@ import (
 	"time"
 )
 
+// TestDetectOOMInStderr 验证 OOM 模式检测：显存/内存不足应命中，普通日志不命中。
+func TestDetectOOMInStderr(t *testing.T) {
+	cases := []struct {
+		name    string
+		stderr  string
+		wantOOM bool
+	}{
+		{name: "空输出", stderr: "", wantOOM: false},
+		{name: "CUDA OOM", stderr: "CUDA error: out of memory\n", wantOOM: true},
+		{name: "cuda_error_out_of_memory", stderr: "cuda_error_out_of_memory during alloc", wantOOM: true},
+		{name: "显存分配失败", stderr: "failed to allocate CUDA memory", wantOOM: true},
+		{name: "not enough gpu memory", stderr: "not enough gpu memory", wantOOM: true},
+		{name: "vram 关键词", stderr: "VRAM insufficient 24576 MiB needed", wantOOM: true},
+		{name: "std::bad_alloc", stderr: "std::bad_alloc", wantOOM: true},
+		{name: "mmap failed", stderr: "mmap failed: cannot allocate memory", wantOOM: true},
+		{name: "普通加载日志", stderr: "load model ok, backend cuda, ngl=99", wantOOM: false},
+		{name: "普通启动日志", stderr: "llama server listening at 127.0.0.1:8080", wantOOM: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := DetectOOMInStderr(tc.stderr); got != tc.wantOOM {
+				t.Errorf("期望 detectOOMInStderr=%v，实际 %v（stderr=%q）", tc.wantOOM, got, tc.stderr)
+			}
+		})
+	}
+}
+
 // TestLastStartTimeConcurrentAccess 验证 lastStartTime 的并发读写无数据竞争。
 // 配合 `go test -race` 运行可检测竞争：多个 goroutine 同时 Store/Load，
 // 若 lastStartTime 不是 atomic 类型，race detector 会报告竞争。

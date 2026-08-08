@@ -101,7 +101,12 @@ func (s *Server) appendValidatedCacheType(args []string, flag, t string) []strin
 // appendRuntimeArgs 追加运行时资源参数。
 // 包括 mlock、线程、batch、上下文大小、mmproj 投影。
 func (s *Server) appendRuntimeArgs(args []string) []string {
-	args = appendBoolArg(args, "--mlock", s.config.Mlock)
+	// 模型加载模式（llama.cpp #20834 统一为 --load-mode）：
+	// DirectIO > Mlock > 非 Mmap > 默认 mmap。
+	// 生活类比：加载模式像变速箱档位——用户同时踩了几个开关时，按优先级取一个生效。
+	if mode := s.config.LoadMode(); mode != "mmap" {
+		args = append(args, "--load-mode", mode)
+	}
 	args = appendIntArg(args, "-t", s.config.Threads)
 	args = appendIntArg(args, "-b", s.config.BatchSize)
 	args = appendIntArg(args, "-ub", s.config.UBatchSize)
@@ -157,9 +162,6 @@ func (s *Server) appendKVCacheArgs(args []string) []string {
 	args = appendIntArg(args, "--image-max-tokens", s.config.ImageMaxTokens)
 	args = appendIntArg(args, "--fit-target", s.config.FitTarget)
 	args = appendIntArg(args, "--fit-ctx", s.config.FitCtx)
-	if !s.config.Mmap {
-		args = append(args, "--no-mmap")
-	}
 	if !s.config.KVOffload {
 		args = append(args, "--no-kv-offload")
 	}
@@ -413,6 +415,13 @@ func (s *Server) appendNewFeatureArgs(args []string) []string {
 		args = append(args, "--ui-mcp-proxy")
 	}
 
+	// 细粒度 CORS 配置（上游 #25655）：仅当用户显式配置时才传递，避免覆盖 llama.cpp 内置默认。
+	// 生活类比：默认只放行本班（localhost），用户登记表（配置）非空时才额外放行。
+	args = appendStringArg(args, "--cors-origins", s.config.CorsOrigins)
+	args = appendStringArg(args, "--cors-methods", s.config.CorsMethods)
+	args = appendStringArg(args, "--cors-headers", s.config.CorsHeaders)
+	args = appendBoolArg(args, "--cors-credentials", s.config.CorsCredentials)
+
 	// MCP 服务器配置文件：豆芽在 AppDir 下生成 mcp_servers.json，
 	// 由 llama-server 通过 --mcp-servers-config 加载并管理所有 MCP 子进程。
 	// 仅当文件存在时传递，避免 llama-server 因找不到文件而启动失败。
@@ -557,8 +566,7 @@ func (s *Server) appendDraftThreadsArgs(args []string) []string {
 
 // appendCPUMoeArgs 追加 Direct IO、MoE 卸载、OpOffload 参数。
 func (s *Server) appendCPUMoeArgs(args []string) []string {
-	// 直接 I/O（绕过操作系统页面缓存，加速大模型加载）
-	args = appendBoolArg(args, "--direct-io", s.config.DirectIO)
+	// 直接 I/O 已合并进 --load-mode（由 appendRuntimeArgs 按优先级统一处理）
 	// MoE 权重 CPU 卸载
 	if s.config.CPUMoe {
 		args = append(args, "--cpu-moe")

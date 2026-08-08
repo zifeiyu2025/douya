@@ -80,16 +80,7 @@ func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) e
 			Percent: 0,
 		})
 		if err := llm.EnsureCPUBaseInstalled(info.Subdir, runtimeDir, func(current, total int) {
-			percent := 0.0
-			if total > 0 {
-				percent = float64(current) / float64(total) * 100
-			}
-			runtime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
-				Backend: bt,
-				Status:  "installing",
-				Label:   "安装 CPU 基础包",
-				Percent: percent,
-			})
+			a.emitInstallProgress(bt, "安装 CPU 基础包", current, total)
 		}); err != nil {
 			return apperror.Wrap(apperror.KindInternal, "解压 CPU 基础包失败", err)
 		}
@@ -141,16 +132,7 @@ func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) e
 	})
 
 	_, installErr := llm.EnsureBackendInstalled(bt, runtimeDir, func(current, total int) {
-		percent := 0.0
-		if total > 0 {
-			percent = float64(current) / float64(total) * 100
-		}
-		runtime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
-			Backend: bt,
-			Status:  "installing",
-			Label:   "解压安装中",
-			Percent: percent,
-		})
+		a.emitInstallProgress(bt, "解压安装中", current, total)
 	})
 
 	// complete 事件推送规则（避免重复推送）：
@@ -174,16 +156,7 @@ func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) e
 			Percent: 0,
 		})
 		if cudartInstallErr := llm.EnsureCudartInstalled(runtimeDir, func(current, total int) {
-			percent := 0.0
-			if total > 0 {
-				percent = float64(current) / float64(total) * 100
-			}
-			runtime.EventsEmit(a.ctx, EventBackendDownloadProgress, llm.DownloadProgress{
-				Backend: bt,
-				Status:  "installing",
-				Label:   "安装 cudart 依赖包",
-				Percent: percent,
-			})
+			a.emitInstallProgress(bt, "安装 cudart 依赖包", current, total)
 		}); cudartInstallErr != nil {
 			// cudart 解压失败不阻止重启：主包已安装，用户系统 PATH 中可能有 cudart
 			// 但 validatePaths 会检测到缺失，下次启动可能又提示下载
@@ -216,11 +189,7 @@ func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) e
 	// 延迟 1 秒后自动重启应用，给前端时间显示"重启中"状态
 	go func() {
 		// 防止 panic 导致整个进程崩溃
-		defer func() {
-			if r := recover(); r != nil {
-				zlog.Warn().Interface("panic", r).Msg("[startup] 自动重启 goroutine panic")
-			}
-		}()
+		defer recoverLog("[startup] 自动重启 goroutine panic")
 		time.Sleep(1 * time.Second)
 		a.RestartApp()
 	}()

@@ -30,15 +30,15 @@ const GitHubReleasesAPI = "https://api.github.com/repos/ggml-org/llama.cpp/relea
 // 生活类比：就像快递追踪——已发货（开始下载）、运输中（下载中，进度 45%）、
 // 已签收（下载完成）。
 type DownloadProgress struct {
-	Backend     BackendType // 后端类型
-	AssetName   string      // GitHub asset 文件名，如 "llama-b10167-bin-win-cuda-13.3-x64.zip"
-	TagName     string      // GitHub release 标签，如 "b10167"
-	TotalBytes  int64       // 文件总大小（字节），未知时为 0
-	Downloaded  int64       // 已下载字节数
-	Percent     float64     // 下载百分比（0-100）
-	Status      string      // 状态："downloading" / "completed" / "failed" / "installing" / "retrying"
-	Error       string      // 失败时的错误信息
-	Label       string      // 当前下载内容的描述，如"推理后端"、"cudart 依赖包"
+	Backend    BackendType // 后端类型
+	AssetName  string      // GitHub asset 文件名，如 "llama-b10167-bin-win-cuda-13.3-x64.zip"
+	TagName    string      // GitHub release 标签，如 "b10167"
+	TotalBytes int64       // 文件总大小（字节），未知时为 0
+	Downloaded int64       // 已下载字节数
+	Percent    float64     // 下载百分比（0-100）
+	Status     string      // 状态："downloading" / "completed" / "failed" / "installing" / "retrying"
+	Error      string      // 失败时的错误信息
+	Label      string      // 当前下载内容的描述，如"推理后端"、"cudart 依赖包"
 }
 
 // GitHubAsset 表示 GitHub release 中的一个资源文件。
@@ -187,158 +187,11 @@ func cudaMajorVersion(assetName string) int {
 //   - progressCB: 下载进度回调（可为 nil）
 //
 // 返回：下载完成的 zip 文件绝对路径，或错误
+//
+// P3.3 重构：原实现与 DownloadBackendZipWithContext 几乎完全重复（~150 行），
+// 现统一委托给带 context 的实现（传 context.Background()），消除复制粘贴。
 func DownloadBackendZip(bt BackendType, runtimeDir string, progressCB func(DownloadProgress)) (string, error) {
-	if bt == BackendAuto {
-		return "", apperror.New(apperror.KindInvalidInput, "BackendAuto 需先通过 ResolveBackendType 解析成具体后端")
-	}
-
-	// 步骤 1：查找匹配的 GitHub asset
-	asset, tagName, err := FindReleaseAsset(bt)
-	if err != nil {
-		return "", apperror.Wrapf(apperror.KindUnavailable, "查找 %s 后端 release asset 失败", err, GetBackendInfo(bt).DisplayName)
-	}
-
-	destPath := filepath.Join(runtimeDir, asset.Name)
-	tmpPath := destPath + ".tmp"
-
-	// 如果目标文件已存在（之前下载过），直接返回
-	if _, err := os.Stat(destPath); err == nil {
-		log.Info().
-			Str("backend", bt.String()).
-			Str("path", destPath).
-			Msg("[backend] zip 包已存在，跳过下载")
-		if progressCB != nil {
-			progressCB(DownloadProgress{
-				Backend:    bt,
-				AssetName:  asset.Name,
-				TagName:    tagName,
-				TotalBytes: asset.Size,
-				Downloaded: asset.Size,
-				Percent:    100,
-				Status:     "completed",
-			})
-		}
-		return destPath, nil
-	}
-
-	// 清理可能残留的临时文件
-	_ = os.Remove(tmpPath)
-
-	// 步骤 2：流式下载
-	log.Info().
-		Str("backend", bt.String()).
-		Str("url", asset.BrowserDownloadURL).
-		Str("dest", destPath).
-		Int64("size", asset.Size).
-		Msg("[backend] 开始下载后端 zip 包")
-
-	client := &http.Client{Timeout: 0} // 下载不设超时，大文件可能需要几分钟
-	req, err := http.NewRequest("GET", asset.BrowserDownloadURL, nil)
-	if err != nil {
-		return "", apperror.Wrap(apperror.KindUnavailable, "创建下载请求失败", err)
-	}
-	req.Header.Set("User-Agent", "Douya-LocalAI")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", apperror.Wrap(apperror.KindUnavailable, "下载请求失败", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", apperror.Newf(apperror.KindUnavailable, "下载返回非 200 状态码: %d", resp.StatusCode)
-	}
-
-	// 创建临时文件
-	tmpFile, err := os.Create(tmpPath)
-	if err != nil {
-		return "", apperror.Wrap(apperror.KindInternal, "创建临时文件失败", err)
-	}
-
-	totalSize := resp.ContentLength
-	if totalSize <= 0 {
-		totalSize = asset.Size // 回退到 API 返回的大小
-	}
-
-	// 流式写入，带进度回调
-	buf := make([]byte, 64*1024) // 64KB 缓冲区
-	var downloaded int64
-	lastReport := time.Now()
-
-	for {
-		n, readErr := resp.Body.Read(buf)
-		if n > 0 {
-			if _, writeErr := tmpFile.Write(buf[:n]); writeErr != nil {
-				tmpFile.Close()
-				_ = os.Remove(tmpPath)
-				return "", apperror.Wrap(apperror.KindInternal, "写入临时文件失败", writeErr)
-			}
-			downloaded += int64(n)
-
-			// 限流推送进度：最多每 500ms 推送一次，避免频繁事件刷爆前端
-			if progressCB != nil && time.Since(lastReport) >= 500*time.Millisecond {
-				percent := 0.0
-				if totalSize > 0 {
-					percent = float64(downloaded) / float64(totalSize) * 100
-				}
-				progressCB(DownloadProgress{
-					Backend:     bt,
-					AssetName:   asset.Name,
-					TagName:     tagName,
-					TotalBytes:  totalSize,
-					Downloaded:  downloaded,
-					Percent:     percent,
-					Status:      "downloading",
-				})
-				lastReport = time.Now()
-			}
-		}
-		if readErr == io.EOF {
-			break
-		}
-		if readErr != nil {
-			tmpFile.Close()
-			_ = os.Remove(tmpPath)
-			return "", apperror.Wrap(apperror.KindUnavailable, "下载读取失败", readErr)
-		}
-	}
-
-	tmpFile.Close()
-
-	// P0-1 修复：下载完成后校验字节数，防止服务器截断响应被误认为下载成功。
-	// 生活类比：快递签收前先称重，重量对不上说明包裹不完整，直接拒收。
-	// 只在 ContentLength 已知（totalSize > 0）时校验，未知时不校验（chunked 传输）。
-	if totalSize > 0 && downloaded != totalSize {
-		_ = os.Remove(tmpPath)
-		return "", apperror.Newf(apperror.KindUnavailable, "下载文件不完整：已下载 %d 字节，预期 %d 字节（可能网络中断或服务器截断响应）",
-			downloaded, totalSize)
-	}
-
-	// 步骤 3：重命名临时文件为最终文件名
-	if err := os.Rename(tmpPath, destPath); err != nil {
-		_ = os.Remove(tmpPath)
-		return "", apperror.Wrap(apperror.KindInternal, "重命名临时文件失败", err)
-	}
-
-	// 推送完成进度
-	if progressCB != nil {
-		progressCB(DownloadProgress{
-			Backend:     bt,
-			AssetName:   asset.Name,
-			TagName:     tagName,
-			TotalBytes:  totalSize,
-			Downloaded:  totalSize,
-			Percent:     100,
-			Status:      "completed",
-		})
-	}
-
-	log.Info().
-		Str("backend", bt.String()).
-		Str("path", destPath).
-		Str("size", fmt.Sprintf("%d", totalSize)).
-		Msg("[backend] 后端 zip 包下载完成")
-	return destPath, nil
+	return DownloadBackendZipWithContext(context.Background(), bt, runtimeDir, progressCB)
 }
 
 // cudartAssetRegex 匹配 CUDA 后端附带的 cudart 包
@@ -501,13 +354,13 @@ func downloadFile(downloadURL, destPath string, totalSize int64, bt BackendType,
 					percent = float64(downloaded) / float64(totalSize) * 100
 				}
 				progressCB(DownloadProgress{
-					Backend:     bt,
-					AssetName:   assetName,
-					TagName:     tagName,
-					TotalBytes:  totalSize,
-					Downloaded:  downloaded,
-					Percent:     percent,
-					Status:      "downloading",
+					Backend:    bt,
+					AssetName:  assetName,
+					TagName:    tagName,
+					TotalBytes: totalSize,
+					Downloaded: downloaded,
+					Percent:    percent,
+					Status:     "downloading",
 				})
 				lastReport = now
 			}
@@ -660,13 +513,13 @@ func DownloadBackendZipWithContext(ctx context.Context, bt BackendType, runtimeD
 					percent = float64(downloaded) / float64(totalSize) * 100
 				}
 				progressCB(DownloadProgress{
-					Backend:     bt,
-					AssetName:   asset.Name,
-					TagName:     tagName,
-					TotalBytes:  totalSize,
-					Downloaded:  downloaded,
-					Percent:     percent,
-					Status:      "downloading",
+					Backend:    bt,
+					AssetName:  asset.Name,
+					TagName:    tagName,
+					TotalBytes: totalSize,
+					Downloaded: downloaded,
+					Percent:    percent,
+					Status:     "downloading",
 				})
 				lastReport = time.Now()
 			}
@@ -696,13 +549,13 @@ func DownloadBackendZipWithContext(ctx context.Context, bt BackendType, runtimeD
 
 	if progressCB != nil {
 		progressCB(DownloadProgress{
-			Backend:     bt,
-			AssetName:   asset.Name,
-			TagName:     tagName,
-			TotalBytes:  totalSize,
-			Downloaded:  totalSize,
-			Percent:     100,
-			Status:      "completed",
+			Backend:    bt,
+			AssetName:  asset.Name,
+			TagName:    tagName,
+			TotalBytes: totalSize,
+			Downloaded: totalSize,
+			Percent:    100,
+			Status:     "completed",
 		})
 	}
 

@@ -4,6 +4,8 @@
 package system
 
 import (
+	"runtime"
+
 	"github.com/rs/zerolog/log"
 )
 
@@ -50,6 +52,24 @@ type SmartParams struct {
 // 空字符串按 "balanced" 处理（向后兼容旧调用方）。
 func CalculateSmartParams(hw *HardwareInfo, resolvedModelPath string, backendType string, performanceMode string) *SmartParams {
 	p := &SmartParams{}
+
+	// P4.4 修复：nil-hw 防护。此前 hw 被无条件解引用（hw.HasGPU 等），
+	// 调用方传入 nil 会 panic。正常流程保证 hwInfo 非 nil（startup 必检），
+	// 但这是公开 API，防御性兜底为"无 GPU 的保守配置"。
+	if hw == nil {
+		log.Warn().Msg("[smart-params] nil HardwareInfo, using conservative CPU defaults")
+		p.GPULayers = 0
+		p.Threads = max(runtime.NumCPU()/2, 2)
+		p.FlashAttn = false
+		p.Mlock = false
+		p.MmprojOffload = false
+		p.CacheTypeK = ""
+		p.CacheTypeV = ""
+		p.ContextSize = 4096
+		p.BatchSize = 512
+		p.UBatchSize = 256
+		return p
+	}
 
 	// GPU 层数：有完整 GPU 信息时全部卸载；仅检测到 CUDA 驱动时也尝试全部卸载
 	// 生活类比：即使仪表盘坏了（nvidia-smi 失败），只要发动机还在（nvcuda.dll），

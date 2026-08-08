@@ -174,18 +174,29 @@ func validateAttachments(caps llm.ModelCapabilities, attachments []Attachment) e
 
 // resolveSystemContent 构建系统提示词，支持基于日期和配置的缓存。
 // 当日期变化或配置变更时重建缓存，否则复用缓存。
+// 编程模式（auto/on/off）与 Agent 能力边界均纳入缓存键，切换后能正确重建。
 func (s *Service) resolveSystemContent(cfg *config.Config, searchMode string, caps llm.ModelCapabilities, now time.Time) string {
 	today := now.Format("2006-01-02")
 	configPrompt := ""
 	systemPromptMode := "append"
+	programmingMode := "auto"
 	if cfg != nil {
 		configPrompt = cfg.SystemPrompt
 		systemPromptMode = cfg.SystemPromptMode
+		programmingMode = cfg.ProgrammingMode
+	}
+	// Agent 模式开启时，能力边界描述切换为"可调用文件/shell 工具"
+	capabilityOverride := ""
+	if cfg != nil && cfg.Agent {
+		capabilityOverride = "在 Agent 模式下，你可通过内置工具执行文件读写、shell 命令等操作来协助用户完成任务。使用前确认操作安全，涉及破坏性命令（删除、覆盖、权限修改）时先征求用户同意。"
 	}
 
-	// 检查缓存是否命中
+	// 检查缓存是否命中（缓存键含配置摘要，模型名与编程模式变化时也会失配）
+	// 生活类比：后厨按"今天的日期 + 点单内容"决定要不要重做菜品，
+	// 只要日期/用户自定义/编程模式任一变化就重新备料。
 	s.promptMu.RLock()
-	cacheHit := s.sysPromptCache != "" && s.sysPromptDate == today && s.sysPromptConfig == configPrompt
+	cacheKey := configPrompt + "|" + programmingMode + "|" + capabilityOverride
+	cacheHit := s.sysPromptCache != "" && s.sysPromptDate == today && s.sysPromptConfig == cacheKey
 	cachedPrompt := s.sysPromptCache
 	s.promptMu.RUnlock()
 
@@ -196,11 +207,12 @@ func (s *Service) resolveSystemContent(cfg *config.Config, searchMode string, ca
 		if modelName == "" {
 			modelName = "本地模型"
 		}
-		base := buildBaseSystemPrompt(modelName, configPrompt, systemPromptMode)
+		coderMode := resolveProgrammingMode(programmingMode, modelName)
+		base := buildBaseSystemPromptWithMode(modelName, configPrompt, systemPromptMode, coderMode, capabilityOverride)
 		s.promptMu.Lock()
 		s.sysPromptCache = base
 		s.sysPromptDate = today
-		s.sysPromptConfig = configPrompt
+		s.sysPromptConfig = cacheKey
 		s.promptMu.Unlock()
 		cachedPrompt = base
 	}
@@ -217,17 +229,20 @@ func (s *Service) calculateContextBudget(cfg *config.Config, maxContext int, sys
 		estimatedTokens += estimateTokensByLang(ragContext, detectLanguage(ragContext)) + 10
 	}
 
-	// 利用历史 prompt_tokens 反馈校准估算系数
+	// 利用历史 prompt_tokens 反馈校准估算系数。
+	// 使用对称钳制 [0.5, 2.0]：既允许放大也允许缩小。
+	// 若只放大不缩小（旧实现 [1.0, 3.0]），估算一旦偏大就永不回落，
+	// 长期会虚缺有效上下文、浪费 token。缩小方向即"释放更多上下文"，更不易溢出。
 	s.tokenCalibMu.RLock()
 	calibActual := s.lastPromptTokens
 	calibEstimated := s.lastEstimatedTokens
 	s.tokenCalibMu.RUnlock()
 	if calibEstimated > 0 && calibActual > 0 {
 		calibRatio := float64(calibActual) / float64(calibEstimated)
-		if calibRatio < 1.0 {
-			calibRatio = 1.0
-		} else if calibRatio > 3.0 {
-			calibRatio = 3.0
+		if calibRatio < 0.5 {
+			calibRatio = 0.5
+		} else if calibRatio > 2.0 {
+			calibRatio = 2.0
 		}
 		estimatedTokens = int(float64(estimatedTokens) * calibRatio)
 	}

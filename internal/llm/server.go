@@ -23,8 +23,6 @@ import (
 	"douya/internal/pathutil"
 )
 
-const vramCheckInterval = 500 * time.Millisecond
-const vramCheckTimeout = 15
 const healthCheckTimeout = 2 * time.Second // 健康检查超时
 
 // allowedCacheTypes 列出 llama.cpp 允许的 KV cache 类型
@@ -147,9 +145,9 @@ type ServerConfig struct {
 	// TensorSplit 为逗号分隔的设备权重（如 "3,1" 表示 75%/25%），空表示不传递
 	TensorSplit string
 	// MainGPU 主 GPU 索引（-1=不传递，让 llama.cpp 使用默认设备）
-	MainGPU int
-	APIKey  string
-	ServerAPIKeyEnabled   bool // 是否启用服务 API Key 验证（暴露到局域网时强制要求）
+	MainGPU             int
+	APIKey              string
+	ServerAPIKeyEnabled bool // 是否启用服务 API Key 验证（暴露到局域网时强制要求）
 
 	SpecType               string
 	SpecDraftNMax          int
@@ -215,6 +213,11 @@ type ServerConfig struct {
 	// Agent 模式与 MCP CORS 代理
 	Agent      bool // 一键启用 CORS 代理 + 所有内置工具
 	UIMcpProxy bool // 仅启用 MCP CORS 代理
+	// 细粒度 CORS 配置（上游 --cors-*，llama.cpp #25655）
+	CorsOrigins     string // 允许的来源，逗号分隔，空=使用 llama.cpp 默认
+	CorsMethods     string // 允许的 HTTP 方法，逗号分隔
+	CorsHeaders     string // 允许的请求头，逗号分隔
+	CorsCredentials bool   // 是否允许携带凭证
 	// 后端采样（实验性，将采样逻辑移到 GPU 执行，不兼容 grammar 和 reasoning budget）
 	BackendSampling bool
 	// SSE ping 间隔秒数（0=使用服务器默认 30 秒，用于保持长连接活跃）
@@ -234,6 +237,29 @@ type ServerConfig struct {
 	NCpuMoe int
 	// 算子卸载开关（nil=使用默认值，true=--op-offload，false=--no-op-offload）
 	OpOffload *bool
+}
+
+// LoadMode 根据配置推导 llama.cpp --load-mode 值（上游 #20834 将 mlock/mmap/direct-io 合并）。
+//
+// 优先级（按用户意图从强到弱）：
+//  1. DirectIO=true        → "dio"（绕过页面缓存直读盘）
+//  2. Mlock=true           → "mlock"（mmap + 锁定到 RAM）
+//  3. Mmap=false           → "none"（关闭内存映射）
+//  4. 其他情况             → "mmap"（llama.cpp 默认）
+//
+// 返回 "mmap" 时调用方可省略，因为它是上游默认值。
+// 生活类比：就像汽车换挡——同时踩了多个开关时，按顺序取第一个生效的档位。
+func (c *ServerConfig) LoadMode() string {
+	if c.DirectIO {
+		return "dio"
+	}
+	if c.Mlock {
+		return "mlock"
+	}
+	if !c.Mmap {
+		return "none"
+	}
+	return "mmap"
 }
 
 type Server struct {
@@ -263,7 +289,7 @@ type Server struct {
 	// 生活类比：汽车连续抛锚后，维修工会逐级降档——先限速（ctx 减半），
 	// 再挂空挡让拖车拖（gpu-layers auto），最后才换发动机（后端回滚）。
 	// 每级降级都记录日志并推送前端提示，启动成功后自动重置为 0。
-	crashDegradeLevel  atomic.Int32
+	crashDegradeLevel atomic.Int32
 	// lastStartTime 存储上次启动的时刻（UnixNano），用 atomic.Int64 避免
 	// WatchWithCallback 中无锁读取与 Start 中持锁写入之间的数据竞争。
 	// 生活类比：调度中心的电子时钟，任何值班员都能直接抬头看（atomic 读取），
@@ -594,11 +620,24 @@ func (s *Server) replaceContext() {
 }
 
 func (s *Server) WaitForReady(timeout time.Duration) error {
+	return s.WaitForReadyCtx(context.Background(), timeout)
+}
+
+// WaitForReadyCtx 等待服务器就绪，支持通过 ctx 提前取消。
+// 与 WaitForReady 的区别：每次轮询都会检查 ctx.Done()，
+// 调用方传入 watchCtx/rootCtx 后，shutdown 可立即终止等待，
+// 避免退出流程被 60s 的超时阻塞。
+func (s *Server) WaitForReadyCtx(ctx context.Context, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	client := s.healthClient
 	url := fmt.Sprintf("http://127.0.0.1:%d/health", s.config.Port)
 
 	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		resp, err := client.Get(url)
 		if err == nil {
 			ready := resp.StatusCode == http.StatusOK
@@ -859,35 +898,54 @@ func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(Serv
 				}
 			}
 
-			// 扩展降级链：推测解码已禁用但仍崩溃时，逐级降级 ctx-size 和 gpu-layers
+			// 扩展降级链：崩溃时逐级降级 ctx-size 和 gpu-layers
 			// 降级链：推测解码 Off → ctx-size 减半 → gpu-layers auto → 后端回滚（app 层）
 			// 生活类比：汽车抛锚后先关空调（推测解码），再限速（ctx 减半），
 			// 再挂空挡（gpu-layers auto），最后才换发动机（后端回滚）
-			if s.mtpFallbackDisabled.Load() {
-				startTime := time.Unix(0, s.lastStartTime.Load())
-				runDuration := time.Since(startTime)
-				// 只在启动后 120 秒内崩溃才触发降级（覆盖加载期崩溃）
-				if runDuration < 120*time.Second {
-					currentLevel := s.crashDegradeLevel.Load()
-					if currentLevel < 1 {
-						// 降级 1：ctx-size 减半（最小 2048，避免过小无法使用）
-						s.crashDegradeLevel.Store(1)
-						log.Warn().
-							Dur("run_duration", runDuration).
-							Int("original_ctx", s.config.ContextSize).
-							Msg("[server] crash degrade level 1: halving ctx-size for next restart")
-						backoff = 1 * time.Second
-					} else if currentLevel < 2 {
-						// 降级 2：gpu-layers 设为 auto（让 llama.cpp 自决层数）
-						s.crashDegradeLevel.Store(2)
-						log.Warn().
-							Dur("run_duration", runDuration).
-							Str("original_ngl", s.config.GPULayers).
-							Msg("[server] crash degrade level 2: setting gpu-layers to auto for next restart")
-						backoff = 1 * time.Second
-					}
-					// 降级 3 及以上交给 app 层的 tryRollbackBackend 处理（后端回滚）
+			// P2 修复：此降级链不再以 mtpFallbackDisabled 为前提。此前仅在
+			// 推测解码模型崩溃后才生效，普通模型 OOM 崩溃只会无限重启到 10 次封顶。
+			// 现在任意模型在启动后 120 秒内崩溃都逐级降层。
+			startTime := time.Unix(0, s.lastStartTime.Load())
+			runDuration := time.Since(startTime)
+			currentLevel := s.crashDegradeLevel.Load()
+			// 只在启动后 120 秒内崩溃才触发降级（覆盖加载期崩溃）
+			if runDuration < 120*time.Second {
+				// P2-2 修复：OOM（显存/内存不足）崩溃直接跳到降级 2（gpu-layers auto）。
+				// ctx-size 减半只能缓解 KV-cache 占显存，对模型权重占显存无益；
+				// 而 gpu-layers auto 让 llama.cpp 按剩余显存自决层数，是 OOM 最直接的救星。
+				// 生活类比：车没油（VRAM 满）时先别再纠结车速（ctx），直接挂空挡省油（auto）。
+				oom := false
+				s.mu.RLock()
+				if s.stderrBuf != nil {
+					oom = DetectOOMInStderr(s.stderrBuf.String())
 				}
+				s.mu.RUnlock()
+
+				if currentLevel < 2 && oom {
+					s.crashDegradeLevel.Store(2)
+					log.Warn().
+						Dur("run_duration", runDuration).
+						Str("original_ngl", s.config.GPULayers).
+						Msg("[server] OOM crash detected, jumping degrade level 2: setting gpu-layers to auto")
+					backoff = 1 * time.Second
+				} else if currentLevel < 1 && !oom {
+					// 降级 1：ctx-size 减半（最小 2048，避免过小无法使用）
+					s.crashDegradeLevel.Store(1)
+					log.Warn().
+						Dur("run_duration", runDuration).
+						Int("original_ctx", s.config.ContextSize).
+						Msg("[server] crash degrade level 1: halving ctx-size for next restart")
+					backoff = 1 * time.Second
+				} else if currentLevel < 2 && !oom {
+					// 降级 2：gpu-layers 设为 auto（让 llama.cpp 自决层数）
+					s.crashDegradeLevel.Store(2)
+					log.Warn().
+						Dur("run_duration", runDuration).
+						Str("original_ngl", s.config.GPULayers).
+						Msg("[server] crash degrade level 2: setting gpu-layers to auto for next restart")
+					backoff = 1 * time.Second
+				}
+				// 降级 3 及以上交给 app 层的 tryRollbackBackend 处理（后端回滚）
 			}
 
 			s.SetStatus(false, fmt.Sprintf("server crashed, restarting in %v (attempt %d/%d)", backoff, restartCount, maxAttempts))
@@ -909,7 +967,7 @@ func (s *Server) WatchWithCallback(ctx context.Context, onStatusChange func(Serv
 				continue
 			}
 
-			if err := s.WaitForReady(60 * time.Second); err != nil {
+			if err := s.WaitForReadyCtx(ctx, 60*time.Second); err != nil {
 				// context 已取消则不再继续重启
 				if ctx.Err() != nil {
 					return
@@ -1001,4 +1059,32 @@ func (s *Server) GetSpecType() string {
 		return ""
 	}
 	return s.config.SpecType
+}
+
+// DetectOOMInStderr 判断 llama-server 的 stderr 输出是否属于 OOM（显存/内存不足）。
+// 用于崩溃降级链：OOM 崩溃直接跳到 gpu-layers auto，比 ctx 减半更对症。
+// 也供 app 层 detectOOMError 复用，保证各处的 OOM 关键词表是单一事实来源。
+func DetectOOMInStderr(stderr string) bool {
+	if stderr == "" {
+		return false
+	}
+	lower := strings.ToLower(stderr)
+	// P3.1 修复：统一关键词表（此前 app 层与 llm 层各维护一份，85% 重复但行为不一致：
+	// 如 "gpu memory"、"std::bad_alloc" 只在 app 层出现，llm 崩溃降级链检测不到）。
+	// 此处合并为一份，两个消费方共用，避免同一 OOM 场景一处提示一处不降级。
+	oomPatterns := []string{
+		// CUDA 显存不足
+		"cuda error", "cuda_error_out_of_memory", "out of memory",
+		"failed to allocate cuda", "failed to allocate gpu",
+		"not enough gpu memory", "gpu memory", "vram",
+		// 系统内存不足
+		"bad_alloc", "std::bad_alloc", "bad allocation",
+		"cannot allocate memory", "mmap failed", "memory allocation failed",
+	}
+	for _, p := range oomPatterns {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
 }

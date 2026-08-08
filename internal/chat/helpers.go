@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"douya/internal/llm"
@@ -42,16 +43,32 @@ const (
 // imageTokenEstimate 图片附件 token 估算值，默认 3500（覆盖多数模型默认值）。
 // 通过 SetImageTokenEstimate 在模型加载后根据 --image-max-tokens 动态调整，
 // 让估算值与 llama-server 实际行为一致，避免 MaxTokens 计算偏差。
-// 并发安全：写入在模型切换时（单线程），读取在请求构建时（单线程），无竞争。
-var imageTokenEstimate = 3500
+// 并发安全：通过 imageTokenEstimateMu 保护，避免模型切换（写）与请求构建（读）之间的数据竞争。
+var (
+	imageTokenEstimate int = 3500
+	// imageTokenEstimateMu 保护 imageTokenEstimate 的并发读写。
+	// 背景：SetImageTokenEstimate 在模型切换 goroutine 中写入，
+	// 而 estimateMessageTokens 等会在多个会话请求 goroutine 中并发读取，
+	// 无锁保护会产生数据竞争（go test -race 可复现）。
+	imageTokenEstimateMu sync.RWMutex
+)
 
 // defaultImageTokenEstimate 是未设置 --image-max-tokens 时的保守估算值
 const defaultImageTokenEstimate = 3500
+
+// getImageTokenEstimate 读取当前图片 token 估算值（并发安全）。
+func getImageTokenEstimate() int {
+	imageTokenEstimateMu.RLock()
+	defer imageTokenEstimateMu.RUnlock()
+	return imageTokenEstimate
+}
 
 // SetImageTokenEstimate 根据用户配置的 --image-max-tokens 更新图片 token 估算值。
 // imageMaxTokens <= 0 时恢复默认值（llama-server 默认行为，token 数取决于图片分辨率）。
 // 在模型加载后调用，确保估算值与 llama-server 实际行为一致。
 func SetImageTokenEstimate(imageMaxTokens int) {
+	imageTokenEstimateMu.Lock()
+	defer imageTokenEstimateMu.Unlock()
 	if imageMaxTokens > 0 {
 		imageTokenEstimate = imageMaxTokens
 	} else {
@@ -151,7 +168,7 @@ func EstimateTokensByLang(text string, lang string) int { return estimateTokensB
 func EstimateAttachmentTokens(attType string) int {
 	switch strings.ToLower(attType) {
 	case "image":
-		return imageTokenEstimate
+		return getImageTokenEstimate()
 	case "video":
 		return videoTokenEstimate
 	case "audio":
@@ -167,7 +184,7 @@ func EstimateAttachmentTokens(attType string) int {
 func EstimateAttachmentTokensWithData(attType, data string) int {
 	switch strings.ToLower(attType) {
 	case "image":
-		return imageTokenEstimate
+		return getImageTokenEstimate()
 	case "video":
 		return videoTokenEstimate
 	case "audio":
@@ -216,7 +233,7 @@ func estimateAttachmentTokensFromJSON(attachmentsJSON string) int {
 			return audioTokenEstimate
 		}
 		if strings.Contains(strings.ToLower(attachmentsJSON), "image") {
-			return imageTokenEstimate
+			return getImageTokenEstimate()
 		}
 		return 1500
 	}
@@ -247,7 +264,7 @@ func estimateMessageTokens(m *store.Message) int {
 		} else if strings.Contains(m.Images, ",") {
 			imgCount = strings.Count(m.Images, ",") + 1
 		}
-		total += imgCount * imageTokenEstimate
+		total += imgCount * getImageTokenEstimate()
 	}
 	if m.SearchResults != "" {
 		total += estimateTokensByLang(m.SearchResults, lang)
@@ -439,7 +456,7 @@ func estimateChatMessageTokens(msg llm.ChatMessage) int {
 	case []llm.ContentPart:
 		for _, part := range v {
 			if part.Type == "image_url" {
-				total += imageTokenEstimate
+				total += getImageTokenEstimate()
 			}
 			if part.Type == "input_audio" {
 				total += audioTokenEstimate
@@ -449,7 +466,7 @@ func estimateChatMessageTokens(msg llm.ChatMessage) int {
 		for _, item := range v {
 			if part, ok := item.(map[string]any); ok {
 				if part["type"] == "image_url" {
-					total += imageTokenEstimate
+					total += getImageTokenEstimate()
 				}
 				if part["type"] == "input_audio" {
 					total += audioTokenEstimate
@@ -916,6 +933,12 @@ func CompressContext(
 			}
 
 			// 9c. 保存分层摘要（短期+长期）和递增的压缩计数
+			// H1-2: 写库前检查 ctx 是否已取消。父 ctx（应用关闭时 rootCancel）取消后，
+			// 摘要的 DB 写操作若继续执行，可能在 db 已关闭后访问已关闭的 SQLite 句柄。
+			// defer recover() 能拦下 panic，但更稳妥的是直接跳过这次已无意义的持久化。
+			if err := summarizeCtx.Err(); err != nil {
+				return
+			}
 			if err := store.UpdateConversationLayeredSummary(db, convID, newShortSummary, newLongSummary); err != nil {
 				log.Warn().Err(err).Msg("[compress] 保存分层摘要失败")
 			} else {

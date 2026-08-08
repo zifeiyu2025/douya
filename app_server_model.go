@@ -132,7 +132,8 @@ func (a *App) GetSmartParams() *SmartParamsInfo {
 	}
 
 	// 智能参数
-	sp := system.CalculateSmartParams(a.hwInfo, modelPath, string(a.resolvedBackend), a.getConfig().PerformanceMode)
+	resolvedBackend, _ := a.resolvedBackendSnapshot()
+	sp := system.CalculateSmartParams(a.hwInfo, modelPath, string(resolvedBackend), a.getConfig().PerformanceMode)
 	info.Params.GPULayers = sp.GPULayers
 	info.Params.Threads = sp.Threads
 	info.Params.BatchSize = sp.BatchSize

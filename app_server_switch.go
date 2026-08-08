@@ -62,13 +62,21 @@ func (a *App) tryWatchModelLoadProgress(ctx context.Context, modelName string) c
 }
 
 // emitSwitchingStatus emits a server status event indicating a model switch is in progress.
+// P3.4 重构：委托 switchingStatus 统一构建 payload。
 func (a *App) emitSwitchingStatus(modelName string) {
-	wailsruntime.EventsEmit(a.ctx, EventServerStatus, llm.ServerStatus{
+	wailsruntime.EventsEmit(a.ctx, EventServerStatus, switchingStatus(modelName))
+}
+
+// switchingStatus 构建"切换中"状态 payload。
+// P3.4 重构：app_server.go / app_server_switch.go / app_server_watch.go 三处
+// 重复的 {Running:false, ModelReady:false, Switching:true, SwitchingTo} 结构统一收敛。
+func switchingStatus(modelName string) llm.ServerStatus {
+	return llm.ServerStatus{
 		Running:     false,
 		ModelReady:  false,
 		Switching:   true,
 		SwitchingTo: modelName,
-	})
+	}
 }
 
 // emitErrorStatus 推送错误状态事件到前端。
@@ -89,15 +97,28 @@ func (a *App) emitErrorStatus(ctx context.Context, errMsg string) {
 	})
 }
 
+// clearServerLoadFailure 清除"加载彻底失败"标记和持久化错误信息。
+//
+// 生活类比：仪表盘上的红色报警灯熄灭了——发动机恢复正常后必须熄灭报警灯，
+// 否则即使车已能正常行驶，仪表盘仍一直显示故障，驾驶员也看不到"恢复"状态。
+//
+// 必须在成功路径上调用（模型加载成功、切换成功、监控重载成功），
+// 否则 serverLoadFailed 一旦置位就永久锁死：健康检查停止、状态推送被抑制、
+// GetServerStatus 永远返回旧错误，用户无法从错误状态恢复。
+func (a *App) clearServerLoadFailure() {
+	a.lastServerErrMu.Lock()
+	a.lastServerError = ""
+	a.lastServerErrMu.Unlock()
+	a.serverLoadFailed.Store(false)
+}
+
 // emitSwitchSuccess emits a server status event indicating the model switch succeeded.
 func (a *App) emitSwitchSuccess(modelName string) {
-	caps := a.service.GetModelCapabilities()
-	wailsruntime.EventsEmit(a.ctx, EventServerStatus, llm.ServerStatus{
-		Running:      true,
-		ModelReady:   true,
-		CurrentModel: modelName,
-		Capabilities: &caps,
-	})
+	// P3.4 重构：与 runningStatus() 共用 payload 构建，避免两处结构漂移
+	st := a.runningStatus()
+	st.CurrentModel = modelName
+	st.ModelReady = true
+	wailsruntime.EventsEmit(a.ctx, EventServerStatus, st)
 }
 
 // emitSwitchProgress emits a progress event for model switch.
@@ -127,18 +148,9 @@ func (a *App) emitSwitchProgressCtx(ctx context.Context, stage, targetModel stri
 // 返回 true 表示重试成功，模型已加载就绪
 func (a *App) tryReloadWithoutMmproj(ctx context.Context, modelName string, progressCallback func(int, string)) bool {
 	// 检查该模型是否有 mmproj，如果没有则不适用此重试策略
-	if !a.regeneratePresetWithoutMmproj(modelName) {
+	if !a.reloadPresetWithoutMmproj(ctx, modelName) {
 		return false
 	}
-
-	// 通知路由器重新加载 preset 文件
-	if err := a.getClient().ReloadPresets(ctx); err != nil {
-		zlog.Warn().Err(err).Msg("[server] failed to reload presets after removing mmproj")
-		return false
-	}
-
-	// 等待一小段时间让路由器处理 preset 重载
-	time.Sleep(2 * time.Second)
 
 	// 重新加载模型（不带 mmproj）
 	zlog.Info().Str("model", modelName).Msg("[server] retrying model load without mmproj")
@@ -164,6 +176,23 @@ func (a *App) tryReloadWithoutMmproj(ctx context.Context, modelName string, prog
 		"hint":  "多模态投影器不兼容，已切换为纯文本模式",
 	})
 
+	return true
+}
+
+// reloadPresetWithoutMmproj 去掉指定模型的 mmproj 并重新生成/重载 preset 文件。
+// 供 tryReloadWithoutMmproj 与 SwitchModel 共用（此前两处重复"regenerate → ReloadPresets → sleep"序列）。
+// 返回 true 表示已成功去掉 mmproj 并完成 preset 重载；false 表示模型无 mmproj 或重载失败。
+func (a *App) reloadPresetWithoutMmproj(ctx context.Context, modelName string) bool {
+	if !a.regeneratePresetWithoutMmproj(modelName) {
+		return false
+	}
+	// 通知路由器重新加载 preset 文件
+	if err := a.getClient().ReloadPresets(ctx); err != nil {
+		zlog.Warn().Err(err).Msg("[server] failed to reload presets after removing mmproj")
+		return false
+	}
+	// 等待一小段时间让路由器处理 preset 重载
+	time.Sleep(2 * time.Second)
 	return true
 }
 
@@ -210,7 +239,7 @@ func (a *App) regeneratePresetWithoutMmproj(modelName string) bool {
 				}
 			}
 		}
-		sp := system.CalculateSmartParams(a.hwInfo, defaultModelPath, string(a.resolvedBackend), a.getConfig().PerformanceMode)
+		sp := system.CalculateSmartParams(a.hwInfo, defaultModelPath, a.resolvedBackendString(), a.getConfig().PerformanceMode)
 		globalDefaults = map[string]string{
 			"ctx-size": fmt.Sprintf("%d", sp.ContextSize),
 		}
@@ -298,7 +327,7 @@ func (a *App) generatePresetFile() error {
 				}
 			}
 		}
-		sp := system.CalculateSmartParams(a.hwInfo, defaultModelPath, string(a.resolvedBackend), a.getConfig().PerformanceMode)
+		sp := system.CalculateSmartParams(a.hwInfo, defaultModelPath, a.resolvedBackendString(), a.getConfig().PerformanceMode)
 		globalDefaults = map[string]string{
 			"ctx-size":       fmt.Sprintf("%d", sp.ContextSize),
 			"mmproj-offload": "1",
@@ -352,30 +381,26 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 	if loadErr != "" {
 		// 加载失败时，尝试去掉 mmproj 后以纯文本模式重试
 		// 生活类比：打不开带密码的文件？先去掉密码保护用纯文本打开，总比打不开好。
-		if a.regeneratePresetWithoutMmproj(modelName) {
-			if reloadErr := a.getClient().ReloadPresets(a.ctx); reloadErr != nil {
-				zlog.Warn().Err(reloadErr).Msg("[server] failed to reload presets after removing mmproj")
-			} else {
-				time.Sleep(2 * time.Second)
-				zlog.Info().Str("model", modelName).Msg("[server] retrying model load without mmproj (switch)")
-				retryRunning, retryErr := a.switchLoadModel(modelName)
-				if retryErr == "" {
-					// 纯文本重试成功，继续完成切换流程
-					if !retryRunning {
-						if waitErr := a.switchWaitReady(modelName); waitErr != "" {
-							return a.handleSwitchFailure(modelName, previousModel, waitErr)
-						}
+		// P3.3 重构：与 tryReloadWithoutMmproj 共用 reloadPresetWithoutMmproj 序列
+		if a.reloadPresetWithoutMmproj(a.ctx, modelName) {
+			zlog.Info().Str("model", modelName).Msg("[server] retrying model load without mmproj (switch)")
+			retryRunning, retryErr := a.switchLoadModel(modelName)
+			if retryErr == "" {
+				// 纯文本重试成功，继续完成切换流程
+				if !retryRunning {
+					if waitErr := a.switchWaitReady(modelName); waitErr != "" {
+						return a.handleSwitchFailure(modelName, previousModel, waitErr)
 					}
-					// 通知前端多模态不可用
-					wailsruntime.EventsEmit(a.ctx, EventServerMmprojUnavailable, map[string]string{
-						"model": modelName,
-						"hint":  "未找到匹配的多模态投影文件，已切换为纯文本模式",
-					})
-					return a.switchFinalize(modelName, previousModel)
 				}
-				// 重试也失败，使用重试的错误信息
-				loadErr = retryErr
+				// 通知前端多模态不可用
+				wailsruntime.EventsEmit(a.ctx, EventServerMmprojUnavailable, map[string]string{
+					"model": modelName,
+					"hint":  "未找到匹配的多模态投影文件，已切换为纯文本模式",
+				})
+				return a.switchFinalize(modelName, previousModel)
 			}
+			// 重试也失败，使用重试的错误信息
+			loadErr = retryErr
 		}
 		return a.handleSwitchFailure(modelName, previousModel, loadErr)
 	}
@@ -393,7 +418,7 @@ func (a *App) SwitchModel(modelName string) SwitchResult {
 
 // switchPreCheck 预检查：服务器是否启动、是否正在切换、VRAM 是否足够
 func (a *App) switchPreCheck(modelName string) string {
-	if a.server == nil || a.getClient() == nil {
+	if a.getServer() == nil || a.getClient() == nil {
 		return "服务器未启动"
 	}
 	if !a.beginModelSwitch(modelName) {
@@ -472,8 +497,8 @@ func (a *App) specTypeCompatCheck(modelName string) string {
 
 	// 获取当前 llama-server 的 SpecType
 	currentSpecType := ""
-	if a.server != nil {
-		currentSpecType = a.server.GetSpecType()
+	if srv := a.getServer(); srv != nil {
+		currentSpecType = srv.GetSpecType()
 	}
 
 	// 如果当前是 MTP 模式但目标模型不支持 MTP
@@ -529,10 +554,7 @@ func (a *App) classifyWaitError(waitErr error, stderrHint string) string {
 
 	// B-1：优先检测栈溢出崩溃，给出针对性诊断
 	if isStackOverflowCrash(waitErrStr) {
-		currentBackend := ""
-		if a.resolvedBackend != "" {
-			currentBackend = string(a.resolvedBackend)
-		}
+		currentBackend := a.resolvedBackendString()
 		hint := "模型加载失败: 栈溢出崩溃（0xC0000409）。\n" + buildStackOverflowSuggestion(currentBackend)
 		if stderrHint != "" {
 			hint += fmt.Sprintf("\n\n详细信息: %s", stderrHint)
@@ -613,10 +635,11 @@ func (a *App) switchLoadModel(modelName string) (bool, string) {
 
 // getServerStderrHint 从 llama-server 的 stderr 缓冲区提取关键错误信息
 func (a *App) getServerStderrHint() string {
-	if a.server == nil {
+	srv := a.getServer()
+	if srv == nil {
 		return ""
 	}
-	stderr := a.server.LastOutput()
+	stderr := srv.LastOutput()
 	if stderr == "" {
 		return ""
 	}
@@ -645,12 +668,20 @@ func (a *App) getServerStderrHint() string {
 
 // detectOOMError 检测 stderr 中是否包含 OOM/显存/内存不足错误
 // 返回明确的中文错误提示，若非 OOM 则返回空字符串
+// P3.1 修复：OOM 判定委托给 llm.DetectOOMInStderr（单一关键词表），
+// 此处仅负责区分"显存不足"与"内存不足"并组装中文提示。
 func (a *App) detectOOMError() string {
-	if a.server == nil {
+	srv := a.getServer()
+	if srv == nil {
 		return ""
 	}
-	stderr := a.server.LastOutput()
+	stderr := srv.LastOutput()
 	if stderr == "" {
+		return ""
+	}
+	// P3.1 修复：OOM 判定统一委托给 llm.DetectOOMInStderr（单一关键词表），
+	// 此处不再自维护一套关键词，避免与崩溃降级链行为不一致。
+	if !llm.DetectOOMInStderr(stderr) {
 		return ""
 	}
 	lower := strings.ToLower(stderr)
@@ -680,7 +711,9 @@ func (a *App) detectOOMError() string {
 		}
 	}
 
-	return ""
+	// 已判定为 OOM 但未细分到 CUDA/内存类别，给出通用提示
+	hint := a.getServerStderrHint()
+	return fmt.Sprintf("内存或显存不足：模型加载需要的资源超出当前机器可用容量。\n详细信息: %s", hint)
 }
 
 // calculateLoadTimeout 根据模型文件大小动态计算加载超时
@@ -782,25 +815,28 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 	relPath, hasRelPath := a.presetRelPaths[modelName]
 	a.presetsMu.RUnlock()
 	if hasRelPath {
-		// 采用"复制→修改副本→替换指针"模式，避免直接修改 a.config 字段破坏快照语义
-		a.configMu.Lock()
-		newCfg := *a.config
-		newCfg.ModelPath = relPath
-		cfg := &newCfg
-		a.config = cfg
-		a.configMu.Unlock()
-		// 保存前校验，失败记录日志但不阻塞保存（避免阻塞模型切换功能）
-		if err := cfg.Validate(); err != nil {
-			zlog.Warn().Err(err).Msg("[switchFinalize] 配置校验失败，仍保存")
-		}
-		if err := config.Save(filepath.Join(appDir(), "config.json"), cfg); err != nil {
-			zlog.Error().Err(err).Msg("[router] save config after model switch failed")
-			wailsruntime.EventsEmit(a.ctx, EventServerStatus, llm.ServerStatus{
-				Running:      true,
-				ModelReady:   true,
-				CurrentModel: modelName,
-				Error:        fmt.Sprintf("config save failed, model may revert on restart: %v", err),
-			})
+		// P3.5 重构：updateConfig 统一"复制→修改副本→替换指针"模式
+		var cfg *config.Config
+		if err := a.updateConfig(func(c *config.Config) error {
+			c.ModelPath = relPath
+			cfg = c
+			return nil
+		}); err != nil {
+			zlog.Error().Err(err).Msg("[switchFinalize] 配置更新失败")
+		} else {
+			// 保存前校验，失败记录日志但不阻塞保存（避免阻塞模型切换功能）
+			if err := cfg.Validate(); err != nil {
+				zlog.Warn().Err(err).Msg("[switchFinalize] 配置校验失败，仍保存")
+			}
+			if err := config.Save(filepath.Join(appDir(), "config.json"), cfg); err != nil {
+				zlog.Error().Err(err).Msg("[router] save config after model switch failed")
+				wailsruntime.EventsEmit(a.ctx, EventServerStatus, llm.ServerStatus{
+					Running:      true,
+					ModelReady:   true,
+					CurrentModel: modelName,
+					Error:        fmt.Sprintf("config save failed, model may revert on restart: %v", err),
+				})
+			}
 		}
 	}
 
@@ -841,6 +877,8 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 
 	// 在清除切换状态之前发射成功事件
 	// 确保前端在 WatchWithCallback 发出过时状态之前收到成功事件
+	// 切换成功后清除"加载失败"标记，避免旧错误状态粘滞阻塞健康检查
+	a.clearServerLoadFailure()
 	a.emitSwitchSuccess(modelName)
 	a.serverReady.Store(true)
 

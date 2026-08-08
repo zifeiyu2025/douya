@@ -2,6 +2,7 @@
 package httputil
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,17 +22,31 @@ func TestReadBodyLimited(t *testing.T) {
 	}
 }
 
-// TestReadBodyLimitedTruncates 超过限制的内容应被截断
+// TestReadBodyLimitedTruncates 超过限制的内容应被截断并返回 ErrBodyTooLarge
 func TestReadBodyLimitedTruncates(t *testing.T) {
 	// 生成 100 字节内容，限制为 10 字节
 	input := strings.Repeat("a", 100)
 	r := strings.NewReader(input)
 	got, err := ReadBodyLimited(r, 10)
-	if err != nil {
-		t.Fatalf("ReadBodyLimited returned error: %v", err)
+	if !errors.Is(err, ErrBodyTooLarge) {
+		t.Fatalf("expected ErrBodyTooLarge, got: %v", err)
 	}
 	if len(got) != 10 {
 		t.Fatalf("expected 10 bytes, got %d", len(got))
+	}
+}
+
+// TestReadBodyLimitedTruncates_ExactLimit 内容恰好等于限制时不应误报截断
+func TestReadBodyLimitedTruncates_ExactLimit(t *testing.T) {
+	// 生成正好 10 字节内容，限制也为 10 字节，不应触发截断
+	input := strings.Repeat("a", 10)
+	r := strings.NewReader(input)
+	got, err := ReadBodyLimited(r, 10)
+	if err != nil {
+		t.Fatalf("ReadBodyLimited returned error: %v", err)
+	}
+	if string(got) != input {
+		t.Fatalf("expected %q, got %q", input, string(got))
 	}
 }
 

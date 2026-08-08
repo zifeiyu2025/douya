@@ -110,8 +110,10 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 		}
 	}
 
-	return s.saveToolCallFinalMessage(convID, acc, state)
+	return s.saveToolCallFinalMessage(convID, acc, state, llmMessages)
 }
+
+// executeToolCallsConcurrently 并发执行所有 tool calls（search + MCP 工具）。
 
 // executeToolCallsConcurrently 并发执行所有 tool calls（search + MCP 工具）。
 // 预分配结果切片，按 tool call 在原切片中的索引写入，
@@ -377,22 +379,22 @@ func extractToolResponseContent(body []byte) string {
 // M17 修复：DB 写入失败时返回 error，避免 LLM 上下文与 DB 不一致（刷新后 tool call 历史丢失）
 // 生活类比：仓库录入失败时停止后续入库，而不是让账本和实物对不上
 func (s *Service) appendToolCallMessages(convID string, llmMessages []llm.ChatMessage, acc *StreamAccumulator, results []toolCallResult) ([]llm.ChatMessage, error) {
+	// M7 修复：将该轮所有 assistant(tool_calls) + tool 成对消息汇总后以单个事务写入，
+	// 保证 assistant 与对应 tool 结果要么全部落库、要么全部回滚，避免孤儿/半截数据。
+	var toWrite []*store.Message
 	for _, tr := range results {
 		if tr.tc.Function.Name == "" {
 			continue
 		}
 		assistantToolCallJSON, _ := json.Marshal([]llm.ToolCall{tr.tc})
-		if err := store.CreateMessage(s.db, &store.Message{
+		toWrite = append(toWrite, &store.Message{
 			ConversationID:   convID,
 			Role:             "assistant",
 			Content:          "",
 			ToolCalls:        string(assistantToolCallJSON),
 			ThinkingContent:  acc.FirstRoundThinking,
 			ThinkingDuration: clampDuration(acc.FirstRoundThinkingDuration),
-		}, secrets.CipherKey(s.cipher)); err != nil {
-			log.Error().Err(err).Msg("save assistant tool call message")
-			return nil, apperror.Wrap(apperror.KindInternal, "save assistant tool call message", err)
-		}
+		})
 
 		llmMessages = append(llmMessages, llm.ChatMessage{
 			Role:      "assistant",
@@ -405,21 +407,25 @@ func (s *Service) appendToolCallMessages(convID string, llmMessages []llm.ChatMe
 			acc.LastSearchJSON = MergeSearchJSON(acc.LastSearchJSON, tr.searchJSON)
 		}
 
-		if err := store.CreateMessage(s.db, &store.Message{
+		toWrite = append(toWrite, &store.Message{
 			ConversationID: convID,
 			Role:           "tool",
 			Content:        tr.toolContent,
 			ToolCallID:     tr.tc.ID,
-		}, secrets.CipherKey(s.cipher)); err != nil {
-			log.Error().Err(err).Msg("save tool result message")
-			return nil, apperror.Wrap(apperror.KindInternal, "save tool result message", err)
-		}
+		})
 
 		llmMessages = append(llmMessages, llm.ChatMessage{
 			Role:       "tool",
 			Content:    tr.toolContent,
 			ToolCallID: tr.tc.ID,
 		})
+	}
+
+	if len(toWrite) > 0 {
+		if err := store.CreateMessagesTx(s.db, toWrite, secrets.CipherKey(s.cipher)); err != nil {
+			log.Error().Err(err).Msg("save tool call messages")
+			return nil, apperror.Wrap(apperror.KindInternal, "save tool call messages", err)
+		}
 	}
 	return llmMessages, nil
 }
@@ -452,11 +458,11 @@ func (s *Service) compressContextIfNeeded(convID string, llmMessages []llm.ChatM
 	state.totalTokens = estimateMessagesTokens(llmMessages)
 	log.Info().Int("estimated", estimatedTotal).Int("context_size", contextLimit).Int("messages_after", len(llmMessages)).Msg("[chat] tool call preventive trim")
 
-	s.emitForConv(convID, "context_trimmed", map[string]any{
-		"reason":         "tool_call_preventive_trim",
-		"estimated":      estimatedTotal,
-		"context_size":   contextLimit,
-		"messages_after": len(llmMessages),
+	s.compressionStats.inc(trimReasonToolLoop)
+	s.emitForConv(convID, "context_trimmed", ContextTrimEventContent{
+		Reason:        string(trimReasonToolLoop),
+		ContextSize:   contextLimit,
+		MessagesAfter: len(llmMessages),
 	})
 	return llmMessages
 }
@@ -515,7 +521,11 @@ func (s *Service) executeToolCallStream(cancelCtx context.Context, convID string
 
 // saveToolCallFinalMessage 保存 tool call 循环结束后的最终 AI 消息。
 // 若达到最大轮次仍有 tool_calls，追加提示信息。
-func (s *Service) saveToolCallFinalMessage(convID string, acc *StreamAccumulator, state *toolCallLoopState) error {
+func (s *Service) saveToolCallFinalMessage(convID string, acc *StreamAccumulator, state *toolCallLoopState, llmMessages []llm.ChatMessage) error {
+	// 记录 prompt_tokens 反馈校准数据（tool call 循环路径）
+	// 覆盖工具调用场景，避免校准只在普通回复路径更新
+	s.recordCalibration(acc, llmMessages)
+
 	aiMsg := &store.Message{
 		ConversationID:   convID,
 		Role:             "assistant",
@@ -533,7 +543,10 @@ func (s *Service) saveToolCallFinalMessage(convID string, acc *StreamAccumulator
 		aiMsg.Content += "\n\n[工具调用已达最大轮次限制，部分搜索结果可能未完全处理]"
 	}
 	if err := store.CreateMessage(s.db, aiMsg, secrets.CipherKey(s.cipher)); err != nil {
+		// M6 修复：保存失败时返回错误而非仍发送 assistant_message。
+		// 上游 handleToolCallLoop 会把该错误转为 error 事件，避免 UI 显示未持久化的回复。
 		log.Error().Err(err).Msg("save ai message")
+		return apperror.Wrap(apperror.KindInternal, "保存工具调用回复失败", err)
 	}
 	chatMsg := storeMsgToChat(aiMsg)
 	chatMsg.TokensPerSecond = acc.TokensPerSecond

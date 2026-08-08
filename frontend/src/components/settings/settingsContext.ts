@@ -1,5 +1,7 @@
 import type { Ref, ComputedRef } from 'vue'
 import type { Config, SearchAPIKeys } from '../../services/wails'
+import type { ModelRefConfig, ModelRefRaw } from '../../utils/modelRefs'
+import type { UploadCustomRequestOptions } from 'naive-ui'
 
 export interface SettingsContext {
   // 核心响应式状态
@@ -22,8 +24,8 @@ export interface SettingsContext {
   supportsReasoning: ComputedRef<boolean>
 
   // 模型参考参数
-  currentModelRef: ComputedRef<any>
-  activeModelRefRaw: ComputedRef<any>
+  currentModelRef: ComputedRef<ModelRefConfig | null>
+  activeModelRefRaw: ComputedRef<ModelRefRaw>
   refShowThinking: Ref<boolean>
   applyModelRef: () => void
 
@@ -57,7 +59,7 @@ export interface SettingsContext {
   handleAgentChange: () => void
   handleBackendSamplingChange: () => void
 
-  // Store
+  // Store（pinia store 类型过于复杂，保留 any；实际访问的属性均有类型保障）
   settingsStore: any
 }
 

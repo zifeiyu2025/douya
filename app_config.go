@@ -27,6 +27,27 @@ func (a *App) setConfig(cfg *config.Config) {
 	a.config = cfg
 }
 
+// updateConfig 在写锁保护下复制-修改-替换 config 指针。
+// mutate 对副本做修改；若 mutate 返回错误则不提交替换。
+//
+// 生活类比：员工改档案时先把原件复印一份，改好后确认无误再替换原件；
+// 修改过程不对原件产生任何影响。
+//
+// P3.5 重构：统一 6 处重复的"copy *cfg → mutate → setConfig"模式。
+func (a *App) updateConfig(mutate func(cfg *config.Config) error) error {
+	a.configMu.Lock()
+	defer a.configMu.Unlock()
+	if a.config == nil {
+		a.config = config.DefaultConfig()
+	}
+	newCfg := *a.config
+	if err := mutate(&newCfg); err != nil {
+		return err
+	}
+	a.config = &newCfg
+	return nil
+}
+
 func (a *App) GetConfig() *config.Config {
 	a.configMu.Lock()
 	defer a.configMu.Unlock()
@@ -71,11 +92,7 @@ func (a *App) UpdateConfig(cfg *config.Config) error {
 	if performanceModeChanged && a.service != nil {
 		go func() {
 			// 防止 panic 导致整个进程崩溃（preset 生成涉及文件 IO）
-			defer func() {
-				if r := recover(); r != nil {
-					zlog.Warn().Interface("panic", r).Msg("[config] 性能模式 preset 生成 goroutine panic")
-				}
-			}()
+			defer recoverLog("[config] 性能模式 preset 生成 goroutine panic")
 			if err := a.generatePresetFile(); err != nil {
 				zlog.Warn().Err(err).Msg("[config] 性能模式切换后重新生成 preset 文件失败")
 			} else {
@@ -168,13 +185,12 @@ func (a *App) validatePaths() PathCheckResult {
 
 	// 解析后端类型：优先用 startup 中缓存的解析结果，否则重新解析
 	// 生活类比：检查发动机舱前，先确定这车装的是什么型号的发动机
-	resolvedBackend := a.resolvedBackend
+	resolvedBackend, serverPath := a.resolvedBackendSnapshot()
 	if resolvedBackend == "" {
 		resolvedBackend = llm.ResolveBackendType(a.hwInfo, cfg.BackendType)
 	}
 
 	// 解析 serverPath：优先用 startup 中缓存的路径，否则从配置路径解析
-	serverPath := a.resolvedServerPath
 	if serverPath == "" {
 		serverPath = resolvePath(cfg.LlamaServerPath)
 	}
@@ -271,4 +287,3 @@ func checkDLLFound(dir, name string) bool {
 	_, err := os.Stat(fullPath)
 	return err == nil
 }
-
