@@ -282,6 +282,10 @@ export function GetBackendStatus() {
   return window['go']['main']['App']['GetBackendStatus']();
 }
 
+export function ResolveGpuTypeChoice(arg1) {
+  return window['go']['main']['App']['ResolveGpuTypeChoice'](arg1);
+}
+
 export function SwitchBackend(arg1) {
   return window['go']['main']['App']['SwitchBackend'](arg1);
 }

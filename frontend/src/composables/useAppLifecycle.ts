@@ -46,6 +46,47 @@ export function useAppLifecycle() {
     }
   )
 
+  // ===== 灰色地带 GPU 类型选择对话框状态 =====
+  // 后端检测到 auto + GPUType=unknown 时触发，让用户选择推理后端
+  const gpuTypeChoiceVisible = ref(false)
+  const gpuTypeChoicePayload = ref<{
+    gpu_name: string
+    gpu_vendor: string
+    gpu_vram_mb: number
+    gpu_type: string
+    timeout_seconds: number
+  } | null>(null)
+
+  /**
+   * 弹出灰色地带 GPU 类型选择对话框。
+   * 用户选择后调用 resolveGpuTypeChoice 通知后端，后端解除 startup 阻塞继续启动。
+   */
+  function showGpuTypeChoiceDialog(payload: {
+    gpu_name: string
+    gpu_vendor: string
+    gpu_vram_mb: number
+    gpu_type: string
+    timeout_seconds: number
+  }) {
+    gpuTypeChoicePayload.value = payload
+    gpuTypeChoiceVisible.value = true
+  }
+
+  /**
+   * 用户在对话框中选择后端后调用。
+   * "我不清楚" 映射为 cpu，直接继续启动无需读秒等待。
+   */
+  async function handleGpuTypeChoice(backend: string) {
+    gpuTypeChoiceVisible.value = false
+    gpuTypeChoicePayload.value = null
+    try {
+      await wails.resolveGpuTypeChoice(backend)
+    } catch (e) {
+      logError('resolveGpuTypeChoice failed', e)
+      discreteMessage.error('后端选择失败，将使用默认配置启动')
+    }
+  }
+
   // ===== SubTask 8.2: 启动屏与退出动效状态 =====
 
   /**
@@ -229,6 +270,15 @@ export function useAppLifecycle() {
       )
     )
 
+    // 灰色地带 GPU 类型选择监听：auto 模式 + GPUType=unknown 时后端检测到未知的显卡状态，
+    // 弹出对话框让用户选择推理后端，避免错误启用 GPU 导致 OOM。
+    // 生活类比：车检员无法判断是跑车还是电瓶车时，让车主自己选驾驶模式。
+    unsubscribers.push(
+      wails.subscribeHardwareGpuTypeUnknown(payload => {
+        showGpuTypeChoiceDialog(payload)
+      })
+    )
+
     // 2. 所有 watch 必须在 await 之前注册
     //    原因：await 期间后端可能已推送状态变化，延迟注册会错过首次事件导致无限转圈或会话列表不加载
 
@@ -387,6 +437,10 @@ export function useAppLifecycle() {
     splashProgress, // ComputedRef<number>：启动屏进度百分比
     // 退出动效状态（外部只读）
     showExitOverlay: readonly(isExiting), // Readonly<Ref<boolean>>：是否显示退出遮罩
-    exitProgress: readonly(exitMessage) // Readonly<Ref<string>>：退出进度消息
+    exitProgress: readonly(exitMessage), // Readonly<Ref<string>>：退出进度消息
+    // 灰色地带 GPU 类型选择对话框状态（外部只读 + 操作回调）
+    gpuTypeChoiceVisible: readonly(gpuTypeChoiceVisible),
+    gpuTypeChoicePayload: readonly(gpuTypeChoicePayload),
+    handleGpuTypeChoice
   }
 }

@@ -597,6 +597,67 @@ func TestValidate_MultiGPU_RowWithTensorSplit(t *testing.T) {
 	}
 }
 
+// ===== APIBase 格式校验测试 =====
+// 生活类比：像检查快递单上的地址格式，缺省市区或门牌号都不行
+
+// TestValidate_APIBase_Valid 验证合法的 APIBase 通过校验
+func TestValidate_APIBase_Valid(t *testing.T) {
+	cases := []string{
+		"http://127.0.0.1:8080",
+		"https://localhost:3000",
+		"http://192.168.1.100:8888",
+		"", // 空字符串不报错（由默认值保证）
+	}
+	for _, apiBase := range cases {
+		cfg := DefaultConfig()
+		cfg.APIBase = apiBase
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("api_base=%q 应通过校验，实际返回错误: %v", apiBase, err)
+		}
+	}
+}
+
+// TestValidate_APIBase_MissingPort 验证缺少端口号的 APIBase 报错
+func TestValidate_APIBase_MissingPort(t *testing.T) {
+	cases := []string{
+		"http://127.0.0.1",
+		"https://localhost",
+		"http://192.168.1.100",
+	}
+	for _, apiBase := range cases {
+		cfg := DefaultConfig()
+		cfg.APIBase = apiBase
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("api_base=%q 缺少端口，应返回错误", apiBase)
+		}
+	}
+}
+
+// TestValidate_APIBase_InvalidScheme 验证非 HTTP/HTTPS 协议报错
+func TestValidate_APIBase_InvalidScheme(t *testing.T) {
+	cases := []string{
+		"ftp://127.0.0.1:8080",
+		"127.0.0.1:8080",
+		"://127.0.0.1:8080",
+	}
+	for _, apiBase := range cases {
+		cfg := DefaultConfig()
+		cfg.APIBase = apiBase
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("api_base=%q 协议不合法，应返回错误", apiBase)
+		}
+	}
+}
+
+// TestValidate_APIBase_MissingHost 验证缺少主机地址报错
+func TestValidate_APIBase_MissingHost(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIBase = "http://:8080"
+	if err := cfg.Validate(); err == nil {
+		t.Error("api_base='http://:8080' 缺少主机地址，应返回错误")
+	}
+}
+
 // TestValidate_MultiGPU_TensorWithTensorSplit 验证 split_mode=tensor + tensor_split 非空时通过
 func TestValidate_MultiGPU_TensorWithTensorSplit(t *testing.T) {
 	cfg := DefaultConfig()

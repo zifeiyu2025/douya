@@ -75,7 +75,8 @@ import {
   DownloadBackend,
   GetAppVersion,
   CheckUpdate,
-  PerformUpdate
+  PerformUpdate,
+  ResolveGpuTypeChoice
 } from '../../wailsjs/go/main/App'
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
 import {
@@ -95,7 +96,8 @@ import {
   EventBackendSwitched,
   EventBackendDownloadStart,
   EventBackendDownloadProgress,
-  EventBackendDownloadComplete
+  EventBackendDownloadComplete,
+  EventHardwareGpuTypeUnknown
 } from './events'
 import { chat as ChatModel } from '../../wailsjs/go/models'
 
@@ -185,6 +187,18 @@ export interface BackendDownloadProgress {
 export interface BackendDownloadStart {
   backend: string
   name: string
+}
+
+/**
+ * 灰色地带事件 payload：后端检测到未知的显卡状态时推送给前端，
+ * 让用户在对话框中选择推理后端。
+ */
+export interface GpuTypeUnknownPayload {
+  gpu_name: string
+  gpu_vendor: string
+  gpu_vram_mb: number
+  gpu_type: string
+  timeout_seconds: number
 }
 
 /** 后端下载完成事件 */
@@ -649,6 +663,19 @@ export const wails = {
   ): (() => void) => {
     EventsOn(EventBackendDownloadComplete, callback)
     return () => EventsOff(EventBackendDownloadComplete)
+  },
+  // ============ 灰色地带 GPU 类型选择 ============
+  // auto 模式 + GPUType=unknown 时，后端检测到未知的显卡状态，让用户选择推理后端。
+  // 生活类比：车检员无法判断是跑车还是电瓶车时，让车主自己选驾驶模式。
+  subscribeHardwareGpuTypeUnknown: (
+    callback: (payload: GpuTypeUnknownPayload) => void
+  ): (() => void) => {
+    EventsOn(EventHardwareGpuTypeUnknown, callback)
+    return () => EventsOff(EventHardwareGpuTypeUnknown)
+  },
+  // 用户选择后端后调用，解除后端 startup 的阻塞等待
+  resolveGpuTypeChoice: async (backend: string): Promise<void> => {
+    await ResolveGpuTypeChoice(backend)
   }
 } as const
 

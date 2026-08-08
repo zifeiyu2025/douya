@@ -332,13 +332,24 @@ async function onServerAPIKeyToggle() {
 }
 
 async function onExposeServerToggle() {
-  await autoSave()
   message.destroyAll()
   if (formConfig.value.expose_server) {
-    message.warning('已开启局域网访问，重启服务后生效。请确保已设置 API Key 防止未授权访问。', {
+    // 开启局域网访问前检查：必须已启用 API Key 并设置密钥
+    // 生活类比：开门营业前先检查门锁装好了没，没锁好就不让开门
+    if (!formConfig.value.server_api_key_enabled || !hasServerApiKey.value) {
+      formConfig.value.expose_server = false
+      message.error(
+        '开启局域网访问前，必须先启用服务端 API Key 并设置密钥。请先在下方设置 API Key 后再开启局域网访问。',
+        { duration: 6000 }
+      )
+      return
+    }
+    await autoSave()
+    message.warning('已开启局域网访问，重启服务后生效。同一局域网内的设备可通过本机 IP 访问 API。', {
       duration: 5000
     })
   } else {
+    await autoSave()
     message.info('已关闭局域网访问，重启服务后仅本机可访问。', { duration: 3000 })
   }
 }
@@ -545,6 +556,26 @@ watch(
         formConfig.value.reasoning_budget = -1
       }
     }
+  }
+)
+
+// port 变化时自动同步 api_base 中的端口，保持两者一致
+// 生活类比：改了门牌号，快递单上的地址也跟着自动更新
+watch(
+  () => formConfig.value.port,
+  (newPort, oldPort) => {
+    if (newPort == null || newPort === oldPort) return
+    const base = formConfig.value.api_base || ''
+    // 用正则匹配 URL 末尾的 :端口，替换为新端口
+    // 匹配 http://host:port 或 http://host:port/path 中的端口部分
+    const portPattern = /^(https?:\/\/[^/:]+):\d+/
+    if (portPattern.test(base)) {
+      formConfig.value.api_base = base.replace(portPattern, `$1:${newPort}`)
+    } else if (/^https?:\/\/[^/:]+$/.test(base)) {
+      // 地址不含端口（如 http://127.0.0.1），追加端口
+      formConfig.value.api_base = `${base}:${newPort}`
+    }
+    // 如果 api_base 格式异常（不以 http 开头），不做自动修改，让后端校验拦截
   }
 )
 

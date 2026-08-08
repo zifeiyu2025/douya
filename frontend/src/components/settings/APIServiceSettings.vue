@@ -134,10 +134,11 @@ const {
 
 const message = useMessage()
 
+// API 端点 = api_base + /v1
+// api_base 已包含端口（通过 port watcher 自动同步），无需再拼接
 const endpoint = computed(() => {
-  const base = formConfig.value.api_base || 'http://127.0.0.1'
-  const port = formConfig.value.port || 8080
-  return `${base}:${port}/v1`
+  const base = formConfig.value.api_base || 'http://127.0.0.1:8080'
+  return `${base}/v1`
 })
 
 const copyEndpoint = () => {

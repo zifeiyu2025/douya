@@ -411,7 +411,10 @@ func TestDetectAMDGPUNotFound(t *testing.T) {
 	}
 }
 
-// TestDetectIntelGPUFound 测试检测到 Intel 显卡驱动 DLL 的场景
+// TestDetectIntelGPUFound 测试检测到 Intel 独立显卡驱动 DLL 的场景
+//
+// P5 更新：mock 数据改为 Intel Arc 独显（原 UHD 770 是核显，新逻辑下 HasGPU=false，
+// 不符合"Found"测试的"独显可启用加速"原意图）。核显场景由 TestDetectIntelGPUIntegrated 覆盖。
 func TestDetectIntelGPUFound(t *testing.T) {
 	origDLLs := intelDriverDLLs
 	intelDriverDLLs = []string{"mock-intel.dll"}
@@ -420,7 +423,7 @@ func TestDetectIntelGPUFound(t *testing.T) {
 	restore := mockGPUDeps(
 		func(p string) bool { return p == "mock-intel.dll" },
 		func(string) (string, error) { return "", errNotFound },
-		func(string) (string, int64) { return "Intel UHD Graphics 770", 1024 },
+		func(string) (string, int64) { return "Intel Arc A750 Graphics", 8192 },
 		func() (int64, bool) { return 0, false },
 	)
 	defer restore()
@@ -432,16 +435,19 @@ func TestDetectIntelGPUFound(t *testing.T) {
 		t.Error("期望 HasIntelGPU=true，实际 false")
 	}
 	if !hw.HasGPU {
-		t.Error("期望 HasGPU=true，实际 false")
+		t.Error("期望 HasGPU=true（独显场景），实际 false")
 	}
 	if hw.GPUVendor != "intel" {
 		t.Errorf("期望 GPUVendor=intel，实际 %q", hw.GPUVendor)
 	}
-	if hw.GPUName != "Intel UHD Graphics 770" {
-		t.Errorf("期望 GPUName=Intel UHD Graphics 770，实际 %q", hw.GPUName)
+	if hw.GPUName != "Intel Arc A750 Graphics" {
+		t.Errorf("期望 GPUName=Intel Arc A750 Graphics，实际 %q", hw.GPUName)
 	}
-	if hw.GPUVRAMMB != 1024 {
-		t.Errorf("期望 GPUVRAMMB=1024，实际 %d", hw.GPUVRAMMB)
+	if hw.GPUVRAMMB != 8192 {
+		t.Errorf("期望 GPUVRAMMB=8192，实际 %d", hw.GPUVRAMMB)
+	}
+	if hw.GPUType != GPUTypeDiscrete {
+		t.Errorf("期望 GPUType=discrete，实际 %q", hw.GPUType)
 	}
 }
 
@@ -772,5 +778,241 @@ func TestNvidiaTotalVRAMMB(t *testing.T) {
 	NvidiaTotalVRAMMB = func() (int64, error) { return 0, errNotFound }
 	if _, err := NvidiaTotalVRAMMB(); err == nil {
 		t.Error("nvidia-smi 不可用时应返回错误")
+	}
+}
+
+// ============================================================================
+// GPU 独显/核显分类测试（P5：业界双因子方案）
+//
+// 生活类比：这部分测试就像"模拟车检鉴定"——给定一辆车的品牌和排量，
+// 验证 classifyGPUType 能否正确判断它是跑车（discrete）还是小电瓶车（integrated）。
+// 参照业界共识：Ollama gpud、Chromium GPU info、DirectX 适配器枚举
+// ============================================================================
+
+// TestClassifyGPUType 测试 classifyGPUType 的双因子判别逻辑
+//
+// 覆盖场景：Intel 核显/独显、AMD APU/独显、NVIDIA、灰色地带、空字符串
+func TestClassifyGPUType(t *testing.T) {
+	tests := []struct {
+		name             string
+		vendor           string
+		gpuName          string
+		dedicatedVRAMMB  int64
+		wantType         string
+	}{
+		// ==================== Intel 独显 ====================
+		{"Intel Arc A770（独显）", "intel", "Intel Arc A770 Graphics", 16384, GPUTypeDiscrete},
+		{"Intel Arc A750（独显）", "intel", "Intel Arc A750", 8192, GPUTypeDiscrete},
+		{"Intel DG1（独显）", "intel", "Intel Iris Xe MAX DG1", 4096, GPUTypeDiscrete},
+
+		// ==================== Intel 核显 ====================
+		{"Intel UHD 630（核显）", "intel", "Intel UHD Graphics 630", 0, GPUTypeIntegrated},
+		{"Intel UHD 770（核显）", "intel", "Intel UHD Graphics 770", 128, GPUTypeIntegrated},
+		{"Intel Iris Xe（核显）", "intel", "Intel Iris Xe Graphics", 0, GPUTypeIntegrated},
+		{"Intel HD Graphics 4600（核显）", "intel", "Intel HD Graphics 4600", 0, GPUTypeIntegrated},
+
+		// ==================== AMD 独显 ====================
+		{"AMD Radeon RX 7900 XTX（独显）", "amd", "AMD Radeon RX 7900 XTX", 24576, GPUTypeDiscrete},
+		{"AMD Radeon RX 6800（独显）", "amd", "AMD Radeon RX 6800", 16384, GPUTypeDiscrete},
+		{"AMD Radeon VII（独显）", "amd", "AMD Radeon VII", 16384, GPUTypeDiscrete},
+		{"AMD Radeon Pro W6800（独显）", "amd", "AMD Radeon Pro W6800", 32768, GPUTypeDiscrete},
+		{"AMD FirePro W9100（独显）", "amd", "AMD FirePro W9100", 32768, GPUTypeDiscrete},
+
+		// ==================== AMD APU 核显 ====================
+		{"AMD Ryzen 5 5600G 核显", "amd", "AMD Radeon Graphics", 512, GPUTypeIntegrated},
+		{"AMD Ryzen 7 5700G 核显（带 TM）", "amd", "AMD Radeon(TM) Graphics", 512, GPUTypeIntegrated},
+		{"AMD Vega 8 Graphics（核显）", "amd", "AMD Radeon Vega 8 Graphics", 0, GPUTypeIntegrated},
+		{"AMD Vega 11 Graphics（核显）", "amd", "AMD Radeon Vega 11 Graphics", 0, GPUTypeIntegrated},
+		{"AMD Radeon R5 Graphics（核显）", "amd", "AMD Radeon R5 Graphics", 0, GPUTypeIntegrated},
+
+		// ==================== NVIDIA（全部视为独显，业界共识） ====================
+		{"NVIDIA RTX 4090", "nvidia", "NVIDIA GeForce RTX 4090", 24576, GPUTypeDiscrete},
+		{"NVIDIA GTX 1650", "nvidia", "NVIDIA GeForce GTX 1650", 4096, GPUTypeDiscrete},
+		// NVIDIA 即使 VRAM=0 也视为独显（业界共识：NVIDIA 不做主流 x86 核显）
+		{"NVIDIA 无 VRAM 信息", "nvidia", "NVIDIA GeForce RTX 4080", 0, GPUTypeDiscrete},
+
+		// ==================== Vulkan 兜底（保守视为独显） ====================
+		{"Vulkan 设备", "vulkan", "Vulkan Device", 0, GPUTypeDiscrete},
+
+		// ==================== 灰色地带：VRAM 阈值兜底 ====================
+		// 名称无明显关键字，靠 VRAM 兜底判别
+		{"未知 Intel + VRAM=2GB → discrete", "intel", "Unknown Intel GPU", 2048, GPUTypeDiscrete},
+		{"未知 AMD + VRAM=128MB → integrated", "amd", "Unknown AMD GPU", 128, GPUTypeIntegrated},
+		// 512-1024MB 灰色地带 → unknown（保守处理，由调用方决定）
+		{"未知 Intel + VRAM=768MB → unknown", "intel", "Unknown Intel GPU", 768, GPUTypeUnknown},
+		// VRAM=0 且名称无关键字 → unknown
+		{"未知 Intel + 无 VRAM", "intel", "Unknown Intel Device", 0, GPUTypeUnknown},
+		{"未知 AMD + 无 VRAM", "amd", "Unknown AMD Device", 0, GPUTypeUnknown},
+
+		// ==================== 边界情况 ====================
+		{"空字符串 Intel", "intel", "", 0, GPUTypeUnknown},
+		{"空字符串 AMD", "amd", "", 0, GPUTypeUnknown},
+		// Radeon RX Vega（独显关键字）应优先于 Vega（核显关键字）
+		// 注意：这里关键字表设计为按顺序匹配，"radeon rx vega" 在 "vega " 之前
+		{"Radeon RX Vega 64（独显）", "amd", "AMD Radeon RX Vega 64", 8192, GPUTypeDiscrete},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := classifyGPUType(tt.vendor, tt.gpuName, tt.dedicatedVRAMMB)
+			if got != tt.wantType {
+				t.Errorf("classifyGPUType(vendor=%q, name=%q, vram=%d) = %q, want %q",
+					tt.vendor, tt.gpuName, tt.dedicatedVRAMMB, got, tt.wantType)
+			}
+		})
+	}
+}
+
+// ============================================================================
+// 核显场景集成测试：验证 detectAMDGPU / detectIntelGPU 在核显场景下的行为
+// 验证点：HasAMDGPU/HasIntelGPU=true（仍记录存在该厂商 GPU）
+//         但 HasGPU=false（核显不启用为 GPU 加速推理，避免 OOM）
+// ============================================================================
+
+// TestDetectAMDGPUIntegrated 测试 AMD APU 核显场景
+//
+// 场景：Ryzen 5 5600G 这类 AMD APU，WMI 返回 "AMD Radeon Graphics" + 共享显存 512MB
+// 期望：HasAMDGPU=true（标记存在 AMD GPU），但 HasGPU=false（核显不启用加速）
+// GPUType=integrated（明确标记为核显）
+func TestDetectAMDGPUIntegrated(t *testing.T) {
+	origDLLs := amdDriverDLLs
+	amdDriverDLLs = []string{"mock-amd.dll"}
+	defer func() { amdDriverDLLs = origDLLs }()
+
+	restore := mockGPUDeps(
+		func(p string) bool { return p == "mock-amd.dll" },
+		func(string) (string, error) { return "", errNotFound },
+		// WMI 返回 AMD APU 核显（Ryzen 5600G 自带）
+		func(string) (string, int64) { return "AMD Radeon Graphics", 512 },
+		func() (int64, bool) { return 0, false }, // rocm-smi 不可用
+	)
+	defer restore()
+
+	hw := &HardwareInfo{}
+	detectAMDGPU(hw)
+
+	// 关键断言：核显场景下 HasGPU 必须为 false
+	if hw.HasGPU {
+		t.Error("期望核显场景下 HasGPU=false（不应启用 GPU 加速），实际 true")
+	}
+	// HasAMDGPU 仍为 true（标记存在 AMD GPU，便于未来多 GPU 路由）
+	if !hw.HasAMDGPU {
+		t.Error("期望 HasAMDGPU=true（仍标记存在 AMD GPU），实际 false")
+	}
+	if hw.GPUVendor != "amd" {
+		t.Errorf("期望 GPUVendor=amd，实际 %q", hw.GPUVendor)
+	}
+	if hw.GPUType != GPUTypeIntegrated {
+		t.Errorf("期望 GPUType=integrated，实际 %q", hw.GPUType)
+	}
+	if hw.GPUName != "AMD Radeon Graphics" {
+		t.Errorf("期望 GPUName=AMD Radeon Graphics，实际 %q", hw.GPUName)
+	}
+}
+
+// TestDetectIntelGPUIntegrated 测试 Intel 核显场景
+//
+// 场景：Intel CPU 自带 UHD 核显，WMI 返回 "Intel UHD Graphics 630" + 共享显存 0
+// 期望：HasIntelGPU=true，但 HasGPU=false（核显不启用加速）
+func TestDetectIntelGPUIntegrated(t *testing.T) {
+	origDLLs := intelDriverDLLs
+	intelDriverDLLs = []string{"mock-intel.dll"}
+	defer func() { intelDriverDLLs = origDLLs }()
+
+	restore := mockGPUDeps(
+		func(p string) bool { return p == "mock-intel.dll" },
+		func(string) (string, error) { return "", errNotFound },
+		// WMI 返回 Intel 核显
+		func(string) (string, int64) { return "Intel UHD Graphics 630", 0 },
+		func() (int64, bool) { return 0, false },
+	)
+	defer restore()
+
+	hw := &HardwareInfo{}
+	detectIntelGPU(hw)
+
+	if hw.HasGPU {
+		t.Error("期望核显场景下 HasGPU=false（不应启用 GPU 加速），实际 true")
+	}
+	if !hw.HasIntelGPU {
+		t.Error("期望 HasIntelGPU=true（仍标记存在 Intel GPU），实际 false")
+	}
+	if hw.GPUVendor != "intel" {
+		t.Errorf("期望 GPUVendor=intel，实际 %q", hw.GPUVendor)
+	}
+	if hw.GPUType != GPUTypeIntegrated {
+		t.Errorf("期望 GPUType=integrated，实际 %q", hw.GPUType)
+	}
+	if hw.GPUName != "Intel UHD Graphics 630" {
+		t.Errorf("期望 GPUName=Intel UHD Graphics 630，实际 %q", hw.GPUName)
+	}
+}
+
+// TestDetectAMDGPUDiscrete 测试 AMD 独显场景（回归测试，确保独显仍能正确启用）
+//
+// 场景：AMD Radeon RX 7900 XTX 独显
+// 期望：HasGPU=true（独显可启用加速），GPUType=discrete
+func TestDetectAMDGPUDiscrete(t *testing.T) {
+	origDLLs := amdDriverDLLs
+	amdDriverDLLs = []string{"mock-amd.dll"}
+	defer func() { amdDriverDLLs = origDLLs }()
+
+	restore := mockGPUDeps(
+		func(p string) bool { return p == "mock-amd.dll" },
+		func(string) (string, error) { return "", errNotFound },
+		func(string) (string, int64) { return "AMD Radeon RX 7900 XTX", 24576 },
+		func() (int64, bool) { return 0, false },
+	)
+	defer restore()
+
+	hw := &HardwareInfo{}
+	detectAMDGPU(hw)
+
+	// 独显场景：HasGPU 必须为 true
+	if !hw.HasGPU {
+		t.Error("期望独显场景下 HasGPU=true（应启用 GPU 加速），实际 false")
+	}
+	if !hw.HasAMDGPU {
+		t.Error("期望 HasAMDGPU=true")
+	}
+	if hw.GPUType != GPUTypeDiscrete {
+		t.Errorf("期望 GPUType=discrete，实际 %q", hw.GPUType)
+	}
+	if hw.GPUVRAMMB != 24576 {
+		t.Errorf("期望 GPUVRAMMB=24576，实际 %d", hw.GPUVRAMMB)
+	}
+}
+
+// TestDetectIntelGPUDiscrete 测试 Intel Arc 独显场景（回归测试）
+//
+// 场景：Intel Arc A770 独显
+// 期望：HasGPU=true，GPUType=discrete
+func TestDetectIntelGPUDiscrete(t *testing.T) {
+	origDLLs := intelDriverDLLs
+	intelDriverDLLs = []string{"mock-intel.dll"}
+	defer func() { intelDriverDLLs = origDLLs }()
+
+	restore := mockGPUDeps(
+		func(p string) bool { return p == "mock-intel.dll" },
+		func(string) (string, error) { return "", errNotFound },
+		func(string) (string, int64) { return "Intel Arc A770 Graphics", 16384 },
+		func() (int64, bool) { return 0, false },
+	)
+	defer restore()
+
+	hw := &HardwareInfo{}
+	detectIntelGPU(hw)
+
+	if !hw.HasGPU {
+		t.Error("期望独显场景下 HasGPU=true，实际 false")
+	}
+	if !hw.HasIntelGPU {
+		t.Error("期望 HasIntelGPU=true")
+	}
+	if hw.GPUType != GPUTypeDiscrete {
+		t.Errorf("期望 GPUType=discrete，实际 %q", hw.GPUType)
+	}
+	if hw.GPUVRAMMB != 16384 {
+		t.Errorf("期望 GPUVRAMMB=16384，实际 %d", hw.GPUVRAMMB)
 	}
 }

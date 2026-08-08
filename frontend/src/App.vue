@@ -50,6 +50,11 @@
           :progress="splashProgress"
         />
         <ServerConsole ref="consoleRef" />
+        <GpuTypeChoiceDialog
+          :show="gpuTypeChoiceVisible"
+          :payload="gpuTypeChoicePayload"
+          @choose="handleGpuTypeChoice"
+        />
       </n-dialog-provider>
     </n-message-provider>
   </n-config-provider>
@@ -65,6 +70,7 @@ import ServerConsole from './components/ServerConsole.vue'
 import AppHeader from './components/AppHeader.vue'
 import ModelSwitchOverlay from './components/ModelSwitchOverlay.vue'
 import ExitOverlay from './components/ExitOverlay.vue'
+import GpuTypeChoiceDialog from './components/GpuTypeChoiceDialog.vue'
 // Task 21：抽取 mainAreaStyle 背景图逻辑为纯函数，便于单元测试双主题支持
 import { buildBackgroundStyle } from './utils/backgroundStyle'
 import { useSettingsStore } from './stores/settings'
@@ -111,8 +117,17 @@ const {
 const { isMaximized, handleMinimize, handleToggleMaximize, handleHeaderDoubleClick, handleClose } =
   useWindowControls()
 
-const { showSplash, splashStage, splashModelName, splashProgress, showExitOverlay, exitProgress } =
-  useAppLifecycle()
+const {
+  showSplash,
+  splashStage,
+  splashModelName,
+  splashProgress,
+  showExitOverlay,
+  exitProgress,
+  gpuTypeChoiceVisible,
+  gpuTypeChoicePayload,
+  handleGpuTypeChoice
+} = useAppLifecycle()
 
 // ----- 服务器控制台 -----
 const consoleRef = ref()

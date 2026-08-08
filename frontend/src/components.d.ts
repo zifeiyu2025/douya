@@ -25,6 +25,7 @@ declare module 'vue' {
     ContextTrimmed: typeof import('./components/ContextTrimmed.vue')['default']
     ExitOverlay: typeof import('./components/ExitOverlay.vue')['default']
     GpuAccelerationSettings: typeof import('./components/settings/GpuAccelerationSettings.vue')['default']
+    GpuTypeChoiceDialog: typeof import('./components/GpuTypeChoiceDialog.vue')['default']
     HelpTip: typeof import('./components/ui/HelpTip.vue')['default']
     KvCacheSettings: typeof import('./components/settings/KvCacheSettings.vue')['default']
     LoraManager: typeof import('./components/LoraManager.vue')['default']

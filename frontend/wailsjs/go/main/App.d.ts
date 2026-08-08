@@ -147,6 +147,8 @@ export function UploadDocument(arg1:string,arg2:string,arg3:string,arg4:string):
 
 export function GetBackendStatus():Promise<main.BackendStatus>;
 
+export function ResolveGpuTypeChoice(arg1:string):Promise<void>;
+
 export function SwitchBackend(arg1:string):Promise<void>;
 
 export function DownloadBackend(arg1:string):Promise<void>;

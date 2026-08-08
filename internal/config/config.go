@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -925,6 +926,38 @@ func (c *Config) Validate() error {
 	if !isValidBackendType(c.BackendType) {
 		log.Warn().Str("backend_type", c.BackendType).Msg("[config] 无效的后端类型，回退到 auto")
 		c.BackendType = "auto"
+	}
+
+	// APIBase 格式校验：必须是合法的 HTTP/HTTPS URL 且包含端口
+	// 生活类比：快递单上的地址必须有省市区（协议）和门牌号（端口），
+	// 缺了任何一个快递员都送不到
+	if err := validateAPIBase(c.APIBase); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateAPIBase 校验 API 基础地址格式。
+// 要求：以 http:// 或 https:// 开头，且 URL 中包含端口号。
+// 空字符串不报错（由调用方保证默认值），但非空必须合法。
+func validateAPIBase(apiBase string) error {
+	if apiBase == "" {
+		return nil
+	}
+	u, err := url.Parse(apiBase)
+	if err != nil {
+		return apperror.Newf(apperror.KindInvalidConfig, "invalid api_base: %q (URL 解析失败)", apiBase)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return apperror.Newf(apperror.KindInvalidConfig, "invalid api_base: %q (必须以 http:// 或 https:// 开头)", apiBase)
+	}
+	if u.Hostname() == "" {
+		return apperror.Newf(apperror.KindInvalidConfig, "invalid api_base: %q (缺少主机地址)", apiBase)
+	}
+	// 必须包含端口：u.Port() 返回空字符串表示未指定端口
+	if u.Port() == "" {
+		return apperror.Newf(apperror.KindInvalidConfig, "invalid api_base: %q (必须包含端口号，如 http://127.0.0.1:8080)", apiBase)
 	}
 	return nil
 }

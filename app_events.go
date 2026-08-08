@@ -31,6 +31,11 @@ const (
 	EventWindowCloseRequest      = "window:closeRequest"
 	EventShutdownProgress        = "shutdown:progress"
 	EventSearchAutoDisabled      = "search:autoDisabled"
+	// EventHardwareGpuTypeUnknown: 灰色地带场景下通知前端弹出用户选择对话框。
+	// 触发条件：auto 模式 + GPUType=unknown（检测到未知的显卡状态）。
+	// 生活类比：就像车检员无法判断是跑车还是电瓶车时，让车主自己来选——
+	// 车检员把车况信息（GPU 名称/显存）发给车主（前端），让车主决定怎么开。
+	EventHardwareGpuTypeUnknown = "hardware:gpuTypeUnknown"
 	// P3.6 修复：EventUpdateCheck 已被移除——前端使用同步 CheckUpdate RPC，
 	// 无事件监听者，emit 是死代码。保留 EventUpdateProgress（前端有订阅）。
 	EventUpdateProgress = "update:progress"

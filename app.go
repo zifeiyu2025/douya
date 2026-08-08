@@ -105,6 +105,12 @@ type App struct {
 	lastServerErrMu  sync.RWMutex
 	// fileLoader 是本地文件服务的引用，托盘最小化时调用 ClearCache 释放内存
 	fileLoader *LocalFileLoader
+	// gpuTypeChoiceChan 用于灰色地带场景下后端阻塞等待前端用户选择推理后端。
+	// 触发条件：auto 模式 + GPUType=unknown。后端发送 EventHardwareGpuTypeUnknown 事件后，
+	// 在此 channel 上阻塞等待，前端用户选择后调用 ResolveGpuTypeChoice 写入选择结果。
+	// 生活类比：像车检员把车况表交给车主后站在门口等回执——车主选完填回执（写 channel），
+	// 车检员拿到回执（读 channel）才继续办手续。nil 表示无需等待。
+	gpuTypeChoiceChan chan string
 }
 
 func NewApp() *App {

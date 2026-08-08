@@ -62,12 +62,15 @@ var execLookPath = exec.LookPath
 //
 // 检测策略：
 //  1. 检查 AMD 驱动 DLL（System32 固定路径 + PATH 中的同名 DLL）
-//  2. 找到则标记 HasAMDGPU/HasGPU/GPUVendor
+//  2. 找到则标记 HasAMDGPU/GPUVendor
 //  3. VRAM 优先用 rocm-smi（AMD 专用工具，精度高），回退到 WMI（精度低，4GB 上限）
 //  4. GPU 名称通过 WMI 获取
+//  5. 最后用 classifyGPUType 判别独显/核显，仅独显置 HasGPU=true
+//     （AMD APU 核显如 Ryzen 5600G 的 Vega Graphics 不适合大模型推理）
 //
 // 生活类比：先看车库有没有 AMD 的车（DLL），有的话再查行驶证（rocm-smi）
-// 拿排量（VRAM），行驶证找不到就问车管所（WMI）。
+// 拿排量（VRAM），最后判断是跑车还是小电瓶车（classifyGPUType）——
+// 小电瓶车不挂"跑车"牌子（HasGPU=false），但车库里确实停着 AMD 的车（HasAMDGPU=true）。
 func detectAMDGPU(hw *HardwareInfo) {
 	// 收集候选路径：System32 固定路径 + PATH 中的同名 DLL
 	candidates := append([]string{}, amdDriverDLLs...)
@@ -90,8 +93,8 @@ func detectAMDGPU(hw *HardwareInfo) {
 	}
 	log.Info().Str("path", foundPath).Msg("[system] AMD GPU driver detected")
 
+	// 注意：此处不再立即置 HasGPU=true，等 classifyGPUType 判定后再决定
 	hw.HasAMDGPU = true
-	hw.HasGPU = true
 	hw.GPUVendor = "amd"
 
 	// GPU 名称：通过 WMI 查询（rocm-smi 在 Windows 上通常不可用，且不返回名称）
@@ -119,19 +122,39 @@ func detectAMDGPU(hw *HardwareInfo) {
 		log.Warn().Msg("[system] AMD GPU detected but VRAM unavailable, smart-params will use fallback")
 	}
 
-	log.Info().Str("gpu", hw.GPUName).Int64("vram_mb", hw.GPUVRAMMB).Msg("[system] AMD GPU info")
+	// 按业界双因子方案判别独显/核显（详见 classifyGPUType 注释）
+	hw.GPUType = classifyGPUType("amd", hw.GPUName, hw.GPUVRAMMB)
+
+	switch hw.GPUType {
+	case GPUTypeDiscrete:
+		// 独显：可用于 GPU 加速推理
+		hw.HasGPU = true
+		log.Info().Str("gpu", hw.GPUName).Str("type", "discrete").Int64("vram_mb", hw.GPUVRAMMB).
+			Msg("[system] AMD discrete GPU detected, will use GPU acceleration")
+	case GPUTypeIntegrated:
+		// 核显（AMD APU）：不置 HasGPU，避免下游 smartparams 错误启用 GPU 加速导致 OOM
+		log.Info().Str("gpu", hw.GPUName).Str("type", "integrated").
+			Msg("[system] AMD integrated GPU (APU) detected, HasGPU stays false (integrated not suitable for LLM inference)")
+	default:
+		// 未知：保守按独显处理（保持向后兼容，让原有逻辑继续工作）
+		hw.HasGPU = true
+		log.Warn().Str("gpu", hw.GPUName).Str("type", "unknown").Int64("vram_mb", hw.GPUVRAMMB).
+			Msg("[system] AMD GPU type unknown, treating as discrete (backward compat)")
+	}
 }
 
 // detectIntelGPU 检测 Intel 显卡。
 //
 // 检测策略与 AMD 类似：
 //  1. 检查 Intel 驱动 DLL
-//  2. 找到则标记 HasIntelGPU/HasGPU/GPUVendor
+//  2. 找到则标记 HasIntelGPU/GPUVendor
 //  3. VRAM 和名称通过 WMI 获取（Intel 没有类似 rocm-smi 的通用工具）
+//  4. 最后用 classifyGPUType 判别独显/核显，仅独显置 HasGPU=true
+//     （Intel 核显如 UHD/Iris 几乎全部 CPU 自带，不适合大模型推理）
 //
 // 生活类比：Intel 核显就像"自带发动机的整车"（CPU 集成），检测它的驱动 DLL
 // 就能知道这台车是不是 Intel 出的。但 Intel 核显显存是共享内存，
-// 拿到的"显存"数字参考意义有限。
+// 拿到的"显存"数字参考意义有限。最后用 classifyGPUType 区分是 Arc 独显还是核显。
 func detectIntelGPU(hw *HardwareInfo) {
 	// 收集候选路径
 	candidates := append([]string{}, intelDriverDLLs...)
@@ -154,8 +177,8 @@ func detectIntelGPU(hw *HardwareInfo) {
 	}
 	log.Info().Str("path", foundPath).Msg("[system] Intel GPU driver detected")
 
+	// 注意：此处不再立即置 HasGPU=true，等 classifyGPUType 判定后再决定
 	hw.HasIntelGPU = true
-	hw.HasGPU = true
 	hw.GPUVendor = "intel"
 
 	// Intel 核显无专用 VRAM 查询工具，直接用 WMI
@@ -167,7 +190,25 @@ func detectIntelGPU(hw *HardwareInfo) {
 		hw.GPUVRAMMB = wmiVRAM
 	}
 
-	log.Info().Str("gpu", hw.GPUName).Int64("vram_mb", hw.GPUVRAMMB).Msg("[system] Intel GPU info")
+	// 按业界双因子方案判别独显/核显（详见 classifyGPUType 注释）
+	hw.GPUType = classifyGPUType("intel", hw.GPUName, hw.GPUVRAMMB)
+
+	switch hw.GPUType {
+	case GPUTypeDiscrete:
+		// 独显（Intel Arc A770/A750）：可用于 GPU 加速推理
+		hw.HasGPU = true
+		log.Info().Str("gpu", hw.GPUName).Str("type", "discrete").Int64("vram_mb", hw.GPUVRAMMB).
+			Msg("[system] Intel discrete GPU detected, will use GPU acceleration")
+	case GPUTypeIntegrated:
+		// 核显（UHD/Iris 等）：不置 HasGPU，避免下游 smartparams 错误启用 GPU 加速导致 OOM
+		log.Info().Str("gpu", hw.GPUName).Str("type", "integrated").
+			Msg("[system] Intel integrated GPU detected, HasGPU stays false (integrated not suitable for LLM inference)")
+	default:
+		// 未知：保守按独显处理（保持向后兼容）
+		hw.HasGPU = true
+		log.Warn().Str("gpu", hw.GPUName).Str("type", "unknown").Int64("vram_mb", hw.GPUVRAMMB).
+			Msg("[system] Intel GPU type unknown, treating as discrete (backward compat)")
+	}
 }
 
 // detectVulkanDevice 检测 Vulkan 通用后端。

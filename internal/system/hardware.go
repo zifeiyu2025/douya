@@ -18,16 +18,24 @@ type HardwareInfo struct {
 	CPUCores        int
 	GPUVRAMMB       int64
 	GPUName         string
-	HasGPU          bool   // nvidia-smi 检测成功，有完整 GPU 信息（含 VRAM）
+	HasGPU          bool   // 检测到独立显卡（discrete GPU），可用于 GPU 加速推理
 	HasCUDABackend  bool   // 系统有 NVIDIA CUDA 驱动（nvcuda.dll），但可能无法获取 VRAM
 	GPUArchitecture string // GPU 微架构代号（如 "Blackwell"/"Ada"/"Ampere"/"Unknown"），用于架构感知优化
 	// 多厂商 GPU 支持字段（Task 1 扩展）
 	// 生活类比：就像一辆车可能装的是宝马、奔驰或奥迪的发动机，
 	// GPUVendor 记录这辆"AI 推理车"装的是哪家厂商的"显卡发动机"，
 	// 后续推理参数会根据厂商选择不同的"驾驶模式"（CUDA/Vulkan/SYCL 等）。
+	//
+	// GPUType 进一步记录 GPU 类型（Task P5 扩展）：
+	//   - "discrete"   独立显卡（独显插槽，有专用显存，适合 GPU 推理）
+	//   - "integrated" 核显/集显（与 CPU 共享内存，显存小，不适合大模型推理）
+	//   - "unknown"    未知显卡状态（保守起见按独显处理，由 HasGPU 实际值决定）
+	// 生活类比：知道车是什么牌子（GPUVendor）还不够，还要知道是"跑车"还是"小电瓶车"
+	// （GPUType）——小电瓶车跑不了长途（大模型推理）。
 	GPUVendor   string // GPU 厂商："nvidia"/"amd"/"intel"/"vulkan"/""（空表示未检测到）
-	HasAMDGPU   bool   // 检测到 AMD GPU
-	HasIntelGPU bool   // 检测到 Intel GPU
+	GPUType     string // GPU 类型："discrete"/"integrated"/"unknown"（仅当 HasAMDGPU/HasIntelGPU=true 时有意义）
+	HasAMDGPU   bool   // 检测到 AMD GPU（可能是独显或 APU 核显，由 GPUType 区分）
+	HasIntelGPU bool   // 检测到 Intel GPU（可能是独显或核显，由 GPUType 区分）
 }
 
 func DetectHardware() *HardwareInfo {
@@ -68,6 +76,7 @@ func DetectHardware() *HardwareInfo {
 			Int("cpu_cores", hw.CPUCores).
 			Str("vendor", hw.GPUVendor).
 			Str("gpu", hw.GPUName).
+			Str("gpu_type", hw.GPUType).
 			Int64("vram_mb", hw.GPUVRAMMB).
 			Bool("cuda_backend", hw.HasCUDABackend).
 			Bool("amd", hw.HasAMDGPU).
@@ -78,6 +87,16 @@ func DetectHardware() *HardwareInfo {
 			Int("cpu_cores", hw.CPUCores).
 			Str("vendor", hw.GPUVendor).
 			Msg("[system] NVIDIA CUDA driver detected but nvidia-smi unavailable, GPU params will use fallback (no VRAM info)")
+	case hw.HasAMDGPU || hw.HasIntelGPU:
+		// 检测到 AMD/Intel 驱动但被判为核显 → 提示用户不会被启用为 GPU 加速
+		log.Info().
+			Int("cpu_cores", hw.CPUCores).
+			Str("vendor", hw.GPUVendor).
+			Str("gpu", hw.GPUName).
+			Str("gpu_type", hw.GPUType).
+			Bool("amd", hw.HasAMDGPU).
+			Bool("intel", hw.HasIntelGPU).
+			Msg("[system] hardware: integrated GPU detected, will use CPU for LLM inference")
 	default:
 		log.Info().
 			Int("cpu_cores", hw.CPUCores).
@@ -174,6 +193,111 @@ func detectGPU(hw *HardwareInfo) {
 	hw.GPUArchitecture = parseGPUArchitecture(hw.GPUName)
 	if hw.GPUArchitecture != "Unknown" {
 		log.Info().Str("gpu", hw.GPUName).Str("arch", hw.GPUArchitecture).Msg("[system] GPU architecture detected")
+	}
+}
+
+// GPU 类型常量
+const (
+	GPUTypeDiscrete   = "discrete"   // 独立显卡
+	GPUTypeIntegrated = "integrated" // 核显/集显
+	GPUTypeUnknown    = "unknown"   // 未知
+)
+
+// classifyGPUType 按业界成熟方案判别 GPU 是独显还是核显。
+//
+// 业界共识方案（双因子法，参照 Ollama gpud、Chromium GPU info、DirectX 适配器枚举）：
+//  1. GPU 名称启发式：基于业界共识的独显/核显关键字库判别
+//  2. 专用显存阈值兜底：名称无法判定时用专用 VRAM 兜底
+//
+// 判别优先级：
+//  1. 名称明确命中独显关键字 → discrete
+//  2. 名称明确命中核显关键字 → integrated
+//  3. 名称无明确命中，看 VRAM：
+//     - VRAM ≥ 1024MB → discrete（业界最低独显是 GTX 650 1GB）
+//     - VRAM < 512MB → integrated（核显共享内存下专用显存通常 0-128MB）
+//     - 512-1024MB 灰色地带，或 VRAM=0 无信息 → unknown（保守按独显处理，由调用方决定）
+//
+// NVIDIA 全部视为独显（业界共识，NVIDIA 不做主流 x86 核显）。
+//
+// 生活类比：判断一辆车是"跑车"还是"小电瓶车"，先看车牌关键字
+//（如 "RTX"/"Arc" 明显是跑车，"UHD"/"Radeon Graphics" 明显是电瓶车），
+// 车牌看不出名堂再看排量（VRAM ≥1L 肯定是跑车，<0.5L 大概率是电瓶车）。
+//
+// 参数：
+//   - vendor: GPU 厂商（"nvidia"/"amd"/"intel"/"vulkan"/""）
+//   - gpuName: GPU 名称（来自 nvidia-smi/WMI/注册表）
+//   - dedicatedVRAMMB: 专用显存（MB），仅独显专用部分，不含共享内存。0 表示无数据。
+func classifyGPUType(vendor, gpuName string, dedicatedVRAMMB int64) string {
+	// NVIDIA 一律视为独显（业界共识：NVIDIA 不做主流 x86 核显）
+	if vendor == "nvidia" {
+		return GPUTypeDiscrete
+	}
+
+	// Vulkan 兜底：厂商未知，VRAM 也未知，保守视为独显
+	if vendor == "vulkan" {
+		return GPUTypeDiscrete
+	}
+
+	lowerName := strings.ToLower(gpuName)
+
+	// 各厂商的独显/核显关键字库（业界共识，源自 Ollama/Chromium/DirectX 适配器枚举）
+	type kwEntry struct{ keywords []string; gpuType string }
+	keywordTable := map[string][]kwEntry{
+		"intel": {
+			// 独显关键字
+			{[]string{"arc"}, GPUTypeDiscrete},           // Intel Arc A770/A750
+			{[]string{"dg1"}, GPUTypeDiscrete},          // Intel DG1（Iris Xe MAX 独显）
+			{[]string{"xe max"}, GPUTypeDiscrete},       // Iris Xe MAX 独显
+			// 核显关键字（注意顺序：先匹配独显，后匹配核显）
+			{[]string{"uhd"}, GPUTypeIntegrated},        // Intel UHD Graphics 核显
+			{[]string{"iris"}, GPUTypeIntegrated},      // Iris Xe 核显（不含 MAX）
+			{[]string{"hd graphics"}, GPUTypeIntegrated},
+			{[]string{"gma"}, GPUTypeIntegrated},        // 老旧 GMA 核显
+			{[]string{"graphics"}, GPUTypeIntegrated},  // 兜底：Intel xxx Graphics 默认核显
+		},
+		"amd": {
+			// 独显关键字（注意：Radeon RX Vega 是独显，Vega N Graphics 是核显）
+			{[]string{"radeon rx"}, GPUTypeDiscrete},       // Radeon RX 7900/6800 等
+			{[]string{"radeon pro w"}, GPUTypeDiscrete},   // Radeon Pro W系列工作站独显
+			{[]string{"radeon vii"}, GPUTypeDiscrete},    // Radeon VII
+			{[]string{"firepro"}, GPUTypeDiscrete},        // FirePro 工作站独显
+			{[]string{"radeon hd 7"}, GPUTypeDiscrete},    // Radeon HD 7xxx 系列
+			{[]string{"radeon hd 8"}, GPUTypeDiscrete},    // Radeon HD 8xxx 系列
+			{[]string{"radeon rx vega"}, GPUTypeDiscrete}, // Vega 64/56 独显
+			// 核显关键字（AMD APU 核显）
+			{[]string{"radeon graphics"}, GPUTypeIntegrated}, // Ryzen APU 核显
+			{[]string{"radeon(tm) graphics"}, GPUTypeIntegrated},
+			{[]string{"vega "}, GPUTypeIntegrated},           // "Vega 8 Graphics"/"Vega 11 Graphics"
+			{[]string{"radeon r3 graphics"}, GPUTypeIntegrated},
+			{[]string{"radeon r4 graphics"}, GPUTypeIntegrated},
+			{[]string{"radeon r5 graphics"}, GPUTypeIntegrated},
+			{[]string{"radeon r6 graphics"}, GPUTypeIntegrated},
+			{[]string{"radeon r7 graphics"}, GPUTypeIntegrated},
+			{[]string{"radeon r8 graphics"}, GPUTypeIntegrated},
+		},
+	}
+
+	// 第一因子：名称关键字判别
+	if entries, ok := keywordTable[vendor]; ok {
+		for _, e := range entries {
+			for _, kw := range e.keywords {
+				if strings.Contains(lowerName, kw) {
+					return e.gpuType
+				}
+			}
+		}
+	}
+
+	// 第二因子：专用显存阈值兜底（名称无明确命中时）
+	// 业界经验阈值：独显最低 GTX 650 1GB；核显共享内存下专用显存通常 0-128MB
+	switch {
+	case dedicatedVRAMMB >= 1024:
+		return GPUTypeDiscrete
+	case dedicatedVRAMMB > 0 && dedicatedVRAMMB < 512:
+		return GPUTypeIntegrated
+	default:
+		// 512-1024MB 灰色地带，或 VRAM=0 无信息，无法判定
+		return GPUTypeUnknown
 	}
 }
 

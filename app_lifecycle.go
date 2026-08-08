@@ -35,7 +35,12 @@ func (a *App) startup(ctx context.Context) {
 		return
 	}
 
-	runtimeDir, _ := a.ensureDirectories()
+	runtimeDir, _, err := a.ensureDirectories(ctx)
+	if err != nil {
+		// 目录创建失败：ensureDirectories 内部已弹窗提示用户
+		a.forceQuit()
+		return
+	}
 
 	if a.installBackend(ctx, runtimeDir) {
 		return
