@@ -29,6 +29,12 @@ export interface SettingsContext {
   refShowThinking: Ref<boolean>
   applyModelRef: () => void
 
+  // 模型专属参数预设（每模型保存各自的生成参数，切换时自动恢复）
+  hasModelPreset: Ref<boolean>
+  saveModelPreset: () => Promise<void>
+  clearModelPreset: () => Promise<void>
+  savingModelPreset: Ref<boolean>
+
   // 上下文长度
   contextSizeIndex: Ref<number>
   contextSizeSteps: number[]

@@ -40,6 +40,10 @@ import {
   SetSearchAPIKeys,
   HasServerAPIKey,
   SetServerAPIKey,
+  GetModelParams,
+  SaveModelParams,
+  ClearModelParams,
+  HasModelParams,
   SelectImageFile,
   GetSmartParams,
   HandleCloseRequest,
@@ -585,6 +589,19 @@ export const wails = {
   },
   setServerAPIKey: async (key: string): Promise<void> => {
     await SetServerAPIKey(key)
+  },
+  // 模型专属生成参数：每个模型保存各自的生成参数，切换时自动恢复
+  getModelParams: async (modelName: string): Promise<any> => {
+    return await GetModelParams(modelName)
+  },
+  saveModelParams: async (modelName: string): Promise<void> => {
+    await SaveModelParams(modelName)
+  },
+  clearModelParams: async (modelName: string): Promise<void> => {
+    await ClearModelParams(modelName)
+  },
+  hasModelParams: async (modelName: string): Promise<boolean> => {
+    return await HasModelParams(modelName)
   },
   selectImageFile: async (): Promise<string> => {
     return (await SelectImageFile()) as string

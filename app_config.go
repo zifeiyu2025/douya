@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"douya/internal/apperror"
+	"douya/internal/chat"
 	"douya/internal/config"
 	"douya/internal/llm"
 
@@ -138,6 +139,52 @@ func (a *App) SetServerAPIKey(key string) error {
 		return err
 	}
 	return a.service.SetEncryptedSetting("server_api_key", key)
+}
+
+// GetModelParams 读取指定模型的专属生成参数。
+// 返回 nil 表示该模型未保存过参数，前端应显示"未保存"状态。
+// modelName 为空时返回 nil。
+func (a *App) GetModelParams(modelName string) (*chat.ModelParams, error) {
+	if a.service == nil {
+		return nil, apperror.New(apperror.KindUnavailable, "服务未初始化")
+	}
+	return a.service.GetModelParams(modelName)
+}
+
+// SaveModelParams 将当前全局 Config 中的生成参数保存为指定模型的专属预设。
+// 调用后，切换到该模型时会自动恢复这些参数。
+// modelName 为空时返回错误。
+func (a *App) SaveModelParams(modelName string) error {
+	if a.service == nil {
+		return apperror.New(apperror.KindUnavailable, "服务未初始化")
+	}
+	if strings.TrimSpace(modelName) == "" {
+		return apperror.New(apperror.KindInvalidInput, "模型名不能为空")
+	}
+	cfg := a.getConfig()
+	if cfg == nil {
+		return apperror.New(apperror.KindInternal, "配置未加载")
+	}
+	params := chat.ModelParamsFromConfig(cfg)
+	return a.service.SetModelParams(modelName, params)
+}
+
+// ClearModelParams 清除指定模型的专属生成参数。
+// 清除后切换到该模型将使用全局默认参数。
+func (a *App) ClearModelParams(modelName string) error {
+	if a.service == nil {
+		return apperror.New(apperror.KindUnavailable, "服务未初始化")
+	}
+	return a.service.ClearModelParams(modelName)
+}
+
+// HasModelParams 检查指定模型是否已保存过专属生成参数。
+// 前端用于显示"已保存/未保存"状态标记。
+func (a *App) HasModelParams(modelName string) bool {
+	if a.service == nil {
+		return false
+	}
+	return a.service.HasModelParams(modelName)
 }
 
 // PathCheckResult 启动路径检查的结构化结果

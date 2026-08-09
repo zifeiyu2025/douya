@@ -729,6 +729,8 @@ export interface SwitchResult {
   previous_model?: string
   rolled_back?: boolean
   rollback_success?: boolean
+  /** 切换时是否恢复了该模型的专属生成参数预设 */
+  params_restored?: boolean
 }
 
 /** 流式状态：单个会话的临时状态 */

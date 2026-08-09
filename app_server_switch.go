@@ -814,11 +814,29 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 	a.presetsMu.RLock()
 	relPath, hasRelPath := a.presetRelPaths[modelName]
 	a.presetsMu.RUnlock()
+
+	// 读取该模型的专属生成参数（如有），切换模型时自动恢复用户保存的参数习惯
+	// 生活类比：换工位前先从档案柜取出该员工的"偏好卡片"，待会儿一起设置
+	var modelParams *chat.ModelParams
+	if a.service != nil && hasRelPath {
+		if mp, err := a.service.GetModelParams(modelName); err != nil {
+			zlog.Warn().Err(err).Str("model", modelName).Msg("[switchFinalize] 读取模型参数失败，使用全局默认")
+		} else {
+			modelParams = mp
+		}
+	}
+
+	// paramsRestored 记录是否成功应用了模型专属参数，供 SwitchResult 返回给前端显示提示
+	paramsRestored := false
 	if hasRelPath {
 		// P3.5 重构：updateConfig 统一"复制→修改副本→替换指针"模式
 		var cfg *config.Config
 		if err := a.updateConfig(func(c *config.Config) error {
 			c.ModelPath = relPath
+			// 应用模型专属生成参数（如有），覆盖全局 Config 中的对应字段
+			if modelParams != nil {
+				modelParams.ApplyToConfig(c)
+			}
 			cfg = c
 			return nil
 		}); err != nil {
@@ -836,6 +854,15 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 					CurrentModel: modelName,
 					Error:        fmt.Sprintf("config save failed, model may revert on restart: %v", err),
 				})
+			}
+			// 同步更新 chat service 的配置引用，让生成参数立即生效
+			if a.service != nil {
+				a.service.UpdateConfig(cfg)
+			}
+			// 如果应用了模型专属参数，记录日志（前端通过 SwitchResult.ParamsRestored 显示提示）
+			if modelParams != nil {
+				paramsRestored = true
+				zlog.Info().Str("model", modelName).Msg("[switchFinalize] 已恢复模型专属生成参数")
 			}
 		}
 	}
@@ -890,10 +917,11 @@ func (a *App) switchFinalize(modelName, previousModel string) SwitchResult {
 	resultModel := a.currentModel()
 	caps := a.service.GetModelCapabilities()
 	return SwitchResult{
-		Success:       true,
-		CurrentModel:  resultModel,
-		Capabilities:  &caps,
-		PreviousModel: previousModel,
+		Success:        true,
+		CurrentModel:   resultModel,
+		Capabilities:   &caps,
+		PreviousModel:  previousModel,
+		ParamsRestored: paramsRestored,
 	}
 }
 

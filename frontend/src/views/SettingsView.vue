@@ -405,6 +405,65 @@ function applyModelRef() {
   showSuccess(message, `已应用 ${ref.name} ${modeLabel}参考参数`)
 }
 
+// ===== 模型专属参数预设 =====
+// 每个模型保存各自的生成参数，切换模型时自动恢复用户习惯
+// 生活类比：每个员工有各自的"办公偏好卡片"，换工位时自动按卡片调整
+const hasModelPreset = ref(false)
+const savingModelPreset = ref(false)
+
+// 加载当前模型的预设状态（切换模型后调用）
+async function loadModelPresetStatus() {
+  const model = settingsStore.currentModel
+  if (!model) {
+    hasModelPreset.value = false
+    return
+  }
+  try {
+    hasModelPreset.value = await wails.hasModelParams(model)
+  } catch {
+    hasModelPreset.value = false
+  }
+}
+
+// 保存当前参数为该模型的预设
+async function saveModelPreset() {
+  const model = settingsStore.currentModel
+  if (!model) {
+    message.warning('请先加载模型再保存预设')
+    return
+  }
+  savingModelPreset.value = true
+  try {
+    // 先保存当前配置到后端，确保保存的是最新参数
+    await autoSave()
+    await wails.saveModelParams(model)
+    hasModelPreset.value = true
+    showSuccess(message, `已保存 ${model} 的参数预设，下次切换到此模型将自动恢复`)
+  } catch (e) {
+    logError('保存模型预设失败', e)
+    message.error('保存模型预设失败')
+  } finally {
+    savingModelPreset.value = false
+  }
+}
+
+// 清除该模型的预设
+async function clearModelPreset() {
+  const model = settingsStore.currentModel
+  if (!model) return
+  savingModelPreset.value = true
+  try {
+    await wails.clearModelParams(model)
+    hasModelPreset.value = false
+    showSuccess(message, `已清除 ${model} 的参数预设，切换到此模型将使用全局默认参数`)
+  } catch (e) {
+    logError('清除模型预设失败', e)
+    message.error('清除模型预设失败')
+  } finally {
+    savingModelPreset.value = false
+  }
+}
+
 /* F-1.17：fileToBase64 已抽取到 utils/imageProcess.ts（readFileAsDataURL） */
 
 async function selectBackgroundImage() {
@@ -526,6 +585,8 @@ onMounted(async () => {
   await settingsStore.loadSearchAPIKeys()
   searchKeys.value = { ...settingsStore.searchAPIKeys }
   hasServerApiKey.value = await settingsStore.hasServerAPIKey()
+  // 加载当前模型的预设状态
+  await loadModelPresetStatus()
   // 获取硬件信息以判断是否有 GPU（影响 KV cache 类型可选项）
   try {
     const smartParams = await wails.getSmartParams()
@@ -556,6 +617,8 @@ watch(
         formConfig.value.reasoning_budget = -1
       }
     }
+    // 加载新模型的预设状态（显示"已保存/未保存"标记）
+    loadModelPresetStatus()
   }
 )
 
@@ -792,6 +855,10 @@ const settingsContext: SettingsContext = {
   activeModelRefRaw,
   refShowThinking,
   applyModelRef,
+  hasModelPreset,
+  saveModelPreset,
+  clearModelPreset,
+  savingModelPreset,
   contextSizeIndex,
   contextSizeSteps,
   contextSizeMarks,

@@ -32,6 +32,9 @@ type SwitchResult struct {
 	PreviousModel   string                 `json:"previous_model,omitempty"`
 	RolledBack      bool                   `json:"rolled_back,omitempty"`
 	RollbackSuccess bool                   `json:"rollback_success,omitempty"`
+	// ParamsRestored: 切换时是否恢复了该模型的专属生成参数预设。
+	// 前端据此在"已就绪"提示中追加"已恢复专属参数"，无需依赖事件监听。
+	ParamsRestored   bool                   `json:"params_restored,omitempty"`
 }
 
 // SearchAPIKeys 用于前端展示搜索 API Key 的设置状态，不暴露实际密钥值

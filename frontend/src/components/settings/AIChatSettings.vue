@@ -152,6 +152,34 @@
     </n-button>
   </div>
 
+  <!-- ===== 模型专属参数预设 ===== -->
+  <!-- 每个模型保存各自的生成参数，切换模型时自动恢复 -->
+  <div class="model-preset-bar">
+    <span class="model-preset-label">
+      模型预设
+      <HelpTip content="将当前生成参数保存为该模型的专属预设。切换到此模型时自动恢复，无需每次重调。" />
+    </span>
+    <span v-if="hasModelPreset" class="model-preset-status">已保存</span>
+    <n-button
+      size="small"
+      type="primary"
+      ghost
+      :loading="savingModelPreset"
+      @click="saveModelPreset"
+    >
+      {{ hasModelPreset ? '更新预设' : '保存预设' }}
+    </n-button>
+    <n-button
+      v-if="hasModelPreset"
+      size="small"
+      ghost
+      :loading="savingModelPreset"
+      @click="clearModelPreset"
+    >
+      清除
+    </n-button>
+  </div>
+
   <!-- ===== 核心生成参数 ===== -->
   <n-divider style="margin: 20px 0 12px" />
   <div class="section-label">生成参数</div>
@@ -420,6 +448,10 @@ const {
   activeModelRefRaw,
   refShowThinking,
   applyModelRef,
+  hasModelPreset,
+  savingModelPreset,
+  saveModelPreset,
+  clearModelPreset,
   contextSizeIndex,
   contextSizeSteps,
   contextSizeMarks,

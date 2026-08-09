@@ -192,6 +192,67 @@ export namespace chat {
 	        this.compressCount = source["compressCount"];
 	    }
 	}
+	// 模型专属生成参数预设
+	export class ModelParams {
+	    temperature: number;
+	    top_p: number;
+	    top_k: number;
+	    repeat_penalty: number;
+	    min_p: number;
+	    samplers: string;
+	    ignore_eos: boolean;
+	    adaptive_target: number;
+	    adaptive_decay: number;
+	    context_size: number;
+	    proactive_compress_threshold: number;
+	    reasoning: string;
+	    reasoning_effort: string;
+	    reasoning_budget: number;
+	    reasoning_format: string;
+	    reasoning_preserve?: boolean;
+	    dry_multiplier: number;
+	    dry_base: number;
+	    dry_allowed_length: number;
+	    dry_sequence_breaker: string;
+	    dry_penalty_last_n: number;
+	    grp_attn_n: number;
+	    grp_attn_w: number;
+	    image_min_tokens: number;
+	    image_max_tokens: number;
+
+	    static createFrom(source: any = {}) {
+	        return new ModelParams(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.temperature = source["temperature"];
+	        this.top_p = source["top_p"];
+	        this.top_k = source["top_k"];
+	        this.repeat_penalty = source["repeat_penalty"];
+	        this.min_p = source["min_p"];
+	        this.samplers = source["samplers"];
+	        this.ignore_eos = source["ignore_eos"];
+	        this.adaptive_target = source["adaptive_target"];
+	        this.adaptive_decay = source["adaptive_decay"];
+	        this.context_size = source["context_size"];
+	        this.proactive_compress_threshold = source["proactive_compress_threshold"];
+	        this.reasoning = source["reasoning"];
+	        this.reasoning_effort = source["reasoning_effort"];
+	        this.reasoning_budget = source["reasoning_budget"];
+	        this.reasoning_format = source["reasoning_format"];
+	        this.reasoning_preserve = source["reasoning_preserve"];
+	        this.dry_multiplier = source["dry_multiplier"];
+	        this.dry_base = source["dry_base"];
+	        this.dry_allowed_length = source["dry_allowed_length"];
+	        this.dry_sequence_breaker = source["dry_sequence_breaker"];
+	        this.dry_penalty_last_n = source["dry_penalty_last_n"];
+	        this.grp_attn_n = source["grp_attn_n"];
+	        this.grp_attn_w = source["grp_attn_w"];
+	        this.image_min_tokens = source["image_min_tokens"];
+	        this.image_max_tokens = source["image_max_tokens"];
+	    }
+	}
 }
 
 export namespace config {
@@ -504,6 +565,7 @@ export namespace main {
 	    previous_model?: string;
 	    rolled_back?: boolean;
 	    rollback_success?: boolean;
+	    params_restored?: boolean;
 
 	    static createFrom(source: any = {}) {
 	        return new SwitchResult(source);
@@ -518,6 +580,7 @@ export namespace main {
 	        this.previous_model = source["previous_model"];
 	        this.rolled_back = source["rolled_back"];
 	        this.rollback_success = source["rollback_success"];
+	        this.params_restored = source["params_restored"];
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

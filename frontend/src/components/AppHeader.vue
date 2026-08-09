@@ -473,8 +473,10 @@ async function handleModelChange(value: string) {
         if (caps.audio_input) features.push('音频')
         if (caps.reasoning) features.push('推理')
         const featureText = features.length > 0 ? ` · 支持${features.join('、')}` : ' · 仅文本'
+        // 如果后端恢复了该模型的专属参数预设，在提示中追加说明
+        const restoredText = result.params_restored ? ' · 已恢复专属参数' : ''
         discreteMessage.success(
-          `${formatModelName(result.current_model || value).display}${featureText} 已就绪`,
+          `${formatModelName(result.current_model || value).display}${featureText}${restoredText} 已就绪`,
           { duration: 3000 }
         )
         loadAvailableModels()

@@ -7,6 +7,8 @@ import {mcp} from '../models';
 import {main} from '../models';
 import {rag} from '../models';
 
+export function ClearModelParams(arg1:string):Promise<void>;
+
 export function CreateConversation():Promise<chat.Conversation>;
 
 export function CreateKnowledgeBase(arg1:string):Promise<void>;
@@ -40,6 +42,10 @@ export function GetCleanupResult():Promise<Array<chat.AbnormalConversation>>;
 export function GetConfig():Promise<config.Config>;
 
 export function GetConversations():Promise<Array<chat.Conversation>>;
+
+export function GetModelParams(arg1:string):Promise<chat.ModelParams>;
+
+export function HasModelParams(arg1:string):Promise<boolean>;
 
 export function GetLoraAdapters():Promise<Array<llm.LoraAdapter>>;
 
@@ -100,6 +106,8 @@ export function RerankEnabled():Promise<boolean>;
 export function RestoreSlot(arg1:number):Promise<void>;
 
 export function EraseSlot(arg1:number):Promise<void>;
+
+export function SaveModelParams(arg1:string):Promise<void>;
 
 export function SaveMCPServers(arg1:Array<mcp.MCPServerConfig>):Promise<void>;
 
