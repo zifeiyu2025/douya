@@ -1,3 +1,0 @@
-[90m2026-08-12T03:47:21+08:00[0m [32mINF[0m [1m日志文件已启用[0m [36mfile=[0m"D:\\MyGoWorkspace\\douya\\data\\logs\\douya-2026-08-12.log"
-[90m2026-08-12T03:47:21+08:00[0m [32mINF[0m [1m豆芽启动中...[0m [36mlogDir=[0m"D:\\MyGoWorkspace\\douya\\data\\logs"
-[90m2026-08-12T03:47:21+08:00[0m [32mINF[0m [1m单实例互斥体获取成功[0m
