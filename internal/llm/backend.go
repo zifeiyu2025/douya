@@ -301,6 +301,16 @@ func ResolveBackendTypeWithRuntime(hw *system.HardwareInfo, cfgBackend string, r
 	if resolved == BackendCPU {
 		return resolved // CPU 本身就是兜底
 	}
+
+	// NVIDIA 独显 + auto：优先下载原生 CUDA，而非被已装的 Vulkan/CPU 兜底顶替。
+	// auto 的语义是"为我的显卡选最优后端"，对 N 卡用户 Vulkan/CPU 只是运行时崩溃兜底
+	// （ensureVulkanFallback）的替补，不应在启动选择阶段抢占原生 CUDA。
+	// 否则用户删除 runtime/cuda/ 想重新拉取 CUDA 时，会被预装的 Vulkan 接管。
+	// AMD/Intel 维持原有回退行为（AMD 默认 Vulkan、Intel SYCL 不成熟），不受影响。
+	if resolved == BackendCUDA && hw != nil && hw.GPUVendor == "nvidia" {
+		return resolved
+	}
+
 	if isBackendInstalled(resolved, runtimeDir) {
 		return resolved
 	}

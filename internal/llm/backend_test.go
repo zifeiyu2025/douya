@@ -323,6 +323,20 @@ func TestResolveBackendTypeWithRuntime_Fallback(t *testing.T) {
 			setupBackends: []string{"cuda"},
 			wantBackend:   llm.BackendCUDA,
 		},
+		{
+			// 回归场景：用户删除 runtime/cuda/ 想重新拉取 CUDA 时，
+			// 不应被预装的 Vulkan 兜底接管，auto 应返回原生 CUDA（触发下载）。
+			name:          "NVIDIA + CUDA 未安装但 Vulkan 已安装 → CUDA",
+			vendor:        "nvidia",
+			setupBackends: []string{"vulkan"},
+			wantBackend:   llm.BackendCUDA,
+		},
+		{
+			name:          "NVIDIA + CUDA 未安装但 CPU 已安装 → CUDA",
+			vendor:        "nvidia",
+			setupBackends: []string{"cpu"},
+			wantBackend:   llm.BackendCUDA,
+		},
 	}
 
 	for _, tt := range tests {

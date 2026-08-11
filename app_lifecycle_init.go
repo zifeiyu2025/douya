@@ -206,7 +206,12 @@ func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
 			isAuto := cfg.BackendType == "" || cfg.BackendType == string(llm.BackendAuto)
 			zlog.Warn().Err(err).Str("backend", resolvedBackend.String()).Bool("auto", isAuto).
 				Msg("[startup] 后端安装失败")
-			if isAuto && resolvedBackend != llm.BackendCPU {
+			// 自动模式 + NVIDIA 独显 + 原生 CUDA：优先下载对应 CUDA 版本，
+			// 不要静默降级到已装的 CPU 兜底（否则用户删除 cuda 目录后无法重新拉取 CUDA）。
+			skipSilentCPUFallback := isAuto &&
+				resolvedBackend == llm.BackendCUDA &&
+				a.hwInfo != nil && a.hwInfo.GPUVendor == "nvidia"
+			if isAuto && resolvedBackend != llm.BackendCPU && !skipSilentCPUFallback {
 				fallbackPath, cpuErr := llm.EnsureBackendInstalled(llm.BackendCPU, runtimeDir, nil)
 				if cpuErr != nil {
 					zlog.Error().Err(cpuErr).Msg("[startup] CPU 后端也安装失败，validatePaths 将报告缺失文件")
