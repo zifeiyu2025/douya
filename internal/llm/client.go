@@ -490,6 +490,9 @@ type MetricsSummary struct {
 	SpecDraftTokensTotal   float64 `json:"spec_draft_tokens_total"`   // 草稿模型生成的 token 总数（llamacpp:spec_decode_num_draft_tokens_total）
 	SpecAcceptedTokensTotal float64 `json:"spec_accepted_tokens_total"` // 被目标模型接受的草稿 token 总数（llamacpp:spec_decode_num_accepted_tokens_total）
 	SpecDraftsTotal        float64 `json:"spec_drafts_total"`         // 推测解码验证步骤总数（llamacpp:spec_decode_num_drafts_total）
+	// 按位置的接受草稿 token 数（llama.cpp b10355 新增：spec_decode_num_accepted_tokens_per_pos_total）。
+	// 每个位置 label 对应一个计数器；DSpark 等推测解码可用它评估各 draft 位置的命中分布。
+	SpecAcceptedTokensPerPosTotal float64 `json:"spec_accepted_tokens_per_pos_total"` // llamacpp:spec_decode_num_accepted_tokens_per_pos_total（按位置累计）
 }
 
 // ParseMetrics 解析 Prometheus 格式文本，提取关键指标。
@@ -551,6 +554,9 @@ func ParseMetrics(text string) MetricsSummary {
 			s.SpecAcceptedTokensTotal = value
 		case "llamacpp:spec_decode_num_drafts_total":
 			s.SpecDraftsTotal = value
+		case "llamacpp:spec_decode_num_accepted_tokens_per_pos_total":
+			// 同一指标按 position label 有多个序列，累加得到总接受数
+			s.SpecAcceptedTokensPerPosTotal += value
 		}
 	}
 	return s

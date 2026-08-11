@@ -157,8 +157,8 @@ func TestGetBackendInfo_UnknownType(t *testing.T) {
 // TestResolveBackendType_Auto 验证 auto 模式下根据 GPU 厂商自动选择原生后端。
 //
 // 生活类比：用户说"随便帮我选个发动机"，系统根据车库里有啥车来推荐——
-// 有 NVIDIA 就用 CUDA，有 AMD 就用 HIP，有 Intel 就用 SYCL，啥都没有就用 CPU。
-// 优先使用厂商原生后端（性能最佳），Vulkan 仅作为跨厂商兜底。
+// 有 NVIDIA 就用 CUDA，有 AMD 就用 Vulkan（成熟稳定，无需 ROCm 运行时），有 Intel 就用 SYCL，啥都没有就用 CPU。
+// 优先使用厂商原生后端（性能最佳），Vulkan 作为 AMD 默认与跨厂商兜底。
 func TestResolveBackendType_Auto(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -166,7 +166,7 @@ func TestResolveBackendType_Auto(t *testing.T) {
 		wantBackend llm.BackendType
 	}{
 		{"NVIDIA 显卡 → CUDA", "nvidia", llm.BackendCUDA},
-		{"AMD 显卡 → HIP", "amd", llm.BackendHIP},
+		{"AMD 显卡 → Vulkan（成熟稳定，无需 ROCm 运行时）", "amd", llm.BackendVulkan},
 		{"Intel 显卡 → SYCL（原生后端）", "intel", llm.BackendSYCL},
 		{"Vulkan 设备 → Vulkan", "vulkan", llm.BackendVulkan},
 		{"未知厂商 → CPU", "unknown_vendor", llm.BackendCPU},
@@ -306,16 +306,16 @@ func TestResolveBackendTypeWithRuntime_Fallback(t *testing.T) {
 			wantBackend:   llm.BackendSYCL,
 		},
 		{
-			name:          "AMD + HIP 已安装 → HIP",
-			vendor:        "amd",
-			setupBackends: []string{"hip"},
-			wantBackend:   llm.BackendHIP,
-		},
-		{
-			name:          "AMD + HIP 未安装但 Vulkan 已安装 → Vulkan",
+			name:          "AMD + Vulkan 已安装 → Vulkan",
 			vendor:        "amd",
 			setupBackends: []string{"vulkan"},
 			wantBackend:   llm.BackendVulkan,
+		},
+		{
+			name:          "AMD + Vulkan 未安装但 CPU 已安装 → CPU",
+			vendor:        "amd",
+			setupBackends: []string{"cpu"},
+			wantBackend:   llm.BackendCPU,
 		},
 		{
 			name:          "NVIDIA + CUDA 已安装 → CUDA",

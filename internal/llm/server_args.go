@@ -383,9 +383,11 @@ func (s *Server) appendSpecLookupArgs(args []string) []string {
 }
 
 // appendSpecDraftModelArgs 追加 draft 模型路径参数。
-// 仅在 draft-eagle3/draft-dflash/draft-simple 模式下传递。
+// 仅在 draft-eagle3/draft-dflash/draft-simple/draft-dspark 模式下传递。
+// draft-dspark（DSpark 推测解码，llama.cpp b10355 新增）同样通过 --spec-draft-model
+// 传入带 Markov 头的草稿模型，采用 anchor-first block layout。
 func (s *Server) appendSpecDraftModelArgs(args []string) []string {
-	if s.config.SpecDraftModel != "" && (s.config.SpecType == "draft-eagle3" || s.config.SpecType == "draft-dflash" || s.config.SpecType == "draft-simple") {
+	if s.config.SpecDraftModel != "" && (s.config.SpecType == "draft-eagle3" || s.config.SpecType == "draft-dflash" || s.config.SpecType == "draft-simple" || s.config.SpecType == "draft-dspark") {
 		args = append(args, "--spec-draft-model", s.resolvePath(s.config.SpecDraftModel))
 	}
 	return args

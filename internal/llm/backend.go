@@ -231,7 +231,7 @@ func GetBackendInfo(bt BackendType) BackendInfo {
 //
 // 解析规则：
 //   - cfgBackend 为 "auto" 或空时：按 GPUVendor 自动匹配原生后端
-//     nvidia → CUDA, amd → HIP, intel → SYCL, vulkan → Vulkan, 无 GPU → CPU
+//     nvidia → CUDA, amd → Vulkan, intel → SYCL, vulkan → Vulkan, 无 GPU → CPU
 //   - cfgBackend 为有效后端值（cuda/hip/sycl/vulkan/openvino/cpu）：直接返回
 //   - cfgBackend 为无效值：返回 CPU（安全回退）
 //
@@ -255,7 +255,10 @@ func ResolveBackendType(hw *system.HardwareInfo, cfgBackend string) BackendType 
 	case "nvidia":
 		return BackendCUDA
 	case "amd":
-		return BackendHIP
+		// AMD 在 Windows 上的成熟选择是 Vulkan：它使用系统自带的 AMD 显卡驱动（Vulkan
+		// 运行时随驱动分发），不依赖脆弱的 ROCm/HIP 运行时栈，最大化加载成功率。
+		// 追求极限性能且已正确配置 ROCm 环境的用户可在设置中手动选择 HIP 后端。
+		return BackendVulkan
 	case "intel":
 		// Intel 显卡优先使用原生 SYCL 后端（性能最佳）
 		// SYCL 未安装时由 ResolveBackendTypeWithRuntime 回退到 Vulkan

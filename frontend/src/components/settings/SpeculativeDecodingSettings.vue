@@ -41,7 +41,7 @@
           <template #label>
             推测类型
             <HelpTip
-              content="加速推理的推测解码技术。draft-mtp 需要模型内置 MTP 头（如 Qwen3.6-UD），draft-eagle3 需要 Eagle3 草稿模型，ngram 类型对所有模型可用。自动模式下检测到 MTP 头会自动启用 draft-mtp，否则启用 ngram-mod"
+              content="加速推理的推测解码技术。draft-mtp 需要模型内置 MTP 头（如 Qwen3.6-UD），draft-eagle3 需要 Eagle3 草稿模型，draft-dspark 需要带 Markov 头的 DSpark 草稿模型，ngram 类型对所有模型可用。自动模式下检测到 MTP 头会自动启用 draft-mtp，否则启用 ngram-mod"
             />
           </template>
           <n-select
@@ -65,7 +65,8 @@
             !formConfig.spec_default &&
             (formConfig.spec_type === 'draft-eagle3' ||
               formConfig.spec_type === 'draft-dflash' ||
-              formConfig.spec_type === 'draft-simple')
+              formConfig.spec_type === 'draft-simple' ||
+              formConfig.spec_type === 'draft-dspark')
           "
         >
           <n-text
@@ -79,7 +80,7 @@
             <template #label>
               Draft 模型路径
               <HelpTip
-                content="Eagle3/DFlash 或 Draft 草稿模型的 .gguf 文件路径。draft-eagle3/draft-dflash/draft-simple 模式需要"
+                content="Eagle3/DFlash/Draft/DSpark 草稿模型的 .gguf 文件路径。draft-eagle3/draft-dflash/draft-simple/draft-dspark 模式需要"
               />
             </template>
             <n-input

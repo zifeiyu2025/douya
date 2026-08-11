@@ -170,6 +170,14 @@ func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) e
 		}
 	}
 
+	// 预置 Vulkan 通用兜底后端（best-effort，不阻断主流程）。
+	// 仅对脆弱的 GPU 后端（CUDA/SYCL/HIP）启用：这些后端运行时若启动失败，
+	// 回退链 [resolved, Vulkan, CPU]（见 app_server_watch.go）能秒切到已预装的 Vulkan，
+	// 而非慢速 CPU，无需再等待一次网络下载。AMD 已默认 Vulkan（无需再装），CPU 无需额外兜底。
+	if bt == llm.BackendCUDA || bt == llm.BackendSYCL || bt == llm.BackendHIP {
+		a.ensureVulkanFallback(runtimeDir)
+	}
+
 	// 成功：推送 complete 事件
 	runtime.EventsEmit(a.ctx, EventBackendDownloadComplete, map[string]any{
 		"backend": bt.String(),
@@ -194,4 +202,34 @@ func (a *App) downloadAndInstallBackend(bt llm.BackendType, runtimeDir string) e
 		a.RestartApp()
 	}()
 	return nil
+}
+
+// ensureVulkanFallback 在安装脆弱 GPU 后端（CUDA/SYCL/HIP）时，best-effort 预置 Vulkan 作为通用兜底。
+// 这样运行时若主后端启动失败，回退链 [resolved, Vulkan, CPU]（见 app_server_watch.go）
+// 能秒切到 Vulkan 而非慢速 CPU，无需再等待一次网络下载。
+// 设计要点：
+//   - best-effort：任意步骤失败仅记录日志，绝不阻断主后端的安装与重启流程。
+//   - 静默：使用 nil 进度回调，不向 UI 推送额外下载进度（主后端进度已占用 UI）。
+//   - 幂等：Vulkan 已安装则直接跳过，避免重复下载。
+func (a *App) ensureVulkanFallback(runtimeDir string) {
+	if llm.IsBackendInstalled(llm.BackendVulkan, runtimeDir) {
+		zlog.Debug().Msg("[startup] Vulkan 兜底后端已安装，跳过预置")
+		return
+	}
+	zlog.Info().Msg("[startup] 预置 Vulkan 兜底后端（best-effort）")
+	vkInfo := llm.GetBackendInfo(llm.BackendVulkan)
+	// 模块化后端需先有 CPU 基础包提供 llama-server.exe 等核心文件
+	if err := llm.EnsureCPUBaseInstalled(vkInfo.Subdir, runtimeDir, nil); err != nil {
+		zlog.Warn().Err(err).Msg("[startup] Vulkan 兜底 CPU 基础包安装失败，运行时将回退到 CPU")
+		return
+	}
+	if _, err := llm.DownloadBackendZip(llm.BackendVulkan, runtimeDir, nil); err != nil {
+		zlog.Warn().Err(err).Msg("[startup] Vulkan 兜底后端下载失败，运行时将回退到 CPU")
+		return
+	}
+	if _, err := llm.EnsureBackendInstalled(llm.BackendVulkan, runtimeDir, nil); err != nil {
+		zlog.Warn().Err(err).Msg("[startup] Vulkan 兜底后端安装失败，运行时将回退到 CPU")
+		return
+	}
+	zlog.Info().Msg("[startup] Vulkan 兜底后端预置完成")
 }

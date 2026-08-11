@@ -234,6 +234,7 @@ const specTypeOptions = computed(() => {
     { label: 'Eagle3 推测解码', value: 'draft-eagle3' },
     { label: 'DFlash 推测解码', value: 'draft-dflash' },
     { label: 'Draft-Simple 推测解码', value: 'draft-simple' },
+    { label: 'DSpark 推测解码', value: 'draft-dspark' },
     { label: 'Ngram-Mod 推测解码', value: 'ngram-mod' },
     { label: 'Ngram-Simple 推测解码', value: 'ngram-simple' },
     { label: 'Ngram-Map-K 推测解码', value: 'ngram-map-k' },
