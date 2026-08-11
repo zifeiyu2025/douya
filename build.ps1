@@ -96,6 +96,13 @@ foreach ($dir in $syncDirs) {
                     Write-Host "  [runtime] 排除备份目录: $($backupDirs.Count) 个" -ForegroundColor Gray
                 }
             }
+            if ($dir -eq "models") {
+                # 排除个人模型文件（*.gguf）：它们是用户本地下载的大体积模型，
+                # 不属于应用分发内容（GitHub 单文件上限 2GB，且为私有数据）。
+                # 仅保留占位结构（如 README），运行时由用户自行放入模型。
+                $robocopyArgs += @("/XF", "*.gguf")
+                Write-Host "  [models] 排除个人模型(*.gguf)，仅保留占位" -ForegroundColor Gray
+            }
             & robocopy.exe @robocopyArgs
             $rc = $LASTEXITCODE
             # robocopy 退出码 0-7 表示成功（0=无变化，1-7=成功复制），8+ 表示错误
