@@ -128,7 +128,7 @@ const saving = ref(false)
 const genParamsDirty = ref(false)
 let genParamsSaveTimer: ReturnType<typeof setTimeout> | null = null
 
-// GPU 检测结果：默认 true（显示全部选项），onMounted 时通过 getSmartParams 更新
+// GPU 检测结果：默认 true（显示全部选项），onMounted 时通过 getBackendStatus 更新
 const hasGPUInfo = ref(true)
 
 const contextSizeSteps = [2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144]
@@ -588,10 +588,10 @@ onMounted(async () => {
   hasServerApiKey.value = await settingsStore.hasServerAPIKey()
   // 加载当前模型的预设状态
   await loadModelPresetStatus()
-  // 获取硬件信息以判断是否有 GPU（影响 KV cache 类型可选项）
+  // 获取硬件信息以判断是否有 GPU（影响 KV cache 类型可选项），改用 getBackendStatus
   try {
-    const smartParams = await wails.getSmartParams()
-    hasGPUInfo.value = smartParams.hardware.has_gpu || smartParams.hardware.has_cuda_backend
+    const status = await wails.getBackendStatus()
+    hasGPUInfo.value = !!status.gpu_name || status.gpu_vram_mb > 0 || status.gpu_vendor !== ''
   } catch {
     // 获取失败时保持默认值（true），显示全部选项
   }
@@ -758,7 +758,6 @@ const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'agent',
   'ui_mcp_proxy',
   'backend_sampling',
-  'performance_mode',
   'gpu_layers',
   'flash_attn',
   'mlock',

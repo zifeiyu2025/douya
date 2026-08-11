@@ -69,8 +69,6 @@ export function ResizeTerminal(cols:number,rows:number):Promise<void>;
 
 export function GetSlots():Promise<Array<llm.SlotInfo>>;
 
-export function GetSmartParams():Promise<main.SmartParamsInfo>;
-
 export function GetSearchAPIKeys():Promise<main.SearchAPIKeys>;
 
 export function HandleCloseRequest():Promise<string>;

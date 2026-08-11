@@ -10,8 +10,6 @@ import (
 	"douya/internal/chat"
 	"douya/internal/config"
 	"douya/internal/llm"
-
-	zlog "github.com/rs/zerolog/log"
 )
 
 // getConfig 在读锁保护下获取 config 指针快照，调用方仅用于读取字段，不应修改返回值。
@@ -72,11 +70,6 @@ func (a *App) UpdateConfig(cfg *config.Config) error {
 		return apperror.Wrap(apperror.KindInvalidConfig, "配置验证失败", err)
 	}
 
-	// 检测性能模式是否变化：性能模式影响 smartparams（ctx-size 等），
-	// 变化后需要重新生成 router-preset.ini 以保持一致性
-	oldPerformanceMode := a.getConfig().PerformanceMode
-	performanceModeChanged := oldPerformanceMode != cfg.PerformanceMode
-
 	if a.service != nil {
 		a.service.UpdateConfig(cfg)
 	}
@@ -89,22 +82,6 @@ func (a *App) UpdateConfig(cfg *config.Config) error {
 	if a.service != nil {
 		a.service.UpdateClient(a.getClient())
 		a.service.UpdateSearchChain(searchChain)
-	}
-
-	// 性能模式变化时异步重新生成 preset 文件（不阻塞配置保存）
-	// 修复一致性缺口：原实现 preset 只在启动/重载模型时生成，切换性能模式后 preset 中的
-	// ctx-size 等参数与实际启动参数不一致
-	if performanceModeChanged && a.service != nil {
-		go func() {
-			// 防止 panic 导致整个进程崩溃（preset 生成涉及文件 IO）
-			defer recoverLog("[config] 性能模式 preset 生成 goroutine panic")
-			if err := a.generatePresetFile(); err != nil {
-				zlog.Warn().Err(err).Msg("[config] 性能模式切换后重新生成 preset 文件失败")
-			} else {
-				zlog.Info().Str("old", oldPerformanceMode).Str("new", cfg.PerformanceMode).
-					Msg("[config] 性能模式切换，preset 文件已重新生成")
-			}
-		}()
 	}
 
 	return config.Save(filepath.Join(appDir(), "config.json"), cfg)

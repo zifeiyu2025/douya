@@ -229,19 +229,10 @@ func (a *App) regeneratePresetWithoutMmproj(modelName string) bool {
 	// 重新生成 preset 文件
 	var globalDefaults map[string]string
 	if a.hwInfo != nil {
-		defaultModelPath := ""
-		if len(a.presets) > 0 {
-			defaultModelPath = a.presets[0].ModelPath
-			for _, p := range a.presets {
-				if p.Alias == "default" {
-					defaultModelPath = p.ModelPath
-					break
-				}
-			}
-		}
-		sp := system.CalculateSmartParams(a.hwInfo, defaultModelPath, a.resolvedBackendString(), a.getConfig().PerformanceMode)
-		globalDefaults = map[string]string{
-			"ctx-size": fmt.Sprintf("%d", sp.ContextSize),
+		// 上下文长度：用户显式配置时写入 preset 全局默认，否则不写（llama.cpp 使用默认 4096）
+		globalDefaults = map[string]string{}
+		if a.getConfig().ContextSize > 0 {
+			globalDefaults["ctx-size"] = fmt.Sprintf("%d", a.getConfig().ContextSize)
 		}
 	}
 
@@ -317,23 +308,15 @@ func (a *App) generatePresetFile() error {
 
 	var globalDefaults map[string]string
 	if a.hwInfo != nil {
-		defaultModelPath := ""
-		if len(presets) > 0 {
-			defaultModelPath = presets[0].ModelPath
-			for _, p := range presets {
-				if p.Alias == "default" {
-					defaultModelPath = p.ModelPath
-					break
-				}
-			}
-		}
-		sp := system.CalculateSmartParams(a.hwInfo, defaultModelPath, a.resolvedBackendString(), a.getConfig().PerformanceMode)
+		// 上下文长度：用户显式配置时写入 preset 全局默认，否则不写（llama.cpp 使用默认 4096）
 		globalDefaults = map[string]string{
-			"ctx-size":       fmt.Sprintf("%d", sp.ContextSize),
 			"mmproj-offload": "1",
 			"pooling":        "mean",
 		}
-		zlog.Info().Int("ctx-size", sp.ContextSize).Msg("[preset] global defaults")
+		if a.getConfig().ContextSize > 0 {
+			globalDefaults["ctx-size"] = fmt.Sprintf("%d", a.getConfig().ContextSize)
+		}
+		zlog.Info().Msg("[preset] global defaults")
 	}
 
 	content := llm.GeneratePreset(presets, globalDefaults)

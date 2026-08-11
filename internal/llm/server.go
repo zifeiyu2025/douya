@@ -245,9 +245,11 @@ type ServerConfig struct {
 //  1. DirectIO=true        → "dio"（绕过页面缓存直读盘）
 //  2. Mlock=true           → "mlock"（mmap + 锁定到 RAM）
 //  3. Mmap=false           → "none"（关闭内存映射）
-//  4. 其他情况             → "mmap"（llama.cpp 默认）
+//  4. 其他情况             → "auto"（llama.cpp b10362+ 的默认值：mmap，除非设备不支持）
 //
-// 返回 "mmap" 时调用方可省略，因为它是上游默认值。
+// 注意：上游在 #26081 中将 --load-mode 默认值从 mmap 改为 auto（auto 会在 iGPU 上自动
+// 避免 mmap）。这里默认返回 auto 并显式传递，既锁定行为不随上游默认值漂移，又对独显用户
+// 等价于旧 mmap 行为。调用方在结果非空时始终传递 --load-mode。
 // 生活类比：就像汽车换挡——同时踩了多个开关时，按顺序取第一个生效的档位。
 func (c *ServerConfig) LoadMode() string {
 	if c.DirectIO {
@@ -259,7 +261,7 @@ func (c *ServerConfig) LoadMode() string {
 	if !c.Mmap {
 		return "none"
 	}
-	return "mmap"
+	return "auto"
 }
 
 type Server struct {

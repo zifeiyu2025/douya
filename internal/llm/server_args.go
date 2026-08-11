@@ -101,10 +101,10 @@ func (s *Server) appendValidatedCacheType(args []string, flag, t string) []strin
 // appendRuntimeArgs 追加运行时资源参数。
 // 包括 mlock、线程、batch、上下文大小、mmproj 投影。
 func (s *Server) appendRuntimeArgs(args []string) []string {
-	// 模型加载模式（llama.cpp #20834 统一为 --load-mode）：
-	// DirectIO > Mlock > 非 Mmap > 默认 mmap。
-	// 生活类比：加载模式像变速箱档位——用户同时踩了几个开关时，按优先级取一个生效。
-	if mode := s.config.LoadMode(); mode != "mmap" {
+	// 模型加载模式（llama.cpp #20834 统一为 --load-mode，b10362+ 默认 auto）：
+	// DirectIO > Mlock > 非 Mmap > 默认 auto。LoadMode() 始终返回非空，
+	// 显式传递以保持行为确定性（上游默认已从 mmap 改为 auto，见 #26081）。
+	if mode := s.config.LoadMode(); mode != "" {
 		args = append(args, "--load-mode", mode)
 	}
 	args = appendIntArg(args, "-t", s.config.Threads)

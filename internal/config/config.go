@@ -27,7 +27,7 @@ type Config struct {
 	ModelPath  string `json:"model_path"`
 	MmprojAuto bool   `json:"mmproj_auto"`
 	// MmprojOffload mmproj GPU 卸载开关。
-	// nil=自动（按 smartparams 硬件判断），true=强制启用，false=强制关闭。
+	// nil=自动（由 llama.cpp 原生判断），true=强制启用，false=强制关闭。
 	// 使用 *bool 是为了区分"未设置"与"显式 false"：
 	// 之前是 bool 且默认 true，导致用户设 mmproj_offload=false 时被 `if cfg.MmprojOffload { d.MmprojOffload = true }`
 	// 单方向覆盖，"关闭"路径永远不可达。改为 *bool 后 false 可真正生效。
@@ -204,14 +204,8 @@ type Config struct {
 	CorsCredentials bool   `json:"cors_credentials"` // 是否允许携带凭证（true 且 origins=* 时服务端会回显 Origin 并始终允许凭证）
 	// 后端采样（实验性，将采样逻辑移到 GPU 执行，不兼容 grammar 和 reasoning budget）
 	BackendSampling bool `json:"backend_sampling"`
-	// PerformanceMode 性能模式：compatible（兼容）/ balanced（平衡）/ performance（性能）。
-	// 生活类比：就像汽车的 ECO/COMFORT/SPORT 驾驶模式——不改动每个零件，
-	// 只按模式批量调整发动机、变速箱、转向的参数组合。
-	// compatible：保守配置，适合排查问题或首次运行未知模型
-	// balanced：日常使用，平衡性能与稳定性（默认）
-	// performance：榨干性能，适合确认硬件支持后追求极致速度
-	// 空值或非法值按 balanced 处理（向后兼容旧配置）
-	PerformanceMode string `json:"performance_mode"`
+
+	
 	// ===== TTS 文本转语音设置 =====
 	// 生活类比：像"播音员调度台"的配置——挑哪个播音员、调快慢、调音调、调音量。
 	// 前端用浏览器原生 SpeechSynthesis API 实现，无需后端参与推理，
@@ -397,8 +391,6 @@ func DefaultConfig() *Config {
 		CorsMethods:     "",
 		CorsHeaders:     "",
 		CorsCredentials: false,
-		// PerformanceMode 性能模式：默认 balanced（平衡），兼顾性能与稳定性
-		PerformanceMode: "balanced",
 		// TTS 文本转语音默认配置
 		// 默认启用朗读按钮，发音人留空（自动按优先级挑选晓晓等自然语音）
 		TtsEnabled:       true,
@@ -814,15 +806,6 @@ func (c *Config) repairInvalidFields() []string {
 		repaired = append(repaired, fmt.Sprintf("reasoning_effort: %q -> %q", c.ReasoningEffort, defaults.ReasoningEffort))
 		c.ReasoningEffort = defaults.ReasoningEffort
 	}
-	// PerformanceMode 修复：空值保留（向后兼容，运行时按 balanced 处理），
-	// 非法值回退到默认 balanced
-	switch c.PerformanceMode {
-	case "compatible", "balanced", "performance", "":
-	default:
-		repaired = append(repaired, fmt.Sprintf("performance_mode: %q -> %q", c.PerformanceMode, defaults.PerformanceMode))
-		c.PerformanceMode = defaults.PerformanceMode
-	}
-
 	return repaired
 }
 
@@ -888,12 +871,6 @@ func (c *Config) Validate() error {
 	case "auto", "on", "off", "":
 	default:
 		return apperror.Newf(apperror.KindInvalidConfig, "invalid programming_mode: %q (必须是 auto / on / off)", c.ProgrammingMode)
-	}
-	// PerformanceMode 枚举校验：空值合法（向后兼容旧配置），运行时按 balanced 处理
-	switch c.PerformanceMode {
-	case "compatible", "balanced", "performance", "":
-	default:
-		return apperror.Newf(apperror.KindInvalidConfig, "invalid performance_mode: %q (必须是 compatible / balanced / performance)", c.PerformanceMode)
 	}
 	// ReasoningEffort 枚举校验：空值合法（不传递跟随模型默认）
 	switch c.ReasoningEffort {

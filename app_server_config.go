@@ -10,18 +10,15 @@ import (
 
 	"douya/internal/config"
 	"douya/internal/llm"
-	"douya/internal/system"
-
-	zlog "github.com/rs/zerolog/log"
 )
 
-// derivedServerParams 封装 buildServerConfig 中从用户配置和智能参数派生出的中间值。
+// derivedServerParams 封装 buildServerConfig 中从用户配置派生出的中间值。
 // 这些派生值需要先计算再赋值给 ServerConfig，独立成结构体便于在子函数间传递。
 //
 // 生活类比：就像菜谱中的"预处理食材"清单——把需要切洗腌的食材先准备好放一个篮子里，
 // 后面炒菜时直接用，不用临时再切。
 type derivedServerParams struct {
-	GPULayers       string // GPU 层数（"auto" 或具体数字）
+	GPULayers       string // GPU 层数（用户显式设置的具体数字；空=交给 llama.cpp 默认 -1=自动卸载）
 	FlashAttn       string // Flash Attention 模式（"on"/"off"/""）
 	Mlock           bool   // 内存锁定
 	MmprojOffload   bool   // mmproj GPU 卸载
@@ -43,23 +40,17 @@ type derivedServerParams struct {
 }
 
 // buildServerConfig 从应用配置构建 llama-server 所需的 ServerConfig。
-// 这是 buildServerConfig 的主调度器，实际逻辑拆分到以下子函数：
-//   - resolveDerivedServerParams: 解析用户配置与智能参数的派生值
-//   - buildServerConfigFromFields: 构建 ServerConfig 结构体（字段赋值）
-//   - applySmartParamOverrides: 用户配置覆盖智能参数
-//   - autoEnableEagle3: Eagle3 自动启用
-//   - autoRecommendReasoning: 推理模式自动推荐
-//   - loadServerAPIKey: 从数据库加载 API Key
 //
-// 生活类比：就像餐厅出餐流程——主厨（buildServerConfig）只负责按流程分派任务，
-// 备料（resolveDerived）、摆盘（buildFromFields）、调味（applyOverrides）、
-// 装饰（autoEnable/autoRecommend）、上桌前检查（loadAPIKey）各有专人负责。
+// 模型加载参数完全依赖 llama.cpp 原生的自动参数识别能力
+// （--gpu-layers 默认 -1 = 自动卸载到 VRAM、flash-attn 默认开启、上下文默认 4096 等），
+// 不再做任何自定义硬件/模型分析与参数计算。
+// 用户通过配置显式设置的值作为覆盖项；未设置的字段保持空/零值，
+// 由 server_args.go 的 append*Arg 跳过，最终交给 llama.cpp 使用其内置默认。
 func (a *App) buildServerConfig() *llm.ServerConfig {
 	cfg := a.getConfig()
 
 	// 解析后端类型：优先用 startup 中缓存的解析结果（已 EnsureBackendInstalled），
 	// 未缓存时（如热重载场景）重新根据硬件和配置解析。
-	// 生活类比：用户选了"自动挡"，就根据车库里的车（硬件）来选合适的发动机。
 	resolvedBackend, resolvedServerPath := a.resolvedBackendSnapshot()
 	if resolvedBackend == "" {
 		// 热重载场景：runtime 已就绪，无需运行时预校验，直接按硬件推断
@@ -75,31 +66,14 @@ func (a *App) buildServerConfig() *llm.ServerConfig {
 
 	modelsDir := filepath.Join(appDir(), "models")
 
-	// 传入已解析的后端类型（resolvedBackend），让 SmartParams 根据后端调整参数
-	// 生活类比：告诉智能参数模块"我们这趟用的是电/油/柴"，让它据此调发动机参数
-	sp := system.CalculateSmartParams(a.hwInfo, resolvePath(cfg.ModelPath), string(resolvedBackend), cfg.PerformanceMode)
-	zlog.Info().
-		Str("models_dir", modelsDir).
-		Str("backend", resolvedBackend.String()).
-		Int("gpu_layers", sp.GPULayers).
-		Int("threads", sp.Threads).
-		Bool("flash", sp.FlashAttn).
-		Str("cache_k", sp.CacheTypeK).
-		Str("cache_v", sp.CacheTypeV).
-		Bool("mlock", sp.Mlock).
-		Bool("mmproj_offload", sp.MmprojOffload).
-		Msg("[smart-params] params")
-
-	presetPath := resolvePresetPath()
-	derived := resolveDerivedServerParams(cfg, *sp)
+	// 参数完全依赖 llama.cpp 原生自动识别：仅以用户显式配置为准，未设置则留空/零值。
+	derived := resolveDerivedServerParams(cfg)
 	mediaPath := a.resolveMediaPath(cfg.MediaPath)
-	serverCfg := buildServerConfigFromFields(cfg, *sp, derived, modelsDir, absServerPath, presetPath, mediaPath)
+	presetPath := resolvePresetPath()
+	serverCfg := buildServerConfigFromFields(cfg, derived, modelsDir, absServerPath, presetPath, mediaPath)
 	// 设置当前使用的后端类型，供后续逻辑（如参数调优、日志记录）使用
 	serverCfg.BackendType = resolvedBackend
 
-	applySmartParamOverrides(serverCfg, cfg, *sp)
-	autoEnableEagle3(serverCfg, cfg, *sp)
-	autoRecommendReasoning(serverCfg, *sp)
 	a.loadServerAPIKey(serverCfg)
 
 	// 后端安全限制：在所有用户覆盖之后应用，确保后端硬限制不可被绕过
@@ -118,30 +92,19 @@ func resolvePresetPath() string {
 	return presetPath
 }
 
-// resolveDerivedServerParams 解析用户配置与智能参数的派生值。
-// 用户显式设置优先，未设置时用智能参数兜底。
-//
-// 生活类比：就像汽车驾驶模式——用户手动调节的参数（座椅、后视镜）听用户的，
-// 没调过的用自动模式（根据驾驶员身材自动调整）。
-func resolveDerivedServerParams(cfg *config.Config, sp system.SmartParams) *derivedServerParams {
+// resolveDerivedServerParams 从用户配置派生 ServerConfig 的中间值。
+// 仅以用户显式配置为准；未设置的字段保持空/零值，表示交给 llama.cpp 原生自动识别
+// （--gpu-layers 默认 -1 自动卸载、flash-attn 默认开启、上下文默认 4096 等），
+// 不再做任何自定义硬件/模型分析，也不自动计算参数。
+func resolveDerivedServerParams(cfg *config.Config) *derivedServerParams {
 	d := &derivedServerParams{}
 
-	// GPU层数：用户设置优先，否则用智能参数
-	d.GPULayers = "auto"
+	// GPU 层数：用户显式设置则用，未设置则留空（server_args.go 跳过 -> llama.cpp 默认 -1=auto）
 	if cfg.GPULayers > 0 {
 		d.GPULayers = fmt.Sprintf("%d", cfg.GPULayers)
-	} else if sp.GPULayers > 0 {
-		d.GPULayers = fmt.Sprintf("%d", sp.GPULayers)
 	}
 
-	// Flash Attention：用户设置优先，支持 on/off/auto 三值
-	// P1.5 修复：smart-params 判定"关闭 Flash"（Vulkan/CPU 等后端）时必须显式传 off，
-	// 不能留空——留空则 appendStringArg 不产出 --flash-attn，llama.cpp 用自己的默认值
-	// （可能是 on/auto），导致"安全关闭"意图丢失。
-	d.FlashAttn = "on"
-	if !sp.FlashAttn {
-		d.FlashAttn = "off"
-	}
+	// Flash Attention：用户显式设置则用 on/off，未设置则留空（llama.cpp 默认开启）
 	if cfg.FlashAttn != nil {
 		if *cfg.FlashAttn {
 			d.FlashAttn = "on"
@@ -150,87 +113,53 @@ func resolveDerivedServerParams(cfg *config.Config, sp system.SmartParams) *deri
 		}
 	}
 
-	// Mlock：用户设置优先
-	d.Mlock = sp.Mlock
+	// Mlock：用户显式设置则用，否则 false（影响 --load-mode）
 	if cfg.Mlock != nil {
 		d.Mlock = *cfg.Mlock
 	}
 
-	// MmprojOffload：三态语义（与 config.FlashAttn/Mlock 一致）。
-	//   nil  → 自动（按 smartparams 硬件判断）
-	//   true → 强制启用
-	//   false → 强制关闭
-	// P1.4 修复：此前是 `if cfg.MmprojOffload { d.MmprojOffload = true }` 单方向 OR，
-	// 用户设 mmproj_offload=false 时永远被 sp.MmprojOffload（GPU 上为 true）覆盖，关闭路径不可达。
-	d.MmprojOffload = sp.MmprojOffload
+	// MmprojOffload：用户显式设置则用，否则 false
 	if cfg.MmprojOffload != nil {
 		d.MmprojOffload = *cfg.MmprojOffload
 	}
 
-	// 推测解码参数：用户设置优先，未配置时用智能参数自动启用
+	// 推测解码参数：仅用户显式配置生效（不再自动推荐）
 	d.SpecType = cfg.SpecType
-	if d.SpecType == "" {
-		d.SpecType = sp.SpecType
-	}
-	d.SpecDraftNMax = resolveIntDerived(cfg.SpecDraftNMax, sp.SpecDraftNMax)
-	d.SpecDraftNMin = resolveIntDerived(cfg.SpecDraftNMin, sp.SpecDraftNMin)
-	d.CacheTypeKDraft = resolveStringDerived(cfg.CacheTypeKDraft, sp.CacheTypeKDraft)
-	d.CacheTypeVDraft = resolveStringDerived(cfg.CacheTypeVDraft, sp.CacheTypeVDraft)
-	d.NgramModNMin = resolveIntDerived(cfg.SpecNgramModNMin, sp.NgramModNMin)
-	d.NgramModNMax = resolveIntDerived(cfg.SpecNgramModNMax, sp.NgramModNMax)
-	d.NgramModNMatch = resolveIntDerived(cfg.SpecNgramModNMatch, sp.NgramModNMatch)
+	d.SpecDraftNMax = cfg.SpecDraftNMax
+	d.SpecDraftNMin = cfg.SpecDraftNMin
+	d.CacheTypeKDraft = cfg.CacheTypeKDraft
+	d.CacheTypeVDraft = cfg.CacheTypeVDraft
+	d.NgramModNMin = cfg.SpecNgramModNMin
+	d.NgramModNMax = cfg.SpecNgramModNMax
+	d.NgramModNMatch = cfg.SpecNgramModNMatch
 
-	// 线程数：用户设置优先
-	d.Threads = resolveIntDerived(cfg.Threads, sp.Threads)
-
-	// Batch Size：用户设置优先
-	d.BatchSize = resolveIntDerived(cfg.BatchSize, sp.BatchSize)
-	d.UBatchSize = sp.UBatchSize
+	// 线程数 / 批大小：用户显式设置 > 0 时用，否则留 0（llama.cpp 自动）
+	d.Threads = cfg.Threads
+	d.BatchSize = cfg.BatchSize
 	if cfg.BatchSize > 0 {
-		d.UBatchSize = d.BatchSize / 2
+		d.UBatchSize = cfg.BatchSize / 2
 	}
 
-	// 上下文长度：用户设置优先，否则用智能参数
-	d.ContextSize = resolveIntDerived(cfg.ContextSize, sp.ContextSize)
+	// 上下文长度：用户显式设置 > 0 时用，否则留 0（llama.cpp 默认 4096）
+	d.ContextSize = cfg.ContextSize
 
-	// SleepIdleSeconds：尊重用户显式设置
-	// -1 表示禁用空闲休眠（与 llama.cpp 默认值对齐），0 视为未设置也禁用
+	// SleepIdleSeconds / ModelsMax：尊重用户/默认
 	d.SleepIdle = cfg.SleepIdleSeconds
-
-	// ModelsMax：默认 1
 	d.ModelsMax = cfg.ModelsMax
 	if d.ModelsMax <= 0 {
-		d.ModelsMax = 1
+		d.ModelsMax = 1 // 至少支持 1 个模型
 	}
 
-	// reasoning_format 不再硬编码设置：
-	// llama-server 默认值 COMMON_REASONING_FORMAT_DEEPSEEK 已能正确处理所有模型的思考内容分离
+	// reasoning_format：不再硬编码，遵循 llama-server 默认
 	d.ReasoningFormat = cfg.ReasoningFormat
 
 	return d
-}
-
-// resolveIntDerived 解析整型派生值：用户值 > 0 时用用户值，否则用智能参数值。
-func resolveIntDerived(userVal, smartVal int) int {
-	if userVal > 0 {
-		return userVal
-	}
-	return smartVal
-}
-
-// resolveStringDerived 解析字符串派生值：用户值非空时用用户值，否则用智能参数值。
-func resolveStringDerived(userVal, smartVal string) string {
-	if userVal != "" {
-		return userVal
-	}
-	return smartVal
 }
 
 // buildServerConfigFromFields 根据配置和派生值构建 ServerConfig 结构体。
 // 这是纯字段赋值函数，不含逻辑分支。
 func buildServerConfigFromFields(
 	cfg *config.Config,
-	sp system.SmartParams,
 	d *derivedServerParams,
 	modelsDir, absServerPath, presetPath, mediaPath string,
 ) *llm.ServerConfig {
@@ -241,8 +170,8 @@ func buildServerConfigFromFields(
 		GPULayers:              d.GPULayers,
 		Threads:                d.Threads,
 		FlashAttn:              d.FlashAttn,
-		CacheTypeK:             sp.CacheTypeK,
-		CacheTypeV:             sp.CacheTypeV,
+		CacheTypeK:             cfg.CacheTypeK,
+		CacheTypeV:             cfg.CacheTypeV,
 		Mlock:                  d.Mlock,
 		MmprojAuto:             cfg.MmprojAuto,
 		MmprojOffload:          d.MmprojOffload,
@@ -359,67 +288,6 @@ func buildServerConfigFromFields(
 		CPUMoe:                   cfg.CPUMoe,
 		NCpuMoe:                  cfg.NCpuMoe,
 		OpOffload:                cfg.OpOffload,
-	}
-}
-
-// applySmartParamOverrides 用用户显式配置覆盖智能参数推荐值。
-// 当用户在 config.json 中显式设置了某个参数时，优先使用用户值。
-func applySmartParamOverrides(serverCfg *llm.ServerConfig, cfg *config.Config, sp system.SmartParams) {
-	if cfg.CacheTypeK != "" {
-		serverCfg.CacheTypeK = cfg.CacheTypeK
-	}
-	if cfg.CacheTypeV != "" {
-		serverCfg.CacheTypeV = cfg.CacheTypeV
-	}
-	if cfg.CacheTypeKDraft != "" {
-		serverCfg.CacheTypeKDraft = cfg.CacheTypeKDraft
-	}
-	if cfg.CacheTypeVDraft != "" {
-		serverCfg.CacheTypeVDraft = cfg.CacheTypeVDraft
-	}
-	// 用户未设置 SpecType 但智能参数推荐了时，用智能参数的完整推测解码配置
-	if cfg.SpecType == "" && sp.SpecType != "" {
-		serverCfg.SpecType = sp.SpecType
-		serverCfg.SpecDraftNMax = sp.SpecDraftNMax
-		serverCfg.SpecDraftNMin = sp.SpecDraftNMin
-		if serverCfg.CacheTypeKDraft == "" {
-			serverCfg.CacheTypeKDraft = sp.CacheTypeKDraft
-		}
-		if serverCfg.CacheTypeVDraft == "" {
-			serverCfg.CacheTypeVDraft = sp.CacheTypeVDraft
-		}
-		if serverCfg.SpecNgramModNMin == 0 && sp.NgramModNMin > 0 {
-			serverCfg.SpecNgramModNMin = sp.NgramModNMin
-		}
-		if serverCfg.SpecNgramModNMax == 0 && sp.NgramModNMax > 0 {
-			serverCfg.SpecNgramModNMax = sp.NgramModNMax
-		}
-		if serverCfg.SpecNgramModNMatch == 0 && sp.NgramModNMatch > 0 {
-			serverCfg.SpecNgramModNMatch = sp.NgramModNMatch
-		}
-	}
-}
-
-// autoEnableEagle3 在模型支持 Eagle3 且用户配置了 draft 模型但未显式设置 SpecType 时，
-// 自动启用 draft-eagle3 推测解码。
-//
-// 生活类比：就像检测到你插了耳机就自动切换音频输出到耳机一样。
-func autoEnableEagle3(serverCfg *llm.ServerConfig, cfg *config.Config, sp system.SmartParams) {
-	if serverCfg.SpecType == "" && sp.SupportsEagle3 && cfg.SpecDraftModel != "" {
-		serverCfg.SpecType = "draft-eagle3"
-		zlog.Info().Str("draft_model", cfg.SpecDraftModel).Msg("[smart-params] Eagle3 supported and draft model configured, auto-enabling draft-eagle3")
-	}
-}
-
-// autoRecommendReasoning 在用户未设置推理模式时，使用智能参数推荐值。
-//
-// 生活类比：就像你没手动调空调温度时，汽车自动用舒适温度一样。
-func autoRecommendReasoning(serverCfg *llm.ServerConfig, sp system.SmartParams) {
-	if serverCfg.Reasoning == "" && sp.ReasoningMode != "" {
-		serverCfg.Reasoning = sp.ReasoningMode
-	}
-	if serverCfg.ReasoningBudget == 0 && sp.ReasoningBudget != 0 {
-		serverCfg.ReasoningBudget = sp.ReasoningBudget
 	}
 }
 

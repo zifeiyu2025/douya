@@ -3,7 +3,6 @@
   生活类比：像汽车的驱动方式设置——前驱/后驱/四驱（GPU层数）、涡轮增压（Flash Attention）
 
   从 PerformanceSettings.vue 拆分而来，负责：
-    - 模型量化类型显示（只读，从 GGUF 元数据解析）
     - GPU 状态检测展示
     - GPU 层数配置（gpu_layers）
     - Flash Attention 三态开关（auto/on/off）
@@ -15,15 +14,6 @@
     <span class="section-icon">🚀</span>
     <span class="section-title">GPU 加速</span>
   </div>
-
-  <!-- 模型量化类型（只读显示） -->
-  <n-form-item v-if="modelFtype">
-    <template #label>
-      量化类型
-      <HelpTip content="当前模型的量化格式，从 GGUF 元数据解析。影响模型质量与显存占用的平衡" />
-    </template>
-    <n-tag size="small" type="info">{{ modelFtype }}</n-tag>
-  </n-form-item>
 
   <!-- GPU 状态 -->
   <n-form-item>
@@ -76,7 +66,7 @@
 </template>
 
 <script setup lang="ts">
-import { inject, ref, computed, onMounted, watch } from 'vue'
+import { inject, ref, computed, onMounted } from 'vue'
 import { NFormItem, NSelect, NInputNumber, NTag, NDivider } from 'naive-ui'
 import { wails } from '../../services/wails'
 import HelpTip from '../ui/HelpTip.vue'
@@ -84,14 +74,11 @@ import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
 
 defineOptions({ name: 'GpuAccelerationSettings' })
 
-// 从父级注入配置上下文（formConfig、autoSave、settingsStore 等共享状态）
+// 从父级注入配置上下文（formConfig、autoSave 等共享状态）
 const ctx = inject<SettingsContext>(SETTINGS_CONTEXT_KEY)!
-const { formConfig, autoSave, settingsStore } = ctx
+const { formConfig, autoSave } = ctx
 
-// ===== 模型量化类型（从 GGUF 元数据解析） =====
-const modelFtype = ref('')
-
-// ===== GPU 状态信息 =====
+// ===== GPU 状态信息（从后端 getBackendStatus 获取） =====
 const gpuInfo = ref({ has_gpu: false, has_cuda_backend: false, gpu_name: '', vram_gb: 0 })
 
 // ===== Flash Attention 三态选项 =====
@@ -114,28 +101,28 @@ const flashAttnValue = computed({
   }
 })
 
-/** 加载模型量化类型和 GPU 信息（从后端 getSmartParams 获取） */
-async function loadModelFtype() {
+/**
+ * 加载 GPU 状态信息（从后端 getBackendStatus 获取）。
+ * 原 smart-params 已移除，改为直接读取后端已检测好的显卡状态。
+ */
+async function loadGpuInfo() {
   try {
-    const smartParams = await wails.getSmartParams()
-    modelFtype.value = smartParams.model.ftype || ''
+    const status = await wails.getBackendStatus()
+    const hasGpu = !!status.gpu_name || status.gpu_vram_mb > 0 || !!status.gpu_vendor
     gpuInfo.value = {
-      has_gpu: smartParams.hardware.has_gpu,
-      has_cuda_backend: smartParams.hardware.has_cuda_backend,
-      gpu_name: smartParams.hardware.gpu_name,
-      vram_gb: Math.round(smartParams.hardware.gpu_vram_mb / 1024)
+      has_gpu: hasGpu,
+      has_cuda_backend: status.gpu_vendor === 'nvidia',
+      gpu_name: status.gpu_name,
+      vram_gb: Math.round(status.gpu_vram_mb / 1024)
     }
   } catch {
-    modelFtype.value = ''
+    // 获取失败时保持默认值（无 GPU），不阻塞设置页渲染
   }
 }
 
 onMounted(() => {
-  loadModelFtype()
+  loadGpuInfo()
 })
-
-// 模型切换时重新加载量化类型
-watch(() => settingsStore.currentModel, loadModelFtype)
 </script>
 
 <style scoped>

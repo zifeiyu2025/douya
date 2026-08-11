@@ -252,9 +252,6 @@ export interface Config {
   backend_type: string
   // 上一次成功启动的后端类型（非空表示切换过但新后端未通过启动验证，启动成功后清空）
   last_successful_backend: string
-  // 性能模式：compatible(兼容)/balanced(平衡)/performance(性能)
-  // 生活类比：像汽车的 ECO/COMFORT/SPORT 驾驶模式，按模式批量调整参数组合
-  performance_mode: string
   // ===== TTS 文本转语音配置 =====
   // 生活类比：播音员调度台的设置——挑人、调快慢、调音调、调音量
   tts_enabled: boolean // 是否启用朗读按钮
@@ -466,59 +463,6 @@ export interface MCPConnectResult {
   tool_count: number
 }
 
-export interface SmartParamsInfo {
-  hardware: {
-    cpu_cores: number
-    has_gpu: boolean
-    has_cuda_backend: boolean
-    gpu_name: string
-    gpu_vram_mb: number
-  }
-  model: {
-    architecture: string
-    block_count: number
-    embedding_length: number
-    context_length: number
-    file_size_mb: number
-    expert_count: number
-    expert_used: number
-    has_mtp: boolean
-    has_reasoning: boolean
-    n_params: number
-    size_label: string
-    ftype: string
-  }
-  params: {
-    gpu_layers: number
-    threads: number
-    batch_size: number
-    ubatch_size: number
-    flash_attn: boolean
-    cache_type_k: string
-    cache_type_v: string
-    mlock: boolean
-    mmproj_offload: boolean
-    context_size: number
-    spec_type: string
-    spec_draft_n_max: number
-    spec_draft_n_min: number
-    ngram_mod_n_min: number
-    ngram_mod_n_max: number
-    ngram_mod_n_match: number
-  }
-  overrides: {
-    gpu_layers: boolean
-    flash_attn: boolean
-    mlock: boolean
-    threads: boolean
-    batch_size: boolean
-    context_size: boolean
-    cache_type_k: boolean
-    cache_type_v: boolean
-    spec_type: boolean
-  }
-}
-
 export const DEFAULT_CONFIG: Config = {
   version: 2, // 与 Go Config.Version 对齐（配置 schema 版本号，P4.3 统一为 2）
   model_path: '',
@@ -527,7 +471,6 @@ export const DEFAULT_CONFIG: Config = {
   llama_server_path: 'runtime/llama-server.exe',
   backend_type: 'auto', // 与 Go DefaultConfig 对齐（自动检测最合适的后端）
   last_successful_backend: '', // 与 Go DefaultConfig 对齐（无历史回退后端）
-  performance_mode: 'balanced', // 与 Go DefaultConfig 对齐（平衡模式，兼顾性能与稳定性）
   // TTS 文本转语音默认配置（与 Go DefaultConfig 对齐）
   tts_enabled: true, // 与 Go DefaultConfig 对齐（运行时默认开启朗读按钮）
   tts_voice: '', // 空字符串 = 自动按优先级挑选（晓晓→云希→...）
@@ -536,7 +479,7 @@ export const DEFAULT_CONFIG: Config = {
   tts_volume: 1.0, // 最大音量
   api_base: 'http://127.0.0.1:8080',
   port: 8080,
-  // P4.1: 默认 0 = 未设置，让 smart-params 按 GPU 显存预算计算（与 Go DefaultConfig 对齐）
+  // P4.1: 默认 0 = 未设置，由 llama.cpp 原生 auto 按 GPU 显存自动计算（与 Go DefaultConfig 对齐）
   context_size: 0,
   proactive_compress_threshold: 0.8, // P1-A1: 80% 时主动压缩，为后续对话留出 20% 空间
   temperature: 0.8, // 与 Go DefaultConfig 对齐（llama.cpp 默认值）

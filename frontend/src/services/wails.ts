@@ -45,7 +45,6 @@ import {
   ClearModelParams,
   HasModelParams,
   SelectImageFile,
-  GetSmartParams,
   HandleCloseRequest,
   SetCloseAction,
   GracefulExit,
@@ -119,7 +118,6 @@ import type {
   Attachment,
   AttachmentSummary,
   ModelCapabilities,
-  SmartParamsInfo,
   MCPServerConfig,
   MCPToolInfo,
   MCPServerStatus,
@@ -144,7 +142,6 @@ export type {
   Attachment,
   AttachmentSummary,
   ModelCapabilities,
-  SmartParamsInfo,
   CollectionInfo,
   DocumentMeta,
   MCPServerConfig,
@@ -381,9 +378,6 @@ export const wails = {
     return (await ExportConversationWithDialog(id, format)) as boolean
   },
   getConfig: async (): Promise<Config> => adaptConfig(await GetConfig()),
-  getSmartParams: async (): Promise<SmartParamsInfo> => {
-    return (await GetSmartParams()) as SmartParamsInfo
-  },
   getCleanupResult: async (): Promise<CleanupResult[]> => {
     return (await GetCleanupResult()) as CleanupResult[]
   },

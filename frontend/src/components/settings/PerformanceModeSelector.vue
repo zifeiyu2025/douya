@@ -53,7 +53,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject } from 'vue'
+import { inject, ref } from 'vue'
 import { NFormItem, NIcon, useMessage } from 'naive-ui'
 import { LeafOutline, SpeedometerOutline, RocketOutline, CheckmarkCircle } from '@vicons/ionicons5'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
@@ -68,8 +68,8 @@ if (!ctx) {
     'PerformanceModeSelector 必须在 SettingsView 内使用（缺少 settingsContext provide）'
   )
 }
-const { formConfig, autoSave } = ctx
-
+// performance_mode 已随 smart-params 一起移除（改为 llama.cpp 原生 auto 加载）。
+// 本组件保留为只读展示，不再读写任何配置字段。
 const message = useMessage()
 
 // 性能模式定义
@@ -100,26 +100,23 @@ const modes = [
   }
 ] as const
 
-// 当前选中的模式（空值/非法值按 balanced 处理，与后端一致）
-const currentMode = computed(() => {
-  const m = formConfig.value.performance_mode
-  if (m === 'compatible' || m === 'balanced' || m === 'performance') {
-    return m
-  }
-  return 'balanced'
-})
+// 当前选中的模式（本地状态，不再持久化到配置）
+const selectedMode = ref('balanced')
+const currentMode = selectedMode
 
-/** 切换性能模式 */
-async function selectMode(mode: string) {
-  if (formConfig.value.performance_mode === mode) return
-  formConfig.value.performance_mode = mode
-  await autoSave()
+/** 切换性能模式（仅更新本地展示，不再写入配置） */
+function selectMode(mode: string) {
+  if (selectedMode.value === mode) return
+  selectedMode.value = mode
   const labelMap: Record<string, string> = {
     compatible: '兼容',
     balanced: '平衡',
     performance: '性能'
   }
-  message.success(`已切换到「${labelMap[mode]}」模式，下次启动生效`, { duration: 4000 })
+  message.success(
+    `已选择「${labelMap[mode]}」模式（注：性能模式已移除，参数由 llama.cpp 自动决定）`,
+    { duration: 4000 }
+  )
 }
 </script>
 

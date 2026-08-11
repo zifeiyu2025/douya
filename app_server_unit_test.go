@@ -11,7 +11,6 @@ import (
 	"douya/internal/apperror"
 	"douya/internal/config"
 	"douya/internal/llm"
-	"douya/internal/system"
 )
 
 // --- findModelMatch 测试 ---
@@ -274,85 +273,61 @@ func TestBackendFallbackChain_NilConfig(t *testing.T) {
 	}
 }
 
-// --- resolveDerivedServerParams 测试（P1.4/P1.5） ---
+// --- resolveDerivedServerParams 测试（无智能参数：仅以用户配置为准，未设置交给 llama.cpp 原生默认） ---
 
 // boolPtr 返回指向给定布尔值的指针，用于构造 *bool 配置字段。
 func boolPtr(b bool) *bool { return &b }
 
-// TestDerivedMmprojOffload_Nil 验证 mmproj_offload 未设置（nil）时用 smart-params 推荐值。
+// TestDerivedMmprojOffload_Nil 验证 mmproj_offload 未设置（nil）时默认 false（交给 llama.cpp 原生判断）。
 func TestDerivedMmprojOffload_Nil(t *testing.T) {
 	cfg := &config.Config{MmprojOffload: nil}
-	sp := system.SmartParams{MmprojOffload: true}
-	d := resolveDerivedServerParams(cfg, sp)
-	if !d.MmprojOffload {
-		t.Error("nil 配置应使用 smart-params 推荐值 true，实际 false")
-	}
-
-	sp.MmprojOffload = false
-	d = resolveDerivedServerParams(cfg, sp)
+	d := resolveDerivedServerParams(cfg)
 	if d.MmprojOffload {
-		t.Error("nil 配置应使用 smart-params 推荐值 false，实际 true")
+		t.Error("nil 配置应默认 false（不再自动启用），实际 true")
 	}
 }
 
 // TestDerivedMmprojOffload_ExplicitTrue 验证 mmproj_offload=true 时强制启用。
 func TestDerivedMmprojOffload_ExplicitTrue(t *testing.T) {
 	cfg := &config.Config{MmprojOffload: boolPtr(true)}
-	// smart-params 推荐 false（如 CPU），但用户显式 true 应赢
-	sp := system.SmartParams{MmprojOffload: false}
-	d := resolveDerivedServerParams(cfg, sp)
+	d := resolveDerivedServerParams(cfg)
 	if !d.MmprojOffload {
-		t.Error("用户显式 true 应覆盖 smart-params 的 false")
+		t.Error("用户显式 true 应启用 mmproj_offload")
 	}
 }
 
 // TestDerivedMmprojOffload_ExplicitFalse 验证 mmproj_offload=false 可真正关闭。
-// P1.4 回归：此前 bool 字段 + 单方向 OR 使 false 永远不可达。
 func TestDerivedMmprojOffload_ExplicitFalse(t *testing.T) {
 	cfg := &config.Config{MmprojOffload: boolPtr(false)}
-	// smart-params 推荐 true（GPU 上默认开），但用户显式 false 应赢
-	sp := system.SmartParams{MmprojOffload: true}
-	d := resolveDerivedServerParams(cfg, sp)
+	d := resolveDerivedServerParams(cfg)
 	if d.MmprojOffload {
-		t.Error("用户显式 false 应覆盖 smart-params 的 true，mmproj_offload 仍被强制开启")
+		t.Error("用户显式 false 应关闭 mmproj_offload，不可被自动逻辑覆盖")
 	}
 }
 
-// TestDerivedFlashAttn_On 验证 smart-params 推荐开启 Flash 时派生为 "on"。
+// TestDerivedFlashAttn_Nil 验证 Flash Attention 未设置（nil）时留空（交给 llama.cpp 默认开启）。
+func TestDerivedFlashAttn_Nil(t *testing.T) {
+	cfg := &config.Config{FlashAttn: nil}
+	d := resolveDerivedServerParams(cfg)
+	if d.FlashAttn != "" {
+		t.Errorf("Flash Attention 未设置应留空（原生默认），实际 %q", d.FlashAttn)
+	}
+}
+
+// TestDerivedFlashAttn_On 验证用户显式开启派生为 "on"。
 func TestDerivedFlashAttn_On(t *testing.T) {
-	cfg := &config.Config{FlashAttn: nil}
-	sp := system.SmartParams{FlashAttn: true}
-	d := resolveDerivedServerParams(cfg, sp)
-	if d.FlashAttn != "on" {
-		t.Errorf("smart-params 开启时应派生 flash-attn=on，实际 %q", d.FlashAttn)
-	}
-}
-
-// TestDerivedFlashAttn_Off 验证 smart-params 判定关闭 Flash 时派生为 "off"。
-// P1.5 回归：此前派生为 ""，appendStringArg 不产出 --flash-attn，
-// llama.cpp 用自己的默认值（可能 on/auto），"安全关闭"意图丢失。
-func TestDerivedFlashAttn_Off(t *testing.T) {
-	cfg := &config.Config{FlashAttn: nil}
-	sp := system.SmartParams{FlashAttn: false}
-	d := resolveDerivedServerParams(cfg, sp)
-	if d.FlashAttn != "off" {
-		t.Errorf("smart-params 关闭时应派生 flash-attn=off，实际 %q", d.FlashAttn)
-	}
-}
-
-// TestDerivedFlashAttn_UserOverride 验证用户显式设置覆盖 smart-params 推荐。
-func TestDerivedFlashAttn_UserOverride(t *testing.T) {
 	cfg := &config.Config{FlashAttn: boolPtr(true)}
-	sp := system.SmartParams{FlashAttn: false}
-	d := resolveDerivedServerParams(cfg, sp)
+	d := resolveDerivedServerParams(cfg)
 	if d.FlashAttn != "on" {
-		t.Errorf("用户显式 true 应覆盖 smart-params 的 off，实际 %q", d.FlashAttn)
+		t.Errorf("用户开启应派生 flash-attn=on，实际 %q", d.FlashAttn)
 	}
+}
 
-	cfg = &config.Config{FlashAttn: boolPtr(false)}
-	sp = system.SmartParams{FlashAttn: true}
-	d = resolveDerivedServerParams(cfg, sp)
+// TestDerivedFlashAttn_Off 验证用户显式关闭派生为 "off"。
+func TestDerivedFlashAttn_Off(t *testing.T) {
+	cfg := &config.Config{FlashAttn: boolPtr(false)}
+	d := resolveDerivedServerParams(cfg)
 	if d.FlashAttn != "off" {
-		t.Errorf("用户显式 false 应覆盖 smart-params 的 on，实际 %q", d.FlashAttn)
+		t.Errorf("用户关闭应派生 flash-attn=off，实际 %q", d.FlashAttn)
 	}
 }

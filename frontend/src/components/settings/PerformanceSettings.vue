@@ -8,14 +8,12 @@
 
   拆分后的组件结构：
     - BackendManager: GPU 硬件信息、后端切换与下载
-    - PerformanceModeSelector: 性能模式选择（三档预设）
     - GpuAccelerationSettings: GPU 层数、Flash Attention
     - KvCacheSettings: KV 缓存、多 GPU 分割、线程等高级参数
     - SpeculativeDecodingSettings: 推测解码（draft/ngram）参数
 -->
 <template>
   <BackendManager />
-  <PerformanceModeSelector />
   <GpuAccelerationSettings />
   <KvCacheSettings />
   <SpeculativeDecodingSettings />
@@ -23,7 +21,6 @@
 
 <script setup lang="ts">
 import BackendManager from './BackendManager.vue'
-import PerformanceModeSelector from './PerformanceModeSelector.vue'
 import GpuAccelerationSettings from './GpuAccelerationSettings.vue'
 import KvCacheSettings from './KvCacheSettings.vue'
 import SpeculativeDecodingSettings from './SpeculativeDecodingSettings.vue'

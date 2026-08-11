@@ -126,10 +126,6 @@ export function GetSlots() {
   return window['go']['main']['App']['GetSlots']();
 }
 
-export function GetSmartParams() {
-  return window['go']['main']['App']['GetSmartParams']();
-}
-
 export function GetSearchAPIKeys() {
   return window['go']['main']['App']['GetSearchAPIKeys']();
 }
