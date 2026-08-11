@@ -5,6 +5,8 @@ package llm
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,6 +26,66 @@ import (
 // GitHubReleasesAPI 是 llama.cpp releases 的 GitHub API 地址。
 // 默认查询 latest release，获取最新构建的 Windows 后端 zip 包。
 const GitHubReleasesAPI = "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest"
+
+// githubUA 是请求 GitHub API 时使用的 User-Agent 标识。
+// GitHub 要求所有 API 请求必须携带 User-Agent（https://docs.github.com/en/rest/overview/resources-in-the-rest-api#user-agent-required），
+// 使用项目名标识而非个人标识，保护用户隐私。
+const githubUA = "Douya-LocalAI"
+
+// githubHTTPClient 复用 TCP 连接池，避免每次 GitHub API 查询都新建 http.Client。
+// 生活类比：保留固定电话线而不是每次都临时拉一根。
+var githubHTTPClient = &http.Client{
+	Timeout: 30 * time.Second,
+	Transport: &http.Transport{
+		MaxIdleConns:    10,
+		IdleConnTimeout: 90 * time.Second,
+	},
+}
+
+// downloadHTTPClient 用于文件下载，不限超时（大文件下载可能耗时很长）。
+var downloadHTTPClient = &http.Client{
+	Timeout: 0,
+	Transport: &http.Transport{
+		MaxIdleConns:    10,
+		IdleConnTimeout: 90 * time.Second,
+	},
+}
+
+// fetchGitHubLatestRelease 查询 GitHub API 获取 llama.cpp 最新 release。
+// 该函数被 FindReleaseAsset 和 FindCudartAsset 共用，避免重复的 HTTP 请求逻辑。
+//
+// 生活类比：总台接线员——无论是问发动机型号还是配件型号，都打同一个电话，
+// 不用每次重新拨号。
+func fetchGitHubLatestRelease() (*GitHubRelease, error) {
+	req, err := http.NewRequest("GET", GitHubReleasesAPI, nil)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.KindUnavailable, "创建 GitHub API 请求失败", err)
+	}
+	req.Header.Set("User-Agent", githubUA)
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := githubHTTPClient.Do(req)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.KindUnavailable, "请求 GitHub API 失败", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, apperror.Newf(apperror.KindUnavailable, "GitHub API 返回非 200 状态码: %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.KindUnavailable, "读取 GitHub API 响应失败", err)
+	}
+
+	var release GitHubRelease
+	if err := json.Unmarshal(body, &release); err != nil {
+		return nil, apperror.Wrap(apperror.KindUnavailable, "解析 GitHub API 响应失败", err)
+	}
+
+	return &release, nil
+}
 
 // DownloadProgress 下载进度信息，通过回调函数推送给调用方。
 //
@@ -89,34 +151,10 @@ func FindReleaseAsset(bt BackendType) (asset GitHubAsset, tagName string, err er
 		return GitHubAsset{}, "", apperror.Wrap(apperror.KindInvalidConfig, "编译 ReleaseAssetRegex 失败", err)
 	}
 
-	// 查询 GitHub API
-	client := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequest("GET", GitHubReleasesAPI, nil)
+	// 查询 GitHub API（使用复用连接池的共享 client）
+	release, err := fetchGitHubLatestRelease()
 	if err != nil {
-		return GitHubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "创建 GitHub API 请求失败", err)
-	}
-	// GitHub API 要求设置 User-Agent
-	req.Header.Set("User-Agent", "Douya-LocalAI")
-	req.Header.Set("Accept", "application/vnd.github+json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return GitHubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "请求 GitHub API 失败", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return GitHubAsset{}, "", apperror.Newf(apperror.KindUnavailable, "GitHub API 返回非 200 状态码: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return GitHubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "读取 GitHub API 响应失败", err)
-	}
-
-	var release GitHubRelease
-	if err := json.Unmarshal(body, &release); err != nil {
-		return GitHubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "解析 GitHub API 响应失败", err)
+		return GitHubAsset{}, "", err
 	}
 
 	// 在 assets 中匹配对应后端，收集所有匹配项
@@ -209,33 +247,10 @@ var cudaVersionPriorityRegex = regexp.MustCompile(`cuda-(\d+)\.(\d+)`)
 //
 // 生活类比：买发动机时附带的"配件包"——发动机主包是引擎本体，cudart 包是配套的管线和接头。
 func FindCudartAsset() (asset GitHubAsset, tagName string, err error) {
-	// 查询 GitHub API（复用 FindReleaseAsset 的请求逻辑，但不走后端正则）
-	client := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequest("GET", GitHubReleasesAPI, nil)
+	// 查询 GitHub API（使用复用连接池的共享 client）
+	release, err := fetchGitHubLatestRelease()
 	if err != nil {
-		return GitHubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "创建 GitHub API 请求失败", err)
-	}
-	req.Header.Set("User-Agent", "Douya-LocalAI")
-	req.Header.Set("Accept", "application/vnd.github+json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return GitHubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "请求 GitHub API 失败", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return GitHubAsset{}, "", apperror.Newf(apperror.KindUnavailable, "GitHub API 返回非 200 状态码: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return GitHubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "读取 GitHub API 响应失败", err)
-	}
-
-	var release GitHubRelease
-	if err := json.Unmarshal(body, &release); err != nil {
-		return GitHubAsset{}, "", apperror.Wrap(apperror.KindUnavailable, "解析 GitHub API 响应失败", err)
+		return GitHubAsset{}, "", err
 	}
 
 	// 收集所有匹配的 cudart asset（12.x 和 13.x）
@@ -305,22 +320,28 @@ func DownloadCudartZip(runtimeDir string, progressCB func(DownloadProgress)) (st
 
 // downloadFile 是通用的文件下载函数，支持进度回调。
 // 从 downloadURL 下载到 destPath，先写入 .tmp 临时文件，完成后原子重命名。
+// 下载过程中实时计算 SHA256 哈希并记录日志，便于完整性审计。
 func downloadFile(downloadURL, destPath string, totalSize int64, bt BackendType, assetName, tagName string, progressCB func(DownloadProgress)) error {
 	tmpPath := destPath + ".tmp"
 	out, err := os.Create(tmpPath)
 	if err != nil {
 		return apperror.Wrap(apperror.KindInternal, "创建临时文件失败", err)
 	}
-	defer out.Close()
+	// outClosed 防止 defer 与后续显式 Close 双重关闭文件句柄（在 Windows 上可能导致 panic）
+	var outClosed bool
+	defer func() {
+		if !outClosed {
+			out.Close()
+		}
+	}()
 
 	req, err := http.NewRequest("GET", downloadURL, nil)
 	if err != nil {
 		return apperror.Wrap(apperror.KindUnavailable, "创建下载请求失败", err)
 	}
-	req.Header.Set("User-Agent", "Douya-LocalAI")
+	req.Header.Set("User-Agent", githubUA)
 
-	client := &http.Client{Timeout: 0} // 下载不限超时
-	resp, err := client.Do(req)
+	resp, err := downloadHTTPClient.Do(req)
 	if err != nil {
 		return apperror.Wrap(apperror.KindUnavailable, "下载请求失败", err)
 	}
@@ -335,13 +356,16 @@ func downloadFile(downloadURL, destPath string, totalSize int64, bt BackendType,
 	}
 
 	var downloaded int64
+	hash := sha256.New()
 	buf := make([]byte, 32*1024)
 	lastReport := time.Now()
 
 	for {
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
+			hash.Write(buf[:n]) // 实时计算 SHA256
 			if _, werr := out.Write(buf[:n]); werr != nil {
+				_ = os.Remove(tmpPath) // 写入失败时清理已下载的临时文件
 				return apperror.Wrap(apperror.KindInternal, "写入文件失败", werr)
 			}
 			downloaded += int64(n)
@@ -376,12 +400,20 @@ func downloadFile(downloadURL, destPath string, totalSize int64, bt BackendType,
 	if err := out.Close(); err != nil {
 		return apperror.Wrap(apperror.KindInternal, "关闭文件失败", err)
 	}
+	outClosed = true
 
 	// P0-1 修复：校验下载字节数，防止截断响应被误认为成功
 	if totalSize > 0 && downloaded != totalSize {
 		_ = os.Remove(tmpPath)
 		return apperror.Newf(apperror.KindUnavailable, "下载文件不完整：已下载 %d 字节，预期 %d 字节", downloaded, totalSize)
 	}
+
+	sha256Hex := hex.EncodeToString(hash.Sum(nil))
+	log.Info().
+		Str("asset", assetName).
+		Int64("size", totalSize).
+		Str("sha256", sha256Hex).
+		Msg("[backend] 下载完成，SHA256 哈希已记录")
 
 	if err := os.Rename(tmpPath, destPath); err != nil {
 		return apperror.Wrap(apperror.KindInternal, "重命名临时文件失败", err)
@@ -455,9 +487,9 @@ func DownloadBackendZipWithContext(ctx context.Context, bt BackendType, runtimeD
 	if err != nil {
 		return "", apperror.Wrap(apperror.KindUnavailable, "创建下载请求失败", err)
 	}
-	req.Header.Set("User-Agent", "Douya-LocalAI")
+	req.Header.Set("User-Agent", githubUA)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := downloadHTTPClient.Do(req)
 	if err != nil {
 		return "", apperror.Wrap(apperror.KindUnavailable, "下载请求失败", err)
 	}
@@ -471,6 +503,13 @@ func DownloadBackendZipWithContext(ctx context.Context, bt BackendType, runtimeD
 	if err != nil {
 		return "", apperror.Wrap(apperror.KindInternal, "创建临时文件失败", err)
 	}
+	// tmpClosed 防止 defer 与异常路径中显式 Close 双重关闭
+	var tmpClosed bool
+	defer func() {
+		if !tmpClosed {
+			tmpFile.Close()
+		}
+	}()
 
 	totalSize := resp.ContentLength
 	if totalSize <= 0 {
@@ -478,6 +517,7 @@ func DownloadBackendZipWithContext(ctx context.Context, bt BackendType, runtimeD
 	}
 
 	buf := make([]byte, 64*1024)
+	hash := sha256.New()
 	var downloaded int64
 	lastReport := time.Now()
 
@@ -485,6 +525,7 @@ func DownloadBackendZipWithContext(ctx context.Context, bt BackendType, runtimeD
 		// 检查 context 是否已取消
 		select {
 		case <-ctx.Done():
+			tmpClosed = true
 			tmpFile.Close()
 			_ = os.Remove(tmpPath)
 			if progressCB != nil {
@@ -500,7 +541,9 @@ func DownloadBackendZipWithContext(ctx context.Context, bt BackendType, runtimeD
 
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
+			hash.Write(buf[:n]) // 实时计算 SHA256
 			if _, writeErr := tmpFile.Write(buf[:n]); writeErr != nil {
+				tmpClosed = true
 				tmpFile.Close()
 				_ = os.Remove(tmpPath)
 				return "", apperror.Wrap(apperror.KindInternal, "写入临时文件失败", writeErr)
@@ -528,6 +571,7 @@ func DownloadBackendZipWithContext(ctx context.Context, bt BackendType, runtimeD
 			break
 		}
 		if readErr != nil {
+			tmpClosed = true
 			tmpFile.Close()
 			_ = os.Remove(tmpPath)
 			return "", apperror.Wrap(apperror.KindUnavailable, "下载读取失败", readErr)
@@ -535,12 +579,20 @@ func DownloadBackendZipWithContext(ctx context.Context, bt BackendType, runtimeD
 	}
 
 	tmpFile.Close()
+	tmpClosed = true
 
 	// P0-1 修复：校验下载字节数，防止截断响应被误认为成功
 	if totalSize > 0 && downloaded != totalSize {
 		_ = os.Remove(tmpPath)
 		return "", apperror.Newf(apperror.KindUnavailable, "下载文件不完整：已下载 %d 字节，预期 %d 字节", downloaded, totalSize)
 	}
+
+	sha256Hex := hex.EncodeToString(hash.Sum(nil))
+	log.Info().
+		Str("asset", asset.Name).
+		Int64("size", totalSize).
+		Str("sha256", sha256Hex).
+		Msg("[backend] 下载完成，SHA256 哈希已记录")
 
 	if err := os.Rename(tmpPath, destPath); err != nil {
 		_ = os.Remove(tmpPath)

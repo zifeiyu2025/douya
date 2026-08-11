@@ -6,6 +6,7 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"douya/internal/apperror"
 	"douya/internal/config"
@@ -107,6 +108,15 @@ func (a *App) SwitchBackend(bt string) error {
 		return apperror.Newf(apperror.KindInvalidInput, "无效的后端类型: %q（合法值: auto/cuda/hip/sycl/vulkan/openvino/cpu）", bt)
 	}
 
+	// 步骤 2：防抖——两次切换之间最少等待 3 秒
+	// 生活类比：发动机切换后需要冷却，不能刚熄火就换挡。
+	a.switchMu.Lock()
+	if elapsed := time.Since(a.lastSwitchTime); elapsed < 3*time.Second {
+		a.switchMu.Unlock()
+		return apperror.Newf(apperror.KindConflict, "后端切换间隔过短（距上次 %v），请 %v 后再试", elapsed.Round(time.Millisecond), (3*time.Second - elapsed).Round(time.Millisecond))
+	}
+	a.switchMu.Unlock()
+
 	zlog.Info().Str("backend", bt).Msg("[backend] 开始切换显卡后端")
 
 	// 步骤 2：更新配置中的 backend_type
@@ -159,6 +169,11 @@ func (a *App) SwitchBackend(bt string) error {
 	status := a.GetBackendStatus()
 	wailsruntime.EventsEmit(a.ctx, EventBackendSwitched, status)
 
+	// 记录切换时间，用于防抖保护
+	a.switchMu.Lock()
+	a.lastSwitchTime = time.Now()
+	a.switchMu.Unlock()
+
 	zlog.Info().Str("backend", bt).Msg("[backend] 显卡后端切换成功（需重启应用生效）")
 	return nil
 }
@@ -199,10 +214,31 @@ func (a *App) DownloadBackend(bt string) error {
 		return apperror.Newf(apperror.KindInvalidInput, "无效的后端类型: %q（合法值: cuda/hip/sycl/vulkan/openvino/cpu）", bt)
 	}
 
+	// 步骤 2：防重复下载——同一后端同时只能有一个下载任务
+	// 生活类比：正在装修的房间门口挂个"施工中"牌子，避免两队施工队同时开干。
+	a.downloadMu.Lock()
+	if a.downloadingBackends == nil {
+		a.downloadingBackends = make(map[string]bool)
+	}
+	if a.downloadingBackends[bt] {
+		a.downloadMu.Unlock()
+		return apperror.Newf(apperror.KindInvalidInput, "后端 %s 正在下载中，请稍后再试", bt)
+	}
+	a.downloadingBackends[bt] = true
+	a.downloadMu.Unlock()
+
+	// goroutine 结束后释放"施工中"标记
+	clearDownload := func() {
+		a.downloadMu.Lock()
+		delete(a.downloadingBackends, bt)
+		a.downloadMu.Unlock()
+	}
+
 	zlog.Info().Str("backend", bt).Msg("[backend] 开始从 GitHub 下载后端")
 
-	// 步骤 2：异步下载+安装（goroutine），通过事件推送进度
+	// 步骤 3：异步下载+安装（goroutine），通过事件推送进度
 	go func() {
+		defer clearDownload()
 		// 防止 panic 导致整个进程崩溃（下载涉及网络和文件 IO，可能 panic）
 		defer func() {
 			if r := recover(); r != nil {
@@ -299,47 +335,54 @@ func (a *App) DownloadBackend(bt string) error {
 //
 // 返回 false 表示未执行回退（无备份或不满足条件），调用方按原错误流程处理。
 func (a *App) tryRollbackBackend() bool {
-	cfg := a.getConfig()
-	prev := cfg.LastSuccessfulBackend
-	if prev == "" {
-		return false
-	}
-	if !llm.IsValidBackendType(prev) {
-		zlog.Warn().Str("prev", prev).Msg("[backend-rollback] 备份后端类型非法，放弃回退")
-		return false
-	}
-	if prev == cfg.BackendType {
-		// 新旧相同说明已回退过一次，清空备份避免循环
-		zlog.Warn().Msg("[backend-rollback] 备份与当前后端相同，清空备份")
-		a.clearBackendRollback()
-		return false
-	}
+	// 修复 TOCTOU 竞态：将所有读取和写入操作放在同一个写锁保护的 updateConfig 回调中，
+	// 避免 getConfig() 返回后到 updateConfig() 获取写锁之间的窗口期被其他 goroutine 篡改。
+	var rollbackTo string
 
-	zlog.Warn().Str("from", cfg.BackendType).Str("to", prev).
-		Msg("[backend-rollback] 检测到启动失败，回退到上一次成功的后端")
-
-	// 恢复旧后端配置，并清空 LastSuccessfulBackend（避免下次启动再次回退）
-	var updated *config.Config
 	if err := a.updateConfig(func(cfg *config.Config) error {
+		prev := cfg.LastSuccessfulBackend
+		if prev == "" {
+			return nil
+		}
+		if !llm.IsValidBackendType(prev) {
+			zlog.Warn().Str("prev", prev).Msg("[backend-rollback] 备份后端类型非法，清空备份")
+			cfg.LastSuccessfulBackend = ""
+			return nil
+		}
+		if prev == cfg.BackendType {
+			// 新旧相同说明已回退过一次，清空备份避免循环
+			zlog.Warn().Msg("[backend-rollback] 备份与当前后端相同，清空备份")
+			cfg.LastSuccessfulBackend = ""
+			return nil
+		}
+
+		zlog.Warn().Str("from", cfg.BackendType).Str("to", prev).
+			Msg("[backend-rollback] 检测到启动失败，回退到上一次成功的后端")
+
 		cfg.BackendType = prev
 		cfg.LastSuccessfulBackend = ""
+		rollbackTo = prev
+
 		if err := cfg.Validate(); err != nil {
 			return apperror.Wrap(apperror.KindInvalidConfig, "配置校验失败", err)
 		}
-		updated = cfg
 		return nil
 	}); err != nil {
 		zlog.Error().Err(err).Msg("[backend-rollback] 配置校验失败，放弃回退")
 		return false
 	}
 
+	if rollbackTo == "" {
+		return false
+	}
+
 	cfgPath := filepath.Join(appDir(), "config.json")
-	if err := config.Save(cfgPath, updated); err != nil {
+	if err := config.Save(cfgPath, a.getConfig()); err != nil {
 		zlog.Error().Err(err).Msg("[backend-rollback] 保存回退配置失败")
 		return false
 	}
 
-	zlog.Info().Str("backend", prev).Msg("[backend-rollback] 配置已回退，需重启应用生效")
+	zlog.Info().Str("backend", rollbackTo).Msg("[backend-rollback] 配置已回退，需重启应用生效")
 	return true
 }
 
@@ -348,22 +391,26 @@ func (a *App) tryRollbackBackend() bool {
 // 生活类比：新发动机成功打着火了，之前拍的照片就可以撕掉了，
 // 避免下次正常启动时被误判为"需要回退"。
 func (a *App) clearBackendRollback() {
-	cfg := a.getConfig()
-	if cfg.LastSuccessfulBackend == "" {
-		return
-	}
-	var updated *config.Config
+	// 修复 TOCTOU 竞态：将空值检查移入 updateConfig 回调中，避免读取与写入之间的窗口期。
+	var changed bool
 	if err := a.updateConfig(func(c *config.Config) error {
+		if c.LastSuccessfulBackend == "" {
+			return nil
+		}
 		c.LastSuccessfulBackend = ""
-		updated = c
+		changed = true
 		return nil
 	}); err != nil {
 		zlog.Warn().Err(err).Msg("[backend] 清空回退备份失败（不影响运行）")
 		return
 	}
 
+	if !changed {
+		return
+	}
+
 	cfgPath := filepath.Join(appDir(), "config.json")
-	if err := config.Save(cfgPath, updated); err != nil {
+	if err := config.Save(cfgPath, a.getConfig()); err != nil {
 		zlog.Warn().Err(err).Msg("[backend] 清空回退备份失败（不影响运行）")
 	} else {
 		zlog.Info().Msg("[backend] 新后端启动成功，已清空回退备份")

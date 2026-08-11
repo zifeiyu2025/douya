@@ -5,6 +5,7 @@ package store
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,7 +33,10 @@ func Init(dbPath string, encKey []byte) (*sql.DB, error) {
 	// - _cache_size=-65536：64MB 页缓存（负值表示 KB 单位），减少磁盘 I/O
 	// - _mmap_size=268435456：256MB 内存映射，加速读取
 	// - _wal_autocheckpoint=1000：显式控制 WAL checkpoint（默认值，避免 -wal 文件膨胀）
-	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_foreign_keys=on&_busy_timeout=5000&_synchronous=NORMAL&_cache_size=-65536&_wal_autocheckpoint=1000&_mmap_size=268435456")
+	// PRAGMA 参数通过连接字符串传递（go-sqlite3 驱动支持）。
+	// 含义与已有注释一致，详见上方 PRAGMA 优化说明。
+	dsn := fmt.Sprintf("%s?_journal_mode=WAL&_foreign_keys=on&_busy_timeout=5000&_synchronous=NORMAL&_cache_size=-65536&_wal_autocheckpoint=1000&_mmap_size=268435456", dbPath)
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		log.Error().Err(err).Msg("[store] 打开数据库失败")
 		return nil, err
@@ -370,6 +374,11 @@ func migrateMessages(db *sql.DB, encKey []byte) error {
 				encAttachments: encryptFieldWithFallback(attachments, encKey),
 				encToolCalls:   encryptFieldWithFallback(toolCalls, encKey),
 			})
+		}
+		// 检查迭代过程中是否发生错误（网络/磁盘/中断），避免将不完整批次误判为迁移完成
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return apperror.Wrap(apperror.KindInternal, "iterate messages batch", err)
 		}
 		rows.Close()
 

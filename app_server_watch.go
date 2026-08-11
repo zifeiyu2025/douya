@@ -180,26 +180,31 @@ func (a *App) backendFallbackChain() []llm.BackendType {
 
 // persistFallbackBackend 将回退成功后的后端持久化到配置，下次启动直接使用，避免重复失败。
 func (a *App) persistFallbackBackend(bt llm.BackendType) {
-	cfg := a.getConfig()
-	if cfg == nil || cfg.BackendType == string(bt) {
-		return
-	}
-	var updated *config.Config
+	// 修复 TOCTOU 竞态：将空值/相同检查移入 updateConfig 回调中，避免读取与写入之间的窗口期。
+	var updated bool
 	if err := a.updateConfig(func(c *config.Config) error {
+		if c.BackendType == string(bt) {
+			return nil
+		}
 		// 写入具体后端，避免下次又解析到失败的后端。
 		c.BackendType = string(bt)
 		c.LastSuccessfulBackend = ""
 		if err := c.Validate(); err != nil {
 			return err
 		}
-		updated = c
+		updated = true
 		return nil
 	}); err != nil {
 		zlog.Warn().Err(err).Msg("[startup] 回退后端配置校验失败")
 		return
 	}
+
+	if !updated {
+		return
+	}
+
 	cfgPath := filepath.Join(appDir(), "config.json")
-	if err := config.Save(cfgPath, updated); err != nil {
+	if err := config.Save(cfgPath, a.getConfig()); err != nil {
 		zlog.Warn().Err(err).Msg("[startup] 保存回退后端配置失败")
 		return
 	}

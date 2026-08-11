@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 
 	"douya/internal/apperror"
 
@@ -108,16 +107,14 @@ func GetLocalVersion(serverPath string) (version int, commit string, err error) 
 //   - tag: release tag（如 "b10220"）
 //   - err: 查询失败时的错误
 func GetLatestReleaseTag() (version int, tag string, err error) {
-	// 复用 backend_download.go 中的 GitHubReleasesAPI 常量
-	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequest("GET", GitHubReleasesAPI, nil)
 	if err != nil {
 		return 0, "", apperror.Wrap(apperror.KindInternal, "创建 GitHub API 请求失败", err)
 	}
-	req.Header.Set("User-Agent", "Douya-LocalAI")
+	req.Header.Set("User-Agent", githubUA)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := client.Do(req)
+	resp, err := githubHTTPClient.Do(req)
 	if err != nil {
 		return 0, "", apperror.Wrap(apperror.KindUnavailable, "请求 GitHub API 失败", err)
 	}

@@ -102,12 +102,14 @@ func (a *App) GetModelCapabilities() llm.ModelCapabilities {
 func (a *App) GetSmartParams() *SmartParamsInfo {
 	info := &SmartParamsInfo{}
 
-	// 硬件信息
-	info.Hardware.CPUCores = a.hwInfo.CPUCores
-	info.Hardware.HasGPU = a.hwInfo.HasGPU
-	info.Hardware.HasCUDABackend = a.hwInfo.HasCUDABackend
-	info.Hardware.GPUName = a.hwInfo.GPUName
-	info.Hardware.GPUVRAMMB = a.hwInfo.GPUVRAMMB
+	// 硬件信息（nil 防御：initHardware 前被调用时不 panic）
+	if a.hwInfo != nil {
+		info.Hardware.CPUCores = a.hwInfo.CPUCores
+		info.Hardware.HasGPU = a.hwInfo.HasGPU
+		info.Hardware.HasCUDABackend = a.hwInfo.HasCUDABackend
+		info.Hardware.GPUName = a.hwInfo.GPUName
+		info.Hardware.GPUVRAMMB = a.hwInfo.GPUVRAMMB
+	}
 
 	// 模型元数据
 	cfg := a.getConfig()

@@ -15,9 +15,13 @@ import (
 )
 
 // getConfig 在读锁保护下获取 config 指针快照，调用方仅用于读取字段，不应修改返回值。
+// nil 兜底：极端情况下（如配置尚未加载完成）返回默认配置副本，避免调用方解引用 panic。
 func (a *App) getConfig() *config.Config {
 	a.configMu.RLock()
 	defer a.configMu.RUnlock()
+	if a.config == nil {
+		return config.DefaultConfig()
+	}
 	return a.config
 }
 

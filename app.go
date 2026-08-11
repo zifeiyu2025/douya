@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"douya/internal/apperror"
 	"douya/internal/chat"
@@ -105,6 +106,14 @@ type App struct {
 	exiting          atomic.Bool
 	serverLoadFailed atomic.Bool // 模型加载彻底失败后锁定状态，防止监控循环覆盖错误状态
 	lastServerError  string      // 最后一次服务器/模型加载错误信息
+	// downloadMu 保护 downloadingBackends 的并发访问，防止同一后端重复下载。
+	// 生活类比：正在装修的房间门上挂个"施工中"牌子，避免两队施工队同时开干。
+	downloadMu          sync.Mutex
+	downloadingBackends map[string]bool
+	// switchMu 防止短时间内的重复后端切换操作（最小冷却间隔 3s）。
+	// 生活类比：发动机切换有冷却时间，不能刚熄火就立刻再换挡。
+	switchMu       sync.Mutex
+	lastSwitchTime time.Time
 	lastServerErrMu  sync.RWMutex
 	// fileLoader 是本地文件服务的引用，托盘最小化时调用 ClearCache 释放内存
 	fileLoader *LocalFileLoader

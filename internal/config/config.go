@@ -963,9 +963,12 @@ func validateAPIBase(apiBase string) error {
 }
 
 // isValidBackendType 校验后端类型字符串合法性。
+//
 // 与 llm.IsValidBackendType 保持同步：合法值为 auto/cuda/hip/sycl/vulkan/openvino/cpu。
 // 本地副本避免 config 包依赖 llm 包（config 应为最基础包，无内部依赖）。
-// 后端类型枚举相对稳定，如新增后端类型需同步更新此处和 llm/backend.go。
+//
+// 同步提醒：新增后端类型时，需在此 switch 中添加对应字面量，
+// 同时在 llm/backend.go 中添加 BackendType 常量。
 func isValidBackendType(s string) bool {
 	switch s {
 	case "auto", "cuda", "hip", "sycl", "vulkan", "openvino", "cpu":

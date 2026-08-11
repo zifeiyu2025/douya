@@ -346,6 +346,12 @@ func isBackendInstalled(bt BackendType, runtimeDir string) bool {
 // IsValidBackendType 校验字符串是否为有效的后端类型（含 "auto"）。
 //
 // 生活类比：检查用户填的"发动机型号"是不是我们店里有的型号。
+//
+// 同步提醒：config 包有本地副本 config.isValidBackendType（未导出），
+// 使用字符串字面量以避免导入 llm 包导致循环依赖。
+// 新增后端类型时需两处同步更新：
+//   - 此处新增 BackendType 常量
+//   - config/config.go 的 isValidBackendType switch 中新增对应字面量
 func IsValidBackendType(s string) bool {
 	switch BackendType(s) {
 	case BackendAuto, BackendCUDA, BackendHIP, BackendSYCL,

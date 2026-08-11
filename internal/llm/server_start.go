@@ -51,13 +51,14 @@ func (s *Server) Start() error {
 	args := s.buildStartArgs()
 	// 安全：API Key 通过环境变量传递，而非命令行参数
 	// 基于 GO-CONFIG-001 安全实践：避免命令行参数被同权限进程通过 tasklist/WMI 读取
-	if s.config.APIKey != "" {
+	// 安全加固：仅当项目配置显式开启 ServerAPIKeyEnabled 时才注入 LLAMA_API_KEY
+	if s.config.ServerAPIKeyEnabled && s.config.APIKey != "" {
 		s.cmdEnv = append(s.cmdEnv, "LLAMA_API_KEY="+s.config.APIKey)
 	}
 
 	// llama-server.exe 与 DLL 同目录（runtime/），直接用 exe 所在目录作为工作目录
 	runtimeDir := filepath.Dir(s.config.ServerPath)
-	env := prepareProcessEnv(runtimeDir, s.cmdEnv)
+	env := prepareProcessEnv(runtimeDir, s.cmdEnv, s.config.ServerAPIKeyEnabled)
 
 	s.cmd = exec.Command(s.config.ServerPath, args...)
 	s.cmd.Dir = runtimeDir
@@ -95,12 +96,17 @@ func (s *Server) Start() error {
 // prepareProcessEnv 构建子进程环境变量。
 // 1. 将 runtimeDir 注入 PATH（确保 DLL 可被找到）
 // 2. 过滤敏感环境变量（最小权限原则，防止泄露给子进程）
-// 3. 追加安全传递的环境变量（如 LLAMA_API_KEY）
+// 3. 追加安全传递的环境变量（如 LLAMA_API_KEY，仅当 ServerAPIKeyEnabled 时）
+//
+// serverAPIKeyEnabled：控制 LLAMA_API_KEY 是否可从父进程环境透传。
+// 当为 false 时，父进程的 LLAMA_API_KEY 将被视为敏感变量并过滤；
+// 已配置的 API Key 仍通过 cmdEnv 显式传入（不受此参数影响）。
 //
 // 安全实践（SEC-003）：原实现仅过滤 PATH，其余环境变量原样继承。
 // 改为黑名单过滤敏感前缀（*_SECRET/*_TOKEN/*_PASSWORD/*_CREDENTIAL/*_KEY），
-// 保留 LLAMA_API_KEY（llama-server 需要）和功能性变量（HOME/TEMP/SYSTEMROOT 等）。
-func prepareProcessEnv(runtimeDir string, cmdEnv []string) []string {
+// LLAMA_API_KEY 仅当项目配置显式开启 ServerAPIKeyEnabled 时才允许从父进程透传，
+// 已配置的密钥通过 cmdEnv 显式注入。
+func prepareProcessEnv(runtimeDir string, cmdEnv []string, serverAPIKeyEnabled bool) []string {
 	currentPath := os.Getenv("PATH")
 	newPath := runtimeDir
 	if currentPath != "" {
@@ -114,7 +120,7 @@ func prepareProcessEnv(runtimeDir string, cmdEnv []string) []string {
 			continue
 		}
 		// 过滤敏感环境变量（按前缀匹配 KEY=VALUE 中的 KEY 部分）
-		if isSensitiveEnvVar(e) {
+		if isSensitiveEnvVar(e, serverAPIKeyEnabled) {
 			continue
 		}
 		filtered = append(filtered, e)
@@ -143,8 +149,22 @@ var sensitiveEnvVarPrefixes = []string{
 }
 
 // isSensitiveEnvVar 判断环境变量是否敏感（不传递给子进程）。
-// 特殊例外：LLAMA_API_KEY 是 llama-server 自身需要的，允许通过。
-func isSensitiveEnvVar(envEntry string) bool {
+// serverAPIKeyEnabled：仅当项目配置明确启用了 ServerAPIKeyEnabled 时，
+// LLAMA_API_KEY 才允许从父进程环境透传给 llama-server 子进程。
+//
+// 过滤策略：
+//  1. LLAMA_API_KEY → 受 ServerAPIKeyEnabled 控制
+//  2. DOUYA_SKIP_ACL → 应用内部使用，始终过滤（泄露可能导致子进程跳过权限检查）
+//  3. 后缀匹配（key 末尾）：_SECRET / _TOKEN / _PASSWORD / _CREDENTIAL / _PASSPHRASE
+//     使用 strings.HasSuffix 确保不会出现子串假阳性（如 MY_TOKEN_FORMAT 以 _FORMAT 结尾，不匹配）
+//  4. 精确前缀匹配：sensitiveEnvVarPrefixes 列表（每个条目以 = 结尾，确保完整 KEY 名匹配）
+//
+// 设计取舍：后缀匹配可能导致极少数命名不当的非敏感变量被拦截（如 MY_TOKEN_MAP），
+// 但漏传实际的密钥/令牌远比误拦截的风险大，这是有意为之的安全偏保守策略。
+//
+// 生活类比：就像门禁系统——只有住户登记了"允许访客"时，门卫才放行访客（LLAMA_API_KEY），
+// 否则一律拦截，防止未授权访问。
+func isSensitiveEnvVar(envEntry string, serverAPIKeyEnabled bool) bool {
 	// 提取 KEY 部分（= 之前）
 	eqIdx := strings.Index(envEntry, "=")
 	if eqIdx <= 0 {
@@ -152,9 +172,15 @@ func isSensitiveEnvVar(envEntry string) bool {
 	}
 	key := envEntry[:eqIdx]
 
-	// 例外：LLAMA_API_KEY 允许通过
+	// LLAMA_API_KEY 仅在项目配置显式开启 ServerAPIKeyEnabled 时允许透传
 	if key == "LLAMA_API_KEY" {
-		return false
+		return !serverAPIKeyEnabled
+	}
+
+	// DOUYA_SKIP_ACL：应用内部环境变量（控制 ACL 收紧跳过），
+	// 不应泄露给子进程，否则可能允许子进程跳过权限检查。
+	if key == "DOUYA_SKIP_ACL" {
+		return true
 	}
 
 	// 黑名单：匹配 _SECRET/_TOKEN/_PASSWORD/_CREDENTIAL/_PASSPHRASE 后缀

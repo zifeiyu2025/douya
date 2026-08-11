@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"douya/internal/apperror"
 	"douya/internal/config"
@@ -153,22 +154,17 @@ func (a *App) GetMCPStatus() map[string]config.MCPServerStatus {
 		return result
 	}
 
-	// 收集缓存中各 server 的工具数量（通过工具名前缀 "<server>_" 匹配）
+	// 收集缓存中各 server 的工具数量（通过已知服务器名前缀匹配，避免含下划线名称被误拆分）
 	toolCountByServer := make(map[string]int)
 	if a.service != nil {
+		serverNames := make([]string, len(cfg.MCPServers))
+		for i, s := range cfg.MCPServers {
+			serverNames[i] = s.Name
+		}
+
 		tools := a.service.GetCachedMcpTools()
 		for _, t := range tools {
-			// 工具名形如 "echo_echo"，下划线前是 server 名
-			name := t.Function.Name
-			idx := -1
-			for i := 0; i < len(name); i++ {
-				if name[i] == '_' {
-					idx = i
-					break
-				}
-			}
-			if idx > 0 {
-				serverName := name[:idx]
+			if serverName, ok := matchMCPServerForTool(t.Function.Name, serverNames); ok {
 				toolCountByServer[serverName]++
 			}
 		}
@@ -197,6 +193,31 @@ func (a *App) GetMCPStatus() map[string]config.MCPServerStatus {
 		}
 	}
 	return result
+}
+
+// matchMCPServerForTool 判断工具名属于哪个 MCP server。
+// llama-server 自动为 MCP 工具加 "<server>_" 前缀，因此：
+//   - server 名含下划线时（如 "my_server"），不能用"首下划线"拆分定位，而应
+//     用已知 server 名做前缀匹配，避免误把 "my_server_foo" 归给 "my"。
+//   - server 名互为前缀时（如 "echo" 与 "echo_x"），按名称长度降序匹配，
+//     确保长名称优先、归因正确。
+//
+// 返回 (serverName, true)；无任何 server 前缀匹配时返回 ("", false)。
+// 注：server 名为空时不参与匹配，避免空前缀把一切工具都归到它名下。
+func matchMCPServerForTool(name string, serverNames []string) (string, bool) {
+	if name == "" {
+		return "", false
+	}
+	var best string
+	for _, serverName := range serverNames {
+		if serverName == "" {
+			continue
+		}
+		if strings.HasPrefix(name, serverName+"_") && len(serverName) > len(best) {
+			best = serverName
+		}
+	}
+	return best, best != ""
 }
 
 // TestMCPConnection 新架构下不再支持热测试连接（豆芽不管理 MCP 子进程）。
