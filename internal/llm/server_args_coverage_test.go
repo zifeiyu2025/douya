@@ -620,14 +620,14 @@ func TestLoadMode_Precedence(t *testing.T) {
 	}
 }
 
-// TestAppendRuntimeArgs_DefaultMmap 验证 默认负载模式 mmap 不额外传 --load-mode（上游默认值）
+// TestAppendRuntimeArgs_DefaultMmap 验证 默认负载模式显式传递 --load-mode mmap（受支持二进制默认值）
 func TestAppendRuntimeArgs_DefaultMmap(t *testing.T) {
 	s := newTestServer()
 	s.config.Mmap = true
 
 	args := s.appendRuntimeArgs(nil)
-	if got := argValue(args, "--load-mode"); got != "" {
-		t.Errorf("期望默认 mmap 时省略 --load-mode（换取上游默认），实际 %q，args: %v", got, args)
+	if got := argValue(args, "--load-mode"); got != "mmap" {
+		t.Errorf("期望默认 mmap 时显式传递 --load-mode mmap，实际 %q，args: %v", got, args)
 	}
 }
 

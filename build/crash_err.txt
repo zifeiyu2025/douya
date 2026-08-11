@@ -1,0 +1,2 @@
+{"level":"info","dir":"D:\\MyGoWorkspace\\douya","time":"2026-08-12T03:47:21+08:00","message":"[appDir] 找到配置文件目录"}
+2026/08/12 03:47:27 systray error: unable to set icon: The volume for a file has been externally altered so that the opened file is no longer valid.
