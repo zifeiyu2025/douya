@@ -25,8 +25,9 @@ import (
 //   - HTTP 超时（Tavily 30s 支持 advanced search，Ollama 20s）
 //
 // 生活类比：BaseHTTPSearchProvider 像"标准化快递柜"——
-//   快递员（具体 Provider）只需知道"目的地"（URL）、"包裹内容"（请求体）、"取货格式"（响应结构），
-//   寄件、运输、拆箱的通用流程由快递柜自动完成。
+//
+//	快递员（具体 Provider）只需知道"目的地"（URL）、"包裹内容"（请求体）、"取货格式"（响应结构），
+//	寄件、运输、拆箱的通用流程由快递柜自动完成。
 type BaseHTTPSearchProvider struct {
 	BaseProvider
 	apiKey string

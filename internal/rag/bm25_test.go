@@ -466,11 +466,11 @@ func computeUniqueTerms(idx *BM25Index) int {
 // TestRecomputeIDF_NoMemoryLeak 验证 recomputeIDF 不会积累已删除文档的词
 //
 // 场景设计：
-//   1. 添加文档（包含词 A、B、C），记录 len(idx.idf)
-//   2. 删除部分文档
-//   3. 再添加完全不同词的文档（包含词 X、Y、Z）
-//   4. 验证 len(idx.idf) == 当前文档集合的唯一词数
-//      （不应包含已删除文档的词 A、B、C）
+//  1. 添加文档（包含词 A、B、C），记录 len(idx.idf)
+//  2. 删除部分文档
+//  3. 再添加完全不同词的文档（包含词 X、Y、Z）
+//  4. 验证 len(idx.idf) == 当前文档集合的唯一词数
+//     （不应包含已删除文档的词 A、B、C）
 //
 // 修复前：recomputeIDF 只往 idx.idf 里写新词，从不删除旧词，
 // 导致 idx.idf 会持续增长（A、B、C 残留）→ 内存泄漏

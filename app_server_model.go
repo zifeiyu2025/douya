@@ -99,7 +99,6 @@ func (a *App) GetModelCapabilities() llm.ModelCapabilities {
 	return a.service.GetModelCapabilities()
 }
 
-
 func (a *App) GetAvailableModels() ([]llm.ModelOption, error) {
 	a.presetsMu.RLock()
 	presetsCopy := make([]llm.ModelPreset, len(a.presets))

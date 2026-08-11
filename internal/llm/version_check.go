@@ -40,12 +40,12 @@ var tagRegexp = regexp.MustCompile(`^b(\d+)$`)
 //
 // 生活类比：就像一张"版本对比报告"，写明你现在用的什么版本、最新版是什么、要不要更新。
 type VersionInfo struct {
-	LocalVersion    int    // 本地 llama-server 构建编号（如 10216），0 表示无法获取
-	LocalCommit     string // 本地 llama-server commit hash（如 "876a43211"）
-	RemoteVersion   int    // GitHub 最新 release 的构建编号（如 10220），0 表示查询失败
-	RemoteTag       string // GitHub 最新 release 的 tag（如 "b10220"）
-	HasUpdate       bool   // 是否有更新（RemoteVersion > LocalVersion）
-	CheckError      string // 检查过程中的错误信息（空表示无错误）
+	LocalVersion  int    // 本地 llama-server 构建编号（如 10216），0 表示无法获取
+	LocalCommit   string // 本地 llama-server commit hash（如 "876a43211"）
+	RemoteVersion int    // GitHub 最新 release 的构建编号（如 10220），0 表示查询失败
+	RemoteTag     string // GitHub 最新 release 的 tag（如 "b10220"）
+	HasUpdate     bool   // 是否有更新（RemoteVersion > LocalVersion）
+	CheckError    string // 检查过程中的错误信息（空表示无错误）
 }
 
 // GetLocalVersion 执行 llama-server --version，解析本地版本号。

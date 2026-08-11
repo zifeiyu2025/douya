@@ -30,8 +30,9 @@ func (s *Service) SetSetting(key, value string) error {
 //   - 当 Service 未持有 cipher（如未启用加密）时，回退到明文读取
 //
 // 生活类比：像一个智能快递柜——
-//   有钥匙（cipher）就帮你拆开加密包裹；
-//   没钥匙时直接给你未加密的普通包裹。
+//
+//	有钥匙（cipher）就帮你拆开加密包裹；
+//	没钥匙时直接给你未加密的普通包裹。
 func (s *Service) GetEncryptedSetting(key string) (string, error) {
 	if s.cipher != nil {
 		return store.GetEncryptedSetting(s.db, key, secrets.CipherKey(s.cipher))
@@ -46,8 +47,9 @@ func (s *Service) GetEncryptedSetting(key string) (string, error) {
 //   - 当 Service 未持有 cipher 时，回退到明文存储
 //
 // 生活类比：寄快递时——
-//   有加密箱（cipher）就把物品锁进加密箱再寄出；
-//   没有加密箱就直接用普通包装寄出。
+//
+//	有加密箱（cipher）就把物品锁进加密箱再寄出；
+//	没有加密箱就直接用普通包装寄出。
 func (s *Service) SetEncryptedSetting(key, value string) error {
 	if s.cipher != nil {
 		return store.SetEncryptedSetting(s.db, key, value, secrets.CipherKey(s.cipher))

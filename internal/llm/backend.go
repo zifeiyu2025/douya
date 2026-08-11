@@ -141,58 +141,58 @@ func GetBackendInfo(bt BackendType) BackendInfo {
 				"cublas64_*.dll",
 				"cublasLt64_*.dll",
 			},
-			BackendDLL:   "ggml-cuda.dll", // 模块化后端：官方包只含此 DLL，需 CPU 包作基础
-			Description:  "NVIDIA CUDA 后端，性能最佳，仅支持 N 卡",
+			BackendDLL:  "ggml-cuda.dll", // 模块化后端：官方包只含此 DLL，需 CPU 包作基础
+			Description: "NVIDIA CUDA 后端，性能最佳，仅支持 N 卡",
 		}
 	case BackendHIP:
 		return BackendInfo{
-			Type:             BackendHIP,
-			DisplayName:      "HIP (AMD)",
-			Subdir:           "hip",
-			ZipPattern:       "llama-b*-bin-win-hip-radeon-x64.zip",
+			Type:              BackendHIP,
+			DisplayName:       "HIP (AMD)",
+			Subdir:            "hip",
+			ZipPattern:        "llama-b*-bin-win-hip-radeon-x64.zip",
 			ReleaseAssetRegex: `^llama-b\d+-bin-win-hip-radeon-x64\.zip$`,
 			RequiredDLLs: append(append([]string{}, coreDLLs...),
 				"ggml-hip.dll", mtmdDLL),
-			VendorDLLs: []string{}, // HIP 通常静态链接，无额外厂商 DLL
-			BackendDLL:   "ggml-hip.dll", // 模块化后端：官方包只含此 DLL，需 CPU 包作基础
-			Description:   "AMD HIP 后端，仅支持 A 卡",
+			VendorDLLs:  []string{},     // HIP 通常静态链接，无额外厂商 DLL
+			BackendDLL:  "ggml-hip.dll", // 模块化后端：官方包只含此 DLL，需 CPU 包作基础
+			Description: "AMD HIP 后端，仅支持 A 卡",
 		}
 	case BackendSYCL:
 		return BackendInfo{
-			Type:             BackendSYCL,
-			DisplayName:      "SYCL (Intel)",
-			Subdir:           "sycl",
-			ZipPattern:       "llama-b*-bin-win-sycl-x64.zip",
+			Type:              BackendSYCL,
+			DisplayName:       "SYCL (Intel)",
+			Subdir:            "sycl",
+			ZipPattern:        "llama-b*-bin-win-sycl-x64.zip",
 			ReleaseAssetRegex: `^llama-b\d+-bin-win-sycl-x64\.zip$`,
 			RequiredDLLs: append(append([]string{}, coreDLLs...),
 				"ggml-sycl.dll", mtmdDLL),
-			VendorDLLs: []string{},
-			BackendDLL:   "ggml-sycl.dll", // 模块化后端：官方包只含此 DLL，需 CPU 包作基础
-			Description:   "Intel SYCL 后端，仅支持 I 卡，兼容性需手动验证",
+			VendorDLLs:  []string{},
+			BackendDLL:  "ggml-sycl.dll", // 模块化后端：官方包只含此 DLL，需 CPU 包作基础
+			Description: "Intel SYCL 后端，仅支持 I 卡，兼容性需手动验证",
 		}
 	case BackendVulkan:
 		return BackendInfo{
-			Type:             BackendVulkan,
-			DisplayName:      "Vulkan (跨厂商)",
-			Subdir:           "vulkan",
-			ZipPattern:       "llama-b*-bin-win-vulkan-x64.zip",
+			Type:              BackendVulkan,
+			DisplayName:       "Vulkan (跨厂商)",
+			Subdir:            "vulkan",
+			ZipPattern:        "llama-b*-bin-win-vulkan-x64.zip",
 			ReleaseAssetRegex: `^llama-b\d+-bin-win-vulkan-x64\.zip$`,
 			RequiredDLLs: append(append([]string{}, coreDLLs...),
 				"ggml-vulkan.dll", mtmdDLL),
-			VendorDLLs: []string{},
-			BackendDLL:   "ggml-vulkan.dll", // 模块化后端：官方包只含此 DLL，需 CPU 包作基础
-			Description:   "Vulkan 跨厂商后端，N/A/I 卡通用，性能通常不如原生后端",
+			VendorDLLs:  []string{},
+			BackendDLL:  "ggml-vulkan.dll", // 模块化后端：官方包只含此 DLL，需 CPU 包作基础
+			Description: "Vulkan 跨厂商后端，N/A/I 卡通用，性能通常不如原生后端",
 		}
 	case BackendOpenVINO:
 		return BackendInfo{
-			Type:             BackendOpenVINO,
-			DisplayName:      "OpenVINO (Intel)",
-			Subdir:           "openvino",
-			ZipPattern:       "llama-b*-bin-win-openvino-*-x64.zip",
+			Type:              BackendOpenVINO,
+			DisplayName:       "OpenVINO (Intel)",
+			Subdir:            "openvino",
+			ZipPattern:        "llama-b*-bin-win-openvino-*-x64.zip",
 			ReleaseAssetRegex: `^llama-b\d+-bin-win-openvino-[\d.]+-x64\.zip$`,
 			RequiredDLLs: append(append([]string{}, coreDLLs...),
 				"ggml-openvino.dll", mtmdDLL),
-			VendorDLLs: []string{},
+			VendorDLLs:  []string{},
 			Description: "Intel OpenVINO 后端，仅支持 I 卡",
 		}
 	case BackendCPU:

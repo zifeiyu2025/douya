@@ -182,8 +182,8 @@ func (a *App) GetMCPStatus() map[string]config.MCPServerStatus {
 		count := toolCountByServer[s.Name]
 		if count > 0 {
 			result[s.Name] = config.MCPServerStatus{
-				Connected:  true,
-				ToolCount:  count,
+				Connected: true,
+				ToolCount: count,
 			}
 		} else {
 			result[s.Name] = config.MCPServerStatus{

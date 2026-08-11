@@ -794,11 +794,11 @@ func TestNvidiaTotalVRAMMB(t *testing.T) {
 // 覆盖场景：Intel 核显/独显、AMD APU/独显、NVIDIA、灰色地带、空字符串
 func TestClassifyGPUType(t *testing.T) {
 	tests := []struct {
-		name             string
-		vendor           string
-		gpuName          string
-		dedicatedVRAMMB  int64
-		wantType         string
+		name            string
+		vendor          string
+		gpuName         string
+		dedicatedVRAMMB int64
+		wantType        string
 	}{
 		// ==================== Intel 独显 ====================
 		{"Intel Arc A770（独显）", "intel", "Intel Arc A770 Graphics", 16384, GPUTypeDiscrete},

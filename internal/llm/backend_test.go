@@ -19,12 +19,12 @@ import (
 // 不能出现"登记写 V8 实际装的是电动机"这种错配。
 func TestGetBackendInfo_AllTypes(t *testing.T) {
 	tests := []struct {
-		name         string
-		bt           llm.BackendType
-		wantSubdir   string // 期望的子目录名（auto 为空）
-		wantHasMTMD  bool   // 是否应包含 mtmd.dll（多模态支持库）
-		wantHasGGML  bool   // 是否应包含 ggml-*.dll（核心计算库）
-		wantVendorCnt int   // 厂商 DLL 数量（CUDA=3，其他=0）
+		name          string
+		bt            llm.BackendType
+		wantSubdir    string // 期望的子目录名（auto 为空）
+		wantHasMTMD   bool   // 是否应包含 mtmd.dll（多模态支持库）
+		wantHasGGML   bool   // 是否应包含 ggml-*.dll（核心计算库）
+		wantVendorCnt int    // 厂商 DLL 数量（CUDA=3，其他=0）
 	}{
 		{"CUDA 后端", llm.BackendCUDA, "cuda", true, true, 3},
 		{"HIP 后端", llm.BackendHIP, "hip", true, true, 0},
@@ -87,6 +87,7 @@ func TestGetBackendInfo_AllTypes(t *testing.T) {
 // VendorDLLs 使用 glob 模式（cudart64_*.dll 等），同时兼容 CUDA 12 和 CUDA 13：
 //   - CUDA 12：cudart64_12.dll / cublas64_12.dll / cublasLt64_12.dll
 //   - CUDA 13：cudart64_13.dll / cublas64_13.dll / cublasLt64_13.dll
+//
 // validatePaths 中对 VendorDLLs 仅做警告级检查（缺失不阻断启动），
 // 因为这些 DLL 可能存在于系统 PATH（NVIDIA 驱动自带）而非 runtime 目录。
 func TestGetBackendInfo_CUDA_VendorDLLs(t *testing.T) {
@@ -161,8 +162,8 @@ func TestGetBackendInfo_UnknownType(t *testing.T) {
 // 优先使用厂商原生后端（性能最佳），Vulkan 作为 AMD 默认与跨厂商兜底。
 func TestResolveBackendType_Auto(t *testing.T) {
 	tests := []struct {
-		name       string
-		vendor     string
+		name        string
+		vendor      string
 		wantBackend llm.BackendType
 	}{
 		{"NVIDIA 显卡 → CUDA", "nvidia", llm.BackendCUDA},
@@ -276,10 +277,10 @@ func TestResolveBackendTypeWithRuntime_Fallback(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		vendor         string
-		setupBackends  []string // 在 runtime 目录中预装的后端子目录
-		wantBackend    llm.BackendType
+		name          string
+		vendor        string
+		setupBackends []string // 在 runtime 目录中预装的后端子目录
+		wantBackend   llm.BackendType
 	}{
 		{
 			name:          "Intel + SYCL 已安装 → SYCL",

@@ -14,7 +14,7 @@ type MCPServerConfig struct {
 	Name    string            `json:"name"`    // 服务器唯一标识（用于日志和工具路由）
 	Command string            `json:"command"` // 可执行文件路径（如 "npx" 或 "python"）
 	Args    []string          `json:"args"`    // 命令行参数
-	Env     map[string]string `json:"env"`    // 环境变量（会与父进程 env 合并）
+	Env     map[string]string `json:"env"`     // 环境变量（会与父进程 env 合并）
 	Enabled bool              `json:"enabled"` // 是否启用（false 则不写入 mcp_servers.json）
 }
 
@@ -22,19 +22,19 @@ type MCPServerConfig struct {
 // 由 llama-server 通过 GET /tools 端点暴露的工具列表反推得到：
 // 若工具列表中存在以 "<server>_" 为前缀的工具，则认为该 server 已连接。
 type MCPServerStatus struct {
-	Connected bool   `json:"connected"`           // 是否已连接（llama-server 是否已加载该 server 的工具）
-	Error     string `json:"error,omitempty"`    // 错误信息（未连接时的提示）
-	ToolCount int    `json:"tool_count"`          // 该 server 暴露的工具数量
+	Connected bool   `json:"connected"`       // 是否已连接（llama-server 是否已加载该 server 的工具）
+	Error     string `json:"error,omitempty"` // 错误信息（未连接时的提示）
+	ToolCount int    `json:"tool_count"`      // 该 server 暴露的工具数量
 }
 
 // MCPConnectResult 测试连接的结果。
 // 新架构下豆芽不直接启动 MCP 子进程，"测试连接"语义变为：
 // 提示用户需重启 llama-server 让新配置生效。
 type MCPConnectResult struct {
-	Name      string `json:"name"`                // 服务器名
-	Success   bool   `json:"success"`             // 是否成功（新架构下始终为 false，需重启）
-	Error     string `json:"error,omitempty"`     // 错误/提示信息
-	ToolCount int    `json:"tool_count"`           // 工具数量（重启后可通过 ListMCPTools 查看）
+	Name      string `json:"name"`            // 服务器名
+	Success   bool   `json:"success"`         // 是否成功（新架构下始终为 false，需重启）
+	Error     string `json:"error,omitempty"` // 错误/提示信息
+	ToolCount int    `json:"tool_count"`      // 工具数量（重启后可通过 ListMCPTools 查看）
 }
 
 // MCPToolInfo MCP 工具信息（供前端展示）。
@@ -42,6 +42,5 @@ type MCPConnectResult struct {
 type MCPToolInfo struct {
 	Name        string         `json:"name"`         // 工具名（形如 "echo_echo"，含 server 前缀）
 	Description string         `json:"description"`  // 工具描述
-	InputSchema map[string]any `json:"input_schema"`  // 工具参数 schema（JSON Schema 格式）
+	InputSchema map[string]any `json:"input_schema"` // 工具参数 schema（JSON Schema 格式）
 }
-

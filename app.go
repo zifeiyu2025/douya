@@ -35,7 +35,7 @@ type SwitchResult struct {
 	RollbackSuccess bool                   `json:"rollback_success,omitempty"`
 	// ParamsRestored: 切换时是否恢复了该模型的专属生成参数预设。
 	// 前端据此在"已就绪"提示中追加"已恢复专属参数"，无需依赖事件监听。
-	ParamsRestored   bool                   `json:"params_restored,omitempty"`
+	ParamsRestored bool `json:"params_restored,omitempty"`
 }
 
 // SearchAPIKeys 用于前端展示搜索 API Key 的设置状态，不暴露实际密钥值
@@ -102,7 +102,6 @@ type App struct {
 	ragDS            *rag.DocumentStore
 	ragEmbedder      *rag.ClientEmbedder
 	encKey           []byte
-	hidden           atomic.Bool
 	exiting          atomic.Bool
 	serverLoadFailed atomic.Bool // 模型加载彻底失败后锁定状态，防止监控循环覆盖错误状态
 	lastServerError  string      // 最后一次服务器/模型加载错误信息
@@ -112,9 +111,9 @@ type App struct {
 	downloadingBackends map[string]bool
 	// switchMu 防止短时间内的重复后端切换操作（最小冷却间隔 3s）。
 	// 生活类比：发动机切换有冷却时间，不能刚熄火就立刻再换挡。
-	switchMu       sync.Mutex
-	lastSwitchTime time.Time
-	lastServerErrMu  sync.RWMutex
+	switchMu        sync.Mutex
+	lastSwitchTime  time.Time
+	lastServerErrMu sync.RWMutex
 	// fileLoader 是本地文件服务的引用，托盘最小化时调用 ClearCache 释放内存
 	fileLoader *LocalFileLoader
 	// gpuTypeChoiceChan 用于灰色地带场景下后端阻塞等待前端用户选择推理后端。
@@ -282,7 +281,10 @@ func appDir() string {
 func resolveAppDir() string {
 	exePath, err := os.Executable()
 	if err != nil {
-		zlog.Error().Err(err).Msg("[appDir] 获取可执行文件路径失败")
+		zlog.Error().Err(err).Msg("[appDir] 获取可执行文件路径失败，回退到工作目录")
+		if wd, werr := os.Getwd(); werr == nil {
+			return wd
+		}
 		return "."
 	}
 	exeDir := filepath.Dir(exePath)
@@ -378,4 +380,3 @@ func resolvePath(p string) string {
 	// 文件不存在时仍基于 appDir() 返回，让调用方得到清晰的"文件不存在"错误
 	return resolved
 }
-

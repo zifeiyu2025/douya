@@ -39,7 +39,6 @@ declare module 'vue' {
     NIcon: typeof import('naive-ui')['NIcon']
     NSwitch: typeof import('naive-ui')['NSwitch']
     NText: typeof import('naive-ui')['NText']
-    PerformanceModeSelector: typeof import('./components/settings/PerformanceModeSelector.vue')['default']
     PerformanceSettings: typeof import('./components/settings/PerformanceSettings.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']

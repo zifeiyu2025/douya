@@ -195,14 +195,14 @@ func TestExtractBackendZip_RedundantSkipped(t *testing.T) {
 
 	// zip 包含冗余文件和必需文件
 	files := map[string]string{
-		"llama-server.exe":       "core exe",
-		"llama.dll":              "core dll",
-		"llama-cli.exe":          "redundant",
-		"llama-quantize.exe":     "redundant",
-		"llama-cli-impl.dll":     "redundant impl",
-		"llama-bench.exe":        "redundant",
-		"llama.exe":              "redundant standalone",
-		"ggml-rpc-server.exe":    "redundant",
+		"llama-server.exe":    "core exe",
+		"llama.dll":           "core dll",
+		"llama-cli.exe":       "redundant",
+		"llama-quantize.exe":  "redundant",
+		"llama-cli-impl.dll":  "redundant impl",
+		"llama-bench.exe":     "redundant",
+		"llama.exe":           "redundant standalone",
+		"ggml-rpc-server.exe": "redundant",
 	}
 	if err := createTestZip(zipPath, files); err != nil {
 		t.Fatalf("创建测试 zip 失败: %v", err)

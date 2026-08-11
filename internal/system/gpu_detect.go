@@ -132,7 +132,7 @@ func detectAMDGPU(hw *HardwareInfo) {
 		log.Info().Str("gpu", hw.GPUName).Str("type", "discrete").Int64("vram_mb", hw.GPUVRAMMB).
 			Msg("[system] AMD discrete GPU detected, will use GPU acceleration")
 	case GPUTypeIntegrated:
-		// 核显（AMD APU）：不置 HasGPU，避免下游 smartparams 错误启用 GPU 加速导致 OOM
+		// 核显（AMD APU）：不置 HasGPU，避免下游错误启用 GPU 加速导致 OOM
 		log.Info().Str("gpu", hw.GPUName).Str("type", "integrated").
 			Msg("[system] AMD integrated GPU (APU) detected, HasGPU stays false (integrated not suitable for LLM inference)")
 	default:
@@ -200,7 +200,7 @@ func detectIntelGPU(hw *HardwareInfo) {
 		log.Info().Str("gpu", hw.GPUName).Str("type", "discrete").Int64("vram_mb", hw.GPUVRAMMB).
 			Msg("[system] Intel discrete GPU detected, will use GPU acceleration")
 	case GPUTypeIntegrated:
-		// 核显（UHD/Iris 等）：不置 HasGPU，避免下游 smartparams 错误启用 GPU 加速导致 OOM
+		// 核显（UHD/Iris 等）：不置 HasGPU，避免下游错误启用 GPU 加速导致 OOM
 		log.Info().Str("gpu", hw.GPUName).Str("type", "integrated").
 			Msg("[system] Intel integrated GPU detected, HasGPU stays false (integrated not suitable for LLM inference)")
 	default:
@@ -215,7 +215,7 @@ func detectIntelGPU(hw *HardwareInfo) {
 //
 // 仅当 NVIDIA/AMD/Intel 都未检测到时才作为兜底方案启用。
 // Vulkan 是跨厂商 API，找到 vulkan-1.dll 只能说明"有某个支持 Vulkan 的 GPU"，
-// 但不知道具体厂商和显存，因此 VRAM 设为 0（由 smartparams 处理回退）。
+// 但不知道具体厂商和显存，因此 VRAM 设为 0（由 llama.cpp 原生 auto 加载处理回退）。
 //
 // 生活类比：前面三个品牌展厅都没找到车，最后看停车场有没有"任意品牌"的车位
 // （vulkan-1.dll），有的话至少说明这里能停车，虽然不知道具体什么车。
@@ -233,7 +233,7 @@ func detectVulkanDevice(hw *HardwareInfo) {
 	hw.GPUVendor = "vulkan"
 	hw.HasGPU = true
 	hw.GPUName = "Vulkan Device"
-	// VRAM 不可用，设为 0；smartparams 会走 HasCUDABackend 之外的回退逻辑
+	// VRAM 不可用，设为 0；后续后端选择与参数交由 llama.cpp 原生 auto 加载处理
 	hw.GPUVRAMMB = 0
 }
 

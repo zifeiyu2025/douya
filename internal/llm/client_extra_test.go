@@ -13,10 +13,10 @@ import (
 // 生活类比：像翻译电报，把一串带标签的数字翻译成结构化的报告。
 func TestParseMetrics(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		check   func(s MetricsSummary) bool
-		desc    string
+		name  string
+		input string
+		check func(s MetricsSummary) bool
+		desc  string
 	}{
 		{
 			name:  "空字符串",
@@ -120,7 +120,7 @@ func TestFuzzyMatchModelID(t *testing.T) {
 		{"default作为模型名_不匹配", "qwen2.5:7b", "default", false},
 		{"两者都是default_不匹配", "default", "default", false},
 		{"完全不同", "llama3:8b", "qwen2.5:7b", false},
-		{"空ID", "", "qwen", true}, // strings.Contains("qwen", "") = true
+		{"空ID", "", "qwen", true},  // strings.Contains("qwen", "") = true
 		{"空模型名", "qwen", "", true}, // strings.Contains("qwen", "") = true
 	}
 
@@ -154,72 +154,72 @@ func TestDetectCapabilities(t *testing.T) {
 			wantVideo:     false,
 		},
 		{
-			name: "vision能力",
-			info: ModelInfo{Capabilities: []string{"vision"}},
+			name:          "vision能力",
+			info:          ModelInfo{Capabilities: []string{"vision"}},
 			wantTextInput: true,
 			wantImage:     true,
 			wantAudio:     false,
 			wantVideo:     false,
 		},
 		{
-			name: "multimodal能力_等同于image",
-			info: ModelInfo{Capabilities: []string{"multimodal"}},
+			name:          "multimodal能力_等同于image",
+			info:          ModelInfo{Capabilities: []string{"multimodal"}},
 			wantTextInput: true,
 			wantImage:     true,
 			wantAudio:     false,
 			wantVideo:     false,
 		},
 		{
-			name: "audio能力",
-			info: ModelInfo{Capabilities: []string{"audio"}},
+			name:          "audio能力",
+			info:          ModelInfo{Capabilities: []string{"audio"}},
 			wantTextInput: true,
 			wantImage:     false,
 			wantAudio:     true,
 			wantVideo:     false,
 		},
 		{
-			name: "speech能力_等同于audio",
-			info: ModelInfo{Capabilities: []string{"speech"}},
+			name:          "speech能力_等同于audio",
+			info:          ModelInfo{Capabilities: []string{"speech"}},
 			wantTextInput: true,
 			wantImage:     false,
 			wantAudio:     true,
 			wantVideo:     false,
 		},
 		{
-			name: "video能力",
-			info: ModelInfo{Capabilities: []string{"video"}},
+			name:          "video能力",
+			info:          ModelInfo{Capabilities: []string{"video"}},
 			wantTextInput: true,
 			wantImage:     false,
 			wantAudio:     false,
 			wantVideo:     true,
 		},
 		{
-			name: "InputModalities_image",
-			info: ModelInfo{InputModalities: []string{"image"}},
+			name:          "InputModalities_image",
+			info:          ModelInfo{InputModalities: []string{"image"}},
 			wantTextInput: true,
 			wantImage:     true,
 			wantAudio:     false,
 			wantVideo:     false,
 		},
 		{
-			name: "InputModalities_audio",
-			info: ModelInfo{InputModalities: []string{"audio"}},
+			name:          "InputModalities_audio",
+			info:          ModelInfo{InputModalities: []string{"audio"}},
 			wantTextInput: true,
 			wantImage:     false,
 			wantAudio:     true,
 			wantVideo:     false,
 		},
 		{
-			name: "InputModalities_video",
-			info: ModelInfo{InputModalities: []string{"video"}},
+			name:          "InputModalities_video",
+			info:          ModelInfo{InputModalities: []string{"video"}},
 			wantTextInput: true,
 			wantImage:     false,
 			wantAudio:     false,
 			wantVideo:     true,
 		},
 		{
-			name: "大小写混合",
-			info: ModelInfo{Capabilities: []string{"Vision"}, InputModalities: []string{"Audio"}},
+			name:          "大小写混合",
+			info:          ModelInfo{Capabilities: []string{"Vision"}, InputModalities: []string{"Audio"}},
 			wantTextInput: true,
 			wantImage:     true,
 			wantAudio:     true,
@@ -228,8 +228,8 @@ func TestDetectCapabilities(t *testing.T) {
 		{
 			name: "多种能力组合",
 			info: ModelInfo{
-				Capabilities:     []string{"vision", "audio"},
-				InputModalities:  []string{"image", "video"},
+				Capabilities:    []string{"vision", "audio"},
+				InputModalities: []string{"image", "video"},
 			},
 			wantTextInput: true,
 			wantImage:     true,

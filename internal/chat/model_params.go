@@ -35,7 +35,7 @@ type ModelParams struct {
 	AdaptiveDecay  float64 `json:"adaptive_decay"`
 
 	// ===== 上下文 =====
-	ContextSize              int     `json:"context_size"`
+	ContextSize                int     `json:"context_size"`
 	ProactiveCompressThreshold float64 `json:"proactive_compress_threshold"`
 
 	// ===== 推理参数 =====

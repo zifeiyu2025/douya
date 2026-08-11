@@ -245,7 +245,7 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 
 	// Eagle3 推测解码支持检测（llama.cpp 最新更新：Eagle3 支持 Qwen3.5/3.6）
 	// Eagle3 需要独立的 draft 模型，用户需配置 spec_draft_model 才能启用
-	// 这里仅标记模型支持 Eagle3，实际启用在 smartparams.go 中根据用户配置决定
+	// 这里仅标记模型支持 Eagle3，实际启用由用户侧的推测解码配置决定
 	if meta.Architecture != "" {
 		lowerArch := strings.ToLower(meta.Architecture)
 		eagle3ArchKeywords := []string{"qwen3.5", "qwen3.6", "qwen35", "qwen36"}

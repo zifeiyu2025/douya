@@ -686,8 +686,6 @@ const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'user_avatar',
   'ai_avatar',
   'search_mode',
-  'thinking_enabled',
-  'thinking_soft_switch',
   'sleep_idle_seconds',
   'models_max',
   'rag_enabled',

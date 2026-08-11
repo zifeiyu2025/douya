@@ -38,11 +38,11 @@ func TestResolveProgrammingMode(t *testing.T) {
 		mode, model string
 		want        bool
 	}{
-		{"on", "llama-3-8b", true},    // 强制开启
-		{"off", "qwen-coder", false},   // 强制关闭覆盖自动检测
+		{"on", "llama-3-8b", true},      // 强制开启
+		{"off", "qwen-coder", false},    // 强制关闭覆盖自动检测
 		{"auto", "qwen2.5-coder", true}, // 自动检测命中
-		{"auto", "llama-3-8b", false},  // 自动检测未命中
-		{"", "qwen2.5-coder", true},    // 空值走自动检测（向后兼容）
+		{"auto", "llama-3-8b", false},   // 自动检测未命中
+		{"", "qwen2.5-coder", true},     // 空值走自动检测（向后兼容）
 		{"", "llama-3-8b", false},
 	}
 	for _, c := range cases {

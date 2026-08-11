@@ -92,9 +92,9 @@ func TestDetectLanguage(t *testing.T) {
 // 不同 contextSize 对应不同的窗口大小
 func TestCalcSlidingWindowSize(t *testing.T) {
 	tests := []struct {
-		name         string
-		contextSize  int
-		want         int
+		name        string
+		contextSize int
+		want        int
 	}{
 		{"零_使用默认4096", 0, 6},
 		{"负数_使用默认4096", -1, 6},

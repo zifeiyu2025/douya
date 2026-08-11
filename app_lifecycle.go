@@ -247,7 +247,6 @@ func (a *App) beforeClose(ctx context.Context) bool {
 		return true // 阻止默认关闭，由 GracefulExit 处理
 	case "tray":
 		runtime.WindowHide(ctx)
-		a.hidden.Store(true)
 		a.clearFileCache()
 		return true
 	default: // "ask" 或未设置
@@ -269,7 +268,6 @@ func (a *App) clearFileCache() {
 func (a *App) ShowWindow() {
 	if a.ctx != nil {
 		runtime.WindowShow(a.ctx)
-		a.hidden.Store(false)
 	}
 }
 
@@ -313,7 +311,6 @@ func (a *App) GracefulExit() {
 	}
 
 	runtime.WindowShow(a.ctx)
-	a.hidden.Store(false)
 
 	go func() {
 		// L-1：优雅关闭流程涉及 DB/进程/事件多类资源，panic 会中断关闭导致资源泄漏

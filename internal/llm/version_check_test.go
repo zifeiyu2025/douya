@@ -99,9 +99,9 @@ func TestParseReleaseTag(t *testing.T) {
 		{"b10216", 10216, false},
 		{"b10210", 10210, false},
 		{"b1", 1, false},
-		{"v1.0.0", 0, true},  // 不匹配格式
-		{"", 0, true},        // 空字符串
-		{"b", 0, true},       // 无数字
+		{"v1.0.0", 0, true},    // 不匹配格式
+		{"", 0, true},          // 空字符串
+		{"b", 0, true},         // 无数字
 		{"b10216rc1", 0, true}, // 有后缀，不严格匹配
 	}
 

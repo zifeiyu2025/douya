@@ -34,10 +34,10 @@ const (
 	audioTokenEstimate = 500  // 音频附件 token 估算值
 
 	// Q2: 消息裁剪相关的魔法数字抽为常量，提升可读性
-	minEffectiveTokens    = 100  // TrimMessagesToFit 的最小有效 token 数，防止 reserve 过大导致负数
-	maxImportantBudget    = 1000 // 高分历史消息预算上限
-	minImportantBudget    = 200  // 高分历史消息预算下限
-	importantBudgetRatio  = 5    // 高分历史消息预算 = contextSize / importantBudgetRatio
+	minEffectiveTokens   = 100  // TrimMessagesToFit 的最小有效 token 数，防止 reserve 过大导致负数
+	maxImportantBudget   = 1000 // 高分历史消息预算上限
+	minImportantBudget   = 200  // 高分历史消息预算下限
+	importantBudgetRatio = 5    // 高分历史消息预算 = contextSize / importantBudgetRatio
 )
 
 // imageTokenEstimate 图片附件 token 估算值，默认 3500（覆盖多数模型默认值）。
@@ -505,6 +505,7 @@ func estimateMessagesTokens(messages []llm.ChatMessage) int {
 //     继续删除直到遇到非 tool 消息，避免 API 报错
 //  2. 移除孤立的 assistant 消息（带有 tool_calls 但后面没有对应的 tool 消息），
 //     这种消息会导致 API 报错，需要清理
+//
 // ensureStartsWithUserOrSystem 跳过开头的非 system/user 消息，确保消息列表以 system 或 user 开头。
 // Jinja 模板要求消息列表不能以 assistant/tool 开头，否则会触发模板渲染错误。
 // C-10 修复：提取 TrimMessagesToFit 和 CompressContext 中重复的"确保以 user 开头"逻辑
@@ -971,16 +972,19 @@ func EstimateMessageTokens(m *store.Message) int { return estimateMessageTokens(
 // formatSearchErrorHint 把 SearchChain 返回的 Error 字段转成用户友好的中文提示。
 //
 // SearchChain 在所有 provider 都失败时会返回形如：
-//   "all search providers failed: tavily: <err>; ollama: <err>"
+//
+//	"all search providers failed: tavily: <err>; ollama: <err>"
+//
 // 或在无可用 provider 时返回：
-//   "no providers available"
+//
+//	"no providers available"
 //
 // 本函数解析这些错误，归类为以下几种用户可理解的情况：
-//   1. 未配置任何 API Key（搜索链为空）
-//   2. Tavily / Ollama API Key 认证失败（401/403）
-//   3. 网络超时
-//   4. 网络连接错误
-//   5. 其他未知错误（回退到原始错误摘要）
+//  1. 未配置任何 API Key（搜索链为空）
+//  2. Tavily / Ollama API Key 认证失败（401/403）
+//  3. 网络超时
+//  4. 网络连接错误
+//  5. 其他未知错误（回退到原始错误摘要）
 //
 // 生活类比：像快递客服把一堆物流异常码翻译成客户能听懂的话——
 // "DN02" 变成 "地址无人签收"，而不是让客户看原始编码。

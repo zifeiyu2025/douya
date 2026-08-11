@@ -13,7 +13,7 @@ export interface SettingsContext {
   backgroundImageUrl: ComputedRef<string>
   selectBackgroundImage: () => Promise<void>
   clearBackground: () => void
-  handleAvatarUpload: (data: any, fieldName: 'user_avatar' | 'ai_avatar') => Promise<void>
+  handleAvatarUpload: (data: UploadCustomRequestOptions, fieldName: 'user_avatar' | 'ai_avatar') => Promise<void>
   clearUserAvatar: () => void
   clearAIAvatar: () => void
   defaultUserAvatar: string

@@ -87,13 +87,6 @@ func TestApp_BeforeClose_TransitionsWhenExitingChanges(t *testing.T) {
 	}
 }
 
-func TestApp_HiddenFlag_InitialState(t *testing.T) {
-	app := NewApp()
-	if app.hidden.Load() {
-		t.Error("hidden flag should be false initially")
-	}
-}
-
 func TestApp_ExitingFlag_IsAtomic(t *testing.T) {
 	app := NewApp()
 	app.ctx = context.Background()

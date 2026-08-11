@@ -205,7 +205,6 @@ type Config struct {
 	// 后端采样（实验性，将采样逻辑移到 GPU 执行，不兼容 grammar 和 reasoning budget）
 	BackendSampling bool `json:"backend_sampling"`
 
-	
 	// ===== TTS 文本转语音设置 =====
 	// 生活类比：像"播音员调度台"的配置——挑哪个播音员、调快慢、调音调、调音量。
 	// 前端用浏览器原生 SpeechSynthesis API 实现，无需后端参与推理，

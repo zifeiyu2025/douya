@@ -473,23 +473,23 @@ func (c *Client) GetMetrics(ctx context.Context, modelName string) (string, erro
 // 字段对应 llama.cpp tools/server/server-context.cpp 中 get_metrics 生成的指标，
 // 指标名带 "llamacpp:" 前缀（注意是冒号，不是下划线）。
 type MetricsSummary struct {
-	TokensPromptTotal     float64 `json:"tokens_prompt_total"`      // 已处理的 prompt token 总数（llamacpp:prompt_tokens_total）
-	PromptSecondsTotal    float64 `json:"prompt_seconds_total"`     // 处理 prompt 总耗时（秒）（llamacpp:prompt_seconds_total）
-	TokensPredictedTotal  float64 `json:"tokens_predicted_total"`   // 已生成的 token 总数（llamacpp:tokens_predicted_total）
-	PredictedSecondsTotal float64 `json:"predicted_seconds_total"`  // 生成 token 总耗时（秒）（llamacpp:tokens_predicted_seconds_total）
-	NDecodeTotal          float64 `json:"n_decode_total"`           // llama_decode() 调用总次数（llamacpp:n_decode_total）
-	NTokensMax            float64 `json:"n_tokens_max"`             // 观察到的最大 n_tokens（llamacpp:n_tokens_max）
-	PromptTokensPerSecond float64 `json:"prompt_tokens_per_second"` // prompt 处理速度（token/s，gauge，llamacpp:prompt_tokens_seconds）
+	TokensPromptTotal      float64 `json:"tokens_prompt_total"`       // 已处理的 prompt token 总数（llamacpp:prompt_tokens_total）
+	PromptSecondsTotal     float64 `json:"prompt_seconds_total"`      // 处理 prompt 总耗时（秒）（llamacpp:prompt_seconds_total）
+	TokensPredictedTotal   float64 `json:"tokens_predicted_total"`    // 已生成的 token 总数（llamacpp:tokens_predicted_total）
+	PredictedSecondsTotal  float64 `json:"predicted_seconds_total"`   // 生成 token 总耗时（秒）（llamacpp:tokens_predicted_seconds_total）
+	NDecodeTotal           float64 `json:"n_decode_total"`            // llama_decode() 调用总次数（llamacpp:n_decode_total）
+	NTokensMax             float64 `json:"n_tokens_max"`              // 观察到的最大 n_tokens（llamacpp:n_tokens_max）
+	PromptTokensPerSecond  float64 `json:"prompt_tokens_per_second"`  // prompt 处理速度（token/s，gauge，llamacpp:prompt_tokens_seconds）
 	PredictTokensPerSecond float64 `json:"predict_tokens_per_second"` // 生成速度（token/s，gauge，llamacpp:predicted_tokens_seconds）
-	ProcessingRequests    int     `json:"processing_requests"`      // 处理中的请求数（llamacpp:requests_processing）
-	DeferredRequests      int     `json:"deferred_requests"`        // 排队中的请求数（llamacpp:requests_deferred）
-	BusySlotsPerDecode    float64 `json:"busy_slots_per_decode"`    // 每次 decode 平均繁忙 slot 数（llamacpp:n_busy_slots_per_decode）
+	ProcessingRequests     int     `json:"processing_requests"`       // 处理中的请求数（llamacpp:requests_processing）
+	DeferredRequests       int     `json:"deferred_requests"`         // 排队中的请求数（llamacpp:requests_deferred）
+	BusySlotsPerDecode     float64 `json:"busy_slots_per_decode"`     // 每次 decode 平均繁忙 slot 数（llamacpp:n_busy_slots_per_decode）
 
 	// 推测解码指标（llama.cpp b10287 / PR #26389 引入，命名对齐 vLLM）
 	// 推测解码未启用时这些计数器恒为 0；启用后用于评估命中率（accepted/draft）
-	SpecDraftTokensTotal   float64 `json:"spec_draft_tokens_total"`   // 草稿模型生成的 token 总数（llamacpp:spec_decode_num_draft_tokens_total）
+	SpecDraftTokensTotal    float64 `json:"spec_draft_tokens_total"`    // 草稿模型生成的 token 总数（llamacpp:spec_decode_num_draft_tokens_total）
 	SpecAcceptedTokensTotal float64 `json:"spec_accepted_tokens_total"` // 被目标模型接受的草稿 token 总数（llamacpp:spec_decode_num_accepted_tokens_total）
-	SpecDraftsTotal        float64 `json:"spec_drafts_total"`         // 推测解码验证步骤总数（llamacpp:spec_decode_num_drafts_total）
+	SpecDraftsTotal         float64 `json:"spec_drafts_total"`          // 推测解码验证步骤总数（llamacpp:spec_decode_num_drafts_total）
 	// 按位置的接受草稿 token 数（llama.cpp b10355 新增：spec_decode_num_accepted_tokens_per_pos_total）。
 	// 每个位置 label 对应一个计数器；DSpark 等推测解码可用它评估各 draft 位置的命中分布。
 	SpecAcceptedTokensPerPosTotal float64 `json:"spec_accepted_tokens_per_pos_total"` // llamacpp:spec_decode_num_accepted_tokens_per_pos_total（按位置累计）

@@ -16,13 +16,13 @@ import (
 // BM25Index 实现轻量级 BM25 关键词检索
 // 用于与向量检索混合，提升精确关键词匹配的召回率
 type BM25Index struct {
-	documents     []bm25Doc          // 文档集合
-	avgDL         float64            // 平均文档长度
-	k1            float64            // 词频饱和参数（默认 1.5）
-	b             float64            // 文档长度归一化参数（默认 0.75）
-	idf           map[string]float64 // 逆文档频率
+	documents     []bm25Doc               // 文档集合
+	avgDL         float64                 // 平均文档长度
+	k1            float64                 // 词频饱和参数（默认 1.5）
+	b             float64                 // 文档长度归一化参数（默认 0.75）
+	idf           map[string]float64      // 逆文档频率
 	invertedIndex map[string]map[int]bool // 倒排索引：token -> 文档在 documents 数组中的索引集合
-	mu            sync.RWMutex       // 保护 documents/avgDL/idf/invertedIndex 的并发读写
+	mu            sync.RWMutex            // 保护 documents/avgDL/idf/invertedIndex 的并发读写
 }
 
 type bm25Doc struct {

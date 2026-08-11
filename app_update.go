@@ -150,9 +150,9 @@ func (a *App) PerformUpdate(downloadURL string, latestVersion string) error {
 
 // 更新流程超时/大小常量（命名自文档化，避免魔法数字）
 const (
-	githubAPITimeout     = 30 * time.Second // 检查更新 API 请求超时
-	updateDownloadTimeout = 10 * time.Minute // 大文件下载超时
-	maxUpdatePackageSize = 500 * 1024 * 1024 // 500MB，限制最大下载大小
+	githubAPITimeout      = 30 * time.Second  // 检查更新 API 请求超时
+	updateDownloadTimeout = 10 * time.Minute  // 大文件下载超时
+	maxUpdatePackageSize  = 500 * 1024 * 1024 // 500MB，限制最大下载大小
 )
 
 // downloadWithProgress 下载文件并报告进度

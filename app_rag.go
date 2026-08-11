@@ -261,19 +261,17 @@ func (a *App) SetActiveKnowledgeBase(kbName string) error {
 	if err := validateNonEmpty("知识库名称", kbName); err != nil {
 		return err
 	}
-	// 采用"复制→修改副本→替换指针"模式，避免直接修改 a.config 字段破坏快照语义
-	a.configMu.Lock()
-	newCfg := *a.config
-	newCfg.RAGActiveKB = kbName
-	cfg := &newCfg
-	a.config = cfg
-	a.configMu.Unlock()
+	// 复用统一入口 updateConfig：自动处理 a.config == nil（避免空指针），并统一快照语义
+	a.updateConfig(func(cfg *config.Config) error {
+		cfg.RAGActiveKB = kbName
+		// 保存前校验，失败记录日志但不阻塞保存（避免阻塞切换知识库功能）
+		if err := cfg.Validate(); err != nil {
+			zlog.Warn().Err(err).Msg("[SetActiveKnowledgeBase] 配置校验失败，仍保存")
+		}
+		return nil
+	})
 	a.service.SetRAGCollection(kbName)
-	// 保存前校验，失败记录日志但不阻塞保存（避免阻塞切换知识库功能）
-	if err := cfg.Validate(); err != nil {
-		zlog.Warn().Err(err).Msg("[SetActiveKnowledgeBase] 配置校验失败，仍保存")
-	}
-	return config.Save(filepath.Join(appDir(), "config.json"), cfg)
+	return config.Save(filepath.Join(appDir(), "config.json"), a.getConfig())
 }
 
 func (a *App) GetActiveKnowledgeBase() string {
@@ -281,27 +279,27 @@ func (a *App) GetActiveKnowledgeBase() string {
 }
 
 func (a *App) SetRAGEnabled(enabled bool) {
-	// 采用"复制→修改副本→替换指针"模式，避免直接修改 a.config 字段破坏快照语义
-	a.configMu.Lock()
-	newCfg := *a.config
-	newCfg.RAGEnabled = enabled
-	// RAG 开启时自动关闭联网搜索（两者互斥，RAG 优先级更高）
-	if enabled && newCfg.SearchMode != "off" {
-		newCfg.SearchMode = "off"
-		// 通知前端搜索已自动关闭
-		if a.ctx != nil {
-			runtime.EventsEmit(a.ctx, EventSearchAutoDisabled, nil)
+	// 复用统一入口 updateConfig：自动处理 a.config == nil（避免空指针），并统一快照语义
+	var autoDisabledSearch bool
+	a.updateConfig(func(cfg *config.Config) error {
+		cfg.RAGEnabled = enabled
+		// RAG 开启时自动关闭联网搜索（两者互斥，RAG 优先级更高）
+		if enabled && cfg.SearchMode != "off" {
+			cfg.SearchMode = "off"
+			autoDisabledSearch = true
 		}
+		// 保存前校验，失败记录日志但不阻塞保存（避免阻塞 RAG 开关功能）
+		if err := cfg.Validate(); err != nil {
+			zlog.Warn().Err(err).Msg("[SetRAGEnabled] 配置校验失败，仍保存")
+		}
+		return nil
+	})
+	// 锁外推送事件，避免持锁期间执行事件分发
+	if autoDisabledSearch && a.ctx != nil {
+		runtime.EventsEmit(a.ctx, EventSearchAutoDisabled, nil)
 	}
-	cfg := &newCfg
-	a.config = cfg
-	a.configMu.Unlock()
 	a.service.SetRAGEnabled(enabled)
-	// 保存前校验，失败记录日志但不阻塞保存（避免阻塞 RAG 开关功能）
-	if err := cfg.Validate(); err != nil {
-		zlog.Warn().Err(err).Msg("[SetRAGEnabled] 配置校验失败，仍保存")
-	}
-	if err := config.Save(filepath.Join(appDir(), "config.json"), cfg); err != nil {
+	if err := config.Save(filepath.Join(appDir(), "config.json"), a.getConfig()); err != nil {
 		zlog.Error().Err(err).Msg("[rag] save config failed")
 	}
 }

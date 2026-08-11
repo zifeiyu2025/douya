@@ -42,12 +42,7 @@ import { ChevronForwardOutline, SearchOutline, AlertCircleOutline } from '@vicon
 import { isSafeUrl } from '../utils/lightSanitize'
 // F-1.13：openExternal 抽取到 utils/externalLink.ts，消除两处重复定义
 import { openExternal } from '../utils/externalLink'
-
-interface SearchResultItem {
-  title: string
-  url: string
-  snippet: string
-}
+import type { SearchResultItem } from '../types/search'
 
 const props = defineProps<{
   searching: boolean

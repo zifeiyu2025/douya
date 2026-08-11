@@ -200,7 +200,7 @@ func detectGPU(hw *HardwareInfo) {
 const (
 	GPUTypeDiscrete   = "discrete"   // 独立显卡
 	GPUTypeIntegrated = "integrated" // 核显/集显
-	GPUTypeUnknown    = "unknown"   // 未知
+	GPUTypeUnknown    = "unknown"    // 未知
 )
 
 // classifyGPUType 按业界成熟方案判别 GPU 是独显还是核显。
@@ -220,7 +220,7 @@ const (
 // NVIDIA 全部视为独显（业界共识，NVIDIA 不做主流 x86 核显）。
 //
 // 生活类比：判断一辆车是"跑车"还是"小电瓶车"，先看车牌关键字
-//（如 "RTX"/"Arc" 明显是跑车，"UHD"/"Radeon Graphics" 明显是电瓶车），
+// （如 "RTX"/"Arc" 明显是跑车，"UHD"/"Radeon Graphics" 明显是电瓶车），
 // 车牌看不出名堂再看排量（VRAM ≥1L 肯定是跑车，<0.5L 大概率是电瓶车）。
 //
 // 参数：
@@ -241,25 +241,28 @@ func classifyGPUType(vendor, gpuName string, dedicatedVRAMMB int64) string {
 	lowerName := strings.ToLower(gpuName)
 
 	// 各厂商的独显/核显关键字库（业界共识，源自 Ollama/Chromium/DirectX 适配器枚举）
-	type kwEntry struct{ keywords []string; gpuType string }
+	type kwEntry struct {
+		keywords []string
+		gpuType  string
+	}
 	keywordTable := map[string][]kwEntry{
 		"intel": {
 			// 独显关键字
-			{[]string{"arc"}, GPUTypeDiscrete},           // Intel Arc A770/A750
-			{[]string{"dg1"}, GPUTypeDiscrete},          // Intel DG1（Iris Xe MAX 独显）
-			{[]string{"xe max"}, GPUTypeDiscrete},       // Iris Xe MAX 独显
+			{[]string{"arc"}, GPUTypeDiscrete},    // Intel Arc A770/A750
+			{[]string{"dg1"}, GPUTypeDiscrete},    // Intel DG1（Iris Xe MAX 独显）
+			{[]string{"xe max"}, GPUTypeDiscrete}, // Iris Xe MAX 独显
 			// 核显关键字（注意顺序：先匹配独显，后匹配核显）
-			{[]string{"uhd"}, GPUTypeIntegrated},        // Intel UHD Graphics 核显
-			{[]string{"iris"}, GPUTypeIntegrated},      // Iris Xe 核显（不含 MAX）
+			{[]string{"uhd"}, GPUTypeIntegrated},  // Intel UHD Graphics 核显
+			{[]string{"iris"}, GPUTypeIntegrated}, // Iris Xe 核显（不含 MAX）
 			{[]string{"hd graphics"}, GPUTypeIntegrated},
-			{[]string{"gma"}, GPUTypeIntegrated},        // 老旧 GMA 核显
-			{[]string{"graphics"}, GPUTypeIntegrated},  // 兜底：Intel xxx Graphics 默认核显
+			{[]string{"gma"}, GPUTypeIntegrated},      // 老旧 GMA 核显
+			{[]string{"graphics"}, GPUTypeIntegrated}, // 兜底：Intel xxx Graphics 默认核显
 		},
 		"amd": {
 			// 独显关键字（注意：Radeon RX Vega 是独显，Vega N Graphics 是核显）
-			{[]string{"radeon rx"}, GPUTypeDiscrete},       // Radeon RX 7900/6800 等
+			{[]string{"radeon rx"}, GPUTypeDiscrete},      // Radeon RX 7900/6800 等
 			{[]string{"radeon pro w"}, GPUTypeDiscrete},   // Radeon Pro W系列工作站独显
-			{[]string{"radeon vii"}, GPUTypeDiscrete},    // Radeon VII
+			{[]string{"radeon vii"}, GPUTypeDiscrete},     // Radeon VII
 			{[]string{"firepro"}, GPUTypeDiscrete},        // FirePro 工作站独显
 			{[]string{"radeon hd 7"}, GPUTypeDiscrete},    // Radeon HD 7xxx 系列
 			{[]string{"radeon hd 8"}, GPUTypeDiscrete},    // Radeon HD 8xxx 系列
@@ -267,7 +270,7 @@ func classifyGPUType(vendor, gpuName string, dedicatedVRAMMB int64) string {
 			// 核显关键字（AMD APU 核显）
 			{[]string{"radeon graphics"}, GPUTypeIntegrated}, // Ryzen APU 核显
 			{[]string{"radeon(tm) graphics"}, GPUTypeIntegrated},
-			{[]string{"vega "}, GPUTypeIntegrated},           // "Vega 8 Graphics"/"Vega 11 Graphics"
+			{[]string{"vega "}, GPUTypeIntegrated}, // "Vega 8 Graphics"/"Vega 11 Graphics"
 			{[]string{"radeon r3 graphics"}, GPUTypeIntegrated},
 			{[]string{"radeon r4 graphics"}, GPUTypeIntegrated},
 			{[]string{"radeon r5 graphics"}, GPUTypeIntegrated},

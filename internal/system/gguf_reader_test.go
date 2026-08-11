@@ -367,10 +367,10 @@ func TestGGUFReader_SequentialReads(t *testing.T) {
 	// 构造：uint8(42) + uint32(1000) + string("hi")
 	str := "hi"
 	buf := make([]byte, 0, 1+4+8+2)
-	buf = append(buf, 42) // uint8
-	buf = binary.LittleEndian.AppendUint32(buf, 1000) // uint32
+	buf = append(buf, 42)                                         // uint8
+	buf = binary.LittleEndian.AppendUint32(buf, 1000)             // uint32
 	buf = binary.LittleEndian.AppendUint64(buf, uint64(len(str))) // string length
-	buf = append(buf, str...) // string content
+	buf = append(buf, str...)                                     // string content
 
 	r := newGGUFReader(buf)
 	v1, err := r.readUint8()
@@ -390,7 +390,7 @@ func TestGGUFReader_SequentialReads(t *testing.T) {
 // TestGGUFReader_ReadAfterEOF 验证读完后再读返回 EOF
 func TestGGUFReader_ReadAfterEOF(t *testing.T) {
 	r := newGGUFReader([]byte{0x2A})
-	_, _ = r.readUint8() // 读完 1 字节
+	_, _ = r.readUint8()    // 读完 1 字节
 	_, err := r.readUint8() // 再读应失败
 	if err == nil {
 		t.Error("期望读完后再读返回错误，实际返回 nil")
