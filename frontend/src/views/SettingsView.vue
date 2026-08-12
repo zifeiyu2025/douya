@@ -790,6 +790,7 @@ const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'adaptive_target',
   'adaptive_decay',
   // TTS 朗读配置
+  'tts_online',
   'tts_enabled',
   'tts_voice',
   'tts_rate',

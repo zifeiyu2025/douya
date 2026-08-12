@@ -78,7 +78,8 @@ import {
   GetAppVersion,
   CheckUpdate,
   PerformUpdate,
-  ResolveGpuTypeChoice
+  ResolveGpuTypeChoice,
+  SynthesizeSpeech
 } from '../../wailsjs/go/main/App'
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
 import {
@@ -683,6 +684,19 @@ export const wails = {
   // 用户选择后端后调用，解除后端 startup 的阻塞等待
   resolveGpuTypeChoice: async (backend: string): Promise<void> => {
     await ResolveGpuTypeChoice(backend)
+  },
+  // ============ TTS 在线合成（Edge TTS / 微软在线神经语音） ============
+  // 有网时优先调用，返回 MP3 的 base64 字符串；无网/失败由前端 useTTS 回退本地 Web Speech API。
+  // voice 为设置页选的本地发音人名（如 "Microsoft Xiaoxiao"），后端映射为对应在线 Neural 音色；
+  // 不传（空）时后端默认使用微软晓伊。语速/音调/音量沿用用户设置的倍率。
+  synthesizeSpeech: async (
+    text: string,
+    voice: string,
+    rate: number,
+    pitch: number,
+    volume: number
+  ): Promise<string> => {
+    return (await SynthesizeSpeech(text, voice ?? '', rate, pitch, volume)) as string
   }
 } as const
 

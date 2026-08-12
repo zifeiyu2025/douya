@@ -65,7 +65,7 @@
     <template #label>
       切换后端
       <HelpTip
-        content="选择不同的计算后端。auto 会根据硬件自动选择最合适的后端。切换后需重启应用生效"
+        content="选择不同的计算后端。auto 按显卡厂商自动选择：N 卡用 CUDA、AMD/Intel 用 Vulkan、无独显用 CPU（HIP/SYCL/OpenVINO 为手动高级选项）。切换后需重启应用生效"
       />
     </template>
     <div class="backend-select-row">
@@ -208,7 +208,8 @@ import {
   NModal,
   NProgress,
   useDialog,
-  useMessage
+  useMessage,
+  type SelectOption
 } from 'naive-ui'
 import { HardwareChipOutline, SpeedometerOutline, ServerOutline } from '@vicons/ionicons5'
 import {
@@ -283,13 +284,33 @@ function backendStatusLabel(bt: string): string {
   return backendDisplayNames[bt] || backendDescriptions[bt] || bt
 }
 
-/** 下拉框选项：基于 available_backends 生成 */
-const backendOptions = computed(() => {
-  return backendStatus.value.available_backends.map(bt => ({
-    label: backendStatusLabel(bt),
-    value: bt
-  }))
-})
+/** auto 模式不会自动选中的后端，仅作为设置页手动高级选项 */
+const advancedBackends = new Set<string>(['hip', 'sycl', 'openvino'])
+
+/** 将后端列表按「常用 / 高级」分组；auto 解析到的 CUDA/Vulkan/CPU 归入常用组 */
+function groupBackendOptions(list: string[]) {
+  const primary = list.filter(bt => !advancedBackends.has(bt))
+  const advanced = list.filter(bt => advancedBackends.has(bt))
+  const groups: SelectOption[] = []
+  if (primary.length) {
+    groups.push({
+      type: 'group',
+      label: '常用后端',
+      children: primary.map(bt => ({ label: backendStatusLabel(bt), value: bt }))
+    })
+  }
+  if (advanced.length) {
+    groups.push({
+      type: 'group',
+      label: '高级后端（手动）',
+      children: advanced.map(bt => ({ label: backendStatusLabel(bt), value: bt }))
+    })
+  }
+  return groups
+}
+
+/** 下拉框选项：基于 available_backends 生成，按常用/高级分组 */
+const backendOptions = computed(() => groupBackendOptions(backendStatus.value.available_backends))
 
 /** GPU 厂商中文显示 */
 const gpuVendorLabel = computed(() => {
@@ -334,14 +355,10 @@ const canApply = computed(() => {
   return selectedBackend.value !== backendStatus.value.config_backend && !switching.value
 })
 
-/** 下载选项：排除 auto，仅显示具体后端 */
-const downloadOptions = computed(() => {
-  const allBackends = backendStatus.value.available_backends.filter(bt => bt !== 'auto')
-  return allBackends.map(bt => ({
-    label: backendStatusLabel(bt),
-    value: bt
-  }))
-})
+/** 下载选项：排除 auto（auto 由当前后端驱动下载），同样按常用/高级分组 */
+const downloadOptions = computed(() =>
+  groupBackendOptions(backendStatus.value.available_backends.filter(bt => bt !== 'auto'))
+)
 
 /** 是否可以点击下载：选择了后端且不在下载中 */
 const canDownload = computed(() => {

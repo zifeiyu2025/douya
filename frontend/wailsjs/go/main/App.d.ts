@@ -165,3 +165,4 @@ export function GetGitHubURL():Promise<string>;
 export function CheckUpdate():Promise<main.UpdateInfo>;
 
 export function PerformUpdate(arg1:string,arg2:string):Promise<void>;
+export function SynthesizeSpeech(arg1:string,arg2:string,arg3:number,arg4:number,arg5:number):Promise<string>;

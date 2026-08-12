@@ -294,6 +294,10 @@ export function GetBackendStatus() {
   return window['go']['main']['App']['GetBackendStatus']();
 }
 
+export function SynthesizeSpeech(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['SynthesizeSpeech'](arg1, arg2, arg3, arg4, arg5);
+}
+
 export function ResolveGpuTypeChoice(arg1) {
   return window['go']['main']['App']['ResolveGpuTypeChoice'](arg1);
 }

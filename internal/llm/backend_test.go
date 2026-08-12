@@ -158,8 +158,9 @@ func TestGetBackendInfo_UnknownType(t *testing.T) {
 // TestResolveBackendType_Auto 验证 auto 模式下根据 GPU 厂商自动选择原生后端。
 //
 // 生活类比：用户说"随便帮我选个发动机"，系统根据车库里有啥车来推荐——
-// 有 NVIDIA 就用 CUDA，有 AMD 就用 Vulkan（成熟稳定，无需 ROCm 运行时），有 Intel 就用 SYCL，啥都没有就用 CPU。
-// 优先使用厂商原生后端（性能最佳），Vulkan 作为 AMD 默认与跨厂商兜底。
+// 有 NVIDIA 就用 CUDA，有 AMD/Intel 就统一走 Vulkan（借系统驱动自带的 Vulkan 运行时，
+// 规避 Windows 上脆弱的 ROCm/HIP、SYCL 计算栈），啥都没有就用 CPU。
+// auto 实际只会解析到 CUDA / Vulkan / CPU 三档；HIP/SYCL/OpenVINO 仅手动可选。
 func TestResolveBackendType_Auto(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -168,7 +169,7 @@ func TestResolveBackendType_Auto(t *testing.T) {
 	}{
 		{"NVIDIA 显卡 → CUDA", "nvidia", llm.BackendCUDA},
 		{"AMD 显卡 → Vulkan（成熟稳定，无需 ROCm 运行时）", "amd", llm.BackendVulkan},
-		{"Intel 显卡 → SYCL（原生后端）", "intel", llm.BackendSYCL},
+		{"Intel 显卡 → Vulkan（非 N 卡统一走 Vulkan）", "intel", llm.BackendVulkan},
 		{"Vulkan 设备 → Vulkan", "vulkan", llm.BackendVulkan},
 		{"未知厂商 → CPU", "unknown_vendor", llm.BackendCPU},
 		{"空厂商 → CPU", "", llm.BackendCPU},
@@ -258,8 +259,8 @@ func TestResolveBackendType_NilHardware(t *testing.T) {
 // TestResolveBackendTypeWithRuntime_Fallback 验证 auto 模式下的回退策略。
 //
 // 回退顺序：原生后端 → Vulkan → CPU → 原推断（触发下载）
-// 生活类比：想用原厂发动机（SYCL），没装；找通用发动机（Vulkan），也没有；
-// 找备用发动机（CPU），有就用；全都没有就保持原选择，等安装流程处理。
+// 生活类比：auto 为 Intel 选通用发动机（Vulkan）；没装 Vulkan 就找备用发动机（CPU）；
+// 全都没有就保持原选择（Vulkan），等安装流程处理。SYCL 等仅手动可选，auto 不会自动选。
 func TestResolveBackendTypeWithRuntime_Fallback(t *testing.T) {
 	// 创建临时 runtime 目录
 	tempDir := t.TempDir()
@@ -283,28 +284,28 @@ func TestResolveBackendTypeWithRuntime_Fallback(t *testing.T) {
 		wantBackend   llm.BackendType
 	}{
 		{
-			name:          "Intel + SYCL 已安装 → SYCL",
+			name:          "Intel + SYCL 已安装但 Vulkan 未安装 → Vulkan（auto 不自动选 SYCL）",
 			vendor:        "intel",
 			setupBackends: []string{"sycl"},
-			wantBackend:   llm.BackendSYCL,
+			wantBackend:   llm.BackendVulkan,
 		},
 		{
-			name:          "Intel + SYCL 未安装但 Vulkan 已安装 → Vulkan",
+			name:          "Intel + Vulkan 已安装 → Vulkan",
 			vendor:        "intel",
 			setupBackends: []string{"vulkan"},
 			wantBackend:   llm.BackendVulkan,
 		},
 		{
-			name:          "Intel + SYCL 和 Vulkan 都未安装但 CPU 已安装 → CPU",
+			name:          "Intel + Vulkan 和 SYCL 都未安装但 CPU 已安装 → CPU",
 			vendor:        "intel",
 			setupBackends: []string{"cpu"},
 			wantBackend:   llm.BackendCPU,
 		},
 		{
-			name:          "Intel + 全部未安装 → 返回原推断 SYCL（触发下载）",
+			name:          "Intel + 全部未安装 → 返回原推断 Vulkan（触发下载）",
 			vendor:        "intel",
 			setupBackends: []string{},
-			wantBackend:   llm.BackendSYCL,
+			wantBackend:   llm.BackendVulkan,
 		},
 		{
 			name:          "AMD + Vulkan 已安装 → Vulkan",
@@ -395,20 +396,21 @@ func TestIsValidBackendType(t *testing.T) {
 
 // TestAllBackendTypes 验证后端类型列表的完整性和顺序。
 //
-// 顺序约定：auto 在最前（默认选项），cpu 在最后（兜底选项），中间是各厂商 GPU 后端。
+// 顺序约定：auto 在最前（默认选项），其后为常用自动档 cuda/vulkan/cpu，
+// 手动高级选项 hip/sycl/openvino 置后（auto 永不自动选）。
 // 生活类比：菜单上的选项要按约定顺序排列，方便用户查找。
 func TestAllBackendTypes(t *testing.T) {
 	all := llm.AllBackendTypes()
 
-	// 期望的完整顺序
+	// 期望的完整顺序：auto、CUDA/Vulkan/CPU 为常用自动档，HIP/SYCL/OpenVINO 为手动高级选项置后
 	wantOrder := []llm.BackendType{
 		llm.BackendAuto,
 		llm.BackendCUDA,
+		llm.BackendVulkan,
+		llm.BackendCPU,
 		llm.BackendHIP,
 		llm.BackendSYCL,
-		llm.BackendVulkan,
 		llm.BackendOpenVINO,
-		llm.BackendCPU,
 	}
 
 	if len(all) != len(wantOrder) {

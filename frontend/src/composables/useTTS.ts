@@ -2,14 +2,19 @@
  * useTTS.ts — 文本转语音（TTS）composable
  *
  * 生活类比：这个文件就像豆芽的"播音员调度员"——
- *   - 它知道系统里有哪些"播音员"（voices）
- *   - 它会按优先级挑最合适的播音员（Win11 的 Xiaoyi 优先）
+ *   - 它知道系统里有哪些"本地播音员"（voices，Web Speech API）
+ *   - 它还会在有网时请"微软在线播音员"（Edge TTS / 晓伊）帮忙
  *   - 它负责安排播音员什么时候开始、暂停、停止
  *
- * 基于 W3C Web Speech API 的 SpeechSynthesis 接口实现。
- * WebView2（基于 Edge Chromium）完整支持此 API。
+ * 朗读策略（按用户需求）：
+ *   - 开启「在线 TTS」且有网：优先调用微软在线 TTS（Edge TTS），
+ *     按设置页选的本地发音人映射到对应在线 Neural 音色（如晓晓→XiaoxiaoNeural），未选则用晓伊
+ *   - 无网 / 在线失败 / 关闭在线：自动回退到浏览器本地 Web Speech API（Web Speech API）
  *
- * 中文语音优先级（从高到低）：
+ * 本地语音基于 W3C Web Speech API 的 SpeechSynthesis 接口（WebView2 完整支持）。
+ * 在线语音基于 Edge TTS（直连微软云端，免 API Key）。
+ *
+ * 中文本地语音优先级（从高到低）：
  *   1. Microsoft Xiaoxiao（Win11 晓晓，最自然女声）        ← 首选
  *   2. Microsoft Yunxi  （Win11 云希，自然男声）           ← 次选
  *   3. Microsoft Yunyang（Win11 云扬，自然男声）           ← 次选
@@ -22,6 +27,7 @@
  */
 import { ref, computed } from 'vue'
 import { logWarn } from '../utils/logger'
+import { wails as ttsService } from '../services/wails'
 
 // ===== 类型定义 =====
 // 浏览器原生 API 的类型补充（部分 TS 版本未内置）
@@ -101,6 +107,15 @@ const paused = ref(false)
 /** 当前朗读的消息 ID（用于 UI 高亮显示） */
 const speakingMessageId = ref<string>('')
 
+/**
+ * 当前实际使用的后端：'online'（微软在线晓伊）/ 'local'（本地 Web Speech） / ''（未朗读）
+ * 用于 UI 显示「在线/本地」状态徽标。
+ */
+const currentBackend = ref<'' | 'online' | 'local'>('')
+
+/** 在线播放时的 HTMLAudioElement 实例（本地用 speechSynthesis，不在此列） */
+let currentAudio: HTMLAudioElement | null = null
+
 // ===== 语音加载与选择 =====
 
 /**
@@ -174,7 +189,7 @@ const currentVoice = computed<SpeechSynthesisVoice | null>(() => pickBestChinese
 // 生活类比：播音员调度台的"设置面板"——用户在设置页调整，这里读取执行。
 // 默认值与后端 DefaultConfig 对齐，未注入配置时也能正常工作。
 
-/** 用户配置的发音人名称（空=自动按优先级挑选） */
+/** 用户配置的发音人名称（空=自动按优先级挑选），仅本地回退时使用 */
 const configVoiceName = ref<string>('')
 
 /** 用户配置的语速 */
@@ -185,6 +200,9 @@ const configPitch = ref<number>(1.0)
 
 /** 用户配置的音量 */
 const configVolume = ref<number>(1.0)
+
+/** 是否优先使用在线 TTS（微软晓伊）；关闭或离线时回退本地 */
+const configOnline = ref<boolean>(true)
 
 /**
  * 实际生效的语音（综合用户配置和系统可用语音）
@@ -215,11 +233,13 @@ function updateConfig(opts: {
   rate?: number
   pitch?: number
   volume?: number
+  online?: boolean
 }): void {
   if (opts.voice !== undefined) configVoiceName.value = opts.voice
   if (opts.rate !== undefined) configRate.value = opts.rate
   if (opts.pitch !== undefined) configPitch.value = opts.pitch
   if (opts.volume !== undefined) configVolume.value = opts.volume
+  if (opts.online !== undefined) configOnline.value = opts.online
 }
 
 // ===== 朗读控制核心 =====
@@ -232,6 +252,142 @@ function resetState(): void {
   speakingText.value = ''
   speakingMessageId.value = ''
   paused.value = false
+  currentBackend.value = ''
+}
+
+/** 停止进行中的朗读（本地 + 在线），不重置外部标记 */
+function stopAllInternal(): void {
+  if (synth) synth.cancel()
+  if (currentAudio) {
+    try {
+      currentAudio.pause()
+    } catch {
+      /* 忽略暂停异常 */
+    }
+    currentAudio = null
+  }
+}
+
+/**
+ * 将 base64 字符串解码为二进制字节（用于在线 MP3 播放）。
+ */
+function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
+  const bin = atob(b64)
+  const len = bin.length
+  const bytes = new Uint8Array(new ArrayBuffer(len))
+  for (let i = 0; i < len; i++) {
+    bytes[i] = bin.charCodeAt(i)
+  }
+  return bytes
+}
+
+/**
+ * 给 Promise 加超时，避免在线合成卡死时前端一直等待。
+ */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('online TTS timeout')), ms)
+    p.then(
+      v => {
+        clearTimeout(timer)
+        resolve(v)
+      },
+      e => {
+        clearTimeout(timer)
+        reject(e)
+      }
+    )
+  })
+}
+
+/**
+ * 本地播放（浏览器 Web Speech API）
+ * 生活类比：请本地的播音员念稿——离线也能用，是最稳的兜底。
+ */
+function playLocal(cleanText: string, text: string, messageId?: string): void {
+  if (!synth) {
+    logWarn('[TTS] 浏览器不支持 SpeechSynthesis API，无法本地朗读')
+    return
+  }
+  const utterance = new window.SpeechSynthesisUtterance(cleanText)
+
+  const voice = effectiveVoice.value
+  if (voice) {
+    utterance.voice = voice
+    utterance.lang = voice.lang
+  } else {
+    utterance.lang = 'zh-CN'
+  }
+  utterance.rate = configRate.value
+  utterance.pitch = configPitch.value
+  utterance.volume = configVolume.value
+
+  utterance.onstart = () => {
+    speakingText.value = text
+    speakingMessageId.value = messageId || ''
+    paused.value = false
+    currentBackend.value = 'local'
+  }
+  utterance.onend = () => {
+    if (speakingText.value === text) resetState()
+  }
+  utterance.onerror = (event: SpeechSynthesisErrorEvent) => {
+    if (event.error !== 'interrupted') {
+      logWarn('[TTS] 朗读出错', event.error)
+    }
+    if (speakingText.value === text) resetState()
+  }
+
+  synth.speak(utterance)
+}
+
+/**
+ * 在线播放（微软 Edge TTS 返回的 MP3，用 <audio> 元素播放）
+ * 生活类比：把云端播音员录好的音频放出来。播放失败则回退本地播音员。
+ */
+function playOnlineAudio(b64: string, text: string, messageId?: string): void {
+  try {
+    const bytes = base64ToBytes(b64)
+    const blob = new Blob([bytes], { type: 'audio/mpeg' })
+    const url = URL.createObjectURL(blob)
+    const audio = new Audio(url)
+    currentAudio = audio
+    currentBackend.value = 'online'
+
+    const cleanup = () => {
+      URL.revokeObjectURL(url)
+      if (currentAudio === audio) currentAudio = null
+    }
+
+    audio.onplay = () => {
+      speakingText.value = text
+      speakingMessageId.value = messageId || ''
+      paused.value = false
+      currentBackend.value = 'online'
+    }
+    audio.onended = () => {
+      if (speakingText.value === text) resetState()
+      cleanup()
+    }
+    audio.onerror = () => {
+      cleanup()
+      // 在线音频播放失败，回退本地播音员
+      if (speakingText.value === text) {
+        playLocal(stripMarkdown(text), text, messageId)
+      }
+    }
+
+    audio.play().catch(() => {
+      cleanup()
+      if (speakingText.value === text) {
+        playLocal(stripMarkdown(text), text, messageId)
+      }
+    })
+  } catch (e) {
+    logWarn('[TTS] 在线音频播放失败，回退本地', (e as Error)?.message)
+    const clean = stripMarkdown(text)
+    if (speakingText.value === text) playLocal(clean, text, messageId)
+  }
 }
 
 /**
@@ -240,14 +396,11 @@ function resetState(): void {
  * @param text 要朗读的纯文本（会自动去除 markdown 标记）
  * @param messageId 关联的消息 ID（用于 UI 高亮，可选）
  *
- * 生活类比：把稿子交给播音员，播音员开始念。
+ * 生活类比：把稿子交给调度员，调度员先问"在线播音员（晓伊）在不在"——
+ *   在（有网）就请她念；不在（无网）就请本地播音员念。
  * 如果之前有朗读在进行，会先停掉再开始新的。
  */
-function speak(text: string, messageId?: string): void {
-  if (!synth) {
-    logWarn('[TTS] 浏览器不支持 SpeechSynthesis API')
-    return
-  }
+async function speak(text: string, messageId?: string): Promise<void> {
   if (!text || !text.trim()) return
 
   // 如果点击的是正在朗读的同一段文本，则停止（切换行为）
@@ -256,57 +409,48 @@ function speak(text: string, messageId?: string): void {
     return
   }
 
-  // 停止之前的朗读
-  synth.cancel()
+  // 停止之前的朗读（本地 + 在线）
+  stopAllInternal()
 
-  // 清理 markdown 标记，让播音员念纯文字
-  // 生活类比：把"**加粗**、#标题、[链接](url)"这些格式符号去掉，
-  //          否则播音员会念出"星号星号加粗星号星号"，很难听。
   const cleanText = stripMarkdown(text)
+  if (!cleanText) return
 
-  // 使用浏览器原生构造器创建 utterance
-  const utterance = new window.SpeechSynthesisUtterance(cleanText)
+  // 立即标记，供 UI 高亮 + 切换检测（无论在线/本地，先占住这个朗读槽）
+  speakingText.value = text
+  speakingMessageId.value = messageId || ''
+  paused.value = false
+  currentBackend.value = ''
 
-  // 配置语音参数（从用户配置读取，默认 1.0/1.0/1.0）
-  const voice = effectiveVoice.value
-  if (voice) {
-    utterance.voice = voice
-    utterance.lang = voice.lang
-  } else {
-    // 没有中文语音时，至少设置 lang 让浏览器尝试
-    utterance.lang = 'zh-CN'
-  }
-  utterance.rate = configRate.value // 语速：用户配置（默认 1.0 = 正常速度）
-  utterance.pitch = configPitch.value // 音调：用户配置（默认 1.0 = 正常音调）
-  utterance.volume = configVolume.value // 音量：用户配置（默认 1.0 = 最大音量）
-
-  // 朗读事件回调
-  utterance.onstart = () => {
-    speakingText.value = text
-    speakingMessageId.value = messageId || ''
-    paused.value = false
-  }
-
-  utterance.onend = () => {
-    // 朗读正常结束或被 cancel 后都会触发 onend
-    // 只有当前确实是这段文本时才重置（避免被新的 utterance 覆盖状态）
-    if (speakingText.value === text) {
-      resetState()
+  if (configOnline.value) {
+    try {
+      // 调用后端 Edge TTS 合成（后端内部会做网络探测，无网快速失败）；
+      // 前端再套一层超时，避免后端卡死时一直等待。
+      // 传入设置页选的本地发音人名（如 "Microsoft Xiaoxiao"），后端映射为对应在线 Neural 音色；
+      // 未选（空）时后端默认使用微软晓伊。
+      const b64 = await withTimeout(
+        ttsService.synthesizeSpeech(
+          cleanText,
+          effectiveVoice.value?.name ?? '',
+          configRate.value,
+          configPitch.value,
+          configVolume.value
+        ),
+        9000
+      )
+      // 合成期间若已被用户停止（点击同一段/切换），speakingText 已清空，则放弃播放
+      if (speakingText.value !== text) return
+      playOnlineAudio(b64, text, messageId)
+      return
+    } catch (e) {
+      logWarn('[TTS] 在线合成失败，回退本地', (e as Error)?.message)
+      // 回退本地
     }
   }
 
-  utterance.onerror = (event: SpeechSynthesisErrorEvent) => {
-    // interrupted（被新的 utterance 打断）是正常行为，不算错误
-    if (event.error !== 'interrupted') {
-      logWarn('[TTS] 朗读出错', event.error)
-    }
-    if (speakingText.value === text) {
-      resetState()
-    }
+  // 离线回退 / 在线关闭 / 在线失败：用本地播音员
+  if (speakingText.value === text) {
+    playLocal(cleanText, text, messageId)
   }
-
-  // 启动朗读
-  synth.speak(utterance)
 }
 
 /**
@@ -314,8 +458,15 @@ function speak(text: string, messageId?: string): void {
  * 生活类比：让播音员立刻闭嘴。
  */
 function stop(): void {
-  if (!synth) return
-  synth.cancel()
+  if (synth) synth.cancel()
+  if (currentAudio) {
+    try {
+      currentAudio.pause()
+    } catch {
+      /* 忽略暂停异常 */
+    }
+    currentAudio = null
+  }
   resetState()
 }
 
@@ -324,8 +475,12 @@ function stop(): void {
  * 注意：WebView2 对 pause() 的支持不稳定，部分版本会立即停止而非暂停。
  */
 function pause(): void {
-  if (!synth) return
-  if (synth.speaking && !synth.paused) {
+  if (currentBackend.value === 'online' && currentAudio) {
+    currentAudio.pause()
+    paused.value = true
+    return
+  }
+  if (synth && synth.speaking && !synth.paused) {
     synth.pause()
     paused.value = true
   }
@@ -335,8 +490,14 @@ function pause(): void {
  * 恢复朗读
  */
 function resume(): void {
-  if (!synth) return
-  if (synth.paused) {
+  if (currentBackend.value === 'online' && currentAudio) {
+    currentAudio.play().catch(() => {
+      /* 忽略播放异常 */
+    })
+    paused.value = false
+    return
+  }
+  if (synth && synth.paused) {
     synth.resume()
     paused.value = false
   }
@@ -427,7 +588,10 @@ export function useTTS() {
     speakingText,
     speakingMessageId,
     paused,
-    isSupported: computed(() => synth !== null),
+    currentBackend,
+    configOnline,
+    // 在线可用（本地或在线任一可用即可显示朗读按钮）
+    isSupported: computed(() => synth !== null || configOnline.value),
 
     // 方法
     speak,

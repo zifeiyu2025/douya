@@ -259,6 +259,7 @@ export interface Config {
   tts_rate: number // 语速 0.5-2.0，1.0 = 正常
   tts_pitch: number // 音调 0-2，1.0 = 正常
   tts_volume: number // 音量 0-1，1.0 = 最大
+  tts_online: boolean // 是否优先使用微软在线 TTS（晓伊）；无网自动回退本地
   api_base: string
   port: number
   context_size: number
@@ -477,6 +478,7 @@ export const DEFAULT_CONFIG: Config = {
   tts_rate: 1.0, // 正常语速
   tts_pitch: 1.0, // 正常音调
   tts_volume: 1.0, // 最大音量
+  tts_online: true, // 默认开启在线 TTS（有网用晓伊，无网回退本地）
   api_base: 'http://127.0.0.1:8080',
   port: 8080,
   // P4.1: 默认 0 = 未设置，由 llama.cpp 原生 auto 按 GPU 显存自动计算（与 Go DefaultConfig 对齐）

@@ -351,7 +351,8 @@ export function useAppLifecycle() {
       voice: settingsStore.config.tts_voice,
       rate: settingsStore.config.tts_rate,
       pitch: settingsStore.config.tts_pitch,
-      volume: settingsStore.config.tts_volume
+      volume: settingsStore.config.tts_volume,
+      online: settingsStore.config.tts_online
     })
 
     // 异常清理事件监听：后端检测到无有效消息的会话时主动推送

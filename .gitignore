@@ -56,6 +56,9 @@ tests/screenshots/*.png
 *.md5
 focus_*.ps1
 
+# CodeBuddy project data (runtime/agent data, not source)
+.codebuddy/
+
 # Temp / debug / patch files
 *.log
 *.tmp

@@ -27,12 +27,26 @@
     </n-form-item>
 
     <template v-if="formConfig.tts_enabled">
+      <!-- 在线 TTS 开关 -->
+      <n-form-item>
+        <template #label>
+          在线 TTS（微软云端）
+          <HelpTip content="有网时优先使用微软在线神经语音，音质更自然；无网络时自动回退到本地语音" />
+        </template>
+        <div class="toggle-row">
+          <n-switch v-model:value="formConfig.tts_online" @update:value="onToggleOnline" />
+          <span class="toggle-hint">
+            {{ formConfig.tts_online ? '有网用在线云端语音，无网回退本地' : '始终使用本地语音' }}
+          </span>
+        </div>
+      </n-form-item>
+
       <!-- 发音人选择 -->
       <n-form-item>
         <template #label>
           发音人
           <HelpTip
-            content="选择系统可用的发音人。推荐 Win11 安装晓晓/云希自然语音包。选「自动」则按优先级自动挑选"
+            content="选择系统可用的发音人。标注「在线」的发音人在启用在线 TTS 时会使用微软云端神经语音，音质更佳。选「自动」则按优先级自动挑选"
           />
         </template>
         <n-select
@@ -41,6 +55,7 @@
           placeholder="自动挑选（推荐晓晓）"
           clearable
           :loading="!tts.isSupported.value || voices.length === 0"
+          :render-label="(renderVoiceLabel as unknown as (option: SelectOption) => VNodeChild)"
           @update:value="onVoiceChange"
         />
       </n-form-item>
@@ -117,8 +132,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onMounted } from 'vue'
-import { NFormItem, NSwitch, NSelect, NSlider, NButton, NIcon, useMessage } from 'naive-ui'
+import { computed, ref, watch, onMounted, h, createVNode } from 'vue'
+import type { VNodeChild } from 'vue'
+import { NFormItem, NSwitch, NSelect, NSlider, NButton, NIcon, NTag, useMessage } from 'naive-ui'
+import type { SelectOption } from 'naive-ui'
 import { VolumeLowOutline } from '@vicons/ionicons5'
 import { inject } from 'vue'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
@@ -155,14 +172,42 @@ const CN_PREFERENCE_ORDER = [
 ]
 
 /**
+ * 判断本地发音人是否可在线使用（能映射到微软云端 Neural 语音）
+ * 与 CN_PREFERENCE_ORDER 中的微软语音一致
+ */
+function isOnlineCapable(name: string): boolean {
+  const lower = (name || '').toLowerCase()
+  return CN_PREFERENCE_ORDER.some(p => lower.includes(p.toLowerCase()))
+}
+
+/**
+ * 渲染发音人下拉选项标签（含「在线」标记）
+ * 使用 Naive UI n-select 的 render-label 属性（函数形式），非插槽
+ */
+function renderVoiceLabel(option: VoiceOption): VNodeChild {
+  const children: VNodeChild[] = [createVNode('span', {}, option.label || '')]
+  if (option.onlineCapable) {
+    children.push(createVNode(NTag, { size: 'small', type: 'success', bordered: false, round: true }, { default: () => '在线' }))
+  }
+  return createVNode('span', { class: 'voice-option' }, children)
+}
+
+/**
+ * 发音人选项（扩展 Naive UI SelectOption，携带 onlineCapable 标记）
+ */
+interface VoiceOption extends SelectOption {
+  onlineCapable?: boolean
+}
+
+/**
  * 构建发音人下拉选项
  * 生活类比：把系统里所有"播音员"列成菜单，中文的排前面，按知名度排序。
  */
-const voiceOptions = computed(() => {
+const voiceOptions = computed<VoiceOption[]>(() => {
   if (!tts.isSupported.value || voices.value.length === 0) return []
 
   // 第一项：自动（空值，让 useTTS 按优先级挑选）
-  const options = [
+  const options: VoiceOption[] = [
     {
       label: '自动（推荐晓晓）',
       value: ''
@@ -184,7 +229,8 @@ const voiceOptions = computed(() => {
   for (const v of sortedCnVoices) {
     options.push({
       label: `${v.name} (${v.lang})`,
-      value: v.name
+      value: v.name,
+      onlineCapable: isOnlineCapable(v.name)
     })
   }
 
@@ -198,7 +244,8 @@ const voiceOptions = computed(() => {
     for (const v of otherVoices) {
       options.push({
         label: `${v.name} (${v.lang})`,
-        value: v.name
+        value: v.name,
+        onlineCapable: isOnlineCapable(v.name)
       })
     }
   }
@@ -217,7 +264,8 @@ function syncConfigToTTS() {
     voice: formConfig.value.tts_voice,
     rate: formConfig.value.tts_rate,
     pitch: formConfig.value.tts_pitch,
-    volume: formConfig.value.tts_volume
+    volume: formConfig.value.tts_volume,
+    online: formConfig.value.tts_online
   })
 }
 
@@ -232,7 +280,8 @@ watch(
     formConfig.value.tts_voice,
     formConfig.value.tts_rate,
     formConfig.value.tts_pitch,
-    formConfig.value.tts_volume
+    formConfig.value.tts_volume,
+    formConfig.value.tts_online
   ],
   () => syncConfigToTTS(),
   { deep: true }
@@ -252,6 +301,13 @@ async function onToggleEnabled() {
   }
 }
 
+/** 在线 TTS 开关变化 */
+async function onToggleOnline() {
+  await autoSave()
+  // 切换在线/本地后立即停止当前朗读，避免后台在线音频继续播放
+  tts.stop()
+}
+
 /** 发音人变化 */
 async function onVoiceChange() {
   syncConfigToTTS()
@@ -264,19 +320,20 @@ async function onParamChange() {
   await autoSave()
 }
 
-/** 试听当前配置 */
+/** 试听当前配置：自报发音人名字，方便用户辨识 */
 function previewVoice() {
   // 试听中再点 → 停止
   if (isPreviewing.value) {
     tts.stop()
     return
   }
-  const previewText =
-    '你好，我是豆芽的语音助手。这是一段试听文字，用来检查发音人和参数设置是否满意。'
+  // 构建含发音人名字的试听文本
+  const voiceName = formConfig.value.tts_voice || '自动'
+  const modeText = formConfig.value.tts_online ? '在线云端语音' : '本地语音'
+  const previewText = `你好，我是豆芽的语音助手。当前使用的发音人是${voiceName}，模式为${modeText}。这是一段试听文字，用来检查发音人和参数设置是否满意。`
   tts.speak(previewText, '__preview__')
   isPreviewing.value = true
   // 监听朗读结束（简单实现：用 setTimeout 检查状态）
-  // 注：这里用轮询是为了避免改 useTTS 暴露 onend 回调
   const checkEnd = setInterval(() => {
     if (!tts.isSpeaking('__preview__')) {
       isPreviewing.value = false
@@ -327,5 +384,11 @@ function previewVoice() {
   margin-left: 12px;
   font-size: 13px;
   color: var(--accent-warning);
+}
+
+.voice-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 </style>

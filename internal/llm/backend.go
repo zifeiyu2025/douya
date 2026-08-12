@@ -94,15 +94,19 @@ var coreDLLs = []string{
 const mtmdDLL = "mtmd.dll"
 
 // allBackendTypesOrdered 按固定顺序排列的所有后端类型，供 AllBackendTypes() 使用。
-// 顺序：auto 在最前（默认选项），cpu 在最后（兜底选项），中间是各厂商 GPU 后端。
+// 分组：
+//   - 自动档（auto 默认）：auto、CUDA、Vulkan、CPU —— auto 只会解析到这三者之一
+//   - 手动高级选项（auto 永不自动选）：HIP、SYCL、OpenVINO —— 仅设置页手动切换可用
+// 顺序：auto 在最前（默认），CUDA/Vulkan 为常用 GPU 后端，CPU 兜底，
+// 其后为手动高级后端。
 var allBackendTypesOrdered = []BackendType{
 	BackendAuto,
 	BackendCUDA,
+	BackendVulkan,
+	BackendCPU,
 	BackendHIP,
 	BackendSYCL,
-	BackendVulkan,
 	BackendOpenVINO,
-	BackendCPU,
 }
 
 // GetBackendInfo 根据后端类型返回对应的配置信息。
@@ -231,11 +235,13 @@ func GetBackendInfo(bt BackendType) BackendInfo {
 //
 // 解析规则：
 //   - cfgBackend 为 "auto" 或空时：按 GPUVendor 自动匹配原生后端
-//     nvidia → CUDA, amd → Vulkan, intel → SYCL, vulkan → Vulkan, 无 GPU → CPU
+//     nvidia → CUDA, amd → Vulkan, intel → Vulkan, vulkan → Vulkan, 无 GPU → CPU
+//     （auto 实际只会解析到 CUDA / Vulkan / CPU 三档；HIP/SYCL/OpenVINO 仅为手动高级选项）
 //   - cfgBackend 为有效后端值（cuda/hip/sycl/vulkan/openvino/cpu）：直接返回
 //   - cfgBackend 为无效值：返回 CPU（安全回退）
 //
-// 后端选择策略：优先使用厂商原生后端（性能最佳），Vulkan 仅作为跨厂商兜底。
+// 后端选择策略：N 卡用厂商原生 CUDA（性能最佳）；AMD/Intel 统一走 Vulkan，
+// 借系统驱动自带的 Vulkan 运行时规避 Windows 上脆弱的 ROCm/HIP、SYCL 计算栈，加载成功率最高。
 // 原生后端未安装时，由 ResolveBackendTypeWithRuntime 负责回退到 Vulkan 或 CPU。
 func ResolveBackendType(hw *system.HardwareInfo, cfgBackend string) BackendType {
 	// 先处理手动指定的情况
@@ -260,9 +266,10 @@ func ResolveBackendType(hw *system.HardwareInfo, cfgBackend string) BackendType 
 		// 追求极限性能且已正确配置 ROCm 环境的用户可在设置中手动选择 HIP 后端。
 		return BackendVulkan
 	case "intel":
-		// Intel 显卡优先使用原生 SYCL 后端（性能最佳）
-		// SYCL 未安装时由 ResolveBackendTypeWithRuntime 回退到 Vulkan
-		return BackendSYCL
+		// Intel 独显与 AMD 一样统一走 Vulkan：借用系统驱动自带的 Intel Vulkan 运行时
+		// （vulkan-1.dll），规避 Windows 上仍不成熟的 SYCL 计算栈，最大化加载成功率。
+		// 追求极限性能且已正确配置 SYCL 环境的用户可在设置中手动选择 SYCL 后端。
+		return BackendVulkan
 	case "vulkan":
 		return BackendVulkan
 	default:
@@ -306,7 +313,7 @@ func ResolveBackendTypeWithRuntime(hw *system.HardwareInfo, cfgBackend string, r
 	// auto 的语义是"为我的显卡选最优后端"，对 N 卡用户 Vulkan/CPU 只是运行时崩溃兜底
 	// （ensureVulkanFallback）的替补，不应在启动选择阶段抢占原生 CUDA。
 	// 否则用户删除 runtime/cuda/ 想重新拉取 CUDA 时，会被预装的 Vulkan 接管。
-	// AMD/Intel 维持原有回退行为（AMD 默认 Vulkan、Intel SYCL 不成熟），不受影响。
+	// AMD/Intel 现已统一走 Vulkan（auto 即解析为 Vulkan），其回退行为同样不受影响。
 	if resolved == BackendCUDA && hw != nil && hw.GPUVendor == "nvidia" {
 		return resolved
 	}
@@ -388,7 +395,7 @@ func IsModularBackend(bt BackendType) bool {
 }
 
 // AllBackendTypes 返回所有后端类型列表，用于前端下拉框展示。
-// 顺序：auto, cuda, hip, sycl, vulkan, openvino, cpu。
+// 顺序：auto, cuda, vulkan, cpu（自动档），其后 hip, sycl, openvino（手动高级选项）。
 func AllBackendTypes() []BackendType {
 	// 返回切片副本，避免调用方修改内部切片
 	out := make([]BackendType, len(allBackendTypesOrdered))
