@@ -262,7 +262,7 @@ const downloadProgress = ref<BackendDownloadProgress>({
 const backendDisplayNames: Record<string, string> = {
   auto: '自动检测（推荐）',
   cuda: 'CUDA (NVIDIA)',
-  hip: 'HIP (AMD)',
+  hip: 'ROCm (AMD)',
   sycl: 'SYCL (Intel)',
   vulkan: 'Vulkan (跨厂商)',
   openvino: 'OpenVINO (Intel)',
@@ -272,7 +272,7 @@ const backendDisplayNames: Record<string, string> = {
 const backendDescriptions: Record<string, string> = {
   auto: '自动检测',
   cuda: 'CUDA',
-  hip: 'HIP',
+  hip: 'ROCm',
   sycl: 'SYCL',
   vulkan: 'Vulkan',
   openvino: 'OpenVINO',

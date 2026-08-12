@@ -97,8 +97,9 @@ func TestOtherBackendRegexes(t *testing.T) {
 		asset   string
 		matches bool
 	}{
-		// HIP (AMD)
+		// HIP / ROCm (AMD)
 		{BackendHIP, "llama-b10228-bin-win-hip-radeon-x64.zip", true},
+		{BackendHIP, "llama-b10369-bin-win-rocm-7.14-x64.zip", true},
 		{BackendHIP, "llama-b10228-bin-win-cuda-13.3-x64.zip", false},
 		// SYCL (Intel)
 		{BackendSYCL, "llama-b10228-bin-win-sycl-x64.zip", true},

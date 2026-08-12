@@ -16,7 +16,7 @@ import (
 //
 // 生活类比：就像一辆车可以选择不同的"发动机"——纯油、纯电、混动，
 // llama.cpp 也可以用不同的计算后端来跑推理：CUDA（NVIDIA 显卡）、
-// HIP（AMD 显卡）、SYCL/OpenVINO（Intel 显卡）、Vulkan（跨厂商）、CPU（纯 CPU）。
+// ROCm/HIP（AMD 显卡）、SYCL/OpenVINO（Intel 显卡）、Vulkan（跨厂商）、CPU（纯 CPU）。
 // 选对后端，推理才能用上对应的硬件加速能力。
 type BackendType string
 
@@ -151,15 +151,17 @@ func GetBackendInfo(bt BackendType) BackendInfo {
 	case BackendHIP:
 		return BackendInfo{
 			Type:              BackendHIP,
-			DisplayName:       "HIP (AMD)",
+			DisplayName:       "ROCm (AMD)",
 			Subdir:            "hip",
-			ZipPattern:        "llama-b*-bin-win-hip-radeon-x64.zip",
-			ReleaseAssetRegex: `^llama-b\d+-bin-win-hip-radeon-x64\.zip$`,
+			// 上游自 b10xxx 起将 AMD 包由 "win-hip-radeon" 更名为 "win-rocm-<ver>"，
+			// ZipPattern 用 glob（不支持多选）指向当前命名；ReleaseAssetRegex 同时兼容旧命名。
+			ZipPattern:        "llama-b*-bin-win-rocm-*-x64.zip",
+			ReleaseAssetRegex: `^llama-b\d+-bin-win-(rocm-[\d.]+|hip-radeon)-x64\.zip$`,
 			RequiredDLLs: append(append([]string{}, coreDLLs...),
 				"ggml-hip.dll", mtmdDLL),
 			VendorDLLs:  []string{},     // HIP 通常静态链接，无额外厂商 DLL
 			BackendDLL:  "ggml-hip.dll", // 模块化后端：官方包只含此 DLL，需 CPU 包作基础
-			Description: "AMD HIP 后端，仅支持 A 卡",
+			Description: "AMD ROCm/HIP 后端，仅支持 A 卡",
 		}
 	case BackendSYCL:
 		return BackendInfo{
