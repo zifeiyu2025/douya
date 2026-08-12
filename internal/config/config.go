@@ -395,11 +395,11 @@ func DefaultConfig() *Config {
 		CorsCredentials: false,
 		// TTS 文本转语音默认配置
 		// 默认启用朗读按钮，发音人留空（自动按优先级挑选晓晓等自然语音）
-		TtsEnabled:       true,
-		TtsVoice:         "",
-		TtsRate:          1.0,
-		TtsPitch:         1.0,
-		TtsVolume:        1.0,
+		TtsEnabled: true,
+		TtsVoice:   "",
+		TtsRate:    1.0,
+		TtsPitch:   1.0,
+		TtsVolume:  1.0,
 		// TtsOnline 默认开启：有网优先使用微软在线晓伊，无网自动回退本地语音
 		TtsOnline:        true,
 		SsePingInterval:  0,

@@ -32,11 +32,10 @@ if ($LASTEXITCODE -ne 0) { throw "前端构建失败" }
 Write-Host "[2/5] 执行 Wails 构建..." -ForegroundColor Yellow
 Set-Location $ProjectRoot
 # 定位 wails.exe：环境变量 WAILS_EXE 优先（支持 CI/自定义路径），
-# 回退到项目约定的 D:\Program Files\GoTools\bin\wails.exe（项目记忆硬约束），
-# 再回退到 GOPATH/bin 和 PATH
+# 再回退到 GOPATH/bin 和 PATH。不再硬编码特定机器路径（如旧机的
+# "D:\Program Files\GoTools\bin\wails.exe"），避免路径失效或版本陈旧导致构建失败。
 $wailsExe = $env:WAILS_EXE
-if (-not $wailsExe -or -not (Test-Path $wailsExe)) { $wailsExe = "D:\Program Files\GoTools\bin\wails.exe" }
-if (-not (Test-Path $wailsExe)) { $wailsExe = Join-Path (go env GOPATH) "bin\wails.exe" }
+if (-not $wailsExe -or -not (Test-Path $wailsExe)) { $wailsExe = Join-Path (go env GOPATH) "bin\wails.exe" }
 if (-not (Test-Path $wailsExe)) { $wailsExe = "wails" }
 # -ldflags "-s -w"：去掉符号表和 DWARF 调试信息，减小发布版二进制体积约 20-30%
 # 生活类比：像发货前拆掉商品的精美包装——运输时不需要展示用的包装（调试信息），

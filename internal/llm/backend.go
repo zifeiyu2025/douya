@@ -97,6 +97,7 @@ const mtmdDLL = "mtmd.dll"
 // 分组：
 //   - 自动档（auto 默认）：auto、CUDA、Vulkan、CPU —— auto 只会解析到这三者之一
 //   - 手动高级选项（auto 永不自动选）：HIP、SYCL、OpenVINO —— 仅设置页手动切换可用
+//
 // 顺序：auto 在最前（默认），CUDA/Vulkan 为常用 GPU 后端，CPU 兜底，
 // 其后为手动高级后端。
 var allBackendTypesOrdered = []BackendType{
@@ -150,9 +151,9 @@ func GetBackendInfo(bt BackendType) BackendInfo {
 		}
 	case BackendHIP:
 		return BackendInfo{
-			Type:              BackendHIP,
-			DisplayName:       "ROCm (AMD)",
-			Subdir:            "hip",
+			Type:        BackendHIP,
+			DisplayName: "ROCm (AMD)",
+			Subdir:      "hip",
 			// 上游自 b10xxx 起将 AMD 包由 "win-hip-radeon" 更名为 "win-rocm-<ver>"，
 			// ZipPattern 用 glob（不支持多选）指向当前命名；ReleaseAssetRegex 同时兼容旧命名。
 			ZipPattern:        "llama-b*-bin-win-rocm-*-x64.zip",
@@ -248,7 +249,7 @@ func GetBackendInfo(bt BackendType) BackendInfo {
 func ResolveBackendType(hw *system.HardwareInfo, cfgBackend string) BackendType {
 	// 先处理手动指定的情况
 	if cfgBackend != "" && cfgBackend != string(BackendAuto) {
-		if IsValidBackendType(cfgBackend) && cfgBackend != string(BackendAuto) {
+		if IsValidBackendType(cfgBackend) {
 			return BackendType(cfgBackend)
 		}
 		// 无效配置值，安全回退到 CPU

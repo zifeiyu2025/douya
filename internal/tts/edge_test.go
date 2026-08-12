@@ -11,14 +11,14 @@ func TestResolveOnlineVoice(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"", DefaultOnlineVoice},                              // 空 → 默认晓伊
-		{"Microsoft Xiaoxiao", "zh-CN-XiaoxiaoNeural"},        // 精确命中
-		{"Microsoft Yunxi", "zh-CN-YunxiNeural"},              // 精确命中
-		{"Microsoft Xiaoyi", "zh-CN-XiaoyiNeural"},            // 精确命中
-		{"  Microsoft Yunyang  ", "zh-CN-YunyangNeural"},       // 带空白精确命中
-		{"Xiaoxiao", "zh-CN-XiaoxiaoNeural"},                  // 去前缀模糊匹配
-		{"xiaoxiao", "zh-CN-XiaoxiaoNeural"},                  // 大小写不敏感
-		{"Unknown Voice", DefaultOnlineVoice},                // 未匹配 → 默认晓伊
+		{"", DefaultOnlineVoice},                         // 空 → 默认晓伊
+		{"Microsoft Xiaoxiao", "zh-CN-XiaoxiaoNeural"},   // 精确命中
+		{"Microsoft Yunxi", "zh-CN-YunxiNeural"},         // 精确命中
+		{"Microsoft Xiaoyi", "zh-CN-XiaoyiNeural"},       // 精确命中
+		{"  Microsoft Yunyang  ", "zh-CN-YunyangNeural"}, // 带空白精确命中
+		{"Xiaoxiao", "zh-CN-XiaoxiaoNeural"},             // 去前缀模糊匹配
+		{"xiaoxiao", "zh-CN-XiaoxiaoNeural"},             // 大小写不敏感
+		{"Unknown Voice", DefaultOnlineVoice},            // 未匹配 → 默认晓伊
 	}
 	for _, c := range cases {
 		got := ResolveOnlineVoice(c.in)
