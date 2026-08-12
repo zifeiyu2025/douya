@@ -27,7 +27,7 @@
         <n-icon size="20" class="gpu-info-icon"><SpeedometerOutline /></n-icon>
         <div class="gpu-info-text">
           <span class="gpu-info-label">GPU 名称</span>
-          <span class="gpu-info-value">{{ backendStatus.gpu_name || '未检测到 GPU' }}</span>
+          <span class="gpu-info-value">{{ gpuNameLabel }}</span>
         </div>
       </div>
     </n-card>
@@ -320,14 +320,25 @@ const gpuVendorLabel = computed(() => {
     nvidia: 'NVIDIA',
     amd: 'AMD',
     intel: 'Intel',
-    vulkan: 'Vulkan'
+    vulkan: 'Vulkan (跨厂商)'
   }
   return vendorMap[vendor] || vendor
 })
 
-/** 显存大小显示（自动转换为 GB） */
+/** GPU 名称显示（Vulkan 兜底时给出友好提示） */
+const gpuNameLabel = computed(() => {
+  const vendor = backendStatus.value.gpu_vendor
+  const name = backendStatus.value.gpu_name
+  if (vendor === 'vulkan') return '由 llama.cpp 运行时自动探测'
+  if (name) return name
+  return '未检测到 GPU'
+})
+
+/** 显存大小显示（自动转换为 GB；Vulkan 兜底时提示运行时探测） */
 const vramLabel = computed(() => {
   const vram = backendStatus.value.gpu_vram_mb
+  const vendor = backendStatus.value.gpu_vendor
+  if (vendor === 'vulkan' && !vram) return '运行时自动探测'
   if (!vram) return '无'
   if (vram >= 1024) {
     return `${(vram / 1024).toFixed(1)} GB`
