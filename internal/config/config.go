@@ -219,8 +219,8 @@ type Config struct {
 	TtsPitch float64 `json:"tts_pitch"`
 	// TtsVolume 音量：0（静音）- 1（最大），1.0 = 最大音量
 	TtsVolume float64 `json:"tts_volume"`
-	// TtsOnline 是否优先使用微软在线 TTS（Edge TTS / 晓伊）。
-	// 开启：有网用微软在线晓伊，无网自动回退本地语音；关闭：始终本地 Web Speech API。
+	// TtsOnline 是否优先使用微软在线 TTS（Edge TTS / 晓晓）。
+	// 开启：有网用微软在线晓晓，无网自动回退本地语音；关闭：始终本地 Web Speech API。
 	TtsOnline bool `json:"tts_online"`
 	// SSE ping 间隔秒数（0=使用服务器默认 30 秒，用于保持长连接活跃）
 	SsePingInterval int `json:"sse_ping_interval"`

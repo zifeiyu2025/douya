@@ -132,7 +132,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, h, createVNode } from 'vue'
+import { computed, ref, watch, onMounted, onUnmounted, h, createVNode } from 'vue'
 import type { VNodeChild } from 'vue'
 import { NFormItem, NSwitch, NSelect, NSlider, NButton, NIcon, NTag, useMessage } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
@@ -155,6 +155,16 @@ const message = useMessage()
 const tts = useTTS()
 const voices = tts.voices
 const isPreviewing = ref(false)
+// 试听结束轮询定时器（仅用于驱动"停止试听"按钮状态切换），组件卸载时清理
+let previewTimer: ReturnType<typeof setInterval> | null = null
+
+/** 清理试听轮询定时器 */
+function clearPreviewTimer(): void {
+  if (previewTimer) {
+    clearInterval(previewTimer)
+    previewTimer = null
+  }
+}
 
 // ===== 发音人选项构建 =====
 
@@ -169,6 +179,29 @@ const CN_PREFERENCE_ORDER = [
   'Microsoft Huihui',
   'Microsoft Yaoyao',
   'Microsoft Kangkang'
+]
+
+/**
+ * 仅在线（云端 Neural）的中文发音人：Windows 本地 Web Speech 不提供，
+ * 仅在启用「在线 TTS」时可用。value 直接传在线 Neural 音色名给后端，
+ * 后端 ResolveOnlineVoice 会原样透传，从而选定这些本地没有的音色。
+ */
+const ONLINE_ONLY_VOICES = [
+  { name: 'zh-CN-XiaochenNeural', label: '微软晓辰（在线）', gender: '男' },
+  { name: 'zh-CN-XiaohanNeural', label: '微软晓涵（在线）', gender: '女' },
+  { name: 'zh-CN-XiaomengNeural', label: '微软晓梦（在线）', gender: '女' },
+  { name: 'zh-CN-XiaomoNeural', label: '微软晓墨（在线）', gender: '女' },
+  { name: 'zh-CN-XiaoqiuNeural', label: '微软晓秋（在线）', gender: '女' },
+  { name: 'zh-CN-XiaoruiNeural', label: '微软晓睿（在线）', gender: '女' },
+  { name: 'zh-CN-XiaoshuangNeural', label: '微软晓双（在线）', gender: '女' },
+  { name: 'zh-CN-XiaoyouNeural', label: '微软晓悠（在线）', gender: '女' },
+  { name: 'zh-CN-XiaozhenNeural', label: '微软晓甄（在线）', gender: '女' },
+  { name: 'zh-CN-YunfengNeural', label: '微软云枫（在线）', gender: '男' },
+  { name: 'zh-CN-YunhaoNeural', label: '微软云浩（在线）', gender: '男' },
+  { name: 'zh-CN-YunjianNeural', label: '微软云健（在线）', gender: '男' },
+  { name: 'zh-CN-YunxiaNeural', label: '微软云霞（在线）', gender: '女' },
+  { name: 'zh-CN-YunyeNeural', label: '微软云野（在线）', gender: '男' },
+  { name: 'zh-CN-YunzeNeural', label: '微软云泽（在线）', gender: '男' }
 ]
 
 /**
@@ -204,7 +237,7 @@ interface VoiceOption extends SelectOption {
  * 生活类比：把系统里所有"播音员"列成菜单，中文的排前面，按知名度排序。
  */
 const voiceOptions = computed<VoiceOption[]>(() => {
-  if (!tts.isSupported.value || voices.value.length === 0) return []
+  if (!tts.isSupported.value) return []
 
   // 第一项：自动（空值，让 useTTS 按优先级挑选）
   const options: VoiceOption[] = [
@@ -231,6 +264,15 @@ const voiceOptions = computed<VoiceOption[]>(() => {
       label: `${v.name} (${v.lang})`,
       value: v.name,
       onlineCapable: isOnlineCapable(v.name)
+    })
+  }
+
+  // 追加仅在线（云端 Neural）的中文发音人：本地没有，但可在线使用
+  for (const ov of ONLINE_ONLY_VOICES) {
+    options.push({
+      label: ov.label,
+      value: ov.name,
+      onlineCapable: true
     })
   }
 
@@ -324,7 +366,9 @@ async function onParamChange() {
 function previewVoice() {
   // 试听中再点 → 停止
   if (isPreviewing.value) {
+    clearPreviewTimer()
     tts.stop()
+    isPreviewing.value = false
     return
   }
   // 构建含发音人名字的试听文本
@@ -333,16 +377,22 @@ function previewVoice() {
   const previewText = `你好，我是豆芽的语音助手。当前使用的发音人是${voiceName}，模式为${modeText}。这是一段试听文字，用来检查发音人和参数设置是否满意。`
   tts.speak(previewText, '__preview__')
   isPreviewing.value = true
-  // 监听朗读结束（简单实现：用 setTimeout 检查状态）
-  const checkEnd = setInterval(() => {
+  // 监听朗读结束：朗读完毕（后端 onend 复位状态）后切回"试听"按钮
+  clearPreviewTimer()
+  previewTimer = setInterval(() => {
     if (!tts.isSpeaking('__preview__')) {
       isPreviewing.value = false
-      clearInterval(checkEnd)
+      clearPreviewTimer()
     }
   }, 200)
-  // 30 秒后强制清理（防止轮询泄漏）
-  setTimeout(() => clearInterval(checkEnd), 30000)
+  // 30 秒后强制清理（兜底，防止极端情况下轮询泄漏）
+  setTimeout(() => clearPreviewTimer(), 30000)
 }
+
+// 组件卸载时清理试听轮询定时器，避免泄漏
+onUnmounted(() => {
+  clearPreviewTimer()
+})
 </script>
 
 <style scoped>

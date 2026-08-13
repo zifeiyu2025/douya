@@ -3,12 +3,12 @@
  *
  * 生活类比：这个文件就像豆芽的"播音员调度员"——
  *   - 它知道系统里有哪些"本地播音员"（voices，Web Speech API）
- *   - 它还会在有网时请"微软在线播音员"（Edge TTS / 晓伊）帮忙
+ *   - 它还会在有网时请"微软在线播音员"（Edge TTS / 晓晓）帮忙
  *   - 它负责安排播音员什么时候开始、暂停、停止
  *
  * 朗读策略（按用户需求）：
  *   - 开启「在线 TTS」且有网：优先调用微软在线 TTS（Edge TTS），
- *     按设置页选的本地发音人映射到对应在线 Neural 音色（如晓晓→XiaoxiaoNeural），未选则用晓伊
+ *     按设置页选的本地发音人映射到对应在线 Neural 音色（如晓晓→XiaoxiaoNeural），未选则用晓晓
  *   - 无网 / 在线失败 / 关闭在线：自动回退到浏览器本地 Web Speech API（Web Speech API）
  *
  * 本地语音基于 W3C Web Speech API 的 SpeechSynthesis 接口（WebView2 完整支持）。
@@ -108,13 +108,21 @@ const paused = ref(false)
 const speakingMessageId = ref<string>('')
 
 /**
- * 当前实际使用的后端：'online'（微软在线晓伊）/ 'local'（本地 Web Speech） / ''（未朗读）
+ * 当前实际使用的后端：'online'（微软在线晓晓）/ 'local'（本地 Web Speech） / ''（未朗读）
  * 用于 UI 显示「在线/本地」状态徽标。
  */
 const currentBackend = ref<'' | 'online' | 'local'>('')
 
 /** 在线播放时的 HTMLAudioElement 实例（本地用 speechSynthesis，不在此列） */
 let currentAudio: HTMLAudioElement | null = null
+
+/**
+ * 本地逐句朗读的取消令牌。
+ * 每次开始新朗读 / 显式停止都自增，进行中的"逐句链条"检测到令牌不符即终止。
+ * 这是修复 Chromium/WebView2「长文本被静默中断后从头重播（表现为一直循环播放）」的关键：
+ * 停止时自增令牌，cancel 触发的 onend 不会再链式播下一句。
+ */
+let localSpeechToken = 0
 
 // ===== 语音加载与选择 =====
 
@@ -201,7 +209,7 @@ const configPitch = ref<number>(1.0)
 /** 用户配置的音量 */
 const configVolume = ref<number>(1.0)
 
-/** 是否优先使用在线 TTS（微软晓伊）；关闭或离线时回退本地 */
+/** 是否优先使用在线 TTS（微软晓晓）；关闭或离线时回退本地 */
 const configOnline = ref<boolean>(true)
 
 /**
@@ -257,6 +265,7 @@ function resetState(): void {
 
 /** 停止进行中的朗读（本地 + 在线），不重置外部标记 */
 function stopAllInternal(): void {
+  localSpeechToken++ // 使任何进行中的本地逐句链条失效，避免 cancel 后继续播下一句
   if (synth) synth.cancel()
   if (currentAudio) {
     try {
@@ -301,44 +310,97 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 }
 
 /**
- * 本地播放（浏览器 Web Speech API）
- * 生活类比：请本地的播音员念稿——离线也能用，是最稳的兜底。
+ * 把长文本按句子切分，避免单个超长 utterance 在 Chromium/WebView2 中
+ * 约 15 秒处被静默中断并从头重播（表现为"一直循环播放"）。
+ * 优先按句末标点切句（最自然），超长无标点段落再按字数硬切。
+ */
+function splitIntoChunks(text: string): string[] {
+  const segs = text
+    .replace(/\r\n/g, '\n')
+    .split(/(?<=[。！？!?；;\n])/)
+    .map(s => s.trim())
+    .filter(s => s.length > 0)
+
+  const chunks: string[] = []
+  const MAX = 100 // 单句上限（约 15~20 秒），超限再硬切以防被引擎截断重播
+  for (const seg of segs) {
+    if (seg.length <= MAX) {
+      chunks.push(seg)
+      continue
+    }
+    for (let i = 0; i < seg.length; i += MAX) {
+      const piece = seg.slice(i, i + MAX).trim()
+      if (piece) chunks.push(piece)
+    }
+  }
+  return chunks.length > 0 ? chunks : [text]
+}
+
+/**
+ * 本地播放（浏览器 Web Speech API）——逐句顺序朗读，播完自动停止。
+ * 生活类比：请本地的播音员念稿，一段一段念，全部念完就下班，不会从头重播。
+ *
+ * 关键点：用 localSpeechToken 串联各句；某句 onend 时若令牌已被新朗读/停止取代，
+ * 则不再播下一句，从而彻底避免"循环播放"。
  */
 function playLocal(cleanText: string, text: string, messageId?: string): void {
   if (!synth) {
     logWarn('[TTS] 浏览器不支持 SpeechSynthesis API，无法本地朗读')
     return
   }
-  const utterance = new window.SpeechSynthesisUtterance(cleanText)
 
-  const voice = effectiveVoice.value
-  if (voice) {
-    utterance.voice = voice
-    utterance.lang = voice.lang
-  } else {
-    utterance.lang = 'zh-CN'
-  }
-  utterance.rate = configRate.value
-  utterance.pitch = configPitch.value
-  utterance.volume = configVolume.value
+  const chunks = splitIntoChunks(cleanText)
+  let idx = 0
+  const token = ++localSpeechToken // 本次朗读的令牌
+  currentBackend.value = 'local'
 
-  utterance.onstart = () => {
-    speakingText.value = text
-    speakingMessageId.value = messageId || ''
-    paused.value = false
-    currentBackend.value = 'local'
-  }
-  utterance.onend = () => {
-    if (speakingText.value === text) resetState()
-  }
-  utterance.onerror = (event: SpeechSynthesisErrorEvent) => {
-    if (event.error !== 'interrupted') {
-      logWarn('[TTS] 朗读出错', event.error)
+  const speakNext = (): void => {
+    if (token !== localSpeechToken) return // 已被新朗读 / 停止取代，终止链条
+    if (idx >= chunks.length) {
+      if (speakingText.value === text) resetState()
+      return
     }
-    if (speakingText.value === text) resetState()
+    const chunk = chunks[idx++]
+    if (!chunk) {
+      speakNext()
+      return
+    }
+
+    const utterance = new window.SpeechSynthesisUtterance(chunk)
+    const voice = effectiveVoice.value
+    if (voice) {
+      utterance.voice = voice
+      utterance.lang = voice.lang
+    } else {
+      utterance.lang = 'zh-CN'
+    }
+    utterance.rate = configRate.value
+    utterance.pitch = configPitch.value
+    utterance.volume = configVolume.value
+
+    utterance.onstart = () => {
+      if (token !== localSpeechToken) return
+      speakingText.value = text
+      speakingMessageId.value = messageId || ''
+      paused.value = false
+      currentBackend.value = 'local'
+    }
+    utterance.onend = () => {
+      if (token !== localSpeechToken) return
+      speakNext() // 播下一句；全部结束则复位状态
+    }
+    utterance.onerror = (event: SpeechSynthesisErrorEvent) => {
+      if (token !== localSpeechToken) return
+      if (event.error !== 'interrupted') {
+        logWarn('[TTS] 本地朗读出错', event.error)
+      }
+      speakNext() // 出错也继续下一句（被取消已由令牌拦截）；全部结束则复位
+    }
+
+    synth.speak(utterance)
   }
 
-  synth.speak(utterance)
+  speakNext()
 }
 
 /**
@@ -396,7 +458,7 @@ function playOnlineAudio(b64: string, text: string, messageId?: string): void {
  * @param text 要朗读的纯文本（会自动去除 markdown 标记）
  * @param messageId 关联的消息 ID（用于 UI 高亮，可选）
  *
- * 生活类比：把稿子交给调度员，调度员先问"在线播音员（晓伊）在不在"——
+ * 生活类比：把稿子交给调度员，调度员先问"在线播音员（晓晓）在不在"——
  *   在（有网）就请她念；不在（无网）就请本地播音员念。
  * 如果之前有朗读在进行，会先停掉再开始新的。
  */
@@ -425,12 +487,16 @@ async function speak(text: string, messageId?: string): Promise<void> {
     try {
       // 调用后端 Edge TTS 合成（后端内部会做网络探测，无网快速失败）；
       // 前端再套一层超时，避免后端卡死时一直等待。
-      // 传入设置页选的本地发音人名（如 "Microsoft Xiaoxiao"），后端映射为对应在线 Neural 音色；
-      // 未选（空）时后端默认使用微软晓伊。
+      // 传入设置页选的发音人名：本地发音人（如 "Microsoft Xiaoxiao"）会由后端映射为对应在线
+      // Neural 音色；仅在线发音人则直接传 Neural 名（如 "zh-CN-XiaochenNeural"），后端原样透传；
+      // 未选（空）时后端默认使用微软晓晓。本地回退仍用 effectiveVoice（自动挑选）。
+      // 注意：第一个参数是要朗读的纯文本（cleanText），绝不能误传成发音人名，
+      // 否则后端收到空/错误文本导致在线合成失败，回退本地后长文本首句会触发 Chromium
+      // 的 15 秒截断重播缺陷（表现为"重复全文中第一个句子"）。
       const b64 = await withTimeout(
         ttsService.synthesizeSpeech(
           cleanText,
-          effectiveVoice.value?.name ?? '',
+          configVoiceName.value.trim(),
           configRate.value,
           configPitch.value,
           configVolume.value
@@ -458,15 +524,7 @@ async function speak(text: string, messageId?: string): Promise<void> {
  * 生活类比：让播音员立刻闭嘴。
  */
 function stop(): void {
-  if (synth) synth.cancel()
-  if (currentAudio) {
-    try {
-      currentAudio.pause()
-    } catch {
-      /* 忽略暂停异常 */
-    }
-    currentAudio = null
-  }
+  stopAllInternal()
   resetState()
 }
 

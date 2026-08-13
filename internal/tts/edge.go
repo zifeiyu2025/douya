@@ -16,7 +16,7 @@ import (
 )
 
 // Edge TTS（微软在线神经语音）WebSocket 客户端。
-// 直连 speech.platform.bing.com，免 API Key，声音含 zh-CN-XiaoyiNeural（晓伊）。
+// 直连 speech.platform.bing.com，免 API Key，默认声音为 zh-CN-XiaoxiaoNeural（晓晓）。
 // 协议细节参照 edge-tts 开源实现（含 Sec-MS-GEC 握手令牌）。
 
 const (
@@ -26,8 +26,9 @@ const (
 	outputFormat       = "audio-24khz-48kbitrate-mono-mp3"
 	userAgent          = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
 	origin             = "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold"
-	// DefaultVoice 在线 TTS 默认发音人（微软晓伊）
-	DefaultVoice = "zh-CN-XiaoyiNeural"
+	// DefaultVoice 在线 TTS 兜底默认发音人（微软晓晓），与 DefaultOnlineVoice 保持一致。
+	// 正常路径由 ResolveOnlineVoice 显式指定，此处仅为空音色时的兜底。
+	DefaultVoice = "zh-CN-XiaoxiaoNeural"
 	// winEpoch Windows 纪元与 Unix 纪元的差值（秒），用于 Sec-MS-GEC 令牌计算
 	winEpoch = 11644473600
 )
