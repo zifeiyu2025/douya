@@ -1,8 +1,15 @@
 package tts
 
 import (
+	"context"
+	"encoding/binary"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 // TestResolveOnlineVoice 校验本地发音人 → 在线 Neural 音色映射
@@ -128,5 +135,71 @@ func TestIsReachable_OfflineHost(t *testing.T) {
 	// 探测一个确定不存在的端口，期望返回 false（不应 panic）
 	if IsReachable(200 * 1e6) { // 200ms
 		t.Skip("检测到网络可达（环境有网），跳过离线断言")
+	}
+}
+
+// mockEdgeTTSServer 模拟 Edge TTS 的 WebSocket 协议：
+//   - 读取客户端发来的两条文本（speech.config、ssml）
+//   - 下发一个二进制音频帧（header 含 Path:audio）
+//   - 再下发一个二进制结束帧（header 含 Path:turn.end）
+//   - 之后保持连接空闲（真实服务端不会立即关闭），以检验客户端是否靠 turn.end 及时结束
+func mockEdgeTTSServer(t *testing.T, audioPayload []byte) *httptest.Server {
+	t.Helper()
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		// 读取 speech.config 与 ssml 两条文本
+		for i := 0; i < 2; i++ {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+		writeBinary := func(header string, payload []byte) {
+			buf := make([]byte, 2)
+			binary.BigEndian.PutUint16(buf, uint16(len(header)))
+			buf = append(buf, []byte(header)...)
+			buf = append(buf, payload...)
+			_ = conn.WriteMessage(websocket.BinaryMessage, buf)
+		}
+		writeBinary("Path:audio\r\nX-StreamId:1\r\n", audioPayload)
+		writeBinary("Path:turn.end\r\n", nil)
+		// 保持空闲，等待客户端主动关闭（若客户端没识别 turn.end 会卡在读超时）
+		_, _, _ = conn.ReadMessage()
+	}))
+}
+
+func TestSynthesize_EndsOnBinaryTurnEnd(t *testing.T) {
+	want := []byte("FAKE-MP3-AUDIO-DATA")
+	srv := mockEdgeTTSServer(t, want)
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	var got []byte
+	var synthErr error
+	go func() {
+		got, synthErr = synthesizeStream(ctx, wsURL, "你好", DefaultVoice, "+0%", "+0Hz", "+100%")
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// 正常：收到 turn.end 后及时结束
+	case <-time.After(15 * time.Second):
+		t.Fatal("synthesizeStream 未在 15s 内结束：未正确识别二进制帧里的 Path:turn.end，会阻塞到读超时（约 30s）")
+	}
+
+	if synthErr != nil {
+		t.Fatalf("synthesizeStream 返回错误: %v", synthErr)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("音频内容不符：got %q, want %q", got, want)
 	}
 }

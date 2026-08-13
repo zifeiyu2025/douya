@@ -112,12 +112,20 @@ func buildSSMLRequest(ssml string) string {
 
 // Synthesize 通过 Edge TTS WebSocket 合成语音，返回拼接后的 MP3 字节。
 func Synthesize(ctx context.Context, text, voice, rate, pitch, volume string) ([]byte, error) {
+	return synthesizeStream(ctx, wsURL(), text, voice, rate, pitch, volume)
+}
+
+// synthesizeStream 是 Synthesize 的内部实现，rawURL 可注入（便于测试）。
+// 收完音频后必须以服务端下发的 Path:turn.end 作为结束信号——该信号以【二进制帧】下发
+// （与音频帧同构：前 2 字节 header 长度 + header 文本 + 音频数据），因此必须在二进制分支
+// 里检测。若只在文本消息里找 turn.end，会永远等不到结束而阻塞到读超时（约 30s）。
+func synthesizeStream(ctx context.Context, rawURL, text, voice, rate, pitch, volume string) ([]byte, error) {
 	if strings.TrimSpace(text) == "" {
 		return nil, fmt.Errorf("tts: empty text")
 	}
 
 	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
-	conn, _, err := dialer.DialContext(ctx, wsURL(), wsHeaders())
+	conn, _, err := dialer.DialContext(ctx, rawURL, wsHeaders())
 	if err != nil {
 		return nil, fmt.Errorf("tts: dial edge tts: %w", err)
 	}
@@ -166,6 +174,10 @@ func Synthesize(ctx context.Context, text, voice, rate, pitch, volume string) ([
 			continue
 		}
 		header := string(data[2 : 2+headerLen])
+		// 结束信号 Path:turn.end 以二进制帧下发：命中立即结束合成，避免阻塞到读超时。
+		if strings.Contains(header, "Path:turn.end") {
+			break
+		}
 		if strings.Contains(header, "Path:audio") {
 			audio.Write(data[2+headerLen:])
 		}
