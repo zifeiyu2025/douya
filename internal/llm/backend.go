@@ -49,8 +49,9 @@ type BackendInfo struct {
 	DisplayName string
 	// Subdir runtime/ 目录下的子目录名，如 "cuda"，每种后端的 DLL 解压到这里
 	Subdir string
-	// ZipPattern zip 包名的 glob 模式，如 "llama-b*-bin-win-cuda-1[23]*-x64.zip"（匹配 CUDA 12.x/13.x），
-	// 用于在本地 runtime 目录中匹配已下载的后端压缩包
+	// ZipPattern zip 包名的 glob 模式，如 "llama-*-bin-win-cuda-1[23]*-x64.zip"（匹配 CUDA 12.x/13.x），
+	// 用于在本地 runtime 目录中匹配已下载的后端压缩包。
+	// glob 前缀用宽松的 "llama-*" 以同时兼容历史 "b\d+" 与语义版本 "v\d+\.\d+\.\d+" 两种命名。
 	ZipPattern string
 	// ReleaseAssetRegex 匹配 GitHub release asset 名称的正则表达式，
 	// 用于从 https://github.com/ggml-org/llama.cpp/releases/latest 下载对应后端。
@@ -115,6 +116,18 @@ var allBackendTypesOrdered = []BackendType{
 // 生活类比：给出发动机型号（如 "V8 涡轮增压"），返回这台发动机的完整安装手册——
 // 装在哪、用什么零件、需要什么专属配件。
 //
+// backendVersionPrefix 匹配 llama.cpp release 的版本前缀。
+//
+// 历史上官方使用提交计数格式 "b10380"（如 llama-b10380-bin-win-cuda-13.3-x64.zip）；
+// 上游引入语义化版本（#26839，MAJOR.MINOR.PATCH）后新增 "v0.1.0" 格式
+// （如 llama-v0.1.0-bin-win-cuda-13.3-x64.zip）。两者都必须匹配，否则上游切换
+// 语义版本后，releases/latest 指向 vX.Y.Z，所有后端下载将全部失效。
+//
+// 注意：ZipPattern 使用 glob（filepath.Glob 不支持多选/分组语法），
+// 故 glob 侧统一用宽松的 "llama-*" 前缀匹配任意版本前缀；
+// ReleaseAssetRegex 用本正则精确匹配 b\d+ 与 v\d+\.\d+\.\d+ 两种前缀。
+const backendVersionPrefix = `(?:b\d+|v\d+\.\d+\.\d+)`
+
 // 注意：BackendAuto 返回的 BackendInfo 中 Subdir/ZipPattern 为空，
 // RequiredDLLs/VendorDLLs 为空切片（非 nil），因为 auto 需要先解析成具体后端才有意义。
 // 调用方应先通过 ResolveBackendType() 把 auto 解析成具体后端，再调用本函数。
@@ -125,11 +138,12 @@ func GetBackendInfo(bt BackendType) BackendInfo {
 			Type:        BackendCUDA,
 			DisplayName: "CUDA (NVIDIA)",
 			Subdir:      "cuda",
-			ZipPattern:  "llama-b*-bin-win-cuda-1[23]*-x64.zip",
+			ZipPattern:  "llama-*-bin-win-cuda-1[23]*-x64.zip",
 			// 全量适配：同时匹配 CUDA 12.x 和 13.x（官方 release 同时提供两个版本）
 			// 豆芽优先使用 13.x（cudart64_13.dll），12.x 作为回退（cudart64_12.dll）
 			// 选择策略见 FindReleaseAsset 的 CUDA 优先逻辑
-			ReleaseAssetRegex: `^llama-b\d+-bin-win-cuda-1[23]\.\d+-x64\.zip$`,
+			// 版本前缀兼容历史 "b\d+"（llama-b10380-...）与语义版本 "v\d+\.\d+\.\d+"（llama-v0.1.0-...）
+			ReleaseAssetRegex: `^llama-` + backendVersionPrefix + `-bin-win-cuda-1[23]\.\d+-x64\.zip$`,
 			RequiredDLLs: append(append([]string{}, coreDLLs...),
 				"ggml-cuda.dll", mtmdDLL),
 			// VendorDLLs 使用 glob 模式，同时兼容 CUDA 12 和 CUDA 13：
@@ -156,8 +170,9 @@ func GetBackendInfo(bt BackendType) BackendInfo {
 			Subdir:      "hip",
 			// 上游自 b10xxx 起将 AMD 包由 "win-hip-radeon" 更名为 "win-rocm-<ver>"，
 			// ZipPattern 用 glob（不支持多选）指向当前命名；ReleaseAssetRegex 同时兼容旧命名。
-			ZipPattern:        "llama-b*-bin-win-rocm-*-x64.zip",
-			ReleaseAssetRegex: `^llama-b\d+-bin-win-(rocm-[\d.]+|hip-radeon)-x64\.zip$`,
+			// 版本前缀兼容历史 "b\d+" 与语义版本 "v\d+\.\d+\.\d+"。
+			ZipPattern:        "llama-*-bin-win-rocm-*-x64.zip",
+			ReleaseAssetRegex: `^llama-` + backendVersionPrefix + `-bin-win-(rocm-[\d.]+|hip-radeon)-x64\.zip$`,
 			RequiredDLLs: append(append([]string{}, coreDLLs...),
 				"ggml-hip.dll", mtmdDLL),
 			VendorDLLs:  []string{},     // HIP 通常静态链接，无额外厂商 DLL
@@ -169,8 +184,8 @@ func GetBackendInfo(bt BackendType) BackendInfo {
 			Type:              BackendSYCL,
 			DisplayName:       "SYCL (Intel)",
 			Subdir:            "sycl",
-			ZipPattern:        "llama-b*-bin-win-sycl-x64.zip",
-			ReleaseAssetRegex: `^llama-b\d+-bin-win-sycl-x64\.zip$`,
+			ZipPattern:        "llama-*-bin-win-sycl-x64.zip",
+			ReleaseAssetRegex: `^llama-` + backendVersionPrefix + `-bin-win-sycl-x64\.zip$`,
 			RequiredDLLs: append(append([]string{}, coreDLLs...),
 				"ggml-sycl.dll", mtmdDLL),
 			VendorDLLs:  []string{},
@@ -182,8 +197,8 @@ func GetBackendInfo(bt BackendType) BackendInfo {
 			Type:              BackendVulkan,
 			DisplayName:       "Vulkan (跨厂商)",
 			Subdir:            "vulkan",
-			ZipPattern:        "llama-b*-bin-win-vulkan-x64.zip",
-			ReleaseAssetRegex: `^llama-b\d+-bin-win-vulkan-x64\.zip$`,
+			ZipPattern:        "llama-*-bin-win-vulkan-x64.zip",
+			ReleaseAssetRegex: `^llama-` + backendVersionPrefix + `-bin-win-vulkan-x64\.zip$`,
 			RequiredDLLs: append(append([]string{}, coreDLLs...),
 				"ggml-vulkan.dll", mtmdDLL),
 			VendorDLLs:  []string{},
@@ -195,8 +210,8 @@ func GetBackendInfo(bt BackendType) BackendInfo {
 			Type:              BackendOpenVINO,
 			DisplayName:       "OpenVINO (Intel)",
 			Subdir:            "openvino",
-			ZipPattern:        "llama-b*-bin-win-openvino-*-x64.zip",
-			ReleaseAssetRegex: `^llama-b\d+-bin-win-openvino-[\d.]+-x64\.zip$`,
+			ZipPattern:        "llama-*-bin-win-openvino-*-x64.zip",
+			ReleaseAssetRegex: `^llama-` + backendVersionPrefix + `-bin-win-openvino-[\d.]+-x64\.zip$`,
 			RequiredDLLs: append(append([]string{}, coreDLLs...),
 				"ggml-openvino.dll", mtmdDLL),
 			VendorDLLs:  []string{},
@@ -207,8 +222,8 @@ func GetBackendInfo(bt BackendType) BackendInfo {
 			Type:              BackendCPU,
 			DisplayName:       "CPU (纯CPU)",
 			Subdir:            "cpu",
-			ZipPattern:        "llama-b*-bin-win-cpu-x64.zip",
-			ReleaseAssetRegex: `^llama-b\d+-bin-win-cpu-x64\.zip$`,
+			ZipPattern:        "llama-*-bin-win-cpu-x64.zip",
+			ReleaseAssetRegex: `^llama-` + backendVersionPrefix + `-bin-win-cpu-x64\.zip$`,
 			RequiredDLLs:      append(append([]string{}, coreDLLs...), mtmdDLL),
 			VendorDLLs:        []string{},
 			Description:       "纯 CPU 后端，无 GPU 或 GPU 不支持时的兜底方案",

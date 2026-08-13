@@ -287,7 +287,7 @@ func FindCudartAsset() (asset GitHubAsset, tagName string, err error) {
 }
 
 // DownloadCudartZip 下载 CUDA 的 cudart 附带包到 runtimeDir 目录。
-// CUDA 后端需要主包（llama-b*-bin-win-cuda-*.zip）和 cudart 包一起解压到同一目录，
+// CUDA 后端需要主包（llama-*-bin-win-cuda-*.zip）和 cudart 包一起解压到同一目录，
 // cudart 包提供 cudart64_*.dll、cublas64_*.dll 等厂商运行时 DLL。
 func DownloadCudartZip(runtimeDir string, progressCB func(DownloadProgress)) (string, error) {
 	asset, tagName, err := FindCudartAsset()

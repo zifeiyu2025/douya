@@ -226,7 +226,7 @@ func EnsureCPUBaseInstalled(destSubdir, runtimeDir string, progressCB ExtractPro
 // findBackendZip 在 runtimeDir 下查找指定后端的 zip 包。
 //
 // 生活类比：在仓库里按货品标签（glob 模式）找对应零件箱——
-// 比如 CUDA 的标签是 "llama-b*-bin-win-cuda-cu*-x64.zip"。
+// 比如 CUDA 的标签是 "llama-*-bin-win-cuda-1[23]*-x64.zip"。
 //
 // 匹配规则：
 //   - 使用 filepath.Glob 匹配 GetBackendInfo(bt).ZipPattern
@@ -248,7 +248,8 @@ func findBackendZip(bt BackendType, runtimeDir string) (string, error) {
 		return "", apperror.Newf(apperror.KindNotFound, "未找到 %s 后端的 zip 包，请从官方发布页下载", info.DisplayName)
 	}
 
-	// 多个匹配时按文件名排序取第一个（llama-b* 前缀保证版本递增排序）
+	// 多个匹配时按文件名排序取第一个（版本递增由文件名前缀保证；
+	// 同时兼容历史 "b\d+" 与语义版本 "v\d+\.\d+\.\d+" 两种命名）
 	first := matches[0]
 	if len(matches) > 1 {
 		log.Warn().

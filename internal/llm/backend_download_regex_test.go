@@ -21,6 +21,9 @@ func TestCudaReleaseAssetRegex(t *testing.T) {
 		{"llama-b10228-bin-win-cuda-12.4-x64.zip", true}, // CUDA 12.4 ✅ (新支持)
 		{"llama-b10167-bin-win-cuda-13.3-x64.zip", true}, // 旧版本号 ✅
 		{"llama-b10167-bin-win-cuda-12.4-x64.zip", true}, // 旧版本 12.4 ✅
+		// 语义化版本（上游 #26839 引入的 vX.Y.Z 格式）
+		{"llama-v0.1.0-bin-win-cuda-13.3-x64.zip", true}, // 语义版本 CUDA 13.3 ✅
+		{"llama-v0.1.0-bin-win-cuda-12.4-x64.zip", true}, // 语义版本 CUDA 12.4 ✅
 		// 不应匹配的
 		{"llama-b10228-bin-win-cuda-14.0-x64.zip", false}, // CUDA 14 不在范围
 		{"llama-b10228-bin-win-cuda-11.8-x64.zip", false}, // CUDA 11 不在范围
@@ -111,6 +114,14 @@ func TestOtherBackendRegexes(t *testing.T) {
 		// CPU
 		{BackendCPU, "llama-b10228-bin-win-cpu-x64.zip", true},
 		{BackendCPU, "llama-b10228-bin-win-cpu-arm64.zip", false}, // arm64 不支持
+		// 语义化版本（上游 #26839 引入的 vX.Y.Z 格式）— 各后端都应兼容
+		{BackendHIP, "llama-v0.1.0-bin-win-rocm-7.14-x64.zip", true},
+		{BackendSYCL, "llama-v0.1.0-bin-win-sycl-x64.zip", true},
+		{BackendVulkan, "llama-v0.1.0-bin-win-vulkan-x64.zip", true},
+		{BackendOpenVINO, "llama-v0.1.0-bin-win-openvino-2026.2.1-x64.zip", true},
+		{BackendCPU, "llama-v0.1.0-bin-win-cpu-x64.zip", true},
+		// 语义版本格式校验：必须三段式（v0.1 不算）
+		{BackendCPU, "llama-v0.1-bin-win-cpu-x64.zip", false}, // 两段式语义版本不应匹配
 	}
 
 	for _, tt := range tests {
