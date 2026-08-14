@@ -408,6 +408,23 @@ function playLocal(cleanText: string, text: string, messageId?: string): void {
  * 生活类比：把云端播音员录好的音频放出来。播放失败则回退本地播音员。
  */
 function playOnlineAudio(b64: string, text: string, messageId?: string): void {
+  // 回退标志：audio.onerror 与 audio.play().catch 可能同时触发，
+  // 若不加保护会重复调用 playLocal，导致"第一句重复播放"。
+  let fallbackTriggered = false
+  const fallbackToLocal = (reason: string): void => {
+    if (fallbackTriggered) return
+    fallbackTriggered = true
+    logWarn(`[TTS] 在线音频播放失败（${reason}），回退本地`)
+    if (speakingText.value === text) {
+      playLocal(stripMarkdown(text), text, messageId)
+    }
+  }
+
+  // 兜底复位定时器：WebView2 中 <audio> 播放结束的 ended 事件偶发不触发，
+  // 导致 resetState 不执行、朗读状态一直占用（表现为"试听不自动停止"）。
+  // 这里按音频时长估算，播放结束后若未复位则强制清理。
+  let endGuardTimer: ReturnType<typeof setTimeout> | null = null
+
   try {
     const bytes = base64ToBytes(b64)
     const blob = new Blob([bytes], { type: 'audio/mpeg' })
@@ -416,9 +433,17 @@ function playOnlineAudio(b64: string, text: string, messageId?: string): void {
     currentAudio = audio
     currentBackend.value = 'online'
 
-    const cleanup = () => {
-      URL.revokeObjectURL(url)
-      if (currentAudio === audio) currentAudio = null
+    const finishPlayback = (byEvent: boolean): void => {
+      if (endGuardTimer) {
+        clearTimeout(endGuardTimer)
+        endGuardTimer = null
+      }
+      if (byEvent) console.log('[TTS] 在线播放结束（ended 事件）')
+      if (speakingText.value === text) resetState()
+      if (currentAudio === audio) {
+        currentAudio = null
+        URL.revokeObjectURL(url)
+      }
     }
 
     audio.onplay = () => {
@@ -426,29 +451,42 @@ function playOnlineAudio(b64: string, text: string, messageId?: string): void {
       speakingMessageId.value = messageId || ''
       paused.value = false
       currentBackend.value = 'online'
+      // 依据媒体时长设置兜底复位（时长未知时按 60 秒）
+      const dur = isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 60
+      if (endGuardTimer) clearTimeout(endGuardTimer)
+      endGuardTimer = setTimeout(() => {
+        if (currentAudio === audio && speakingText.value === text) {
+          console.log('[TTS] 在线播放结束（时长兜底复位）')
+          finishPlayback(false)
+        }
+      }, dur * 1000 + 500)
     }
     audio.onended = () => {
-      if (speakingText.value === text) resetState()
-      cleanup()
+      finishPlayback(true)
     }
     audio.onerror = () => {
-      cleanup()
-      // 在线音频播放失败，回退本地播音员
-      if (speakingText.value === text) {
-        playLocal(stripMarkdown(text), text, messageId)
+      if (endGuardTimer) {
+        clearTimeout(endGuardTimer)
+        endGuardTimer = null
       }
+      URL.revokeObjectURL(url)
+      if (currentAudio === audio) currentAudio = null
+      // 在线音频播放失败，回退本地播音员（仅一次）
+      fallbackToLocal('onerror')
     }
 
-    audio.play().catch(() => {
-      cleanup()
-      if (speakingText.value === text) {
-        playLocal(stripMarkdown(text), text, messageId)
+    audio.play().catch(err => {
+      if (endGuardTimer) {
+        clearTimeout(endGuardTimer)
+        endGuardTimer = null
       }
+      URL.revokeObjectURL(url)
+      if (currentAudio === audio) currentAudio = null
+      // 在线音频播放失败，回退本地播音员（仅一次，避免与 onerror 重复）
+      fallbackToLocal((err as Error)?.message || 'play rejected')
     })
   } catch (e) {
-    logWarn('[TTS] 在线音频播放失败，回退本地', (e as Error)?.message)
-    const clean = stripMarkdown(text)
-    if (speakingText.value === text) playLocal(clean, text, messageId)
+    fallbackToLocal((e as Error)?.message || 'exception')
   }
 }
 
@@ -505,16 +543,31 @@ async function speak(text: string, messageId?: string): Promise<void> {
       )
       // 合成期间若已被用户停止（点击同一段/切换），speakingText 已清空，则放弃播放
       if (speakingText.value !== text) return
+      console.log('[TTS] 在线合成成功', {
+        voice: configVoiceName.value || '(默认晓晓)',
+        textLen: cleanText.length,
+        audioBytes: Math.round((b64.length * 3) / 4)
+      })
       playOnlineAudio(b64, text, messageId)
       return
     } catch (e) {
-      logWarn('[TTS] 在线合成失败，回退本地', (e as Error)?.message)
+      const errMsg = (e as Error)?.message || String(e)
+      logWarn('[TTS] 在线合成失败，回退本地', errMsg)
+      console.log('[TTS] 失败详情', {
+        voice: configVoiceName.value || '(默认晓晓)',
+        textLen: cleanText.length,
+        error: errMsg
+      })
       // 回退本地
     }
   }
 
   // 离线回退 / 在线关闭 / 在线失败：用本地播音员
   if (speakingText.value === text) {
+    console.log('[TTS] 使用本地播放', {
+      reason: configOnline.value ? '在线失败或超时' : '在线未开启',
+      voice: effectiveVoice.value?.name || '(自动挑选)'
+    })
     playLocal(cleanText, text, messageId)
   }
 }

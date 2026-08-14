@@ -431,6 +431,23 @@ func TestApplyThinkingControl_TemplateMode_Off(t *testing.T) {
 	}
 }
 
+// TestApplyThinkingControl_TemplateMode_Auto Reasoning=auto 时不应强制设置 enable_thinking。
+// auto 应交给 llama-server --reasoning auto 与模板默认行为决定（模型自主），
+// 从而让 Qwen3.5 等小模型按模板默认插入空思考块、简单问题不再被强制思考。
+func TestApplyThinkingControl_TemplateMode_Auto(t *testing.T) {
+	for _, reasoning := range []string{"auto", ""} {
+		s := &Service{
+			config: &config.Config{Reasoning: reasoning},
+		}
+		s.modelCaps = llm.ModelCapabilities{ThinkingMode: llm.ThinkingModeTemplate}
+		req := &llm.ChatCompletionRequest{}
+		s.applyThinkingControl(req)
+		if v, ok := req.ChatTemplateKwargs["enable_thinking"]; ok {
+			t.Errorf("Reasoning=%q 时不应显式设置 enable_thinking，实际 %v", reasoning, v)
+		}
+	}
+}
+
 // TestApplyThinkingControl_ReasoningEffort_On 推理开启（非 off）时不发送 reasoning_effort=none
 func TestApplyThinkingControl_ReasoningEffort_On(t *testing.T) {
 	s := &Service{

@@ -1,8 +1,49 @@
 # llama.cpp 最新更新对 douya 的影响分析
 
-**分析对象**：`D:\AI\llama.cpp` 最新提交 `680a9ae63`（语义化版本引入）
-**版本跨度**：douya 当前适配 b10355（代码注释引用）；用户日志实际用 b10373；上游最新 tag **b10380**（约 25 个提交差）
-**结论**：**douya 当前下载正则对 b10380 全部有效，无需紧急改动**；但上游引入了语义化版本，处于过渡期，建议前瞻放宽正则以防未来失效。
+---
+
+## 【本次适配记录】b10380 → b10424（2025-08-14）✅ 已全量审计
+
+**分析对象**：`D:\AI\llama.cpp` 最新提交 `650913862`，tag **b10424**（47 个提交差）
+**结论**：**唯一必须修复的是 `--version` 输出格式变化，已修复 `version_check.go`**；其余维度（启动参数、HTTP API、DLL、新模型架构）确认无需改动。
+
+### 一、必须修复：`--version` 输出格式变化 ✅ 已修复
+
+上游 b104xx 起引入语义版本（`#26838`），`--version` 输出从：
+
+```
+version: 10216 (876a43211)
+```
+
+变成（见 `common/build-info.cpp.in` 的 `llama_print_build_info`）：
+
+```
+version: 0.1.0 (build 10424, commit 030ebb558)
+```
+
+旧正则 `version:\s*(\d+)` 会误把语义版本 `0.1.0` 的首位 `0` 当成构建编号，导致**本地版本被解析为 0**，每次启动都被误报"有更新"。
+
+**改动**（`internal/llm/version_check.go`）：
+- 新增 `buildNumberRegexp`（`build\s*(\d+)`）与 `commitRegexp`（`commit[:\s]+[0-9a-f]+`）
+- 抽取 `parseServerVersionOutput()`，构建编号优先取 `build N`（新格式）、其次 `version: N`（旧格式）；commit 优先取 `commit <hash>`（新格式）、仅旧格式才用括号内容兜底
+- 测试改为直接调用 `parseServerVersionOutput()`，新增新格式用例，全部通过
+
+### 二、确认无需改的维度 ✅
+
+| 维度 | 结论 | 依据 |
+|------|------|------|
+| server 启动参数 | 无删除/改名 | `arg.cpp` b10380..HEAD 仅删除了 `--version` 的打印两行，豆芽所用参数全部保留 |
+| HTTP API | 全部存在 | `/v1/chat/completions/control`、`/input_tokens`、`/v1/stream`、`/rerank`、`/props`、`/models/load` 等在 `server.cpp` 中均存在 |
+| DLL 清单 | 无变化 | `llama-common`、`llama-server-impl`、`ggml-base`、`mtmd` 等 target 均仍在 |
+| 新模型架构 | 无需适配 | 豆芽 GGUF 特性判断（MTP/Eagle3/Reasoning）基于关键词匹配，对 Muse Glimmer、Granite-Switch 等新架构保守处理，不会误启用探寻解码 |
+
+### 三、新特性风险提示 ⚠️
+
+| 新特性 | 内容 | 风险 |
+|--------|------|------|
+| 系统级配置文件（`#26118`） | 新版 `arg.cpp` 会自动加载 `%PROGRAMDATA%\llama.cpp\config.ini` | 若用户机器存在该文件会叠加/覆盖豆芽参数；通常不存在，边缘情况，暂不处理 |
+| spec-type 自动检测（`#26814`） | 用 draft GGUF 元数据自动推断 spec-type | 豆芽多数场景显式传 `--spec-type`，此特性为正向增强，无需改 |
+| 语义版本 tag 过渡 | `tagRegexp ^b\d+$` 仅匹配当前活跃 `b` 格式 | 若未来上游 latest 切到 `v0.1.0`，`GetLatestReleaseTag` 解析失败，仅导致"无法提示更新"（已降级处理，不崩溃），可接受，暂不强行改 |
 
 ---
 

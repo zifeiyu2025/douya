@@ -185,6 +185,8 @@ const CN_PREFERENCE_ORDER = [
  * 仅在线（云端 Neural）的中文发音人：Windows 本地 Web Speech 不提供，
  * 仅在启用「在线 TTS」时可用。value 直接传在线 Neural 音色名给后端，
  * 后端 ResolveOnlineVoice 会原样透传，从而选定这些本地没有的音色。
+ * 注意：微软 Edge TTS 服务端偶发抖动会误报 Unsupported voice，
+ * 后端 SynthesizeOnline 已做"失效音色回退默认晓晓"兜底，保证在线播放不中断。
  */
 const ONLINE_ONLY_VOICES = [
   { name: 'zh-CN-XiaochenNeural', label: '微软晓辰（在线）', gender: '男' },

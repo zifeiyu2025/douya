@@ -55,35 +55,45 @@ built with MSVC 19.44.35227.0 for x64`,
 			wantCommit:  "876a43211",
 			wantErr:     false,
 		},
+		{
+			name: "新版格式_语义版本带build+commit",
+			output: `version: 0.1.0 (build 10424, commit 030ebb558)
+built with MSVC 19.45.37664.0 for x64`,
+			wantVersion: 10424,
+			wantCommit:  "030ebb558",
+			wantErr:     false,
+		},
+		{
+			name: "新版格式_语义版本短commit",
+			output: `version: 0.1.0 (build 10424, commit abc123)`,
+			wantVersion: 10424,
+			wantCommit:  "abc123",
+			wantErr:     false,
+		},
+		{
+			name: "新版格式_无commit",
+			output: `version: 0.1.0 (build 10424)
+built with clang 19.0.0 for x64`,
+			wantVersion: 10424,
+			wantCommit:  "",
+			wantErr:     false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// 模拟解析逻辑（复用 versionRegexp）
-			matches := versionRegexp.FindStringSubmatch(tt.output)
-			if len(matches) < 2 {
-				if !tt.wantErr {
-					t.Errorf("期望解析成功，但未匹配到版本号")
-				}
+			// 调用生产解析函数 parseServerVersionOutput，验证真实逻辑
+			gotVersion, gotCommit, err := parseServerVersionOutput(tt.output)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("解析错误 = %v, 期望 %v", err, tt.wantErr)
 				return
 			}
-
-			// 解析版本号
-			gotVersion := 0
-			if n, err := parseIntSafe(matches[1]); err == nil {
-				gotVersion = n
-			}
-
 			if gotVersion != tt.wantVersion {
 				t.Errorf("版本号 = %d, 期望 %d", gotVersion, tt.wantVersion)
 			}
-
-			// 解析 commit（如果期望有 commit）
-			if tt.wantCommit != "" {
-				gotCommit := extractCommit(tt.output)
-				if gotCommit != tt.wantCommit {
-					t.Errorf("commit = %q, 期望 %q", gotCommit, tt.wantCommit)
-				}
+			if gotCommit != tt.wantCommit {
+				t.Errorf("commit = %q, 期望 %q", gotCommit, tt.wantCommit)
 			}
 		})
 	}
@@ -163,40 +173,4 @@ func parseIntSafe(s string) (int, error) {
 	return n, nil
 }
 
-// extractCommit 从版本输出中提取 commit hash（括号内的字符串）。
-// 复用 version_check.go 中的逻辑，用于测试验证。
-func extractCommit(output string) string {
-	idx := indexOf(output, "(")
-	if idx < 0 {
-		return ""
-	}
-	rest := output[idx+1:]
-	endIdx := indexOf(rest, ")")
-	if endIdx < 1 {
-		return ""
-	}
-	return trimSpace(rest[:endIdx])
-}
 
-// indexOf 返回 substr 在 s 中首次出现的索引，未找到返回 -1。
-func indexOf(s, substr string) int {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
-}
-
-// trimSpace 去除字符串首尾空白。
-func trimSpace(s string) string {
-	start := 0
-	end := len(s)
-	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r') {
-		start++
-	}
-	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\n' || s[end-1] == '\r') {
-		end--
-	}
-	return s[start:end]
-}

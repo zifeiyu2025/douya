@@ -470,22 +470,30 @@ func (s *Service) applyThinkingControl(req *llm.ChatCompletionRequest) {
 		}
 	}
 
-	// 所有 ThinkingModeTemplate 模型都需要在 chat_template_kwargs 中显式传递 enable_thinking：
-	// - --reasoning auto 时 default_template_kwargs 为空，模板可能无法正确插入思考标记
-	// - 请求级 kwargs 会覆盖服务端默认值，确保模板行为一致
+	// 所有 ThinkingModeTemplate 模型通过 chat_template_kwargs 传递 enable_thinking。
+	// 思考开关映射（基于 llama.cpp 模板语义）：
+	//   - on:  显式 enable_thinking=true，强制要求模型思考
+	//   - off: 显式 enable_thinking=false，强制要求模型不思考
+	//   - auto/空: 不设置 enable_thinking，交给 llama-server --reasoning auto 与模板默认行为决定。
+	//     对 Qwen3.5 等小模型，模板在 enable_thinking 未定义时默认插入空思考块（不思考），
+	//     从而让简单问题直接作答，不再因 auto 被当作 on 而强制过度思考。
 	// 对于 ThinkingModeReasoning 模型（DeepSeek），思考由服务端 reasoning 参数控制，无需 kwargs
-	// 安全实践：Reasoning="on"/"auto" → true，Reasoning="off" → false（遵循项目记忆的有意决策，
-	// 确保模板在 auto 模式下也能正确插入思考标记，经实际验证比让服务端自行决策更稳定）
 	if mode == llm.ThinkingModeTemplate {
-		if req.ChatTemplateKwargs == nil {
-			req.ChatTemplateKwargs = make(map[string]any)
+		// 仅在 on/off 时显式写入 enable_thinking；auto/空不写入，交由服务器与模板自主决定
+		explicit := false
+		var enableThinking bool
+		switch {
+		case cfg != nil && cfg.Reasoning == "on":
+			explicit, enableThinking = true, true
+		case cfg != nil && cfg.Reasoning == "off":
+			explicit, enableThinking = true, false
 		}
-		// 根据 Reasoning 配置决定 enable_thinking 值，避免 --reasoning off 时被覆盖为 true
-		enableThinking := true
-		if cfg != nil && cfg.Reasoning == "off" {
-			enableThinking = false
+		if explicit {
+			if req.ChatTemplateKwargs == nil {
+				req.ChatTemplateKwargs = make(map[string]any)
+			}
+			req.ChatTemplateKwargs["enable_thinking"] = enableThinking
 		}
-		req.ChatTemplateKwargs["enable_thinking"] = enableThinking
 	}
 }
 

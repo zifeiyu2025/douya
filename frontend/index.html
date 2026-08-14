@@ -11,7 +11,7 @@
         且 Wails 架构下动态注入 CSP（启动时写入实际端口）复杂度高，
         当前风险可接受。如未来需加固，可在 Wails 启动时通过 runtime 注入实际端口。
     -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://127.0.0.1:* https://api.tavily.com https://api.github.com;"/>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self' http://127.0.0.1:* https://api.tavily.com https://api.github.com;"/>
     <title>Douya - AI Assistant</title>
     <link rel="icon" type="image/png" href="/src/assets/images/appicon.png"/>
 </head>

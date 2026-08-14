@@ -149,19 +149,38 @@ func SynthesizeOnline(ctx context.Context, text, voice string, rate, pitch, volu
 		voice = DefaultOnlineVoice
 	}
 
+	rateStr := formatRate(rate)
+
+	// 指定音色已被云端移除（如部分"仅在线"Neural 音色）：静默回退默认晓晓重试，
+	// 保证在线合成仍能成功，避免前端因在线失败而回退本地触发"第一句重复"缺陷。
+	fallbackIfUnsupported := func(err error) ([]byte, error) {
+		if err != nil && strings.Contains(err.Error(), "Unsupported voice") {
+			return Synthesize(ctx, text, DefaultOnlineVoice, rateStr, formatPitch(pitch), formatVolume(volume))
+		}
+		return nil, err
+	}
+
 	doSynth := func(c context.Context) ([]byte, error) {
-		return Synthesize(c, text, voice, formatRate(rate), formatPitch(pitch), formatVolume(volume))
+		return Synthesize(c, text, voice, rateStr, formatPitch(pitch), formatVolume(volume))
 	}
 
 	// 先快速探测：可达则直接合成（默认发音人已是晓晓）。
 	if IsReachable(800 * time.Millisecond) {
-		return doSynth(ctx)
+		audio, err := doSynth(ctx)
+		if err == nil {
+			return audio, nil
+		}
+		return fallbackIfUnsupported(err)
 	}
 	// 探测未通过：再尝试一次真实 WebSocket 合成（限时 3s），避免误判离线而漏掉在线版。
 	attemptCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	if audio, err := doSynth(attemptCtx); err == nil {
+	audio, err := doSynth(attemptCtx)
+	if err == nil {
 		return audio, nil
+	}
+	if fb, fbErr := fallbackIfUnsupported(err); fbErr == nil {
+		return fb, nil
 	}
 	return nil, ErrOffline
 }

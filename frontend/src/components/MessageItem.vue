@@ -102,6 +102,15 @@
               {{ tts.isSpeaking(message.id) ? '停止' : '朗读' }}
             </span>
           </button>
+          <!-- 朗读后端徽标：仅当前正在朗读的消息显示，标明走的是在线/本地 -->
+          <span
+            v-if="!isUser && tts.isSpeaking(message.id) && tts.currentBackend.value"
+            class="tts-backend-badge"
+            :class="tts.currentBackend.value"
+            :title="tts.currentBackend.value === 'online' ? '正在使用微软在线神经语音' : '正在使用本地 Web Speech 语音'"
+          >
+            {{ tts.currentBackend.value === 'online' ? '在线' : '本地' }}
+          </span>
           <button
             v-if="!isUser && !chatStore.isAnyGenerating && isLastAIMessage"
             class="action-btn"
@@ -628,6 +637,30 @@ function regenerate() {
 .action-btn.active {
   color: var(--accent-primary);
   background: var(--accent-tertiary);
+}
+
+/* TTS 后端徽标：朗读中显示，区分在线（绿）/本地（灰） */
+.tts-backend-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  margin-left: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  border-radius: 8px;
+  font-weight: 500;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.tts-backend-badge.online {
+  color: var(--accent-success, #18a058);
+  background: color-mix(in srgb, var(--accent-success, #18a058) 12%, transparent);
+}
+
+.tts-backend-badge.local {
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-secondary) 12%, transparent);
 }
 
 .action-btn:disabled {

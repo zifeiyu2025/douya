@@ -19,18 +19,32 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// versionRegexp 匹配 llama-server --version 输出中的版本号。
+// versionRegexp 匹配旧版 llama-server --version 输出中的构建编号。
 //
-// llama-server --version 输出示例：
+// 旧格式（无语义版本）：
 //
 //	version: 10216 (876a43211)
-//	built with MSVC 19.44.35227.0 for x64
 //
-// 本正则提取 "version:" 后面的数字（如 10216），即 llama.cpp 的构建编号。
+// 该正则提取 "version:" 后面的数字（如 10216），即 llama.cpp 的构建编号。
 // 构建编号是单调递增的整数，可直接用于大小比较。
 //
 // 生活类比：就像从快递单上抠出包裹编号（10216），用这个编号判断是不是最新批次。
 var versionRegexp = regexp.MustCompile(`version:\s*(\d+)`)
+
+// buildNumberRegexp 匹配新版 llama-server --version 输出中的构建编号。
+//
+// 上游 b104xx 起引入语义版本（#26838），--version 输出变成（见 common/build-info.cpp.in）：
+//
+//	version: 0.1.0 (build 10424, commit 030ebb558)
+//	built with MSVC 19.44.35227.0 for x64
+//
+// 此时 "version:" 后面是语义版本号（0.1.0），不再是构建编号，必须改从
+// "build 10424" 中提取构建编号。构建编号仍是单调递增整数，可直接比较。
+var buildNumberRegexp = regexp.MustCompile(`build\s*(\d+)`)
+
+// commitRegexp 匹配新版 --version 输出中的 commit hash。
+// 如 "commit 030ebb558" 或 "commit: 030ebb558"。
+var commitRegexp = regexp.MustCompile(`commit[:\s]+([0-9a-f]+)`)
 
 // tagRegexp 匹配 GitHub release tag 名（如 "b10216"）。
 // llama.cpp 的 release tag 格式固定为 "b" + 数字，数字与 --version 输出的构建编号一致。
@@ -70,29 +84,59 @@ func GetLocalVersion(serverPath string) (version int, commit string, err error) 
 	outputStr := string(output)
 	log.Debug().Str("output", outputStr).Msg("[version] llama-server --version output")
 
-	// 提取版本号（如 10216）
-	matches := versionRegexp.FindStringSubmatch(outputStr)
-	if len(matches) < 2 {
-		return 0, "", apperror.Newf(apperror.KindInternal, "无法从版本输出中解析版本号: %s", strings.TrimSpace(outputStr))
-	}
-	version, err = strconv.Atoi(matches[1])
-	if err != nil {
-		return 0, "", apperror.Wrapf(apperror.KindInternal, "解析版本号 %q 失败", err, matches[1])
-	}
-
-	// 提取 commit hash（括号内的字符串，如 "876a43211"）
-	// 格式：version: 10216 (876a43211)
-	if idx := strings.Index(outputStr, "("); idx >= 0 {
-		endIdx := strings.Index(outputStr[idx:], ")")
-		if endIdx > 1 {
-			commit = strings.TrimSpace(outputStr[idx+1 : idx+endIdx])
-		}
-	}
+	version, commit, err = parseServerVersionOutput(outputStr)
 
 	log.Info().
 		Int("version", version).
 		Str("commit", commit).
 		Msg("[version] 本地 llama-server 版本")
+	return version, commit, err
+}
+
+// parseServerVersionOutput 从 llama-server --version 输出中解析构建编号与 commit hash。
+//
+// 兼容两种输出格式：
+//
+//	旧格式（无语义版本）：version: 10216 (876a43211)
+//	新格式（语义版本）  ：version: 0.1.0 (build 10424, commit 030ebb558)
+//
+// 构建编号优先取 "build N"（新格式），其次取 "version: N"（旧格式）；
+// commit hash 优先取 "commit <hash>"（新格式），其次取括号内容（旧格式）。
+func parseServerVersionOutput(output string) (version int, commit string, err error) {
+	outputStr := strings.TrimSpace(output)
+
+	// 提取构建编号：优先新版 "build N"，其次旧版 "version: N"。
+	// 记录来源格式：新版括号内是 "build N"，旧版括号内才是 commit hash。
+	versionStr := ""
+	isNewFormat := false
+	if matches := buildNumberRegexp.FindStringSubmatch(outputStr); len(matches) >= 2 {
+		versionStr = matches[1]
+		isNewFormat = true
+	} else if matches := versionRegexp.FindStringSubmatch(outputStr); len(matches) >= 2 {
+		versionStr = matches[1]
+	}
+	if versionStr == "" {
+		return 0, "", apperror.Newf(apperror.KindInternal, "无法从版本输出中解析构建编号: %s", outputStr)
+	}
+
+	version, convErr := strconv.Atoi(versionStr)
+	if convErr != nil {
+		return 0, "", apperror.Wrapf(apperror.KindInternal, "解析构建编号 %q 失败", convErr, versionStr)
+	}
+
+	// 提取 commit hash：优先新版 "commit <hash>"。
+	// 仅旧格式才用括号内容作为 commit；新版括号内是 build 号，不作 commit。
+	if matches := commitRegexp.FindStringSubmatch(outputStr); len(matches) >= 2 {
+		commit = matches[1]
+	} else if !isNewFormat {
+		if idx := strings.Index(outputStr, "("); idx >= 0 {
+			endIdx := strings.Index(outputStr[idx:], ")")
+			if endIdx > 1 {
+				commit = strings.TrimSpace(outputStr[idx+1 : idx+endIdx])
+			}
+		}
+	}
+
 	return version, commit, nil
 }
 
