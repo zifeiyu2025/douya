@@ -111,6 +111,14 @@ func (a *App) startServerWithAutoFallback(ctx context.Context, initial *llm.Serv
 			zlog.Info().Str("backend", bt.String()).Msg("[startup] 已切换到回退后端，重建 server")
 		}
 
+		// 同步退出检查：上面回退分支可能耗时（EnsureBackendInstalled/initServer），
+		// 期间用户可能已发起退出。紧贴 srv.Start() 再查一次 exiting，
+		// 避免关闭流程已开始后仍拉起新的 llama-server 进程（孤儿进程）。
+		if a.exiting.Load() {
+			zlog.Info().Msg("[startup] exiting detected before start, aborting server startup")
+			return nil, false
+		}
+
 		if err := srv.Start(); err != nil {
 			lastErr, lastPhase = err, "启动 llama-server"
 			zlog.Error().Err(err).Str("backend", bt.String()).Msg("[startup] start llama-server failed")
@@ -326,6 +334,13 @@ func (a *App) autoLoadDefaultModel(ctx context.Context, modelForDetect string) {
 	progressCallback := a.makeLoadProgressCallback(ctx, modelForDetect)
 
 	if err := a.getClient().WaitForModelLoaded(loadCtx, modelForDetect, httpClientTimeout, progressCallback); err != nil {
+		// 退出过程中 rootCancel 会中断等待并返回错误，此时无需进入失败处理
+		// （否则会触发 mmproj 重试的 2s 睡眠 / 后台继续等待，拖慢 shutdown 且可能
+		// 对正在关闭的 llama-server 发起请求）。直接返回即可。
+		if a.exiting.Load() {
+			zlog.Info().Msg("[server] exiting during model load, skip failure handling")
+			return
+		}
 		a.handleModelLoadFailure(ctx, modelForDetect, err, progressCallback)
 		return
 	}
@@ -463,7 +478,16 @@ func (a *App) isBackgroundModelStillRelevant(modelName string) bool {
 // startServerWatcher 启动状态监控和健康检查两个长生命周期 goroutine。
 // 两者均纳入 trackedGo 跟踪，依赖 watchCtx.Done() 退出。
 func (a *App) startServerWatcher(srv *llm.Server, ctx context.Context) {
-	watchCtx, watchCancel := context.WithCancel(ctx)
+	// watchCtx 派生自 rootCtx（而非调用方 ctx）：startServerAndWatch 已纳入 trackedGo
+	// 跟踪，shutdown 时 teardown 会先 rootCancel 再 g.Wait()。若 watchCtx 只派生自
+	// Wails ctx，而启动流程在 teardown 取消 watchCancel 之后才走到这里创建 watcher，
+	// 新 watcher 将永远等不到取消信号，导致 g.Wait() 卡死。
+	// 派生自 rootCtx 后，rootCancel 能取消任意时机创建的 watcher，避免退出挂起。
+	baseCtx := ctx
+	if a.rootCtx != nil {
+		baseCtx = a.rootCtx
+	}
+	watchCtx, watchCancel := context.WithCancel(baseCtx)
 	a.serverMu.Lock()
 	a.watchCancel = watchCancel
 	a.serverMu.Unlock()

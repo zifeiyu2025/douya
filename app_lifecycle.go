@@ -75,10 +75,13 @@ func (a *App) startup(ctx context.Context) {
 
 	// startServerAndWatch 是一次性启动流程（同步执行模型检测/加载后返回），
 	// 内部会通过 trackedGo 启动 watcher/health 等长生命周期 goroutine。
-	// 此处不直接 trackedGo：它使用 Wails ctx 而非 rootCtx，且 shutdown 不必等待模型加载完成。
-	// P2.2 修复：startServerWithAutoFallback / autoLoadDefaultModel 内部已加入
-	// a.exiting 检查与 rootCtx 派生 context，用户退出时能立即中断启动，避免拉起孤儿进程。
-	go a.startServerAndWatch(a.server, ctx)
+	// 必须用 trackedGo 跟踪（而非裸 go）：否则 teardown 中 g.Wait() 不会等待本启动流程，
+	// 若用户在回退启动新 server 的过程中退出，会留下未被停止的孤儿 llama-server 进程。
+	// 启动流程内的阻塞调用（WaitForReadyCtx / LoadModel / WaitForModelLoaded / watcher）
+	// 均使用 rootCtx 派生 context，shutdown 时 rootCancel 会立即中断它们，g.Wait() 不会久等。
+	a.trackedGo(func() {
+		a.startServerAndWatch(a.server, ctx)
+	})
 }
 
 // shutdownInternal 是合并后的统一关闭逻辑，由 shutdown 和 PrepareShutdown 复用。
@@ -130,13 +133,16 @@ func (a *App) teardown(emitProgress func(stage string)) {
 			a.watchCancel()
 			a.watchCancel = nil
 		}
-		srv := a.server
 		a.serverMu.Unlock()
 
 		// 3. 等待被跟踪的 goroutine 退出，确保关闭底层资源后不会被访问
 		a.g.Wait()
 
-		// 4. 停止 llama-server 进程（同步：taskkill + 3s 超时 + force kill）
+		// 4. 停止 llama-server 进程（同步：taskkill + 3s 超时 + force kill）。
+		// 必须在 g.Wait() 之后才捕获 server 引用：启动流程（startServerAndWatch）在
+		// 后端回退时可能通过 initServer 替换 a.server，若在 g.Wait() 之前拿到旧指针，
+		// 会停止旧进程而漏掉正在启动的新进程，留下孤儿 llama-server。
+		srv := a.getServer()
 		if srv != nil {
 			if emitProgress != nil {
 				emitProgress("stopping_server")
