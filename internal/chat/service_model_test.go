@@ -10,7 +10,6 @@ import (
 )
 
 // TestMatchModelKeywords_Qwen3SoftSwitch 验证 Qwen3 系列匹配 Template 模式 + 软开关
-//
 // 生活类比：就像机场安检的 VIP 通道清单，Qwen3 系列在清单最前面，
 // 匹配后直接走 VIP 通道（Template 模式）并获得软开关特权（/think /no_think）。
 func TestMatchModelKeywords_Qwen3SoftSwitch(t *testing.T) {
@@ -132,5 +131,45 @@ func TestMatchModelKeywords_PriorityFirstMatch(t *testing.T) {
 	}
 	if !soft {
 		t.Errorf("优先级匹配：应返回第一个配置的 soft=true")
+	}
+}
+
+// TestThinkingModeFromTemplate 验证模板内容分析判定思考模式。
+//
+// 生活类比：冰箱的"制冷"开关决定能否制冷，但"速冻"档位则决定制冷强度。
+// 这里根据模板里的不同标记，判断模型的思考是"可按需开关"（Template）
+// 还是"固定推理"（Reasoning）。
+func TestThinkingModeFromTemplate(t *testing.T) {
+	tests := []struct {
+		name       string
+		template   string
+		wantMode   string
+		wantReason bool
+		wantSoft   bool
+	}{
+		{"空模板", "", llm.ThinkingModeNone, false, false},
+		{"普通模板无思考标记", "{{- range .Messages }}{{.Role}}{{.Content}}{{ end }}", llm.ThinkingModeNone, false, false},
+		{"含 <|think|> 标记", "{%- if enable_thinking %}<|think|>{%- endif %}", llm.ThinkingModeTemplate, true, true},
+		{"含 enable_thinking 开关", "{%- if enable_thinking %}{%- endif %}", llm.ThinkingModeTemplate, true, true},
+		{"含 enable_think 开关", "{%- if enable_think %}{%- endif %}", llm.ThinkingModeTemplate, true, true},
+		{"含 startthinking 指令", "{%- if startthinking %}startthinking{%- endif %}", llm.ThinkingModeTemplate, true, false},
+		{"含 reasoning_effort 参数", "Reasoning Effort: {{ reasoning_effort }}", llm.ThinkingModeReasoning, true, false},
+		{"含 reasoning_content 字段", "{{ reasoning_content }}", llm.ThinkingModeReasoning, true, false},
+		{"含 <|reasoning_start|> 标记", "<|reasoning_start|>...<|reasoning_end|>", llm.ThinkingModeReasoning, true, false},
+		{"大小写不敏感", "ENABLE_THINKING", llm.ThinkingModeTemplate, true, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mode, reason, soft := thinkingModeFromTemplate(tt.template)
+			if mode != tt.wantMode {
+				t.Errorf("thinkingModeFromTemplate(%q) mode = %q, 期望 %q", tt.template, mode, tt.wantMode)
+			}
+			if reason != tt.wantReason {
+				t.Errorf("thinkingModeFromTemplate(%q) reasoning = %v, 期望 %v", tt.template, reason, tt.wantReason)
+			}
+			if soft != tt.wantSoft {
+				t.Errorf("thinkingModeFromTemplate(%q) soft = %v, 期望 %v", tt.template, soft, tt.wantSoft)
+			}
+		})
 	}
 }

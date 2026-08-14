@@ -448,6 +448,43 @@ func TestApplyThinkingControl_TemplateMode_Auto(t *testing.T) {
 	}
 }
 
+// TestApplyThinkingControl_TemplateMode_Auto_RespectModelDefault 验证 auto 模式下尊重模型自身行为：
+// 即使模板默认不自主思考（DefaultThinkingAuto=="off"，如 Gemma），也不显式设置 enable_thinking，
+// 避免简单问候与简单问题被强制长时间思考。
+func TestApplyThinkingControl_TemplateMode_Auto_RespectModelDefault(t *testing.T) {
+	for _, reasoning := range []string{"auto", ""} {
+		s := &Service{
+			config: &config.Config{Reasoning: reasoning},
+		}
+		s.modelCaps = llm.ModelCapabilities{
+			ThinkingMode:        llm.ThinkingModeTemplate,
+			DefaultThinkingAuto: "off",
+		}
+		req := &llm.ChatCompletionRequest{}
+		s.applyThinkingControl(req)
+		if v, ok := req.ChatTemplateKwargs["enable_thinking"]; ok {
+			t.Errorf("Reasoning=%q 且默认不自主思考时，也应尊重模型默认，不设置 enable_thinking，实际 %v", reasoning, v)
+		}
+	}
+}
+
+// TestApplyThinkingControl_TemplateMode_Auto_DefaultOn 验证 auto 模式下，
+// 对模板默认自主思考（DefaultThinkingAuto=="on"，如 Qwen）的模型，不显式设置 enable_thinking。
+func TestApplyThinkingControl_TemplateMode_Auto_DefaultOn(t *testing.T) {
+	s := &Service{
+		config: &config.Config{Reasoning: "auto"},
+	}
+	s.modelCaps = llm.ModelCapabilities{
+		ThinkingMode:        llm.ThinkingModeTemplate,
+		DefaultThinkingAuto: "on",
+	}
+	req := &llm.ChatCompletionRequest{}
+	s.applyThinkingControl(req)
+	if v, ok := req.ChatTemplateKwargs["enable_thinking"]; ok {
+		t.Errorf("默认自主思考为 on 时不应显式设置 enable_thinking，实际 %v", v)
+	}
+}
+
 // TestApplyThinkingControl_ReasoningEffort_On 推理开启（非 off）时不发送 reasoning_effort=none
 func TestApplyThinkingControl_ReasoningEffort_On(t *testing.T) {
 	s := &Service{

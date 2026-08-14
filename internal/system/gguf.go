@@ -66,15 +66,19 @@ const (
 )
 
 type GGUFMetadata struct {
-	Architecture        string
-	BlockCount          int
-	EmbeddingLength     int
-	ContextLength       int
-	FileSize            int64
-	ExpertCount         int
-	ExpertUsed          int
-	HasMTP              bool
-	HasReasoning        bool
+	Architecture    string
+	BlockCount      int
+	EmbeddingLength int
+	ContextLength   int
+	FileSize        int64
+	ExpertCount     int
+	ExpertUsed      int
+	HasMTP          bool
+	HasReasoning    bool
+	// DefaultThinkingAuto 表示 chat template 在 enable_thinking 未显式设置时的默认自主思考档位。
+	// 取值："on"（默认自主思考）、"off"（默认不思考）、""（无法判定）。
+	// 生活类比：Qwen 冰箱出厂默认制冷（on），Gemma 冰箱出厂默认不制冷（off）。
+	DefaultThinkingAuto string
 	SupportsEagle3      bool // 模型是否支持 Eagle3 推测解码（如 Qwen3.5/3.6）
 	SizeLabel           string
 	NParams             int64
@@ -179,7 +183,24 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 		meta.FileSize = fi.Size()
 	}
 
-	// 优先使用 GGUF 元数据中的 architecture 字段推断思考能力
+	// 思考能力检测优先级：模板内容分析 → architecture 字段 → 文件名关键词。
+	// 模板是思考机制的载体，含思考标记即证明模型具备思考能力，
+	// 可覆盖自定义/合并模型（如文件名不含标准关键词、但模板实际支持思考的模型）。
+	if !meta.HasReasoning && HasThinkingInTemplate(meta.ChatTemplate) {
+		meta.HasReasoning = true
+		log.Debug().Str("architecture", meta.Architecture).Msg("[gguf] reasoning detected from chat template")
+	}
+
+	// 检测模板默认自主思考档位（enable_thinking 未显式设置时的默认行为）。
+	// 该结果用于 auto 模式下判断是否需主动补 enable_thinking 恢复自主思考。
+	if meta.ChatTemplate != "" {
+		meta.DefaultThinkingAuto = DefaultThinkingFromTemplate(meta.ChatTemplate)
+		if meta.DefaultThinkingAuto != "" {
+			log.Debug().Str("architecture", meta.Architecture).Str("default", meta.DefaultThinkingAuto).Msg("[gguf] template default thinking")
+		}
+	}
+
+	// 模板无思考标记时，回退到 GGUF 元数据中的 architecture 字段推断思考能力
 	if !meta.HasReasoning && meta.Architecture != "" {
 		lowerArch := strings.ToLower(meta.Architecture)
 		// Template 模式：通过 chat template 的 enable_thinking 控制
@@ -286,6 +307,97 @@ func matchAnyKeyword(target string, keywords []string) bool {
 		}
 	}
 	return false
+}
+
+// thinkingTemplateMarkers 是 chat template 中常见的思考（推理）控制标记。
+//
+// 这些标记是模型"是否具备思考机制"的"说明书"级别的直接证据：
+//   - "<|think|>"：gemma4 / qwen / llama 等模板注入思考块的边界标记
+//   - "enable_thinking"：qwen / gemma 等模板控制是否开启思考的开关参数
+//   - "enable_think"：部分模板的等价开关
+//   - "reasoning_effort"：DeepSeek-V4 / gpt-oss 等模板的思考强度参数
+//   - "reasoning_content"：DeepSeek 等模板输出思考内容的字段名
+//   - "<|reasoning_start|>"：DeepSeek 模板的思考起始标记
+//   - "startthinking"：部分模板的思考开始指令
+//
+// 生活类比：判断一台冰箱能不能制冷，与其听别人说型号，不如直接看它里
+// 面有没有"制冷"按钮和"冷冻"格——模板里出现这些思考标记，就相当于
+// 直接看到了思考功能的"操作开关"，比靠型号名（架构/文件名）猜更可靠。
+var thinkingTemplateMarkers = []string{
+	"<|think|>",
+	"enable_thinking",
+	"enable_think",
+	"reasoning_effort",
+	"reasoning_content",
+	"<|reasoning_start|>",
+	"startthinking",
+}
+
+// HasThinkingInTemplate 分析 chat template 内容，判断模型是否具备思考（推理）能力。
+//
+// 这是比架构/文件名关键词更可靠的确定性信号：模板是模型思考机制的载体，
+// 含思考标记即证明模型具备思考能力，可覆盖自定义/合并模型（如
+// "Gemma-4-E4B-Uncensored" 这类文件名不含标准关键词、但模板实际支持思考的模型）。
+//
+// 返回 false 表示模板为空或未发现思考标记，调用方应回退到白名单关键词检测。
+func HasThinkingInTemplate(template string) bool {
+	if template == "" {
+		return false
+	}
+	lower := strings.ToLower(template)
+	return matchAnyKeyword(lower, thinkingTemplateMarkers)
+}
+
+// DefaultThinkingFromTemplate 分析 chat template，推断 enable_thinking 未显式设置时的默认自主思考档位。
+//
+// 生活类比：Qwen 冰箱出厂自带"自动制冷"，你不拨开关它也制冷；Gemma 冰箱出厂默认
+// 不制冷，必须手动调档。这里就是看模板的"出厂默认档位"。
+//
+// 返回 "on"（默认自主思考）、"off"（默认不思考）、""（无法判定）。
+//
+// 判定依据（llama.cpp 模板实现归纳）：
+//   - "on"：Qwen / GLM 风格，只有显式 enable_thinking=false 才关闭思考，未定义时默认思考。
+//     特征：`enable_thinking is defined and enable_thinking is false` / `is defined and not enable_thinking`，
+//     或显式 `enable_thinking | default(true)`。
+//   - "off"：Gemma / DeepSeek / Cohere 风格，未定义时当作关闭。
+//     特征：`enable_thinking | default(false)`、裸 `if enable_thinking`/`if not enable_thinking`、
+//     `enable_thinking is defined` 的 else 分支显式置 false。
+func DefaultThinkingFromTemplate(template string) string {
+	if template == "" {
+		return ""
+	}
+	lower := strings.ToLower(template)
+
+	// 显式默认 true：未定义即思考
+	if strings.Contains(lower, "enable_thinking | default(true)") ||
+		strings.Contains(lower, "enable_thinking is defined and enable_thinking is false") ||
+		strings.Contains(lower, "enable_thinking is defined and not enable_thinking") {
+		return "on"
+	}
+
+	// 显式默认 false：未定义即不思考
+	if strings.Contains(lower, "enable_thinking | default(false)") {
+		return "off"
+	}
+
+	// 裸条件（无 is defined）：未定义时 enable_thinking 为 undefined（falsy）。
+	//   - `if enable_thinking`：未定义走 else，通常不注入思考 → off
+	//   - `if not enable_thinking`：未定义 truthy，注入空思考块 → off
+	// 用正则避免误命中 `enable_thinking is defined and enable_thinking`。
+	if matchBareIf(lower, "if enable_thinking %}") ||
+		matchBareIf(lower, "if not enable_thinking %}") {
+		return "off"
+	}
+
+	// 无法判定
+	return ""
+}
+
+// matchBareIf 检查模板中是否含 `{%- if <expr> %}` 形式的裸条件（即 <expr> 后紧跟 %），
+// 用于识别无 `is defined` 判定的 enable_thinking 分支，避免误命中 `is defined and ...` 组合。
+func matchBareIf(lower, expr string) bool {
+	idx := strings.Index(lower, expr)
+	return idx >= 0
 }
 
 func ParseGGUFKV(path string) (map[string]any, error) {

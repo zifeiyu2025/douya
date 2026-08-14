@@ -436,6 +436,94 @@ func TestParseGGUFMetadata_HasReasoning(t *testing.T) {
 	}
 }
 
+// TestHasThinkingInTemplate 验证 chat template 思考标记检测函数。
+//
+// 生活类比：判断一台冰箱能不能制冷，与其猜型号，不如直接看它里面有没有"制冷"按钮。
+// 模板里出现思考标记，就相当于直接看到了思考功能的"操作开关"。
+func TestHasThinkingInTemplate(t *testing.T) {
+	tests := []struct {
+		name     string
+		template string
+		want     bool
+	}{
+		{"空模板", "", false},
+		{"普通模板无思考标记", "{{- if .Messages }}{{ range .Messages }}...{{ end }}", false},
+		{"含 <|think|> 标记", "{%- if enable_thinking %}<|think|>{%- endif %}", true},
+		{"含 enable_thinking 开关", "{%- if enable_thinking %}{%- endif %}", true},
+		{"含 reasoning_effort 参数", "Reasoning Effort: {{ reasoning_effort }}", true},
+		{"含 reasoning_content 字段", "{{ reasoning_content }}", true},
+		{"含 <|reasoning_start|> 标记", "<|reasoning_start|>reasoning<|reasoning_end|>", true},
+		{"大小写不敏感", "ENABLE_THINKING", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := HasThinkingInTemplate(tt.template); got != tt.want {
+				t.Errorf("HasThinkingInTemplate(%q) 期望 %v，实际 %v", tt.template, tt.want, got)
+			}
+		})
+	}
+}
+
+// TestParseGGUFMetadata_TemplateReasoning 验证模板内容分析优先于架构/文件名检测。
+//
+// 覆盖自定义/合并模型场景：架构与文件名都不含标准关键词，但模板实际含思考标记，
+// 依然应判定具备思考能力（如 Gemma-4-E4B-Uncensored 类合并模型）。
+func TestParseGGUFMetadata_TemplateReasoning(t *testing.T) {
+	// 架构 unknown + 文件名 plain + 模板含 <|think|> → 应通过模板判定具备思考能力
+	b := newGGUFBuilder()
+	b.addString("general.architecture", "unknown")
+	b.addString("tokenizer.chat_template", "{{- if .EnableThinking }}<|think|>{{ end }}")
+	path := buildTempGGUFFileWithSuffix(t, b, "plain.gguf")
+
+	meta, err := ParseGGUFMetadata(path)
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if !meta.HasReasoning {
+		t.Errorf("模板含思考标记应判定 HasReasoning=true，实际为 false（模板: %s）", meta.ChatTemplate)
+	}
+
+	// 模板无思考标记 + 架构 unknown + 文件名 plain → 应保持不支持思考
+	b2 := newGGUFBuilder()
+	b2.addString("general.architecture", "unknown")
+	b2.addString("tokenizer.chat_template", "{{- range .Messages }}{{.Role}}{{.Content}}{{ end }}")
+	path2 := buildTempGGUFFileWithSuffix(t, b2, "plain.gguf")
+	meta2, err := ParseGGUFMetadata(path2)
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if meta2.HasReasoning {
+		t.Errorf("模板无思考标记且无架构/文件名关键词，HasReasoning 应为 false，实际为 true")
+	}
+}
+
+// TestDefaultThinkingFromTemplate 验证模板默认自主思考档位检测。
+//
+// 生活类比：Qwen 冰箱出厂默认制冷（on），Gemma 冰箱出厂默认不制冷（off）。
+func TestDefaultThinkingFromTemplate(t *testing.T) {
+	tests := []struct {
+		name     string
+		template string
+		want     string
+	}{
+		{"空模板", "", ""},
+		{"Qwen 式：is defined and is false", "{%- if enable_thinking is defined and enable_thinking is false %}...{%- endif %}", "on"},
+		{"GLM 式：is defined and not enable_thinking", "<|assistant|>{{- ' response' if (enable_thinking is defined and not enable_thinking) else ' thinking' -}}", "on"},
+		{"显式 default(true)", "{%- if enable_thinking | default(true) %}...{%- endif %}", "on"},
+		{"Gemma-4 式：default(false)", "{%- if not enable_thinking | default(false) %}<|channel|>{%- endif %}", "off"},
+		{"Cohere 式：裸 not enable_thinking", "{%- if not enable_thinking %}<|START_THINKING|>{%- endif %}", "off"},
+		{"Bielik 式：裸 if enable_thinking", "{%- if enable_thinking %} thinking\n{%- endif %}", "off"},
+		{"DeepSeek 式：is defined + else 置 false", "{%- if enable_thinking is defined -%}{%- set thinking = enable_thinking -%}{%- else -%}{%- set thinking = false -%}{%- endif -%}", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := DefaultThinkingFromTemplate(tt.template); got != tt.want {
+				t.Errorf("DefaultThinkingFromTemplate(%q) = %q, 期望 %q", tt.template, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestParseGGUFMetadata_HasMTP 测试 HasMTP 检测逻辑
 // 通过不同的 KV 键检测 MTP（Multi-Token Prediction）
 func TestParseGGUFMetadata_HasMTP(t *testing.T) {

@@ -31,6 +31,60 @@ func (s *Service) DetectModelArchitecture() error {
 	return s.DetectModelArchitectureForModel(info.Name)
 }
 
+// templateModeMarkers 是 chat template 中代表"模板式思考"（ThinkingModeTemplate）的控制标记。
+// 这类标记通过 enable_thinking / <|think|> 等开关与边界块控制思考，对应前端可软开关的思考按钮。
+var templateModeMarkers = []string{
+	"<|think|>",
+	"enable_thinking",
+	"enable_think",
+	"startthinking",
+}
+
+// reasoningModeMarkers 是 chat template 中代表"推理式思考"（ThinkingModeReasoning）的控制标记。
+// 这类标记（DeepSeek 系）通过 reasoning_effort / reasoning_content 等参数控制思考，
+// 不依赖 enable_thinking 开关。
+var reasoningModeMarkers = []string{
+	"reasoning_effort",
+	"reasoning_content",
+	"<|reasoning_start|>",
+}
+
+// thinkingModeFromTemplate 分析 chat template 内容，判定模型思考模式与能力。
+// 返回 (thinkingMode, supportsReasoning, softSwitchSupport)。
+// 未发现任何思考标记时返回 (llm.ThinkingModeNone, false, false)，调用方应回退到白名单检测。
+func thinkingModeFromTemplate(template string) (string, bool, bool) {
+	if template == "" {
+		return llm.ThinkingModeNone, false, false
+	}
+	// 模板不含任何思考标记，直接判定为不支持思考
+	if !system.HasThinkingInTemplate(template) {
+		return llm.ThinkingModeNone, false, false
+	}
+	lower := strings.ToLower(template)
+	hasTemplate := matchAnyMarker(lower, templateModeMarkers)
+	hasReasoning := matchAnyMarker(lower, reasoningModeMarkers)
+	switch {
+	case hasTemplate:
+		// 含 enable_thinking 开关的模板支持思考软开关（auto/on/off）
+		soft := strings.Contains(lower, "enable_thinking") || strings.Contains(lower, "enable_think")
+		return llm.ThinkingModeTemplate, true, soft
+	case hasReasoning:
+		return llm.ThinkingModeReasoning, true, false
+	default:
+		return llm.ThinkingModeNone, false, false
+	}
+}
+
+// matchAnyMarker 检查 target 是否包含 markers 中的任意标记（子串匹配）。
+func matchAnyMarker(target string, markers []string) bool {
+	for _, m := range markers {
+		if strings.Contains(target, m) {
+			return true
+		}
+	}
+	return false
+}
+
 // modelKeywordConfig 定义模型关键词匹配配置
 type modelKeywordConfig struct {
 	keywords     []string
@@ -151,6 +205,7 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 	var mmprojLoaded bool
 	var supportsPreserveReasoning bool
 	thinkingMode := llm.ThinkingModeNone
+	defaultThinkingAuto := ""
 
 	if propsErr == nil {
 		log.Info().
@@ -205,7 +260,22 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 				ggufMeta = meta
 			}
 		}
-		if ggufMeta != nil && ggufMeta.Architecture != "" {
+		// 模板内容分析：模板是思考机制的载体，含思考标记即证明模型具备思考能力，
+		// 可覆盖自定义/合并模型（如文件名不含标准关键词、但模板实际支持思考的模型）。
+		// 优先级：模板分析 → architecture 字段 → 文件名关键词。
+		if ggufMeta != nil && ggufMeta.ChatTemplate != "" {
+			if mode, reasoning, soft := thinkingModeFromTemplate(ggufMeta.ChatTemplate); mode != llm.ThinkingModeNone {
+				thinkingMode = mode
+				supportsReasoning = reasoning
+				softSwitchSupport = soft
+				log.Info().Str("architecture", ggufMeta.Architecture).Str("mode", mode).Msg("[model] thinking detected from chat template")
+			}
+		}
+		// 模板默认自主思考档位（无论是否命中 thinkingMode 都记录，供 auto 模式恢复思考用）
+		if ggufMeta != nil {
+			defaultThinkingAuto = ggufMeta.DefaultThinkingAuto
+		}
+		if thinkingMode == llm.ThinkingModeNone && ggufMeta != nil && ggufMeta.Architecture != "" {
 			lowerArch := strings.ToLower(ggufMeta.Architecture)
 			archConfigs := []modelKeywordConfig{
 				{keywords: []string{"qwen3", "qwen3moe", "qwen3next", "qwen3vl", "qwen3vlmoe", "qwen35", "qwen35moe", "qwen36"}, thinkingMode: llm.ThinkingModeTemplate, softSwitch: true},
@@ -246,6 +316,7 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 		HasMTP:                    s.detectHasMTP(),
 		ThinkingMode:              thinkingMode,
 		SoftSwitchSupport:         softSwitchSupport,
+		DefaultThinkingAuto:       defaultThinkingAuto,
 		NParams:                   s.resolveNParams(info.Meta.NParams),
 		ToolCallSupport:           caps.ToolCallSupport,
 		SupportsPreserveReasoning: supportsPreserveReasoning,
@@ -348,6 +419,7 @@ func (s *Service) resolveModelPath(p string) string {
 	return p
 }
 
+// detectHasMTP 检测模型是否支持 MTP
 func (s *Service) detectHasMTP() bool {
 	cfg := s.getConfigSnapshot()
 	if cfg == nil {
@@ -474,12 +546,11 @@ func (s *Service) applyThinkingControl(req *llm.ChatCompletionRequest) {
 	// 思考开关映射（基于 llama.cpp 模板语义）：
 	//   - on:  显式 enable_thinking=true，强制要求模型思考
 	//   - off: 显式 enable_thinking=false，强制要求模型不思考
-	//   - auto/空: 不设置 enable_thinking，交给 llama-server --reasoning auto 与模板默认行为决定。
-	//     对 Qwen3.5 等小模型，模板在 enable_thinking 未定义时默认插入空思考块（不思考），
-	//     从而让简单问题直接作答，不再因 auto 被当作 on 而强制过度思考。
+	//   - auto/空: 不干预，完全交给 llama-server --reasoning auto 与模板默认行为决定。
+	//     尊重模型自身行为：模板默认不思考（如 Gemma）就不强制开启，
+	//     否则简单问候与简单问题也会被强制长时间思考。
 	// 对于 ThinkingModeReasoning 模型（DeepSeek），思考由服务端 reasoning 参数控制，无需 kwargs
 	if mode == llm.ThinkingModeTemplate {
-		// 仅在 on/off 时显式写入 enable_thinking；auto/空不写入，交由服务器与模板自主决定
 		explicit := false
 		var enableThinking bool
 		switch {
@@ -487,6 +558,8 @@ func (s *Service) applyThinkingControl(req *llm.ChatCompletionRequest) {
 			explicit, enableThinking = true, true
 		case cfg != nil && cfg.Reasoning == "off":
 			explicit, enableThinking = true, false
+		default:
+			// auto/空：不设置 enable_thinking，尊重模型模板自身的默认行为
 		}
 		if explicit {
 			if req.ChatTemplateKwargs == nil {

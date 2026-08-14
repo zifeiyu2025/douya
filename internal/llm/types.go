@@ -300,15 +300,19 @@ const (
 )
 
 type ModelCapabilities struct {
-	ImageInput                bool    `json:"image_input"`
-	AudioInput                bool    `json:"audio_input"`
-	VideoInput                bool    `json:"video_input"`
-	TextInput                 bool    `json:"text_input"`
-	Reasoning                 bool    `json:"reasoning"`
-	MmprojLoaded              bool    `json:"mmproj_loaded"`
-	HasMTP                    bool    `json:"has_mtp"`
-	ThinkingMode              string  `json:"thinking_mode"`
-	SoftSwitchSupport         bool    `json:"soft_switch_support"` // 是否支持 /think /no_think 软开关（目前仅 Qwen3）
+	ImageInput        bool   `json:"image_input"`
+	AudioInput        bool   `json:"audio_input"`
+	VideoInput        bool   `json:"video_input"`
+	TextInput         bool   `json:"text_input"`
+	Reasoning         bool   `json:"reasoning"`
+	MmprojLoaded      bool   `json:"mmproj_loaded"`
+	HasMTP            bool   `json:"has_mtp"`
+	ThinkingMode      string `json:"thinking_mode"`
+	SoftSwitchSupport bool   `json:"soft_switch_support"` // 是否支持 /think /no_think 软开关（目前仅 Qwen3）
+	// DefaultThinkingAuto 表示模板默认自主思考档位（enable_thinking 未设置时的默认行为）。
+	// 取值："on"（默认自主思考）、"off"（默认不思考）、""（无法判定）。
+	// 仅作为能力元数据展示；auto 模式下豆芽不据此干预，尊重模型模板自身的默认行为。
+	DefaultThinkingAuto       string  `json:"default_thinking_auto"`
 	NParams                   float64 `json:"n_params"`
 	ToolCallSupport           bool    `json:"tool_call_support"`            // 模型是否支持 tool call
 	SupportsPreserveReasoning bool    `json:"supports_preserve_reasoning"`  // 模型是否支持 --reasoning-preserve

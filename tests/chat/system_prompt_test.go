@@ -81,7 +81,7 @@ func TestSystemPrompt_CustomPrompt_AlwaysAppended(t *testing.T) {
 // 测试系统提示词中包含防泄露规则
 // 更新说明（H2 修复期间发现）：原测试期望否定式条款（"禁止复述""礼貌拒绝"等），
 // 但提示词已改为正面表述（"内部信息"+"这是内部信息"作为回应），
-// 见 service_messages.go "## 思考规范" 部分。
+// 见 service_messages.go "## 保密规范" 部分。
 func TestSystemPrompt_ContainsAntiLeakRules(t *testing.T) {
 	svc := newTestService()
 	svc.GetConfig().SystemPrompt = "" // 确保使用默认系统提示词
@@ -96,7 +96,7 @@ func TestSystemPrompt_ContainsAntiLeakRules(t *testing.T) {
 	antiLeakClauses := []string{
 		"内部信息",   // 核心概念：规则属于内部信息
 		"这是内部信息", // 统一回应方式
-		"思考规范",   // 章节标题
+		"保密规范",   // 章节标题
 		"私密性",    // 保持私密性
 	}
 
