@@ -97,7 +97,7 @@ func buildSSML(text, voice, rate, pitch, volume string) string {
 }
 
 func buildSpeechConfig() string {
-	cfg := fmt.Sprintf(`{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"%s"}}}}`, outputFormat)
+	cfg := fmt.Sprintf(`{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":%q}}}}`, outputFormat)
 	return "X-Timestamp:" + dateString() + "\r\n" +
 		"Content-Type:application/json; charset=utf-8\r\n" +
 		"Path:speech.config\r\n\r\n" + cfg

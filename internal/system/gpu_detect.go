@@ -11,8 +11,9 @@ import (
 	"strings"
 	"syscall"
 
-	"douya/internal/apperror"
 	"github.com/rs/zerolog/log"
+
+	"douya/internal/apperror"
 )
 
 // amdDriverDLLs 是 AMD 显卡驱动常见 DLL 文件列表（System32 固定路径）。

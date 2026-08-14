@@ -96,7 +96,7 @@ describe('useThemeOverrides', () => {
 
     it('common has key tokens as strings', () => {
       const overrides = useThemeOverrides()
-      const common = overrides.value.common!!
+      const common = overrides.value.common!
       // 关键 token 存在且为字符串
       expect(typeof common.primaryColor).toBe('string')
       expect(common.primaryColor).toBeTruthy()

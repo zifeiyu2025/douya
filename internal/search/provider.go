@@ -490,12 +490,20 @@ func matchCategory(pw *ProviderWithCircuit, category string) bool {
 	return slices.Contains(pw.categories, category)
 }
 
-// isSearchEngineSelfLink 判断是否为搜索引擎自身的链接
+// isSearchEngineSelfLink 判断是否为搜索引擎自身的链接。
+// 通过解析 host 做精确匹配（含子域），而非子串包含，避免
+// "https://example.com/bing.com/report" 之类的合法站点被误过滤。
+// 生活类比：识别"快递单上的发件地址"只需比对域名本身，而不是在长地址里找有没有"网站"字样。
+var searchSelfDomains = []string{"bing.com", "google.com", "so.com", "duckduckgo.com", "yahoo.com"}
+
 func isSearchEngineSelfLink(link string) bool {
-	lower := strings.ToLower(link)
-	selfDomains := []string{"www.so.com", "www.bing.com", "www.google.com", "duckduckgo.com", "search.yahoo.com"}
-	for _, d := range selfDomains {
-		if strings.Contains(lower, d) {
+	u, err := url.Parse(link)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	for _, d := range searchSelfDomains {
+		if host == d || strings.HasSuffix(host, "."+d) {
 			return true
 		}
 	}

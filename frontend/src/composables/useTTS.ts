@@ -438,7 +438,7 @@ function playOnlineAudio(b64: string, text: string, messageId?: string): void {
         clearTimeout(endGuardTimer)
         endGuardTimer = null
       }
-      if (byEvent) console.log('[TTS] 在线播放结束（ended 事件）')
+      if (byEvent) logWarn('[TTS] 在线播放结束（ended 事件）')
       if (speakingText.value === text) resetState()
       if (currentAudio === audio) {
         currentAudio = null
@@ -454,12 +454,15 @@ function playOnlineAudio(b64: string, text: string, messageId?: string): void {
       // 依据媒体时长设置兜底复位（时长未知时按 60 秒）
       const dur = isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 60
       if (endGuardTimer) clearTimeout(endGuardTimer)
-      endGuardTimer = setTimeout(() => {
-        if (currentAudio === audio && speakingText.value === text) {
-          console.log('[TTS] 在线播放结束（时长兜底复位）')
-          finishPlayback(false)
-        }
-      }, dur * 1000 + 500)
+      endGuardTimer = setTimeout(
+        () => {
+          if (currentAudio === audio && speakingText.value === text) {
+            logWarn('[TTS] 在线播放结束（时长兜底复位）')
+            finishPlayback(false)
+          }
+        },
+        dur * 1000 + 500
+      )
     }
     audio.onended = () => {
       finishPlayback(true)
@@ -543,7 +546,7 @@ async function speak(text: string, messageId?: string): Promise<void> {
       )
       // 合成期间若已被用户停止（点击同一段/切换），speakingText 已清空，则放弃播放
       if (speakingText.value !== text) return
-      console.log('[TTS] 在线合成成功', {
+      logWarn('[TTS] 在线合成成功', {
         voice: configVoiceName.value || '(默认晓晓)',
         textLen: cleanText.length,
         audioBytes: Math.round((b64.length * 3) / 4)
@@ -553,7 +556,7 @@ async function speak(text: string, messageId?: string): Promise<void> {
     } catch (e) {
       const errMsg = (e as Error)?.message || String(e)
       logWarn('[TTS] 在线合成失败，回退本地', errMsg)
-      console.log('[TTS] 失败详情', {
+      logWarn('[TTS] 失败详情', {
         voice: configVoiceName.value || '(默认晓晓)',
         textLen: cleanText.length,
         error: errMsg
@@ -564,7 +567,7 @@ async function speak(text: string, messageId?: string): Promise<void> {
 
   // 离线回退 / 在线关闭 / 在线失败：用本地播音员
   if (speakingText.value === text) {
-    console.log('[TTS] 使用本地播放', {
+    logWarn('[TTS] 使用本地播放', {
       reason: configOnline.value ? '在线失败或超时' : '在线未开启',
       voice: effectiveVoice.value?.name || '(自动挑选)'
     })

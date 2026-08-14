@@ -98,7 +98,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, onMounted, ref, watch } from 'vue'
+import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
 import { NButton, NIcon, NSelect, NTooltip } from 'naive-ui'
 import {
   MenuOutline,
@@ -560,6 +560,14 @@ watch(
 //     loadAvailableModels 仅调用 wails.getAvailableModels()，不依赖 config，可独立调用。
 onMounted(async () => {
   await loadAvailableModels()
+})
+
+// 卸载时清理防抖定时器，避免组件销毁后仍触发 loadAvailableModels
+onUnmounted(() => {
+  if (refreshModelsTimer) {
+    clearTimeout(refreshModelsTimer)
+    refreshModelsTimer = null
+  }
 })
 
 // 窗口控制事件转发：交由 App.vue 调用 useWindowControls 的对应方法处理

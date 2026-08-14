@@ -101,7 +101,9 @@
     <div class="footer-tip">
       <n-icon size="14" color="#888">
         <svg viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-6h2v6zm0-8h-2V7h2v4z" />
+          <path
+            d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-6h2v6zm0-8h-2V7h2v4z"
+          />
         </svg>
       </n-icon>
       <span>选择后如果无法启动，程序会询问您是否切换到 CPU</span>
@@ -110,9 +112,7 @@
     <template #footer>
       <n-space justify="end">
         <n-button @click="onCancel">取消</n-button>
-        <n-button type="primary" :loading="submitting" @click="onConfirm">
-          确认选择
-        </n-button>
+        <n-button type="primary" :loading="submitting" @click="onConfirm">确认选择</n-button>
       </n-space>
     </template>
   </n-modal>

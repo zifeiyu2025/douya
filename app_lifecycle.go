@@ -364,8 +364,8 @@ func (a *App) RestartApp() {
 	// 创建临时 bat 脚本：等待 2 秒后启动新进程，然后删除自身
 	// 权限设为 0600，仅文件所有者可读写，避免被其他用户篡改
 	batPath := filepath.Join(filepath.Dir(exe), "restart_douya.bat")
-	batContent := fmt.Sprintf("@echo off\r\ntimeout /t 2 /nobreak >nul\r\nstart \"\" \"%s\"\r\ndel \"%%~f0\"\r\n", exe)
-	if err := os.WriteFile(batPath, []byte(batContent), 0600); err != nil {
+	batContent := fmt.Sprintf("@echo off\r\ntimeout /t 2 /nobreak >nul\r\nstart \"\" %q\r\ndel \"%%~f0\"\r\n", exe)
+	if err := os.WriteFile(batPath, []byte(batContent), 0o600); err != nil {
 		zlog.Error().Err(err).Msg("[restart] 创建重启脚本失败")
 		a.forceQuit()
 		return

@@ -83,7 +83,13 @@ const ctx = inject<SettingsContext>(SETTINGS_CONTEXT_KEY)!
 const { formConfig, autoSave } = ctx
 
 // ===== GPU 状态信息（从后端 getBackendStatus 获取） =====
-const gpuInfo = ref({ has_gpu: false, has_cuda_backend: false, gpu_name: '', vram_gb: 0, gpu_vendor: '' })
+const gpuInfo = ref({
+  has_gpu: false,
+  has_cuda_backend: false,
+  gpu_name: '',
+  vram_gb: 0,
+  gpu_vendor: ''
+})
 
 /** 是否为 Vulkan 兜底检测（vendor=vulkan 且无真实显存） */
 const isVulkanFallback = computed(() => gpuInfo.value.gpu_vendor === 'vulkan')

@@ -157,7 +157,9 @@
   <div class="model-preset-bar">
     <span class="model-preset-label">
       模型预设
-      <HelpTip content="将当前生成参数保存为该模型的专属预设。切换到此模型时自动恢复，无需每次重调。" />
+      <HelpTip
+        content="将当前生成参数保存为该模型的专属预设。切换到此模型时自动恢复，无需每次重调。"
+      />
     </span>
     <span v-if="hasModelPreset" class="model-preset-status">已保存</span>
     <n-button

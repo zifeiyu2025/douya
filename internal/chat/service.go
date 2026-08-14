@@ -31,10 +31,12 @@ type Service struct {
 	// hostCtx is the application lifecycle context. It is deliberately separate
 	// from events: command cancellation is a use-case concern, while publishing
 	// is an infrastructure concern.
-	hostCtx           context.Context
-	appDir            string
-	currentCancel     context.CancelFunc
-	currentConvID     string
+	hostCtx       context.Context
+	appDir        string
+	currentCancel context.CancelFunc
+	currentConvID string
+	// genToken 单调递增，标识"当前槽位属于第几代生成"。见 beginGeneration 竞态修复。
+	genToken          uint64
 	mutex             sync.RWMutex
 	modelCaps         llm.ModelCapabilities
 	modelCapsMu       sync.RWMutex
@@ -142,6 +144,10 @@ func (s *Service) beginGeneration(parentCtx context.Context, initialConvID strin
 		oldCancel = s.currentCancel
 		oldConvID = s.currentConvID
 	}
+	// 为本次生成分配唯一令牌：cleanup 只清空"仍属于本代"的槽位，
+	// 避免旧代收尾时误清新一代的 currentCancel/currentConvID（竞态修复）。
+	s.genToken++
+	token := s.genToken
 	cancelCtx, cancel := context.WithCancel(parentCtx)
 	s.currentCancel = cancel
 	s.currentConvID = initialConvID
@@ -156,8 +162,10 @@ func (s *Service) beginGeneration(parentCtx context.Context, initialConvID strin
 
 	return cancelCtx, func() {
 		s.mutex.Lock()
-		s.currentCancel = nil
-		s.currentConvID = ""
+		if s.genToken == token {
+			s.currentCancel = nil
+			s.currentConvID = ""
+		}
 		s.mutex.Unlock()
 	}
 }

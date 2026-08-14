@@ -1296,6 +1296,38 @@ func TestBeginGeneration_EmptyInitialConvID(t *testing.T) {
 	}
 }
 
+// TestBeginGeneration_OldCleanupKeepsNewSlot 竞态修复：旧代 cleanup 不得误清新一代槽位。
+// 场景：A 生成中用户发起 B；A 被取消后于收尾时执行 cleanup，此时槽位应仍属于 B。
+func TestBeginGeneration_OldCleanupKeepsNewSlot(t *testing.T) {
+	s := &Service{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// A 启动
+	_, cleanupA := s.beginGeneration(ctx, "conv-A")
+
+	// B 启动（此时槽位切换为 B，并取消 A）
+	_, cleanupB := s.beginGeneration(ctx, "conv-B")
+
+	// A 收尾时执行 cleanupA —— 不应清空 B 的槽位
+	cleanupA()
+	if got := s.CurrentConvID(); got != "conv-B" {
+		t.Errorf("cleanupA 后 currentConvID 应仍为 conv-B, 实际 %q", got)
+	}
+	if cancelFn := s.currentCancel; cancelFn == nil {
+		t.Error("cleanupA 后 currentCancel 不应为 nil（仍属于 B）")
+	}
+
+	// B 正常收尾时才清空
+	cleanupB()
+	if got := s.CurrentConvID(); got != "" {
+		t.Errorf("cleanupB 后 currentConvID 应为空, 实际 %q", got)
+	}
+	if cancelFn := s.currentCancel; cancelFn != nil {
+		t.Error("cleanupB 后 currentCancel 应为 nil")
+	}
+}
+
 // =============================================================================
 // service_messages_build.go 纯函数测试
 // =============================================================================

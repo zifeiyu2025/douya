@@ -379,7 +379,7 @@ func (c *Client) GetToolsList(ctx context.Context) ([]byte, error) {
 func (c *Client) CallTool(ctx context.Context, toolName string, params json.RawMessage) ([]byte, error) {
 	body := map[string]any{
 		"tool":   toolName,
-		"params": json.RawMessage(params),
+		"params": params,
 	}
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {

@@ -44,7 +44,7 @@ func TestGenerateSecMsGec_Format(t *testing.T) {
 		t.Fatalf("Sec-MS-GEC 应为 64 位 hex，实际 %d 位: %s", len(token), token)
 	}
 	for _, c := range token {
-		if !((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F')) {
+		if (c < '0' || c > '9') && (c < 'A' || c > 'F') {
 			t.Fatalf("Sec-MS-GEC 含非法字符 %q: %s", c, token)
 		}
 	}

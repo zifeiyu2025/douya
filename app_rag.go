@@ -262,14 +262,16 @@ func (a *App) SetActiveKnowledgeBase(kbName string) error {
 		return err
 	}
 	// 复用统一入口 updateConfig：自动处理 a.config == nil（避免空指针），并统一快照语义
-	a.updateConfig(func(cfg *config.Config) error {
+	if err := a.updateConfig(func(cfg *config.Config) error {
 		cfg.RAGActiveKB = kbName
 		// 保存前校验，失败记录日志但不阻塞保存（避免阻塞切换知识库功能）
 		if err := cfg.Validate(); err != nil {
 			zlog.Warn().Err(err).Msg("[SetActiveKnowledgeBase] 配置校验失败，仍保存")
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
 	a.service.SetRAGCollection(kbName)
 	return config.Save(filepath.Join(appDir(), "config.json"), a.getConfig())
 }
@@ -281,7 +283,7 @@ func (a *App) GetActiveKnowledgeBase() string {
 func (a *App) SetRAGEnabled(enabled bool) {
 	// 复用统一入口 updateConfig：自动处理 a.config == nil（避免空指针），并统一快照语义
 	var autoDisabledSearch bool
-	a.updateConfig(func(cfg *config.Config) error {
+	if err := a.updateConfig(func(cfg *config.Config) error {
 		cfg.RAGEnabled = enabled
 		// RAG 开启时自动关闭联网搜索（两者互斥，RAG 优先级更高）
 		if enabled && cfg.SearchMode != "off" {
@@ -293,7 +295,10 @@ func (a *App) SetRAGEnabled(enabled bool) {
 			zlog.Warn().Err(err).Msg("[SetRAGEnabled] 配置校验失败，仍保存")
 		}
 		return nil
-	})
+	}); err != nil {
+		zlog.Error().Err(err).Msg("[SetRAGEnabled] 更新配置失败，中止切换")
+		return
+	}
 	// 锁外推送事件，避免持锁期间执行事件分发
 	if autoDisabledSearch && a.ctx != nil {
 		runtime.EventsEmit(a.ctx, EventSearchAutoDisabled, nil)

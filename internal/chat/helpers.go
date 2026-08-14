@@ -45,7 +45,7 @@ const (
 // 让估算值与 llama-server 实际行为一致，避免 MaxTokens 计算偏差。
 // 并发安全：通过 imageTokenEstimateMu 保护，避免模型切换（写）与请求构建（读）之间的数据竞争。
 var (
-	imageTokenEstimate int = 3500
+	imageTokenEstimate = 3500
 	// imageTokenEstimateMu 保护 imageTokenEstimate 的并发读写。
 	// 背景：SetImageTokenEstimate 在模型切换 goroutine 中写入，
 	// 而 estimateMessageTokens 等会在多个会话请求 goroutine 中并发读取，

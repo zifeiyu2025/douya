@@ -138,7 +138,7 @@ var _ = system.GPUTypeUnknown
 //
 // 生活类比：车检员让车主选了驾驶模式，结果发现这辆车不支持那个模式，
 // 车检员礼貌地回来告诉车主"这个模式用不了，建议换成稳妥的 CPU 模式，您看行吗？"
-func (a *App) askUseCpuFallback(ctx context.Context, failedBackend string) bool {
+func (a *App) askUseCPUFallback(ctx context.Context, failedBackend string) bool {
 	// 后端中文名映射，让提示更友好
 	backendCN := map[string]string{
 		"cuda":   "CUDA（NVIDIA）",

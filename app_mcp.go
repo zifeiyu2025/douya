@@ -56,21 +56,32 @@ func (a *App) SaveMCPServers(servers []config.MCPServerConfig) error {
 		a.configMu.Unlock()
 		return apperror.New(apperror.KindInvalidConfig, "配置未初始化")
 	}
-	newCfg := *a.config
+	oldCfg := a.config
+	newCfg := *oldCfg
 	newCfg.MCPServers = servers
 	cfg := &newCfg
 	a.config = cfg
 	a.configMu.Unlock()
 
+	// 后续任一持久化失败都回滚内存配置，避免"内存已改、磁盘未同步"的不一致状态
+	rollback := func(reason string, err error) {
+		a.configMu.Lock()
+		a.config = oldCfg
+		a.configMu.Unlock()
+		zlog.Warn().Err(err).Msgf("[mcp] %s，已回滚内存配置", reason)
+	}
+
 	// 2. 持久化 config.json
 	configPath := filepath.Join(appDir(), "config.json")
 	if err := config.Save(configPath, cfg); err != nil {
+		rollback("保存 config.json 失败", err)
 		return apperror.Wrap(apperror.KindInvalidConfig, "保存配置失败", err)
 	}
 
 	// 3. 生成 mcp_servers.json（仅包含已启用的 server）
 	mcpConfigPath := filepath.Join(appDir(), "mcp_servers.json")
 	if err := writeMcpServersFile(mcpConfigPath, servers); err != nil {
+		rollback("写入 mcp_servers.json 失败", err)
 		return apperror.Wrap(apperror.KindInternal, "写入 mcp_servers.json 失败", err)
 	}
 

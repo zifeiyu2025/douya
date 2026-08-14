@@ -239,6 +239,22 @@ func TestIsSearchEngineSelfLink_CaseInsensitive(t *testing.T) {
 	}
 }
 
+// TestIsSearchEngineSelfLink_SubstringNoFalsePositive 回归：子串包含不应误判
+// 域名仅作为路径/参数一部分出现时，不应被误判为搜索引擎自身链接。
+func TestIsSearchEngineSelfLink_SubstringNoFalsePositive(t *testing.T) {
+	cases := []string{
+		"https://example.com/bing.com/report",
+		"https://example.com/search?q=google.com",
+		"https://bing-com.evil.com/",
+		"https://www.google.com.evil.org/x",
+	}
+	for _, link := range cases {
+		if isSearchEngineSelfLink(link) {
+			t.Errorf("isSearchEngineSelfLink(%q) 期望 false，实际 true", link)
+		}
+	}
+}
+
 // TestDedupAndFilterResults_RemovesEmptyTitleOrURL 验证空标题或空链接被过滤
 func TestDedupAndFilterResults_RemovesEmptyTitleOrURL(t *testing.T) {
 	results := []SearchResult{

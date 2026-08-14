@@ -435,16 +435,20 @@ func writeUTF8BOM(path, content string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
 	// 写入 UTF-8 BOM（0xEF, 0xBB, 0xBF）
 	if _, err := f.Write([]byte{0xEF, 0xBB, 0xBF}); err != nil {
+		f.Close() // 关闭失败在此路径为次要错误，优先返回写错误
 		return err
 	}
 
 	// 写入内容
-	_, err = f.WriteString(content)
-	return err
+	if _, err := f.WriteString(content); err != nil {
+		f.Close()
+		return err
+	}
+	// 关闭时刷新缓冲；若关闭失败视为写失败
+	return f.Close()
 }
 
 // windowsAssetPatterns Windows 安装包资产匹配正则（包级缓存，避免每次检查更新时重复编译）

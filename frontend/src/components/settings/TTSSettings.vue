@@ -31,7 +31,9 @@
       <n-form-item>
         <template #label>
           在线 TTS（微软云端）
-          <HelpTip content="有网时优先使用微软在线神经语音，音质更自然；无网络时自动回退到本地语音" />
+          <HelpTip
+            content="有网时优先使用微软在线神经语音，音质更自然；无网络时自动回退到本地语音"
+          />
         </template>
         <div class="toggle-row">
           <n-switch v-model:value="formConfig.tts_online" @update:value="onToggleOnline" />
@@ -55,7 +57,7 @@
           placeholder="自动挑选（推荐晓晓）"
           clearable
           :loading="!tts.isSupported.value || voices.length === 0"
-          :render-label="(renderVoiceLabel as unknown as (option: SelectOption) => VNodeChild)"
+          :render-label="renderVoiceLabel as unknown as (option: SelectOption) => VNodeChild"
           @update:value="onVoiceChange"
         />
       </n-form-item>
@@ -132,7 +134,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onUnmounted, h, createVNode } from 'vue'
+import { computed, ref, watch, onMounted, onUnmounted, createVNode } from 'vue'
 import type { VNodeChild } from 'vue'
 import { NFormItem, NSwitch, NSelect, NSlider, NButton, NIcon, NTag, useMessage } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
@@ -222,7 +224,13 @@ function isOnlineCapable(name: string): boolean {
 function renderVoiceLabel(option: VoiceOption): VNodeChild {
   const children: VNodeChild[] = [createVNode('span', {}, option.label || '')]
   if (option.onlineCapable) {
-    children.push(createVNode(NTag, { size: 'small', type: 'success', bordered: false, round: true }, { default: () => '在线' }))
+    children.push(
+      createVNode(
+        NTag,
+        { size: 'small', type: 'success', bordered: false, round: true },
+        { default: () => '在线' }
+      )
+    )
   }
   return createVNode('span', { class: 'voice-option' }, children)
 }

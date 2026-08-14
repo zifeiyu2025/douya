@@ -1709,8 +1709,9 @@ func TestClose_CollectionLockNoPanic(t *testing.T) {
 	if mu == nil {
 		t.Fatal("collectionLock 返回 nil，期望非 nil mutex")
 	}
-	// 加解锁应正常工作
+	// 加解锁应正常工作（验证拿到的 mutex 可用，不 panic）
 	mu.Lock()
+	_ = mu // 在临界区内执行一次读取，避免 staticcheck SA2001 空临界区告警
 	mu.Unlock()
 }
 

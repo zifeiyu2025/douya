@@ -231,8 +231,12 @@ func (s *Service) executeSearchToolCall(cancelCtx context.Context, convID string
 		ToolCallID: tc.ID,
 		Results:    searchResp.Results,
 	})
-	sj, _ := json.Marshal(searchResp.Results)
-	result.searchJSON = string(sj)
+	sj, err := json.Marshal(searchResp.Results)
+	if err != nil {
+		log.Error().Err(err).Msg("[toolCall] 序列化搜索结果失败")
+	} else {
+		result.searchJSON = string(sj)
+	}
 	lang := detectLanguage(args.Query)
 	toolContent := formatSearchResultsWithLang(searchResp.Results, lang) + searchResultInstruction(lang)
 	// M7: 截断搜索结果，防止上下文膨胀
@@ -386,7 +390,11 @@ func (s *Service) appendToolCallMessages(convID string, llmMessages []llm.ChatMe
 		if tr.tc.Function.Name == "" {
 			continue
 		}
-		assistantToolCallJSON, _ := json.Marshal([]llm.ToolCall{tr.tc})
+		assistantToolCallJSON, err := json.Marshal([]llm.ToolCall{tr.tc})
+		if err != nil {
+			log.Error().Err(err).Msg("[toolCall] 序列化 tool call 消息失败，跳过该条")
+			continue
+		}
 		toWrite = append(toWrite, &store.Message{
 			ConversationID:   convID,
 			Role:             "assistant",

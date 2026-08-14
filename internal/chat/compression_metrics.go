@@ -47,7 +47,7 @@ func (s *CompressionStats) inc(why contextTrimReason) {
 	}
 }
 
-// Snapshot 是 CompressionStats 的可读快照，用于日志/前端展示。
+// CompressionStatsSnapshot 是 CompressionStats 的可读快照，用于日志/前端展示。
 type CompressionStatsSnapshot struct {
 	PreventiveTrimmed int `json:"preventive_trimmed"`
 	ExceedTrimmed     int `json:"exceed_trimmed"`

@@ -23,7 +23,7 @@ func TestPathWithinDir(t *testing.T) {
 		{name: "runtime 子目录下", exe: filepath.Join(dir, "cuda", "llama-server.exe"), want: true},
 		{name: "兄弟目录 runtime_evil 误判", exe: `C:\Users\test\AppData\Roaming\douya\runtime_evil\llama-server.exe`, want: false},
 		{name: "上级目录", exe: `C:\Users\test\AppData\Roaming\douya\llama-server.exe`, want: false},
-		{name: "完全无关目录", exe: `D:\other\llama-server.exe`, want: false},
+		{name: "完全无关目录", exe: `D:\elsewhere\llama-server.exe`, want: false},
 		{name: "大小写不同盘符", exe: `c:\Users\test\AppData\Roaming\douya\runtime\llama-server.exe`, want: true},
 	}
 

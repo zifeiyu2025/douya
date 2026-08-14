@@ -22,6 +22,7 @@ const DefaultOnlineVoice = "zh-CN-XiaoxiaoNeural"
 // MicrosoftChineseVoices 微软全部中文（zh-CN）发音人清单。
 //   - Local=true：Windows Web Speech API 提供本地音色（离线可用）
 //   - Online=true：Edge TTS 提供 Neural 在线音色（见 OnlineName）
+//
 // 本地与在线音色一一对应，音质一致。晓晓（Xiaoxiao）为默认在线音色。
 //
 //	本地名             在线 Neural 音色          性别   本地  在线

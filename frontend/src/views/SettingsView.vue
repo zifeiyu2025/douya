@@ -101,7 +101,13 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, onUnmounted, provide } from 'vue'
-import { NForm, NCollapse, NCollapseItem, useMessage, type UploadCustomRequestOptions } from 'naive-ui'
+import {
+  NForm,
+  NCollapse,
+  NCollapseItem,
+  useMessage,
+  type UploadCustomRequestOptions
+} from 'naive-ui'
 import { useSettingsStore } from '../stores/settings'
 import { matchModelRef } from '../stores/settings'
 import { MODEL_REFS } from '../utils/modelRefs'
@@ -346,9 +352,12 @@ async function onExposeServerToggle() {
       return
     }
     await autoSave()
-    message.warning('已开启局域网访问，重启服务后生效。同一局域网内的设备可通过本机 IP 访问 API。', {
-      duration: 5000
-    })
+    message.warning(
+      '已开启局域网访问，重启服务后生效。同一局域网内的设备可通过本机 IP 访问 API。',
+      {
+        duration: 5000
+      }
+    )
   } else {
     await autoSave()
     message.info('已关闭局域网访问，重启服务后仅本机可访问。', { duration: 3000 })
@@ -493,7 +502,10 @@ const maxAvatarSize = 1024 * 1024
  * @param data n-upload custom-request 回调传入的数据
  * @param fieldName 要写入 formConfig 的字段名（'user_avatar' 或 'ai_avatar'）
  */
-async function handleAvatarUpload(data: UploadCustomRequestOptions, fieldName: 'user_avatar' | 'ai_avatar') {
+async function handleAvatarUpload(
+  data: UploadCustomRequestOptions,
+  fieldName: 'user_avatar' | 'ai_avatar'
+) {
   const file = data.file.file as File
   if (file.size > maxAvatarSize) {
     message.destroyAll()

@@ -57,7 +57,7 @@ var downloadHTTPClient = &http.Client{
 // 生活类比：总台接线员——无论是问发动机型号还是配件型号，都打同一个电话，
 // 不用每次重新拨号。
 func fetchGitHubLatestRelease() (*GitHubRelease, error) {
-	req, err := http.NewRequest("GET", GitHubReleasesAPI, nil)
+	req, err := http.NewRequest("GET", GitHubReleasesAPI, http.NoBody)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.KindUnavailable, "创建 GitHub API 请求失败", err)
 	}
@@ -335,7 +335,7 @@ func downloadFile(downloadURL, destPath string, totalSize int64, bt BackendType,
 		}
 	}()
 
-	req, err := http.NewRequest("GET", downloadURL, nil)
+	req, err := http.NewRequest("GET", downloadURL, http.NoBody)
 	if err != nil {
 		return apperror.Wrap(apperror.KindUnavailable, "创建下载请求失败", err)
 	}
@@ -483,7 +483,7 @@ func DownloadBackendZipWithContext(ctx context.Context, bt BackendType, runtimeD
 		Msg("[backend] 开始下载后端 zip 包")
 
 	// 使用带 context 的请求，支持取消
-	req, err := http.NewRequestWithContext(ctx, "GET", asset.BrowserDownloadURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", asset.BrowserDownloadURL, http.NoBody)
 	if err != nil {
 		return "", apperror.Wrap(apperror.KindUnavailable, "创建下载请求失败", err)
 	}

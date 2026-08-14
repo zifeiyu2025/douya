@@ -64,8 +64,8 @@ built with MSVC 19.45.37664.0 for x64`,
 			wantErr:     false,
 		},
 		{
-			name: "新版格式_语义版本短commit",
-			output: `version: 0.1.0 (build 10424, commit abc123)`,
+			name:        "新版格式_语义版本短commit",
+			output:      `version: 0.1.0 (build 10424, commit abc123)`,
 			wantVersion: 10424,
 			wantCommit:  "abc123",
 			wantErr:     false,
@@ -172,5 +172,3 @@ func parseIntSafe(s string) (int, error) {
 	}
 	return n, nil
 }
-
-

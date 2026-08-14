@@ -79,12 +79,8 @@ export function useVoiceInput(inputText: Ref<string>) {
           interim += result[0].transcript
         }
       }
-      if (finalTranscript) {
-        voiceFinalBuffer += finalTranscript
-        inputText.value = voiceFinalBuffer + interim
-      } else {
-        inputText.value = voiceFinalBuffer + interim
-      }
+      if (finalTranscript) voiceFinalBuffer += finalTranscript
+      inputText.value = voiceFinalBuffer + interim
       voiceInterimText.value = interim
     }
 

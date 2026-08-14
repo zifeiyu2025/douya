@@ -151,7 +151,7 @@ func parseServerVersionOutput(output string) (version int, commit string, err er
 //   - tag: release tag（如 "b10220"）
 //   - err: 查询失败时的错误
 func GetLatestReleaseTag() (version int, tag string, err error) {
-	req, err := http.NewRequest("GET", GitHubReleasesAPI, nil)
+	req, err := http.NewRequest("GET", GitHubReleasesAPI, http.NoBody)
 	if err != nil {
 		return 0, "", apperror.Wrap(apperror.KindInternal, "创建 GitHub API 请求失败", err)
 	}

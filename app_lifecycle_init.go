@@ -173,7 +173,7 @@ func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
 				// 其他失败（解压失败/磁盘问题）：询问是否回退 CPU
 				zlog.Warn().Err(err).Str("backend", resolvedBackend.String()).
 					Msg("[startup] 灰色地带用户选择的后端安装失败，询问是否回退 CPU")
-				if a.askUseCpuFallback(ctx, resolvedBackend.String()) {
+				if a.askUseCPUFallback(ctx, resolvedBackend.String()) {
 					// 用户同意回退 CPU
 					fallbackPath, cpuErr := llm.EnsureBackendInstalled(llm.BackendCPU, runtimeDir, nil)
 					if cpuErr != nil {

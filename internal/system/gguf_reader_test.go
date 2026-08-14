@@ -395,8 +395,8 @@ func TestGGUFReader_ReadAfterEOF(t *testing.T) {
 	if err == nil {
 		t.Error("期望读完后再读返回错误，实际返回 nil")
 	}
-	if err != io.EOF {
-		// binary.Read 在数据不足时返回 io.ErrUnexpectedEOF 或 io.EOF
-		// 两者都是合理的错误
+	if err != io.EOF && err != io.ErrUnexpectedEOF {
+		// binary.Read 在数据不足时返回 io.ErrUnexpectedEOF 或 io.EOF，两者都是合理的错误
+		t.Errorf("期望 io.EOF 或 io.ErrUnexpectedEOF，实际 %v", err)
 	}
 }

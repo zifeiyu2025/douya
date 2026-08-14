@@ -107,7 +107,11 @@
             v-if="!isUser && tts.isSpeaking(message.id) && tts.currentBackend.value"
             class="tts-backend-badge"
             :class="tts.currentBackend.value"
-            :title="tts.currentBackend.value === 'online' ? '正在使用微软在线神经语音' : '正在使用本地 Web Speech 语音'"
+            :title="
+              tts.currentBackend.value === 'online'
+                ? '正在使用微软在线神经语音'
+                : '正在使用本地 Web Speech 语音'
+            "
           >
             {{ tts.currentBackend.value === 'online' ? '在线' : '本地' }}
           </span>

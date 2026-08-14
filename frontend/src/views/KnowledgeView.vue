@@ -257,7 +257,8 @@ import {
   NSlider,
   NInputNumber,
   useMessage,
-  useDialog
+  useDialog,
+  type UploadCustomRequestOptions
 } from 'naive-ui'
 import {
   AddOutline,
@@ -455,7 +456,7 @@ async function handleDeleteDoc(docID: string) {
   }
 }
 
-async function handleFileUpload({ file }: any) {
+async function handleFileUpload({ file }: UploadCustomRequestOptions) {
   uploading.value = true
   try {
     const f = file.file as File
