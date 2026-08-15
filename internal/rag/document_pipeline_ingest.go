@@ -229,13 +229,19 @@ func writeChunksTransaction(vs *VectorStore, collectionName string, ids []string
 // rollbackChunkWrites 回滚已写入的 chunk 文本和元数据。
 // 用于 chunk 写入失败比例超阈值或向量写入失败时的恢复。
 func rollbackChunkWrites(vs *VectorStore, collectionName string, writtenIDs []string) {
-	_ = vs.db.Update(func(txn *badger.Txn) error {
+	// 回滚失败会导致孤儿 chunk 残留（向量/文本不一致），必须留痕便于人工排查
+	err := vs.db.Update(func(txn *badger.Txn) error {
 		for _, id := range writtenIDs {
+			// 单条删除失败继续删其余条目，尽力减少残留
 			_ = txn.Delete(chunkKey(collectionName, id))
 			_ = txn.Delete(chunkMetaKey(collectionName, id))
 		}
 		return nil
 	})
+	if err != nil {
+		log.Error().Err(err).Str("collection", collectionName).Int("count", len(writtenIDs)).
+			Msg("[rag] rollbackChunkWrites 回滚失败，可能残留孤儿 chunk")
+	}
 }
 
 // writeVectorsForWrittenChunks 只对成功写入 chunk 文本的 id 写入向量，保持向量与文本的一致性。

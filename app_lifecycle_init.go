@@ -275,12 +275,16 @@ func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
 			"点击「否」将直接退出应用。",
 		gpuName, info.DisplayName, missingMsg.String())
 
-	dlResult, _ := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+	dlResult, dlErr := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 		Type:    runtime.QuestionDialog,
 		Title:   "缺少推理后端，是否下载？",
 		Message: askMsg,
 		Buttons: []string{"是", "否"},
 	})
+	// 对话框调用失败时 dlResult 为空，白名单退出逻辑会走默认下载路径；此处仅留痕诊断
+	if dlErr != nil {
+		zlog.Error().Err(dlErr).Msg("[startup] MessageDialog 调用失败，将按默认流程继续（下载）")
+	}
 
 	// 记录返回值用于调试（Wails MessageDialog 在不同 Windows 版本下返回值可能有编码差异）
 	zlog.Info().Str("dlResult", dlResult).Msg("[startup] MessageDialog 返回值")

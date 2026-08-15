@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	pdf "github.com/ledongthuc/pdf"
+	"github.com/rs/zerolog/log"
 
 	"douya/internal/apperror"
 )
@@ -79,7 +80,10 @@ func ExtractTextWithLib(data []byte) (string, error) {
 			defer func() { <-sem }() // 释放槽位
 			defer func() {
 				// 防御性 recover：单页 panic 不影响其他页，页面解析异常时保留空字符串
-				_ = recover()
+				if r := recover(); r != nil {
+					log.Error().Interface("panic", r).Int("page", pageNum).
+						Msg("[pdfutil] PDF 单页解析 panic，已跳过该页")
+				}
 			}()
 			page := reader.Page(pageNum)
 			if page.V.IsNull() {
@@ -87,6 +91,8 @@ func ExtractTextWithLib(data []byte) (string, error) {
 			}
 			content, err := page.GetPlainText(nil)
 			if err != nil {
+				log.Warn().Err(err).Int("page", pageNum).
+					Msg("[pdfutil] PDF 单页文本提取失败，已跳过该页")
 				return
 			}
 			pages[pageNum-1] = strings.TrimSpace(content)
