@@ -598,7 +598,7 @@ export const DEFAULT_CONFIG: Config = {
   reranker_model_path: '',
   rerank_top_n: 5,
   slot_save_path: '',
-  slot_save_enabled: false,
+  slot_save_enabled: true,
   spec_draft_ngl: 0,
   spec_draft_device: '',
   backend_sampling: false,

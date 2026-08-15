@@ -352,7 +352,7 @@ func DefaultConfig() *Config {
 		RerankerModelPath:        "",
 		RerankTopN:               5,
 		SlotSavePath:             "",
-		SlotSaveEnabled:          false,
+		SlotSaveEnabled:          true,
 		SpecDraftNgl:             0,
 		SpecDraftDevice:          "",
 		SpecDraftPSplit:          0,
