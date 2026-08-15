@@ -11,8 +11,8 @@ require (
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/mattn/go-sqlite3 v1.14.49
 	github.com/rs/zerolog v1.35.1
-	github.com/wailsapp/wails/v2 v2.13.0
-	golang.org/x/net v0.57.0
+	github.com/wailsapp/wails/v2 v2.14.0
+	golang.org/x/net v0.58.0
 )
 
 require (
@@ -49,8 +49,8 @@ require (
 	go.opentelemetry.io/otel v1.45.0 // indirect
 	go.opentelemetry.io/otel/metric v1.45.0 // indirect
 	go.opentelemetry.io/otel/trace v1.45.0 // indirect
-	golang.org/x/crypto v0.54.0 // indirect
+	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
