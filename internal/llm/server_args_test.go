@@ -272,3 +272,45 @@ func TestAppendSwitchArgs_ChatTemplateFile_AbsolutePath(t *testing.T) {
 		t.Errorf("期望 --chat-template-file=%q，实际得到: %q", absPath, got)
 	}
 }
+
+// ===== 后端安全限制测试（ApplyBackendSafetyLimits） =====
+
+// TestApplyBackendSafetyLimits 验证各后端的安全限制取值。
+//
+// v2 放宽版背景：对齐 llama.cpp 原生 auto 行为——
+//   - Vulkan ngl 50→99（允许全层卸载，上游已修复栈溢出）、ctx 8192→32768
+//   - CPU ctx 8192→32768（与 GPU 后端统一），ngl 仍强制 0
+//   - CUDA 不做限制（由 Blackwell/架构专项规则另行处理）
+func TestApplyBackendSafetyLimits(t *testing.T) {
+	cases := []struct {
+		name    string
+		backend BackendType
+		inNgl   string
+		inCtx   int
+		wantNgl string
+		wantCtx int
+	}{
+		// Vulkan：全层卸载（99）与 32K 上下文均放行，对齐 llama.cpp 原生行为
+		{name: "Vulkan_全层卸载放行", backend: BackendVulkan, inNgl: "99", inCtx: 32768, wantNgl: "99", wantCtx: 32768},
+		{name: "Vulkan_超99层封顶", backend: BackendVulkan, inNgl: "150", inCtx: 8192, wantNgl: "99", wantCtx: 8192},
+		{name: "Vulkan_超32K上下文封顶", backend: BackendVulkan, inNgl: "50", inCtx: 65536, wantNgl: "50", wantCtx: 32768},
+		// CPU：ngl 强制 0，ctx 上限与 GPU 统一
+		{name: "CPU_强制纯CPU推理", backend: BackendCPU, inNgl: "30", inCtx: 8192, wantNgl: "0", wantCtx: 8192},
+		{name: "CPU_超32K上下文封顶", backend: BackendCPU, inNgl: "0", inCtx: 65536, wantNgl: "0", wantCtx: 32768},
+		// CUDA：本方法不做额外限制
+		{name: "CUDA_不做限制", backend: BackendCUDA, inNgl: "999", inCtx: 65536, wantNgl: "999", wantCtx: 65536},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &ServerConfig{GPULayers: tc.inNgl, ContextSize: tc.inCtx}
+			c.ApplyBackendSafetyLimits(tc.backend)
+			if c.GPULayers != tc.wantNgl {
+				t.Errorf("gpu-layers 期望 %q，实际 %q", tc.wantNgl, c.GPULayers)
+			}
+			if c.ContextSize != tc.wantCtx {
+				t.Errorf("ctx-size 期望 %d，实际 %d", tc.wantCtx, c.ContextSize)
+			}
+		})
+	}
+}

@@ -393,29 +393,35 @@ func appendFloatArg(args []string, flag string, val float64, format string) []st
 func (c *ServerConfig) ApplyBackendSafetyLimits(backend BackendType) {
 	switch backend {
 	case BackendVulkan:
-		// Vulkan 后端硬限制：gpu_layers <= 50，ctx_size <= 8192
-		// 原因：全层卸载（99）在 Vulkan 上容易导致栈溢出崩溃（0xC0000409）
-		if ngl, err := strconv.Atoi(c.GPULayers); err == nil && ngl > 50 {
-			log.Warn().Str("original_ngl", c.GPULayers).Int("capped_ngl", 50).
-				Msg("[server-config] Vulkan backend safety limit: gpu-layers capped to 50")
-			c.GPULayers = "50"
+		// Vulkan 后端安全限制（v2 放宽版，对齐 llama.cpp 原生 auto 行为）：
+		//   - gpu_layers <= 99：允许全层卸载。旧版限 50 是针对当年 Vulkan 栈溢出
+		//     崩溃（0xC0000409）的临时措施；上游 llama.cpp 已修复且豆芽跟踪最新构建，
+		//     继续限 50 会导致大模型（>50 层，如 32B 系列）在 AMD/Intel 卡上只能半载。
+		//     恢复路径：崩溃时 enhanceExitError 提示 + 后端回退链仍生效。
+		//   - ctx_size <= 32768：与 CUDA/Blackwell 规则对齐（防超长上下文 OOM），
+		//     旧版 8192 封顶导致非 N 卡用户长上下文不可用。
+		if ngl, err := strconv.Atoi(c.GPULayers); err == nil && ngl > 99 {
+			log.Warn().Str("original_ngl", c.GPULayers).Int("capped_ngl", 99).
+				Msg("[server-config] Vulkan backend safety limit: gpu-layers capped to 99")
+			c.GPULayers = "99"
 		}
-		if c.ContextSize > 8192 {
-			log.Warn().Int("original_ctx", c.ContextSize).Int("capped_ctx", 8192).
-				Msg("[server-config] Vulkan backend safety limit: ctx-size capped to 8192")
-			c.ContextSize = 8192
+		if c.ContextSize > 32768 {
+			log.Warn().Int("original_ctx", c.ContextSize).Int("capped_ctx", 32768).
+				Msg("[server-config] Vulkan backend safety limit: ctx-size capped to 32768")
+			c.ContextSize = 32768
 		}
 	case BackendCPU:
-		// CPU 后端硬限制：gpu_layers = 0，ctx_size <= 8192
+		// CPU 后端硬限制：gpu_layers = 0（无 GPU），ctx_size <= 32768
+		// ctx 上限与 GPU 后端统一（KV 走内存，llama.cpp 原生不封顶，此处仅防极端 OOM）
 		if ngl, err := strconv.Atoi(c.GPULayers); err == nil && ngl > 0 {
 			log.Warn().Str("original_ngl", c.GPULayers).Int("capped_ngl", 0).
 				Msg("[server-config] CPU backend safety limit: gpu-layers forced to 0")
 			c.GPULayers = "0"
 		}
-		if c.ContextSize > 8192 {
-			log.Warn().Int("original_ctx", c.ContextSize).Int("capped_ctx", 8192).
-				Msg("[server-config] CPU backend safety limit: ctx-size capped to 8192")
-			c.ContextSize = 8192
+		if c.ContextSize > 32768 {
+			log.Warn().Int("original_ctx", c.ContextSize).Int("capped_ctx", 32768).
+				Msg("[server-config] CPU backend safety limit: ctx-size capped to 32768")
+			c.ContextSize = 32768
 		}
 	}
 }
