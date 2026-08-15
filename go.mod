@@ -2,6 +2,8 @@ module douya
 
 go 1.26.3
 
+toolchain go1.26.6
+
 require (
 	fyne.io/systray v1.12.2
 	github.com/UserExistsError/conpty v0.1.4
