@@ -3,8 +3,6 @@
  * 把原来散装的 7 个 ref + 4 个 timer 合并为单一状态
  */
 
-import type { ModelCapabilities } from './chat'
-
 /** 切换进度阶段 */
 // 'retrying'：模型加载进入后台等待/重试阶段（后端 app_server_watch.go 推送），
 // 前端将其归入 loading 类展示，不改主状态机。
@@ -63,26 +61,6 @@ export type ModelSwitchState =
     }
   | { phase: 'timeout'; targetModel: string; startedAt: number }
   | { phase: 'first_load_failed'; error: string; targetModel: string; startedAt: number }
-
-/** 模型能力标志 */
-export type ModelCapabilityKey =
-  'image_input' | 'audio_input' | 'video_input' | 'text_input' | 'reasoning'
-
-/** 状态机的对外接口 */
-export interface ModelSwitchContext {
-  state: import('vue').Ref<ModelSwitchState>
-  isSwitching: import('vue').ComputedRef<boolean>
-  isFirstLoad: import('vue').ComputedRef<boolean>
-  hasFailed: import('vue').ComputedRef<boolean>
-  progressText: import('vue').ComputedRef<string>
-  overlayModelName: import('vue').ComputedRef<string>
-  startSwitch: (model: string, prev: string) => void
-  reportProgress: (stage: BackendProgressStage) => void
-  finishSuccess: (model: string, caps?: ModelCapabilities) => void
-  finishFailure: (err: string, prev: string, rolledBack: boolean, rbSuccess: boolean) => void
-  finishTimeout: () => void
-  reset: () => void
-}
 
 /** 切换时序常量(从原 settings.ts 提取) */
 export const SWITCH_TIMING = {
