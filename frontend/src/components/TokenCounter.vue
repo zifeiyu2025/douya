@@ -139,7 +139,49 @@ function formatCtx(n: number): string {
 }
 
 // 使用 llama.cpp 原生 /tokenize API 实时计算 token 数
+// 优化策略（本地即时估算 + 异步精确校准 + 结果缓存）：
+//   1. 输入变化时先用轻量本地估算立即显示，避免等待后端往返
+//   2. 后台异步调用 /tokenize 精确校准，覆盖估算值
+//   3. tokenize 结果按文本缓存，相同文本不重复调用
+//   4. 空文本直接显示 0，不发起请求
 let requestVersion = 0 // IPC 请求版本号，防止快速输入时旧结果覆盖新结果
+
+// 本地即时估算 token 数（轻量、无网络开销）
+// 规则：中文/全角按单字符估算，英文/数字按 4 字符≈1 token，标点按 1 字符≈0.5 token。
+// 生活类比：先"目测"大概多少人，再让吧台精确数一遍。
+function estimateTokens(text: string): number {
+  if (!text) return 0
+  let count = 0
+  for (const ch of text) {
+    const code = ch.codePointAt(0)!
+    if (code <= 0x7f) {
+      // ASCII（英文、数字、常见标点）：较紧凑，估算 0.25 token/字符
+      count += 0.25
+    } else if (code >= 0x4e00 && code <= 0x9fff) {
+      // CJK 统一表意文字（中文）：约 1 token/字符
+      count += 1
+    } else {
+      // 其他（全角标点、emoji 等）：约 0.8 token/字符
+      count += 0.8
+    }
+  }
+  return Math.max(1, Math.round(count))
+}
+
+// tokenize 结果缓存：text -> token 数，避免相同文本重复调用后端
+const tokenCache = new Map<string, number>()
+const TOKEN_CACHE_MAX = 200 // 防止缓存无限膨胀
+
+function cacheToken(text: string, n: number) {
+  if (tokenCache.size >= TOKEN_CACHE_MAX) {
+    // 简单清空最旧一半，控制内存
+    const keys = Array.from(tokenCache.keys())
+    for (let i = 0; i < TOKEN_CACHE_MAX / 2 && i < keys.length; i++) {
+      tokenCache.delete(keys[i])
+    }
+  }
+  tokenCache.set(text, n)
+}
 
 function scheduleCount(text: string) {
   if (timer) {
@@ -151,15 +193,29 @@ function scheduleCount(text: string) {
     return
   }
   if (!show.value) return
+
+  // 命中缓存：直接使用精确值，不发起请求
+  const cached = tokenCache.get(text)
+  if (cached !== undefined) {
+    inputTokens.value = cached
+    return
+  }
+
+  // 未命中缓存：先用本地估算立即显示
+  inputTokens.value = estimateTokens(text)
+
+  // 后台异步精确校准（带防抖，避免高频输入时频繁请求）
   timer = setTimeout(async () => {
     const version = ++requestVersion
     try {
       const tokens = await wails.tokenize(text)
       // 丢弃过期结果：用户已输入新内容，旧请求的结果不再适用
       if (version !== requestVersion) return
-      inputTokens.value = tokens.length
+      const n = tokens.length
+      inputTokens.value = n
+      cacheToken(text, n)
     } catch {
-      // 静默
+      // 静默：保留本地估算值
     }
   }, 150)
 }
