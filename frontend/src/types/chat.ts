@@ -357,6 +357,7 @@ export interface Config {
   ctx_checkpoints: number
   checkpoint_min_step: number
   tools: string
+  enable_builtin_tools: boolean
   prefill_assistant: boolean
   slot_prompt_similarity: number
   skip_chat_parsing: boolean
@@ -568,6 +569,7 @@ export const DEFAULT_CONFIG: Config = {
   ctx_checkpoints: 32,
   checkpoint_min_step: 256,
   tools: '',
+  enable_builtin_tools: false,
   prefill_assistant: true,
   slot_prompt_similarity: 0.1,
   skip_chat_parsing: false,

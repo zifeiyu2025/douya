@@ -161,6 +161,41 @@ func TestValidate_ValidReasoning(t *testing.T) {
 	}
 }
 
+// TestRepair_EnableBuiltinToolsClearsTools 验证 EnableBuiltinTools=true 时清空细粒度 tools
+func TestRepair_EnableBuiltinToolsClearsTools(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.EnableBuiltinTools = true
+	cfg.Tools = "read_file"
+	repaired := cfg.repairInvalidFields()
+	if cfg.Tools != "" {
+		t.Errorf("期望 EnableBuiltinTools 开启时 Tools 被清空，实际 %q", cfg.Tools)
+	}
+	found := false
+	for _, msg := range repaired {
+		if containsStr(msg, "enable_builtin_tools") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("期望修复列表包含 enable_builtin_tools，实际 %v", repaired)
+	}
+}
+
+// TestRepair_EnableBuiltinToolsFalseKeepsTools 验证 EnableBuiltinTools=false 时保留细粒度 tools
+func TestRepair_EnableBuiltinToolsFalseKeepsTools(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.EnableBuiltinTools = false
+	cfg.Tools = "read_file,grep_search"
+	repaired := cfg.repairInvalidFields()
+	if cfg.Tools != "read_file,grep_search" {
+		t.Errorf("期望 Tools 不被清空，实际 %q", cfg.Tools)
+	}
+	if len(repaired) != 0 {
+		t.Errorf("期望无修复项，实际 %v", repaired)
+	}
+}
+
 // TestValidate_TopK 验证 TopK 为负数时返回错误
 func TestValidate_TopK(t *testing.T) {
 	cfg := DefaultConfig()

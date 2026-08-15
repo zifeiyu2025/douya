@@ -37,6 +37,16 @@
 
       <n-form-item>
         <template #label>
+          内置工具
+          <HelpTip
+            content="启用 llama.cpp 全部内置工具（文件读写、全局搜索、shell 命令执行等），并将工具定义注入给模型供其调用。含 exec_shell_command 等可执行命令的危险工具，仅在本机可信环境使用"
+          />
+        </template>
+        <n-switch v-model:value="formConfig.enable_builtin_tools" @update:value="autoSave" />
+      </n-form-item>
+
+      <n-form-item>
+        <template #label>
           MCP CORS 代理
           <HelpTip content="仅为 Web UI 的 MCP 功能启用 CORS 代理。Agent 模式已包含此项" />
         </template>

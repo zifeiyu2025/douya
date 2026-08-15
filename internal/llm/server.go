@@ -177,6 +177,7 @@ type ServerConfig struct {
 	CtxCheckpoints         int
 	CheckpointMinStep      int
 	Tools                  string
+	EnableBuiltinTools     bool
 	PrefillAssistant       bool
 	SlotPromptSimilarity   float64
 	SkipChatParsing        bool

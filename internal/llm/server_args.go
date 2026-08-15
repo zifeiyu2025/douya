@@ -400,7 +400,14 @@ func (s *Server) appendNewFeatureArgs(args []string) []string {
 	args = appendBoolArg(args, "--swa-full", s.config.SwaFull)
 	args = appendIntArg(args, "--ctx-checkpoints", s.config.CtxCheckpoints)
 	args = appendIntArg(args, "--checkpoint-min-step", s.config.CheckpointMinStep)
-	args = appendStringArg(args, "--tools", s.config.Tools)
+	// 内置工具：启用全量开关时传 --tools all（覆盖全部内置工具），
+	// 否则按细粒度 tools 字符串拼接（config 中二者互斥，EnableBuiltinTools 优先）。
+	// 生活类比：全量开关 = 直接开"全员进厨房"权限；细粒度 = 逐个点名放行。
+	if s.config.EnableBuiltinTools {
+		args = append(args, "--tools", "all")
+	} else {
+		args = appendStringArg(args, "--tools", s.config.Tools)
+	}
 	if !s.config.PrefillAssistant {
 		args = append(args, "--no-prefill-assistant")
 	}

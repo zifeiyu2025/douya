@@ -150,7 +150,8 @@ type Config struct {
 	SwaFull                bool    `json:"swa_full"`
 	CtxCheckpoints         int     `json:"ctx_checkpoints"`
 	CheckpointMinStep      int     `json:"checkpoint_min_step"`
-	Tools                  string  `json:"tools"`
+	Tools                  string `json:"tools"`
+	EnableBuiltinTools     bool   `json:"enable_builtin_tools"` // 启用 llama.cpp 全部内置工具（--tools all）
 	PrefillAssistant       bool    `json:"prefill_assistant"`
 	SlotPromptSimilarity   float64 `json:"slot_prompt_similarity"`
 	SkipChatParsing        bool    `json:"skip_chat_parsing"`
@@ -337,6 +338,7 @@ func DefaultConfig() *Config {
 		CtxCheckpoints:           32,  // 与 llama.cpp 默认值对齐，长上下文检查点回滚
 		CheckpointMinStep:        256, // 与 llama.cpp 默认值对齐，检查点最小步长
 		Tools:                    "",
+		EnableBuiltinTools:       false,
 		PrefillAssistant:         true,
 		SlotPromptSimilarity:     0.1, // 与 llama.cpp 默认值对齐，slot 缓存 prompt 相似度阈值
 		SkipChatParsing:          false,
@@ -810,6 +812,11 @@ func (c *Config) repairInvalidFields() []string {
 	default:
 		repaired = append(repaired, fmt.Sprintf("reasoning_effort: %q -> %q", c.ReasoningEffort, defaults.ReasoningEffort))
 		c.ReasoningEffort = defaults.ReasoningEffort
+	}
+	// EnableBuiltinTools 互斥：全量内置工具开关开启时，忽略细粒度 tools 字符串（全量已覆盖）
+	if c.EnableBuiltinTools && strings.TrimSpace(c.Tools) != "" {
+		repaired = append(repaired, fmt.Sprintf("tools: %q -> %q (enable_builtin_tools 开启，细粒度 tools 互斥)", c.Tools, defaults.Tools))
+		c.Tools = defaults.Tools
 	}
 	// reasoning 枚举修复：自动思考已移除，auto/非法值归一化为 off（默认关闭）
 	switch c.Reasoning {

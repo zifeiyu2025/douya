@@ -468,6 +468,31 @@ func TestAppendNewFeatureArgs_UIMcpProxy(t *testing.T) {
 	}
 }
 
+// TestAppendNewFeatureArgs_EnableBuiltinTools 验证 EnableBuiltinTools=true 时传递 --tools all
+func TestAppendNewFeatureArgs_EnableBuiltinTools(t *testing.T) {
+	s := newTestServer()
+	s.config.EnableBuiltinTools = true
+	s.config.Tools = "read_file" // 应被全量开关覆盖，不传细粒度
+
+	args := s.appendNewFeatureArgs(nil)
+	if got := argValue(args, "--tools"); got != "all" {
+		t.Errorf("期望 --tools=all，实际: %q", got)
+	}
+}
+
+// TestAppendNewFeatureArgs_EnableBuiltinToolsFalse 验证 EnableBuiltinTools=false 时
+// 空 Tools 不传 --tools，配置了细粒度 tools 则按字符串传递
+func TestAppendNewFeatureArgs_EnableBuiltinToolsFalse(t *testing.T) {
+	s := newTestServer()
+	s.config.EnableBuiltinTools = false
+	s.config.Tools = "read_file,grep_search"
+
+	args := s.appendNewFeatureArgs(nil)
+	if got := argValue(args, "--tools"); got != "read_file,grep_search" {
+		t.Errorf("期望 --tools=read_file,grep_search，实际: %q", got)
+	}
+}
+
 // TestAppendNewFeatureArgs_AgentOverridesUIMcpProxy 验证 Agent 和 UIMcpProxy 同时启用时优先 Agent
 func TestAppendNewFeatureArgs_AgentOverridesUIMcpProxy(t *testing.T) {
 	s := newTestServer()
