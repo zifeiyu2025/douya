@@ -130,6 +130,18 @@ func TestSystemPrompt_TimeNotAsCutoff(t *testing.T) {
 	if !strings.Contains(content, "系统时间参照") {
 		t.Errorf("当前时间字段应标注'系统时间参照'，实际输出:\n%s", content)
 	}
+	// 5. 时间字段应仅保留到日期级，避免秒级时间戳破坏 llama.cpp 前缀缓存
+	//    同一天内多次请求，系统提示词前缀应保持一致，缓存才能命中
+	//    日期级格式如 "2006-01-02 星期一"，秒级格式如 "2006-01-02 15:04:05 星期一"
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "当前时间（") {
+			// 秒级时间戳形如 "15:04:05"（紧随时分秒），日期级无此模式
+			if strings.Contains(trimmed, " 15:") || strings.Contains(trimmed, " 1:") || strings.Contains(trimmed, " 0:") {
+				t.Errorf("时间字段应仅保留到日期级（不含秒级时分秒），实际:\n%s", trimmed)
+			}
+		}
+	}
 }
 
 // TestSystemPrompt_TimeFieldNoCutoffWord 验证动态时间字段中不出现"知识截止日期"或"截止日期"字样。

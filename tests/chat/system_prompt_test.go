@@ -31,7 +31,7 @@ func TestSystemPrompt_ContainsCorePrinciples(t *testing.T) {
 		"身份",
 		"原则",
 		"行为准则",
-		"安全",
+		"保密规范",
 	}
 
 	for _, section := range expectedSections {
@@ -43,8 +43,8 @@ func TestSystemPrompt_ContainsCorePrinciples(t *testing.T) {
 	// 验证关键原则
 	requiredKeywords := []string{
 		"豆芽",
-		"准确",
 		"精炼",
+		"诚实边界",
 		"编造",   // 防编造（正面表述"而非编造"包含此词）
 		"温和纠正", // 事实一致性采用温和纠正而非强硬拒绝
 	}

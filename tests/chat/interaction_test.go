@@ -649,8 +649,8 @@ func TestSendMessage_Timeliness_SystemPromptContainsDate(t *testing.T) {
 	}
 
 	timeStr := now.Format("15:04:05")
-	if !strings.Contains(systemMsg.ContentString(), timeStr) {
-		t.Errorf("system prompt should contain current time '%s', got: %s", timeStr, systemMsg.ContentString())
+	if strings.Contains(systemMsg.ContentString(), timeStr) {
+		t.Errorf("system prompt should NOT contain second-level time '%s' (date-only keeps prefix cache stable), got: %s", timeStr, systemMsg.ContentString())
 	}
 
 	weekdayMap := map[string]string{
