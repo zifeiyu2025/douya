@@ -150,8 +150,8 @@ type Config struct {
 	SwaFull                bool    `json:"swa_full"`
 	CtxCheckpoints         int     `json:"ctx_checkpoints"`
 	CheckpointMinStep      int     `json:"checkpoint_min_step"`
-	Tools                  string `json:"tools"`
-	EnableBuiltinTools     bool   `json:"enable_builtin_tools"` // 启用 llama.cpp 全部内置工具（--tools all）
+	Tools                  string  `json:"tools"`
+	EnableBuiltinTools     bool    `json:"enable_builtin_tools"` // 启用 llama.cpp 全部内置工具（--tools all）
 	PrefillAssistant       bool    `json:"prefill_assistant"`
 	SlotPromptSimilarity   float64 `json:"slot_prompt_similarity"`
 	SkipChatParsing        bool    `json:"skip_chat_parsing"`
