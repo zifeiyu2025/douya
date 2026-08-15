@@ -1016,3 +1016,45 @@ func TestDetectIntelGPUDiscrete(t *testing.T) {
 		t.Errorf("期望 GPUVRAMMB=16384，实际 %d", hw.GPUVRAMMB)
 	}
 }
+
+// TestDetectIntelGPUVRAMRegistryPreferred 测试 Intel Arc 显存"注册表优先"修复
+//
+// 场景：Intel Arc A770 16GB 独显，WMI 因 uint32 4GB 回绕返回错误的小值（4096），
+//       注册表 qwMemorySize 返回精确值（16384）
+// 期望：GPUVRAMMB=16384（注册表优先），GPUName 来自注册表，判定为独显
+//
+// 回归背景：此前 Intel 检测链只有 WMI 一条路，Arc 独显显存会被读成回绕后的
+// 错误值，污染智能参数（gpu_layers/KV 估算）。
+func TestDetectIntelGPUVRAMRegistryPreferred(t *testing.T) {
+	origDLLs := intelDriverDLLs
+	intelDriverDLLs = []string{"mock-intel.dll"}
+	defer func() { intelDriverDLLs = origDLLs }()
+
+	restore := mockGPUDeps(
+		func(p string) bool { return p == "mock-intel.dll" },
+		func(string) (string, error) { return "", errNotFound },
+		func(string) (string, int64) { return "Intel Arc A770 (WMI)", 4096 }, // WMI 回绕后的错误值
+		func() (int64, bool) { return 0, false },
+	)
+	defer restore()
+
+	// 覆盖 mockGPUDeps 中默认的"注册表无结果"，返回 16GB 精确值
+	origReg := queryDisplayAdapterRegistry
+	queryDisplayAdapterRegistry = func(string) (string, int64) {
+		return "Intel Arc A770 Graphics", 16384
+	}
+	defer func() { queryDisplayAdapterRegistry = origReg }()
+
+	hw := &HardwareInfo{}
+	detectIntelGPU(hw)
+
+	if hw.GPUVRAMMB != 16384 {
+		t.Errorf("期望 VRAM=16384（注册表优先于 WMI），实际 %d", hw.GPUVRAMMB)
+	}
+	if hw.GPUName != "Intel Arc A770 Graphics" {
+		t.Errorf("期望 GPUName 来自注册表，实际 %q", hw.GPUName)
+	}
+	if !hw.HasGPU || hw.GPUType != GPUTypeDiscrete {
+		t.Errorf("期望独显判定 HasGPU=true/discrete，实际 HasGPU=%v/type=%q", hw.HasGPU, hw.GPUType)
+	}
+}

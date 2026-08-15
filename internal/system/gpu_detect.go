@@ -149,7 +149,7 @@ func detectAMDGPU(hw *HardwareInfo) {
 // 检测策略与 AMD 类似：
 //  1. 检查 Intel 驱动 DLL
 //  2. 找到则标记 HasIntelGPU/GPUVendor
-//  3. VRAM 和名称通过 WMI 获取（Intel 没有类似 rocm-smi 的通用工具）
+//  3. VRAM 优先注册表 qwMemorySize（Arc 独显 >4GB 必须走这里），回退 WMI
 //  4. 最后用 classifyGPUType 判别独显/核显，仅独显置 HasGPU=true
 //     （Intel 核显如 UHD/Iris 几乎全部 CPU 自带，不适合大模型推理）
 //
@@ -182,13 +182,26 @@ func detectIntelGPU(hw *HardwareInfo) {
 	hw.HasIntelGPU = true
 	hw.GPUVendor = "intel"
 
-	// Intel 核显无专用 VRAM 查询工具，直接用 WMI
+	// VRAM：优先注册表 qwMemorySize（QWORD 无 4GB 上限，Arc A750/A770 必须走这里），
+	// 回退 WMI AdapterRAM（uint32 >4GB 回绕，会把 8GB 显存读成错误值）
+	// 修复：此前只有 WMI 一条链，导致 Intel Arc 独显显存读错（4GB 回绕）甚至归零，
+	// 污染智能参数（gpu_layers/KV 估算）。对齐 AMD 的"注册表优先"策略。
 	gpuName, wmiVRAM := queryWMI("Intel")
 	if gpuName != "" {
 		hw.GPUName = gpuName
 	}
-	if wmiVRAM > 0 {
+	if regName, regVRAM := queryDisplayAdapterRegistry("Intel"); regVRAM > 0 {
+		if regName != "" {
+			hw.GPUName = regName
+		}
+		hw.GPUVRAMMB = regVRAM
+		log.Info().Int64("vram_mb", hw.GPUVRAMMB).Str("source", "registry").Msg("[system] Intel VRAM from display adapter registry")
+	} else if wmiVRAM > 0 {
 		hw.GPUVRAMMB = wmiVRAM
+		log.Warn().Int64("vram_mb", hw.GPUVRAMMB).Str("source", "wmi").
+			Msg("[system] Intel VRAM from WMI (may be inaccurate for >4GB cards)")
+	} else {
+		log.Warn().Msg("[system] Intel GPU detected but VRAM unavailable, smart-params will use fallback")
 	}
 
 	// 按业界双因子方案判别独显/核显（详见 classifyGPUType 注释）
