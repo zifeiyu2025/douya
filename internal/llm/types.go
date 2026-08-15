@@ -181,9 +181,10 @@ type ChatCompletionRequest struct {
 	ReasoningBudgetEndTag   string `json:"reasoning_budget_end_tag,omitempty"`   // 思考预算区间结束标记
 	ReasoningInContent      *bool  `json:"reasoning_in_content,omitempty"`       // deepseek-legacy 流式时是否在 content 中保留 think 标签
 	// OAI reasoning_effort 扩展（避免与 llama.cpp 服务器级 --reasoning 冲突）
-	// llama.cpp #26045：仅 "none" 有语义（设置 enable_thinking=false，按请求关闭推理），
-	// 其余值由模型自行解释、插件可忽略。豆芽复用 reasoning=off 状态写入 "none"；
-	// 非 none 的思考强度通过 chat_template_kwargs.reasoning_effort 透传给模板（见 service_model.go）。
+	// llama.cpp #26045：仅 "none" 有语义（设置 enable_thinking=false，按请求关闭推理）；
+	// #27041 起服务端原生将该值转发给 jinja 模板（含模型特定翻译映射），
+	// 由模板注入思考强度引导语。豆芽复用 reasoning=off 状态写入 "none"；
+	// 非 none 的思考强度直接设置本字段，交由新版 llama-server 原生透传（见 service_model.go）。
 	ReasoningEffort    string           `json:"reasoning_effort,omitempty"`
 	TimingsPerToken    bool             `json:"timings_per_token,omitempty"` // 每个 token 返回 timings 数据，用于实时速度显示
 	ReturnProgress     bool             `json:"return_progress,omitempty"`   // 在流式响应中返回 prompt 处理进度

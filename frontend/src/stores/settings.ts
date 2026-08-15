@@ -43,11 +43,10 @@ export const useSettingsStore = defineStore('settings', () => {
   const config = ref<Config>({ ...DEFAULT_CONFIG })
   const searchMode = ref<'off' | 'auto' | 'on'>('off')
   const thinkingEnabled = computed(() => config.value?.reasoning !== 'off')
-  const thinkingSoftSwitch = computed<'auto' | 'think' | 'no_think'>(() => {
+  const thinkingSoftSwitch = computed<'think' | 'no_think'>(() => {
     const r = config.value?.reasoning
     if (r === 'on') return 'think'
-    if (r === 'off') return 'no_think'
-    return 'auto'
+    return 'no_think'
   })
   const searchAPIKeys = ref<SearchAPIKeys>({
     ollama_api_key: '',
@@ -229,7 +228,7 @@ export const useSettingsStore = defineStore('settings', () => {
     newCaps => {
       if (!config.value) return
       if (!config.value.reasoning && newCaps.reasoning) {
-        config.value.reasoning = 'auto'
+        config.value.reasoning = 'on'
       }
     },
     { deep: true }
@@ -397,12 +396,12 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  const cycleThinkingMode = createCycleFn<'auto' | 'on' | 'off'>({
+  const cycleThinkingMode = createCycleFn<'on' | 'off'>({
     getCurrent: () => config.value?.reasoning ?? 'off',
     setCurrent: v => {
       if (config.value) config.value.reasoning = v
     },
-    nextMap: { auto: 'on', on: 'off', off: 'auto' },
+    nextMap: { on: 'off', off: 'on' },
     applyToConfig: (cfg, v) => {
       cfg.reasoning = v
     },

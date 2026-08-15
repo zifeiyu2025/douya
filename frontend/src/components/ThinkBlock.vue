@@ -6,7 +6,7 @@
       </n-icon>
       <n-icon size="16" class="think-icon"><BulbOutline /></n-icon>
       <span v-if="isThinking" class="think-status thinking">
-        正在思考
+        深度思考中
         <span class="thinking-dots">
           <span>.</span>
           <span>.</span>
@@ -14,9 +14,9 @@
         </span>
       </span>
       <span v-else-if="safeDuration > 0" class="think-status done">
-        已思考(用时{{ formattedDuration }})
+        深度思考完成(用时{{ formattedDuration }})
       </span>
-      <span v-else>思考过程</span>
+      <span v-else>深度思考过程</span>
     </div>
     <div v-if="expanded" class="think-block-content">
       <!-- 左边缘脉络流光：仅思考中显示，沿边缘上下流动 -->

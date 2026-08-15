@@ -343,11 +343,11 @@ func TestResolveModelPath(t *testing.T) {
 	}
 }
 
-// TestGetThinkingSoftSwitch_NoConfig 无配置返回 auto
+// TestGetThinkingSoftSwitch_NoConfig 无配置返回 no_think（默认不思考）
 func TestGetThinkingSoftSwitch_NoConfig(t *testing.T) {
 	s := &Service{}
-	if got := s.GetThinkingSoftSwitch(); got != "auto" {
-		t.Errorf("无配置应返回 auto, 实际 %q", got)
+	if got := s.GetThinkingSoftSwitch(); got != "no_think" {
+		t.Errorf("无配置应返回 no_think, 实际 %q", got)
 	}
 }
 
@@ -359,9 +359,8 @@ func TestGetThinkingSoftSwitch_WithConfig(t *testing.T) {
 	}{
 		{"on", "think"},
 		{"off", "no_think"},
-		{"auto", "auto"},
-		{"", "auto"},
-		{"unknown", "auto"},
+		{"", "no_think"},
+		{"unknown", "no_think"},
 	}
 	for _, tc := range cases {
 		s := &Service{config: &config.Config{Reasoning: tc.reasoning}}
@@ -499,7 +498,7 @@ func TestApplyThinkingControl_ReasoningEffort_On(t *testing.T) {
 }
 
 // TestApplyThinkingControl_ReasoningEffort_Forward 思考开启且配置了思考强度时，
-// 通过 chat_template_kwargs.reasoning_effort 透传给模板
+// 直接设置请求级 OAI 字段 ReasoningEffort，交由新版 llama-server 原生透传给模板
 func TestApplyThinkingControl_ReasoningEffort_Forward(t *testing.T) {
 	s := &Service{
 		config: &config.Config{Reasoning: "on", ReasoningEffort: "high"},
@@ -507,16 +506,16 @@ func TestApplyThinkingControl_ReasoningEffort_Forward(t *testing.T) {
 	s.modelCaps = llm.ModelCapabilities{ThinkingMode: llm.ThinkingModeTemplate}
 	req := &llm.ChatCompletionRequest{}
 	s.applyThinkingControl(req)
-	if req.ChatTemplateKwargs == nil || req.ChatTemplateKwargs["reasoning_effort"] != "high" {
-		t.Errorf("应透传 reasoning_effort=high 到 chat_template_kwargs，实际 %v", req.ChatTemplateKwargs)
+	if req.ReasoningEffort != "high" {
+		t.Errorf("应设置请求级 ReasoningEffort=high，实际 %q", req.ReasoningEffort)
 	}
-	if req.ReasoningEffort == "none" {
-		t.Error("Reasoning=on + 设置思考强度时不应发送 reasoning_effort=none")
+	if _, ok := req.ChatTemplateKwargs["reasoning_effort"]; ok {
+		t.Error("不应再通过 chat_template_kwargs 手动透传 reasoning_effort")
 	}
 }
 
 // TestApplyThinkingControl_ReasoningEffort_ForwardReasoningMode
-// Reasoning 模式（DeepSeek）下同样透传思考强度，且不影响 enable_thinking
+// Reasoning 模式（DeepSeek）下同样设置原生思考强度
 func TestApplyThinkingControl_ReasoningEffort_ForwardReasoningMode(t *testing.T) {
 	s := &Service{
 		config: &config.Config{Reasoning: "on", ReasoningEffort: "max"},
@@ -524,12 +523,13 @@ func TestApplyThinkingControl_ReasoningEffort_ForwardReasoningMode(t *testing.T)
 	s.modelCaps = llm.ModelCapabilities{ThinkingMode: llm.ThinkingModeReasoning}
 	req := &llm.ChatCompletionRequest{}
 	s.applyThinkingControl(req)
-	if req.ChatTemplateKwargs == nil || req.ChatTemplateKwargs["reasoning_effort"] != "max" {
-		t.Errorf("Reasoning 模式应透传 reasoning_effort=max，实际 %v", req.ChatTemplateKwargs)
+	if req.ReasoningEffort != "max" {
+		t.Errorf("Reasoning 模式应设置请求级 ReasoningEffort=max，实际 %q", req.ReasoningEffort)
 	}
 }
 
-// TestApplyThinkingControl_ReasoningEffort_Off 思考关闭时不透传思考强度
+// TestApplyThinkingControl_ReasoningEffort_Off 思考关闭时不设置原生思考强度，
+// 且通过 reasoning_effort=none 逃逸口强制关闭本次请求的思考
 func TestApplyThinkingControl_ReasoningEffort_Off(t *testing.T) {
 	s := &Service{
 		config: &config.Config{Reasoning: "off", ReasoningEffort: "high"},
@@ -537,15 +537,15 @@ func TestApplyThinkingControl_ReasoningEffort_Off(t *testing.T) {
 	s.modelCaps = llm.ModelCapabilities{ThinkingMode: llm.ThinkingModeTemplate}
 	req := &llm.ChatCompletionRequest{}
 	s.applyThinkingControl(req)
-	if req.ChatTemplateKwargs["reasoning_effort"] != nil {
-		t.Error("Reasoning=off 时不应透传 reasoning_effort")
-	}
 	if req.ReasoningEffort != "none" {
 		t.Errorf("Reasoning=off 时 ReasoningEffort 应为 none，实际 %q", req.ReasoningEffort)
 	}
+	if _, ok := req.ChatTemplateKwargs["reasoning_effort"]; ok {
+		t.Error("Reasoning=off 时不应写入 reasoning_effort")
+	}
 }
 
-// TestApplyThinkingControl_ReasoningEffort_Empty 未配置思考强度时不写入 kwargs
+// TestApplyThinkingControl_ReasoningEffort_Empty 未配置思考强度时不设置原生字段
 func TestApplyThinkingControl_ReasoningEffort_Empty(t *testing.T) {
 	s := &Service{
 		config: &config.Config{Reasoning: "on", ReasoningEffort: ""},
@@ -553,8 +553,8 @@ func TestApplyThinkingControl_ReasoningEffort_Empty(t *testing.T) {
 	s.modelCaps = llm.ModelCapabilities{ThinkingMode: llm.ThinkingModeTemplate}
 	req := &llm.ChatCompletionRequest{}
 	s.applyThinkingControl(req)
-	if req.ChatTemplateKwargs["reasoning_effort"] != nil {
-		t.Error("ReasoningEffort 为空时不应写入 kwargs")
+	if req.ReasoningEffort != "" {
+		t.Errorf("ReasoningEffort 为空时不应设置原生字段，实际 %q", req.ReasoningEffort)
 	}
 }
 

@@ -504,6 +504,7 @@ func TestValidate_GenerationParams(t *testing.T) {
 		TopP:            0.9,
 		RepeatPenalty:   1.0,
 		SearchMode:      "off",
+		Reasoning:       "off",
 		RAGTopK:         3,
 		RAGMinScore:     0.3,
 		RAGChunkSize:    512,

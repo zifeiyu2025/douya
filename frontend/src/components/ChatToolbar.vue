@@ -258,19 +258,16 @@ const capabilities = computed(() => settingsStore.modelCapabilities)
 const isSwitching = computed(() => settingsStore.isModelSwitching)
 const supportsThinking = computed(() => settingsStore.modelCapabilities.thinking_mode !== 'none')
 const thinkingTitle = computed(() => {
-  if (!supportsThinking.value) return '当前模型不支持思考'
+  if (!supportsThinking.value) return '当前模型不支持深度思考'
   switch (thinkingMode.value) {
     case 'think':
-      return '强制深度思考'
-    case 'no_think':
-      return '快速回答（不思考）'
+      return '深度思考：回答前先进行深度推理分析'
     default:
-      return '自动思考'
+      return '深度思考已关闭（默认不思考，点击开启）'
   }
 })
 const thinkBtnClass = computed(() => ({
   active: thinkingMode.value === 'think',
-  'auto-mode': thinkingMode.value === 'auto',
   'no-think-mode': thinkingMode.value === 'no_think',
   unsupported: !supportsThinking.value
 }))
@@ -350,14 +347,11 @@ async function handleThinkClick() {
   if (curMode === prevMode) return
   message.destroyAll()
   switch (curMode) {
-    case 'auto':
-      message.info('已切换为自动思考', { duration: 2000 })
-      break
     case 'think':
-      message.success('已开启强制深度思考', { duration: 2000 })
+      message.success('已开启深度思考，回答前将进行深度推理', { duration: 2000 })
       break
     case 'no_think':
-      message.info('已切换为快速回答（不思考）', { duration: 2000 })
+      message.info('已关闭深度思考，快速回答（不思考）', { duration: 2000 })
       break
   }
 }
@@ -502,7 +496,6 @@ onUnmounted(() => {
 }
 
 .search-btn,
-.think-btn,
 .attach-btn,
 .voice-btn,
 .kv-btn {
@@ -588,7 +581,6 @@ onUnmounted(() => {
 }
 
 .search-btn:hover,
-.think-btn:hover,
 .attach-btn:hover:not(:disabled),
 .voice-btn:hover,
 .kv-btn:hover:not(:disabled) {
@@ -623,34 +615,35 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--accent-warning) 14%, transparent);
 }
 
-.think-btn.active {
-  color: var(--accent-primary);
-  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
-  animation: think-pulse 3s ease-in-out infinite;
+.think-btn {
+  position: relative;
 }
 
-@keyframes think-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-primary) 0%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 6px 1px color-mix(in srgb, var(--accent-primary) 18%, transparent);
-  }
+.think-btn,
+.think-btn.unsupported,
+.think-btn:disabled {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: var(--border-radius-md);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: var(--text-secondary);
 }
 
-.think-btn.unsupported {
-  opacity: 0.3;
-  cursor: not-allowed;
+.think-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
+.think-btn.unsupported,
 .think-btn:disabled {
   opacity: 0.3;
   cursor: not-allowed;
-}
-
-.think-btn {
-  position: relative;
 }
 
 .think-btn .think-icon {
@@ -658,14 +651,6 @@ onUnmounted(() => {
     transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
     opacity 0.3s ease;
   will-change: transform;
-}
-
-.think-btn.auto-mode {
-  color: var(--text-secondary);
-}
-
-.think-btn.auto-mode:hover .think-icon {
-  transform: scale(1.08);
 }
 
 .think-btn.no-think-mode {
@@ -685,8 +670,24 @@ onUnmounted(() => {
   opacity: 0.9;
 }
 
+.think-btn.active {
+  color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  animation: think-pulse 3s ease-in-out infinite;
+}
+
 .think-btn.active .think-icon {
   transform: scale(1.05);
+}
+
+@keyframes think-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-primary) 0%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 6px 1px color-mix(in srgb, var(--accent-primary) 18%, transparent);
+  }
 }
 
 .voice-btn.active {

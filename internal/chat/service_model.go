@@ -383,19 +383,17 @@ func (s *Service) GetModelCapabilities() llm.ModelCapabilities {
 }
 
 // GetThinkingSoftSwitch 获取当前思考软开关状态（前端兼容用）
-// 内部映射自 cfg.Reasoning：auto/空 → "auto"，on → "think"，off → "no_think"
+// 内部映射自 cfg.Reasoning：on → "think"，off/空 → "no_think"（默认不思考）
 func (s *Service) GetThinkingSoftSwitch() string {
 	cfg := s.getConfigSnapshot()
 	if cfg == nil {
-		return "auto"
+		return "no_think"
 	}
 	switch cfg.Reasoning {
 	case "on":
 		return "think"
-	case "off":
-		return "no_think"
 	default:
-		return "auto"
+		return "no_think"
 	}
 }
 
@@ -520,16 +518,14 @@ func (s *Service) applyThinkingControl(req *llm.ChatCompletionRequest) {
 		req.ReasoningEffort = "none"
 	}
 
-	// 思考强度透传：当用户配置了 reasoning_effort 且思考未关闭时，
-	// 通过 chat_template_kwargs 转发给模板（DeepSeek-V4 / openai-gpt-oss-120b / Hy3 等），
+	// 思考强度透传（原生）：当用户配置了 reasoning_effort 且思考未关闭时，
+	// 直接设置请求级 OAI 字段 ReasoningEffort，交由新版 llama-server（#26045 + #27041）
+	// 原生转发给 jinja 模板（DeepSeek-V4 / openai-gpt-oss-120b / Hy3 等），
 	// 由模板注入 "Reasoning Effort: ..." 等引导语。服务器层不识别 low/high/max，
 	// 仅模板侧有语义；对不读取该参数的模板是无害的 no-op。
-	// 生活类比：把"火力档位"写进订单备注，厨师（模板）认就按备注来，不认就按默认做菜。
+	// 生活类比：把"火力档位"写进订单（原生字段），服务端原生转发给厨师（模板）。
 	if cfg != nil && cfg.Reasoning != "off" && cfg.ReasoningEffort != "" {
-		if req.ChatTemplateKwargs == nil {
-			req.ChatTemplateKwargs = make(map[string]any)
-		}
-		req.ChatTemplateKwargs["reasoning_effort"] = cfg.ReasoningEffort
+		req.ReasoningEffort = cfg.ReasoningEffort
 	}
 
 	// 传递请求级 reasoning 扩展字段（仅在用户显式配置时才传递，避免覆盖服务器默认值）
@@ -546,7 +542,7 @@ func (s *Service) applyThinkingControl(req *llm.ChatCompletionRequest) {
 	// 思考开关映射（基于 llama.cpp 模板语义）：
 	//   - on:  显式 enable_thinking=true，强制要求模型思考
 	//   - off: 显式 enable_thinking=false，强制要求模型不思考
-	//   - auto/空: 不干预，完全交给 llama-server --reasoning auto 与模板默认行为决定。
+	//   - 空: 不干预，交给 llama-server 与模板默认行为决定。
 	//     尊重模型自身行为：模板默认不思考（如 Gemma）就不强制开启，
 	//     否则简单问候与简单问题也会被强制长时间思考。
 	// 对于 ThinkingModeReasoning 模型（DeepSeek），思考由服务端 reasoning 参数控制，无需 kwargs
@@ -559,7 +555,7 @@ func (s *Service) applyThinkingControl(req *llm.ChatCompletionRequest) {
 		case cfg != nil && cfg.Reasoning == "off":
 			explicit, enableThinking = true, false
 		default:
-			// auto/空：不设置 enable_thinking，尊重模型模板自身的默认行为
+			// 空：不设置 enable_thinking，尊重模型模板自身的默认行为
 		}
 		if explicit {
 			if req.ChatTemplateKwargs == nil {

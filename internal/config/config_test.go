@@ -121,6 +121,46 @@ func containsStr(s, sub string) bool {
 	return strings.Contains(s, sub)
 }
 
+// TestRepair_InvalidReasoningAuto 验证 reasoning=auto 被归一化为 off（自动思考已移除）
+func TestRepair_InvalidReasoningAuto(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Reasoning = "auto"
+	repaired := cfg.repairInvalidFields()
+	if cfg.Reasoning != "off" {
+		t.Errorf("期望修复后 Reasoning=\"off\"，实际 %q", cfg.Reasoning)
+	}
+	found := false
+	for _, msg := range repaired {
+		if containsStr(msg, "reasoning") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("期望修复列表包含 reasoning，实际 %v", repaired)
+	}
+}
+
+// TestValidate_InvalidReasoningAuto 验证 reasoning=auto 在 Validate 中返回错误
+func TestValidate_InvalidReasoningAuto(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Reasoning = "auto"
+	if err := cfg.Validate(); err == nil {
+		t.Error("期望 Reasoning=\"auto\" 时返回错误，实际返回 nil")
+	}
+}
+
+// TestValidate_ValidReasoning 验证 reasoning 仅允许 on / off
+func TestValidate_ValidReasoning(t *testing.T) {
+	for _, v := range []string{"on", "off"} {
+		cfg := DefaultConfig()
+		cfg.Reasoning = v
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Reasoning=%q 应通过校验，实际错误: %v", v, err)
+		}
+	}
+}
+
 // TestValidate_TopK 验证 TopK 为负数时返回错误
 func TestValidate_TopK(t *testing.T) {
 	cfg := DefaultConfig()

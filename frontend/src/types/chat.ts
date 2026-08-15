@@ -377,7 +377,7 @@ export interface Config {
   batch_size: number
   close_action: string
   // 推理配置（对应后端 Reasoning / ReasoningBudget / ReasoningBudgetMessage / ReasoningFormat / ReasoningPreserve）
-  reasoning: 'on' | 'off' | 'auto'
+  reasoning: 'on' | 'off'
   reasoning_budget: number
   reasoning_budget_message: string
   // 思考预算区间起始/结束标记（v9744+，为空则不传递，使用服务器默认值）

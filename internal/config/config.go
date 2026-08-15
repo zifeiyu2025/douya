@@ -63,9 +63,10 @@ type Config struct {
 	ReasoningBudget            int     `json:"reasoning_budget"`
 	ReasoningFormat            string  `json:"reasoning_format"`
 	// 思考强度（模板级 reasoning_effort，空=不传递跟随模型默认）
-	// 由聊天请求通过 chat_template_kwargs.reasoning_effort 透传给支持该参数的模板
+	// 由聊天请求直接设置请求级 OAI 字段 ReasoningEffort，
+	// 交由新版 llama-server（#26045 + #27041）原生转发给支持该参数的模板
 	// （如 DeepSeek-V4 / openai-gpt-oss-120b / 腾讯混元 Hy3 等），
-	// 服务器层仅对顶层 "none" 有语义，其余值需模板自行解释。
+	// 服务器层仅对顶层 "none" 有语义，其余值由模板自行解释。
 	ReasoningEffort string `json:"reasoning_effort"`
 	// 推理内容保留开关（nil=不传递，true=--reasoning-preserve，false=--no-reasoning-preserve）
 	ReasoningPreserve *bool  `json:"reasoning_preserve"`
@@ -608,8 +609,8 @@ func (c *Config) migrateLegacyThinking(data []byte) {
 		c.Reasoning = "on"
 	case "no_think":
 		c.Reasoning = "off"
-	default: // "auto" 或空
-		c.Reasoning = "auto"
+	default: // "auto" 或空：自动思考已移除，默认关闭
+		c.Reasoning = "off"
 	}
 }
 
@@ -810,6 +811,13 @@ func (c *Config) repairInvalidFields() []string {
 		repaired = append(repaired, fmt.Sprintf("reasoning_effort: %q -> %q", c.ReasoningEffort, defaults.ReasoningEffort))
 		c.ReasoningEffort = defaults.ReasoningEffort
 	}
+	// reasoning 枚举修复：自动思考已移除，auto/非法值归一化为 off（默认关闭）
+	switch c.Reasoning {
+	case "on", "off":
+	default:
+		repaired = append(repaired, fmt.Sprintf("reasoning: %q -> %q", c.Reasoning, "off"))
+		c.Reasoning = "off"
+	}
 	return repaired
 }
 
@@ -875,6 +883,12 @@ func (c *Config) Validate() error {
 	case "auto", "on", "off", "":
 	default:
 		return apperror.Newf(apperror.KindInvalidConfig, "invalid programming_mode: %q (必须是 auto / on / off)", c.ProgrammingMode)
+	}
+	// reasoning 枚举校验：自动思考已移除，仅允许 on / off
+	switch c.Reasoning {
+	case "on", "off":
+	default:
+		return apperror.Newf(apperror.KindInvalidConfig, "invalid reasoning: %q (必须是 on / off，auto 已移除)", c.Reasoning)
 	}
 	// ReasoningEffort 枚举校验：空值合法（不传递跟随模型默认）
 	switch c.ReasoningEffort {

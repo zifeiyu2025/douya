@@ -223,12 +223,6 @@ const cacheTypeVOptions = computed(() => {
   return baseOptions
 })
 
-const reasoningOptions = [
-  { label: '开启', value: 'on' },
-  { label: '关闭', value: 'off' },
-  { label: '自动', value: 'auto' }
-]
-
 const specTypeOptions = computed(() => {
   const caps = settingsStore.modelCapabilities
   const options = [{ label: '自动检测', value: '' }]
@@ -411,7 +405,7 @@ function applyModelRef() {
   const idx = findClosestStepIndex(raw.context_size)
   contextSizeIndex.value = idx
   formConfig.value.context_size = contextSizeSteps[idx]
-  const modeLabel = useThinking ? '思考模式' : '非思考模式'
+  const modeLabel = useThinking ? '深度思考' : '快速回答'
   showSuccess(message, `已应用 ${ref.name} ${modeLabel}参考参数`)
 }
 
@@ -860,7 +854,6 @@ const settingsContext: SettingsContext = {
   clearAIAvatar,
   defaultUserAvatar,
   defaultAiAvatar,
-  reasoningOptions,
   supportsReasoning,
   currentModelRef,
   activeModelRefRaw,

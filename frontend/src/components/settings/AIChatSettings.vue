@@ -38,27 +38,12 @@
     />
   </n-form-item>
 
-  <!-- ===== 推理模式 ===== -->
-  <n-form-item>
-    <template #label>
-      推理模式
-      <HelpTip
-        content="控制模型的推理（思考）行为：on 始终开启推理，off 关闭推理，auto 由模型自行决定"
-      />
-    </template>
-    <n-select
-      v-model:value="formConfig.reasoning"
-      :options="reasoningOptions"
-      :disabled="!supportsReasoning"
-    />
-  </n-form-item>
-  <n-text v-if="!supportsReasoning" depth="3" class="param-hint">当前模型不支持推理</n-text>
   <!-- ===== 思考强度 ===== -->
   <n-form-item>
     <template #label>
       思考强度
       <HelpTip
-        content="模板级 reasoning_effort（空=跟随模型默认）。通过 chat_template_kwargs 透传给支持该参数的模型模板（如 DeepSeek-V4、GPT-OSS、混元 Hy3 等），由模板注入思考强度引导语。不支持的模型忽略此参数；服务器层仅对顶层 none 有语义"
+        content="模板级 reasoning_effort（空=跟随模型默认）。由新版 llama-server 原生转发给支持该参数的模型模板（如 DeepSeek-V4、GPT-OSS、混元 Hy3 等），由模板注入思考强度引导语。不支持的模型忽略此参数；服务器层仅对顶层 none 有语义"
       />
     </template>
     <n-select
@@ -444,7 +429,6 @@ if (!ctx) {
 const {
   formConfig,
   autoSave,
-  reasoningOptions,
   supportsReasoning,
   currentModelRef,
   activeModelRefRaw,

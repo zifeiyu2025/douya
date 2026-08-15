@@ -23,7 +23,6 @@ export interface SettingsContext {
   defaultAiAvatar: string
 
   // 推理相关
-  reasoningOptions: { label: string; value: string }[]
   supportsReasoning: ComputedRef<boolean>
 
   // 模型参考参数
