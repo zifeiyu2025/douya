@@ -5,6 +5,7 @@ package llm
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/rs/zerolog/log"
@@ -376,6 +377,52 @@ func isBackendInstalled(bt BackendType, runtimeDir string) bool {
 	serverPath := filepath.Join(runtimeDir, info.Subdir, llamaServerExe)
 	_, err := os.Stat(serverPath)
 	return err == nil
+}
+
+// backendRuntimeDeps 记录各后端在 Windows 上运行所需的外部运行时 DLL（缺失时启动会失败）。
+// CUDA/Vulkan/CPU 的运行时由显卡驱动或安装包自带，无需预检；
+// HIP 需要 ROCm 运行时，SYCL 需要 Intel oneAPI 运行时（安装包不附带）。
+var backendRuntimeDeps = map[BackendType][]string{
+	BackendHIP:  {"amdhip64.dll"},
+	BackendSYCL: {"sycl8.dll", "sycl7.dll"},
+}
+
+// lookupPath 可测试性钩子：生产指向 exec.LookPath，测试中可替换
+var lookupPath = exec.LookPath
+
+// CheckBackendRuntimeReady 预检后端运行时依赖是否可见。
+//
+// 检查范围（任一 DLL 命中即视为就绪）：
+//  1. 系统 PATH（exec.LookPath）——用户已安装 ROCm/oneAPI 并加入 PATH
+//  2. runtime/<subdir>/ 目录——用户手工把运行时 DLL 放到 llama-server 旁边
+//
+// 返回值：就绪返回空串；缺失时返回面向用户的中文提示。
+// 仅作事前预警，不阻断切换——高级用户可能有自定义环境，最终以实际启动结果为准
+// （启动失败仍走既有的弹窗引导 + LastSuccessfulBackend 回退机制）。
+//
+// 生活类比：换特种发动机前，先看一眼车库有没有它专用的燃料——
+// 没有就提前告诉司机"去搞燃料"，而不是装上发动机打不着火才发现。
+func CheckBackendRuntimeReady(bt BackendType, runtimeDir string) string {
+	deps, ok := backendRuntimeDeps[bt]
+	if !ok || len(deps) == 0 {
+		return ""
+	}
+	info := GetBackendInfo(bt)
+	for _, dll := range deps {
+		if _, err := lookupPath(dll); err == nil {
+			return ""
+		}
+		if _, err := os.Stat(filepath.Join(runtimeDir, info.Subdir, dll)); err == nil {
+			return ""
+		}
+	}
+	switch bt {
+	case BackendHIP:
+		return "HIP 后端缺少 ROCm 运行时（amdhip64.dll）。请安装 AMD ROCm 并加入 PATH，或将运行时 DLL 放入 runtime/hip/ 目录，否则 llama-server 将无法启动。"
+	case BackendSYCL:
+		return "SYCL 后端缺少 Intel oneAPI 运行时（sycl8.dll）。请安装 Intel oneAPI 并加入 PATH，或将运行时 DLL 放入 runtime/sycl/ 目录，否则 llama-server 将无法启动。"
+	}
+	return ""
 }
 
 // IsValidBackendType 校验字符串是否为有效的后端类型（含 "auto"）。

@@ -569,3 +569,78 @@ func createTestZip(path string, files map[string]string) error {
 	}
 	return nil
 }
+
+// ===== 后端运行时预检测试（CheckBackendRuntimeReady） =====
+
+// TestCheckBackendRuntimeReady 验证 HIP/SYCL 运行时依赖预检。
+//
+// 生活类比：换特种发动机前看一眼车库有没有专用燃料——
+// 有燃料（DLL 可见）返回空串，没有则返回中文提示。
+func TestCheckBackendRuntimeReady(t *testing.T) {
+	// mock lookupPath：统一返回"PATH 中找不到"，隔离真实系统 PATH
+	origLookup := lookupPath
+	lookupPath = func(string) (string, error) {
+		return "", os.ErrNotExist
+	}
+	defer func() { lookupPath = origLookup }()
+
+	t.Run("HIP_无运行时返回提示", func(t *testing.T) {
+		if hint := CheckBackendRuntimeReady(BackendHIP, t.TempDir()); hint == "" {
+			t.Error("HIP 缺少运行时时应返回非空提示")
+		}
+	})
+
+	t.Run("HIP_运行时在backend目录视为就绪", func(t *testing.T) {
+		runtimeDir := t.TempDir()
+		hipDir := filepath.Join(runtimeDir, "hip")
+		if err := os.MkdirAll(hipDir, 0o755); err != nil {
+			t.Fatalf("创建目录失败: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(hipDir, "amdhip64.dll"), []byte("mock"), 0o644); err != nil {
+			t.Fatalf("创建 mock DLL 失败: %v", err)
+		}
+		if hint := CheckBackendRuntimeReady(BackendHIP, runtimeDir); hint != "" {
+			t.Errorf("runtime/hip/ 已有 amdhip64.dll，应视为就绪，实际返回: %q", hint)
+		}
+	})
+
+	t.Run("SYCL_任一版本DLL即就绪", func(t *testing.T) {
+		runtimeDir := t.TempDir()
+		syclDir := filepath.Join(runtimeDir, "sycl")
+		if err := os.MkdirAll(syclDir, 0o755); err != nil {
+			t.Fatalf("创建目录失败: %v", err)
+		}
+		// 只放旧版 sycl7.dll，也应命中
+		if err := os.WriteFile(filepath.Join(syclDir, "sycl7.dll"), []byte("mock"), 0o644); err != nil {
+			t.Fatalf("创建 mock DLL 失败: %v", err)
+		}
+		if hint := CheckBackendRuntimeReady(BackendSYCL, runtimeDir); hint != "" {
+			t.Errorf("runtime/sycl/ 已有 sycl7.dll，应视为就绪，实际返回: %q", hint)
+		}
+	})
+
+	t.Run("SYCL_无运行时返回提示", func(t *testing.T) {
+		if hint := CheckBackendRuntimeReady(BackendSYCL, t.TempDir()); hint == "" {
+			t.Error("SYCL 缺少运行时时应返回非空提示")
+		}
+	})
+
+	t.Run("无需预检的后端返回空", func(t *testing.T) {
+		for _, bt := range []BackendType{BackendCUDA, BackendVulkan, BackendOpenVINO, BackendCPU, BackendAuto} {
+			if hint := CheckBackendRuntimeReady(bt, t.TempDir()); hint != "" {
+				t.Errorf("后端 %s 无外部运行时依赖，应返回空串，实际: %q", bt, hint)
+			}
+		}
+	})
+
+	t.Run("PATH中找到运行时视为就绪", func(t *testing.T) {
+		// 覆盖 lookupPath 为"找到"，模拟用户已安装 ROCm 并加入 PATH
+		orig := lookupPath
+		lookupPath = func(string) (string, error) { return `C:\rocm\bin\amdhip64.dll`, nil }
+		defer func() { lookupPath = orig }()
+
+		if hint := CheckBackendRuntimeReady(BackendHIP, t.TempDir()); hint != "" {
+			t.Errorf("PATH 中已有运行时应视为就绪，实际返回: %q", hint)
+		}
+	})
+}

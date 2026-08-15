@@ -162,6 +162,17 @@ func (a *App) SwitchBackend(bt string) error {
 			zlog.Error().Err(err).Str("backend", bt).Msg("[backend] 后端安装失败")
 			return apperror.Wrapf(apperror.KindInternal, "后端 %s 安装失败", err, bt)
 		}
+
+		// 步骤 3.5：HIP/SYCL 等依赖外部运行时的后端，预检运行时 DLL 是否可见。
+		// 不阻断切换（高级用户可能自定义了环境），但提前告知缺失原因，
+		// 避免"重启应用后启动失败"才发现问题。复用 server:warning 事件（前端已有展示逻辑）。
+		if hint := llm.CheckBackendRuntimeReady(llm.BackendType(bt), runtimeDir); hint != "" {
+			zlog.Warn().Str("backend", bt).Msg("[backend] 运行时预检未通过")
+			wailsruntime.EventsEmit(a.ctx, EventServerWarning, map[string]any{
+				"type":    "runtime_missing",
+				"message": hint,
+			})
+		}
 	}
 
 	// 步骤 4：推送状态更新到前端
