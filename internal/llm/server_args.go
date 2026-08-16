@@ -47,8 +47,9 @@ func (s *Server) baseArgs() []string {
 	}
 	// 默认禁用 llama-server 自带的 Web UI（豆芽有自己的 Vue 前端）。
 	// 仅当用户在设置中启用时才放开，允许通过浏览器访问原生 webui（供高级用户调试）。
+	// 注意：b10454+ 将 --webui/--no-webui 弃用，统一改用 --ui/--no-ui。
 	if !s.config.EnableWebUI {
-		args = append(args, "--no-webui")
+		args = append(args, "--no-ui")
 	}
 	// 根据配置决定绑定地址：暴露则 0.0.0.0（局域网可访问），否则 127.0.0.1（仅本机）
 	if s.config.ExposeServer {

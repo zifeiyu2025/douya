@@ -363,7 +363,7 @@ func startLlamaServer(modelFile string) (*exec.Cmd, error) {
 		"--port", fmt.Sprintf("%d", testPort),
 		"--host", "127.0.0.1",
 		"--jinja",
-		"--no-webui",
+		"--no-ui",
 		"--ctx-size", "8192",
 		"-t", "4",
 		"-ngl", "99", // 全部层放 GPU（如有）

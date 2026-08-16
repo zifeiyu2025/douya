@@ -49,26 +49,29 @@ func TestBaseArgs_HostBindExposed(t *testing.T) {
 	}
 }
 
-// TestBaseArgs_NoWebUI 验证 EnableWebUI=false 时传递 --no-webui
-// 风险：未禁用 webui 会让用户通过浏览器访问 llama-server 原生界面，绕过豆芽前端。
+// TestBaseArgs_NoWebUI 验证 EnableWebUI=false 时传递 --no-ui
+// b10454+ 弃用 --no-webui，统一改用 --no-ui（禁用 llama-server 原生 Web UI，避免绕过豆芽前端）。
 func TestBaseArgs_NoWebUI(t *testing.T) {
 	s := newTestServer()
 	s.config.EnableWebUI = false
 
 	args := s.baseArgs()
-	if !containsArg(args, "--no-webui") {
-		t.Errorf("期望包含 --no-webui，实际 args: %v", args)
+	if !containsArg(args, "--no-ui") {
+		t.Errorf("期望包含 --no-ui，实际 args: %v", args)
+	}
+	if containsArg(args, "--no-webui") {
+		t.Errorf("不应再使用已弃用的 --no-webui，实际 args: %v", args)
 	}
 }
 
-// TestBaseArgs_EnableWebUI 验证 EnableWebUI=true 时不传递 --no-webui
+// TestBaseArgs_EnableWebUI 验证 EnableWebUI=true 时不传递 --no-ui
 func TestBaseArgs_EnableWebUI(t *testing.T) {
 	s := newTestServer()
 	s.config.EnableWebUI = true
 
 	args := s.baseArgs()
-	if containsArg(args, "--no-webui") {
-		t.Errorf("期望不包含 --no-webui，实际 args: %v", args)
+	if containsArg(args, "--no-ui") {
+		t.Errorf("期望不包含 --no-ui，实际 args: %v", args)
 	}
 }
 
