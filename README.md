@@ -115,7 +115,7 @@
 
 ### 方式一：下载发布包（推荐）
 
-前往 [Releases](https://github.com/zifeiyu2025/douya/releases) 下载 `Douya-vX.X.X-win64.zip`，解压即可使用，**无需安装**。
+前往 [Releases](https://github.com/zifeiyu2025/douya/releases) 下载 `Douya-vX.X.X-windows.zip`，解压即可使用，**无需安装**。
 
 **首次使用：**
 1. 解压 zip 到任意目录

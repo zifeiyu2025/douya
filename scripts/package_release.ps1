@@ -15,7 +15,9 @@ Write-Host "=== 豆芽 AI 发布包打包 ===" -ForegroundColor Cyan
 # ---------------------------------------------------------------------------
 # 1. 从内部唯一版本源 internal/version/version.go 读取版本号，构造 zip 文件名
 #    生活类比：版本号只在 version.go 这一处写，这里来"查户口"，
-#    保证 zip 名 Douya-vX.X.X-win64.zip 与 exe 内嵌版本、GitHub tag 完全一致。
+#    保证 zip 名 Douya-vX.X.X-windows.zip 与 exe 内嵌版本、GitHub tag 完全一致。
+#    命名须与 app_update.go 的 findWindowsAsset 资产匹配正则保持一致（windows.zip / windows-amd64.zip），
+#    否则自动更新将无法识别发布的资产。
 # ---------------------------------------------------------------------------
 $VersionGoPath = Join-Path $ProjectRoot "internal\version\version.go"
 if (-not (Test-Path $VersionGoPath)) { throw "找不到 version.go: $VersionGoPath" }
@@ -23,7 +25,7 @@ $match = [regex]::Match((Get-Content -Raw $VersionGoPath), 'Version\s*=\s*"([^"]
 if (-not $match.Success) { throw "无法从 version.go 提取 Version 常量" }
 $version = $match.Groups[1].Value
 
-$zipName = "Douya-v$version-win64.zip"
+$zipName = "Douya-v$version-windows.zip"
 $zipPath = Join-Path $ProjectRoot $zipName
 Write-Host "版本: $version  ->  产出: $zipName" -ForegroundColor Gray
 
