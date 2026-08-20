@@ -963,6 +963,60 @@ func TestCalcMaxTokens_WithConfig(t *testing.T) {
 	}
 }
 
+// TestCalcMaxTokens_ThinkingModel_Reasoning 硬思考模型（ThinkingModeReasoning）：
+// 即使上下文几乎占满，也应保证至少 thinkingMinTokens 的生成预算，
+// 避免思考阶段耗尽预算导致 content 为空（finish_reason=length）
+func TestCalcMaxTokens_ThinkingModel_Reasoning(t *testing.T) {
+	s := &Service{config: &config.Config{ContextSize: 4096, Reasoning: "off"}}
+	s.SetModelCapabilities(llm.ModelCapabilities{ThinkingMode: llm.ThinkingModeReasoning})
+	// 4096-4000=96，按非思考策略会是 512；思考模型应提升到 4096
+	if got := s.calcMaxTokens(4000); got != thinkingMinTokens {
+		t.Errorf("期望 %d, 实际 %d", thinkingMinTokens, got)
+	}
+}
+
+// TestCalcMaxTokens_ThinkingModel_Spacious 思考模型 + 上下文充足：
+// 生成预算 = 完整剩余空间（去掉非思考模型的 16384 硬上限，给长思考留空间）
+func TestCalcMaxTokens_ThinkingModel_Spacious(t *testing.T) {
+	s := &Service{config: &config.Config{ContextSize: 32768, Reasoning: "off"}}
+	s.SetModelCapabilities(llm.ModelCapabilities{ThinkingMode: llm.ThinkingModeReasoning})
+	// 32768-1000=31768（超过非思考模型 16384 上限，思考模型应完整保留）
+	if got := s.calcMaxTokens(1000); got != 31768 {
+		t.Errorf("期望 31768, 实际 %d", got)
+	}
+}
+
+// TestCalcMaxTokens_TemplateOff 模板式思考模型 + 用户显式关闭思考：
+// 不触发思考分支，保持非思考策略
+func TestCalcMaxTokens_TemplateOff(t *testing.T) {
+	s := &Service{config: &config.Config{ContextSize: 8192, Reasoning: "off"}}
+	s.SetModelCapabilities(llm.ModelCapabilities{ThinkingMode: llm.ThinkingModeTemplate})
+	if got := s.calcMaxTokens(1000); got != 7192 {
+		t.Errorf("期望 7192, 实际 %d", got)
+	}
+}
+
+// TestCalcMaxTokens_UserForcedOn 用户强制开启思考：
+// 即使模型本身无思考能力，也给足思考余量
+func TestCalcMaxTokens_UserForcedOn(t *testing.T) {
+	s := &Service{config: &config.Config{ContextSize: 4096, Reasoning: "on"}}
+	s.SetModelCapabilities(llm.ModelCapabilities{ThinkingMode: llm.ThinkingModeNone})
+	// 4096-4000=96 → 提升到 4096
+	if got := s.calcMaxTokens(4000); got != thinkingMinTokens {
+		t.Errorf("期望 %d, 实际 %d", thinkingMinTokens, got)
+	}
+}
+
+// TestCalcMaxTokens_ThinkingCap 思考模型 + 超大上下文：
+// 生成预算受 thinkingMaxTokens 上限约束，避免允许无限生成
+func TestCalcMaxTokens_ThinkingCap(t *testing.T) {
+	s := &Service{config: &config.Config{ContextSize: 65536, Reasoning: "on"}}
+	// 65536-1000=64536 → 封顶到 thinkingMaxTokens
+	if got := s.calcMaxTokens(1000); got != thinkingMaxTokens {
+		t.Errorf("期望 %d, 实际 %d", thinkingMaxTokens, got)
+	}
+}
+
 // =============================================================================
 // service_tool_call_loop.go updateTokenCount 测试
 // =============================================================================

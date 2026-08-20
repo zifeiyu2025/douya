@@ -468,17 +468,65 @@ func clampDuration(d float64) float64 {
 	return d
 }
 
+// thinkingMinTokens 思考模型的生成预算下限（token）。
+// 硬思考模型（如 DeepSeek、Qwen3 强制思考）在回答前必须先完成思考，
+// 若 max_tokens 过小，思考阶段就会耗尽预算，导致最终 content 为空
+// （finish_reason=length）。该下限确保即使上下文已占用较多，
+// 也至少能完成"思考 + 简短回答"。
+const thinkingMinTokens = 4096
+
+// thinkingMaxTokens 思考模型允许的最大生成预算（token）。
+// 长思考模型单轮思考可达数千 token，去掉非思考模型的 16384 硬上限；
+// 同时防御性封顶，避免未来超大上下文时允许无限生成。
+const thinkingMaxTokens = 32768
+
 func (s *Service) calcMaxTokens(promptTokens int) int {
 	ctxSize := 0
+	reasoning := ""
 	if cfg := s.getConfigSnapshot(); cfg != nil {
 		ctxSize = cfg.ContextSize
+		reasoning = cfg.Reasoning
 	}
 	if ctxSize <= 0 {
 		ctxSize = 4096
 	}
-	// 可用生成空间 = 上下文大小 - prompt 占用
+
+	// 思考模型需要给"思考 + 回答"留足余量，避免 max_tokens 在思考阶段
+	// 就被耗尽导致 content 为空（硬思考模型无法关闭思考）
+	if s.mayProduceThinking(reasoning) {
+		maxTokens := max(ctxSize-promptTokens, thinkingMinTokens)
+		// 上限：不超过 ctxSize（防止服务器拒绝超上下文请求），并受思考上限约束
+		if maxTokens > ctxSize {
+			maxTokens = ctxSize
+		}
+		if maxTokens > thinkingMaxTokens {
+			maxTokens = thinkingMaxTokens
+		}
+		return maxTokens
+	}
+
+	// 非思考模型：生成空间 = 上下文剩余空间，上限 16384，下限 512
 	maxTokens := max(min(ctxSize-promptTokens, 16384), 512)
 	return maxTokens
+}
+
+// mayProduceThinking 判断本次生成是否可能产生思考内容。
+// 返回 true 时调用方应给 max_tokens 留足思考余量。
+func (s *Service) mayProduceThinking(reasoning string) bool {
+	// 用户显式开启思考：即使模型本身不支持思考，也会注入思考引导
+	if reasoning == "on" {
+		return true
+	}
+	switch s.GetModelCapabilities().ThinkingMode {
+	case llm.ThinkingModeReasoning:
+		// 硬思考模型（DeepSeek 类）：思考由服务端 --reasoning 控制，
+		// 无法通过 enable_thinking 关闭，配置 off 时仍可能思考
+		return true
+	case llm.ThinkingModeTemplate:
+		// 模板式思考模型（Qwen3 等）：仅当用户显式关闭思考时才不产生思考
+		return reasoning != "off"
+	}
+	return false
 }
 
 // savePartialContentIfAny 在用户停止生成时，若有已生成内容则保存为 assistant 消息。
