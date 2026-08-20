@@ -69,7 +69,7 @@
           <template #label>
             KV 缓存卸载
             <HelpTip
-              content="开启后允许将 KV 缓存卸载到 CPU 内存，节省显存但会降低速度。显存不足时可开启"
+              content="开启后 KV 缓存保留在显卡显存中，逐 token 生成速度更快，但会增加显存占用（默认开启，与 llama.cpp 原生一致）。关闭则 KV 缓存放回内存，更省显存但生成明显变慢，一般无需关闭；显存不足时可临时关闭或依赖自动缩小上下文"
             />
           </template>
           <n-switch v-model:value="formConfig.kv_offload" />

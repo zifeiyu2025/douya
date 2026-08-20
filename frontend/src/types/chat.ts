@@ -517,7 +517,7 @@ export const DEFAULT_CONFIG: Config = {
   rag_chunk_overlap: 64,
   embedding_model: '',
   mmap: true,
-  kv_offload: false,
+  kv_offload: true, // 与 Go DefaultConfig 对齐（默认开启，KV 缓存保留在显存、推理更快）
   context_shift: false,
   min_p: 0.05,
   dry_multiplier: 0,

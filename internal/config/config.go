@@ -297,9 +297,10 @@ func DefaultConfig() *Config {
 		ReasoningBudgetStartTag:    "",
 		ReasoningBudgetEndTag:      "",
 		Mmap:                       true,
-		// KV 缓存 GPU 卸载：默认关闭，由用户在设置中按需开启。
-		// 开启后可将 KV cache 卸载到 GPU 降低首 token 延迟，但会增加显存占用。
-		KVOffload: false,
+		// KV 缓存 GPU 卸载：默认开启，与 llama.cpp 原生默认（kv-offload: enabled）一致。
+		// 开启后 KV cache 保留在显卡显存，逐 token 推理速度更快；但会增加显存占用，
+		// 显存紧张的小显卡可关闭（KV 落入内存），或依赖 llama.cpp 的 --fit 自动缩小上下文来兜底。
+		KVOffload: true,
 		// 上下文移位（context-shift）：默认关闭。
 		// 应用层已有主动压缩 + 摘要机制，无需 llama-server 兜底移位；
 		// 用户如需更激进的自动兜底，可在设置中手动开启。

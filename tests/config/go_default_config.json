@@ -49,7 +49,7 @@
   "reasoning_budget_start_tag": "",
   "reasoning_budget_end_tag": "",
   "mmap": true,
-  "kv_offload": false,
+  "kv_offload": true,
   "context_shift": false,
   "min_p": 0.05,
   "dry_multiplier": 0,
