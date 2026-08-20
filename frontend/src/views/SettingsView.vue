@@ -303,25 +303,36 @@ async function saveSearchKeys() {
   }
 }
 
-const serverApiKey = ref('')
 const hasServerApiKey = ref(false)
 const savingServerApiKey = ref(false)
+// 一次性展示的生成结果（仅生成时由后端返回，关闭展示区即丢弃）
+const generatedServerApiKey = ref('')
 
-async function saveServerApiKey() {
-  if (!serverApiKey.value) return
+async function generateServerApiKey() {
   savingServerApiKey.value = true
   try {
-    await settingsStore.saveServerAPIKey(serverApiKey.value)
+    const key = await settingsStore.generateServerAPIKey()
     hasServerApiKey.value = true
-    serverApiKey.value = ''
-    showSuccess(message, '服务 API Key 已保存')
+    generatedServerApiKey.value = key
+    // 后端生成即启用开关，同步表单状态避免 UI 与实际配置不一致
+    formConfig.value.server_api_key_enabled = true
+    showSuccess(message, 'API Key 已生成（重启应用后生效）')
   } catch (e) {
-    logError('Failed to save server API key', e)
+    logError('Failed to generate server API key', e)
     message.destroyAll()
-    message.error('服务 API Key 保存失败，请重试', { duration: 4000 })
+    message.error('API Key 生成失败，请重试', { duration: 4000 })
   } finally {
     savingServerApiKey.value = false
   }
+}
+
+function copyGeneratedApiKey() {
+  navigator.clipboard.writeText(generatedServerApiKey.value)
+  showSuccess(message, 'API Key 已复制')
+}
+
+function dismissGeneratedApiKey() {
+  generatedServerApiKey.value = ''
 }
 
 async function onServerAPIKeyToggle() {
@@ -873,10 +884,12 @@ const settingsContext: SettingsContext = {
   searchKeys,
   saveSearchKeys,
   savingSearchKeys,
-  serverApiKey,
   hasServerApiKey,
-  saveServerApiKey,
+  generateServerApiKey,
   savingServerApiKey,
+  generatedServerApiKey,
+  copyGeneratedApiKey,
+  dismissGeneratedApiKey,
   onServerAPIKeyToggle,
   onExposeServerToggle,
   onEnableWebUIToggle,

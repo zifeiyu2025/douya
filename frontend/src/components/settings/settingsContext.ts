@@ -50,10 +50,13 @@ export interface SettingsContext {
   searchKeys: Ref<SearchAPIKeys>
   saveSearchKeys: () => void
   savingSearchKeys: Ref<boolean>
-  serverApiKey: Ref<string>
   hasServerApiKey: Ref<boolean>
-  saveServerApiKey: () => void
+  generateServerApiKey: () => Promise<void>
   savingServerApiKey: Ref<boolean>
+  // 一次性展示的生成结果（仅生成时由后端返回明文，关闭展示即丢弃，后端不再提供查看接口）
+  generatedServerApiKey: Ref<string>
+  copyGeneratedApiKey: () => void
+  dismissGeneratedApiKey: () => void
   onServerAPIKeyToggle: () => Promise<void>
   onExposeServerToggle: () => Promise<void>
   onEnableWebUIToggle: () => Promise<void>

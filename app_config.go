@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -112,14 +113,88 @@ func (a *App) getServerAPIKey() string {
 	return value
 }
 
-func (a *App) SetServerAPIKey(key string) error {
-	if err := validateNonEmpty("API Key", key); err != nil {
-		return err
+// GenerateServerAPIKey 一键生成通用格式的服务端 API Key 并加密存储。
+//
+// 替代旧的手动输入方案（SetServerAPIKey 已移除）：
+//   - 格式：sk-douya-<48位base62随机串>，sk- 前缀为业界通用格式，
+//     第三方工具（各类 API 客户端）可直接作为 Bearer Token 使用
+//   - 存储：AES-GCM 加密后写入数据库（SetEncryptedSetting），明文不落盘
+//   - 启用：生成即开启 ServerAPIKeyEnabled 并持久化 config.json
+//   - 同步：重建内部 client（apiKey 在构造时固化，不重建的话
+//     llama-server 重启加载新 key 后豆芽自身请求会 401）
+//   - 生效：LLAMA_API_KEY 在 llama-server 启动时注入，重启应用后生效
+//
+// 返回明文 key 供前端一次性展示（不提供"再次查看"接口，保持
+// "设置后无法再次查看"的安全模型）。
+//
+// 生活类比：装门禁不再让住户自己想密码，而是按一键，物业用密码机
+// 生成一张高强度的门禁卡（加密登记），当场给你看一次卡号，
+// 之后再想看就得重新办卡（重新生成）。
+func (a *App) GenerateServerAPIKey() (string, error) {
+	if a.service == nil {
+		return "", apperror.New(apperror.KindUnavailable, "服务未初始化")
 	}
-	if err := validateStringLength("API Key", key, 256); err != nil {
-		return err
+
+	key, err := generateAPIKeyString()
+	if err != nil {
+		return "", apperror.Wrap(apperror.KindInternal, "生成 API Key 失败", err)
 	}
-	return a.service.SetEncryptedSetting("server_api_key", key)
+
+	// 加密存储（AES-GCM，enc: 前缀标识）
+	if err := a.service.SetEncryptedSetting("server_api_key", key); err != nil {
+		return "", apperror.Wrap(apperror.KindInternal, "保存 API Key 失败", err)
+	}
+
+	// 生成即启用：同步开启开关并持久化，满足"开放局域网访问"的前置校验
+	if err := a.updateConfig(func(cfg *config.Config) error {
+		cfg.ServerAPIKeyEnabled = true
+		return nil
+	}); err != nil {
+		return "", err
+	}
+	cfg := a.getConfig()
+	if err := config.Save(filepath.Join(appDir(), "config.json"), cfg); err != nil {
+		return "", apperror.Wrap(apperror.KindInvalidConfig, "保存配置失败", err)
+	}
+
+	// 重建 client 与 service 引用（照搬 UpdateConfig 的同步顺序）
+	if a.service != nil {
+		a.service.UpdateConfig(cfg)
+	}
+	a.setClient(llm.NewClient(cfg.APIBase, a.getServerAPIKey()))
+	if a.service != nil {
+		a.service.UpdateClient(a.getClient())
+	}
+
+	return key, nil
+}
+
+// generateAPIKeyString 生成 sk-douya-<48位base62> 格式的 API Key。
+//
+// 随机性：crypto/rand（密码学安全随机源），拒绝采样消除取模偏差
+// （仅接受 byte < 248 = 62*4），48 字符 × log2(62) ≈ 285 bits 熵。
+func generateAPIKeyString() (string, error) {
+	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+	const keyLen = 48
+	// 248 = 62 * 4，是 ≤255 的最大 62 倍数；超出部分丢弃避免字符分布偏差
+	const maxByte = 248
+
+	out := make([]byte, 0, keyLen)
+	buf := make([]byte, keyLen*2) // 一次多取一些，减少循环次数
+	for len(out) < keyLen {
+		if _, err := rand.Read(buf); err != nil {
+			return "", err
+		}
+		for _, b := range buf {
+			if b < maxByte {
+				out = append(out, charset[b%62])
+				if len(out) == keyLen {
+					break
+				}
+			}
+		}
+	}
+	return "sk-douya-" + string(out), nil
 }
 
 // GetModelParams 读取指定模型的专属生成参数。

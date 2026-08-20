@@ -312,9 +312,10 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  async function saveServerAPIKey(key: string) {
+  async function generateServerAPIKey(): Promise<string> {
     // 不吞掉错误，让调用方 catch 后给用户视觉反馈
-    await wails.setServerAPIKey(key)
+    // 返回明文 key（仅此一次，后端不提供再次查看接口）
+    return await wails.generateServerAPIKey()
   }
 
   // 配置写入串行化队列：所有配置写入操作排队执行，避免并发覆盖（任务 11 TOCTOU 防护）
@@ -564,7 +565,7 @@ export const useSettingsStore = defineStore('settings', () => {
     loadSearchAPIKeys,
     saveSearchAPIKeys,
     hasServerAPIKey,
-    saveServerAPIKey,
+    generateServerAPIKey,
     toggleSearch: cycleSearchMode,
     cycleSearchMode,
     setSearchMode,

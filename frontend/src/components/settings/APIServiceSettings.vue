@@ -61,7 +61,7 @@
     <template #label>
       服务端 API Key
       <HelpTip
-        content="访问 API 所需的密钥，启用后只有提供正确 Key 才能调用 API。密钥加密存储，设置后无法再次查看"
+        content="访问 API 所需的密钥，由系统一键生成通用格式（sk-douya- 开头），无需手动设置。密钥加密存储，生成后仅显示一次"
       />
     </template>
     <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px">
@@ -75,26 +75,24 @@
       <n-tag v-if="hasServerApiKey" type="success" size="small">已设置</n-tag>
       <n-tag v-else type="default" size="small">未设置</n-tag>
     </div>
-    <div v-if="formConfig.server_api_key_enabled" class="api-key-row">
-      <n-input
-        v-model:value="serverApiKey"
-        type="password"
-        show-password-on="click"
-        :placeholder="hasServerApiKey ? '已设置，输入新值覆盖' : '输入 API Key 保存'"
-        :loading="savingServerApiKey"
-        :disabled="savingServerApiKey"
-        class="api-key-input"
-        @keyup.enter="saveServerApiKey"
-      />
-      <n-button
-        type="primary"
-        ghost
-        :loading="savingServerApiKey"
-        :disabled="!serverApiKey"
-        @click="saveServerApiKey"
-      >
-        保存
-      </n-button>
+    <!-- 未生成时：一键生成按钮（可重复生成，覆盖旧 Key） -->
+    <n-button
+      v-if="!generatedServerApiKey"
+      type="primary"
+      ghost
+      :loading="savingServerApiKey"
+      @click="generateServerApiKey"
+    >
+      {{ hasServerApiKey ? '重新生成 API Key' : '一键生成 API Key' }}
+    </n-button>
+    <!-- 生成后：一次性展示明文（关闭即丢弃，后端不再提供查看接口） -->
+    <div v-else class="generated-key-box">
+      <div class="generated-key-value">{{ generatedServerApiKey }}</div>
+      <div class="generated-key-actions">
+        <n-button text type="primary" @click="copyGeneratedApiKey">复制</n-button>
+        <n-button text @click="dismissGeneratedApiKey">关闭</n-button>
+      </div>
+      <div class="generated-key-note">请立即复制保存，此 Key 仅显示一次，重启应用后生效</div>
     </div>
   </n-form-item>
 </template>
@@ -124,10 +122,12 @@ if (!ctx) {
 const {
   formConfig,
   autoSave,
-  serverApiKey,
   hasServerApiKey,
-  saveServerApiKey,
+  generateServerApiKey,
   savingServerApiKey,
+  generatedServerApiKey,
+  copyGeneratedApiKey,
+  dismissGeneratedApiKey,
   onServerAPIKeyToggle,
   onExposeServerToggle
 } = ctx
@@ -174,14 +174,30 @@ const copyEndpoint = () => {
   color: var(--text-muted);
   padding-bottom: 8px;
 }
-.api-key-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+/* 生成结果一次性展示卡片 */
+.generated-key-box {
   width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-secondary);
 }
-.api-key-input {
-  flex: 1;
+.generated-key-value {
+  font-family: monospace;
+  font-size: 13px;
+  word-break: break-all;
+  color: var(--text-primary);
+  user-select: all;
+}
+.generated-key-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.generated-key-note {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 .rounded-input :deep(.n-input__input),
 .rounded-input :deep(.n-input-wrapper) {

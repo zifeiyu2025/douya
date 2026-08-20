@@ -129,7 +129,7 @@ export function SetRAGEnabled(arg1:boolean):Promise<void>;
 
 export function SetSearchAPIKeys(arg1:main.SearchAPIKeys):Promise<void>;
 
-export function SetServerAPIKey(arg1:string):Promise<void>;
+export function GenerateServerAPIKey():Promise<string>;
 
 export function ShowWindow():Promise<void>;
 

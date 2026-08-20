@@ -246,8 +246,8 @@ export function SetSearchAPIKeys(arg1) {
   return window['go']['main']['App']['SetSearchAPIKeys'](arg1);
 }
 
-export function SetServerAPIKey(arg1) {
-  return window['go']['main']['App']['SetServerAPIKey'](arg1);
+export function GenerateServerAPIKey() {
+  return window['go']['main']['App']['GenerateServerAPIKey']();
 }
 
 export function ShowWindow() {

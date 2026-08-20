@@ -39,7 +39,7 @@ import {
   GetSearchAPIKeys,
   SetSearchAPIKeys,
   HasServerAPIKey,
-  SetServerAPIKey,
+  GenerateServerAPIKey,
   SaveModelParams,
   ClearModelParams,
   HasModelParams,
@@ -581,8 +581,8 @@ export const wails = {
   hasServerAPIKey: async (): Promise<boolean> => {
     return (await HasServerAPIKey()) as boolean
   },
-  setServerAPIKey: async (key: string): Promise<void> => {
-    await SetServerAPIKey(key)
+  generateServerAPIKey: async (): Promise<string> => {
+    return (await GenerateServerAPIKey()) as string
   },
   // 模型专属生成参数：每个模型保存各自的生成参数，切换时自动恢复
   saveModelParams: async (modelName: string): Promise<void> => {
