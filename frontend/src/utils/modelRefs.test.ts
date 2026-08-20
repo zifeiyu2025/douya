@@ -61,8 +61,9 @@ describe('matchModelRef', () => {
       expect(result?.raw.temperature).toBe(0.7)
       expect(result?.raw.top_p).toBe(0.8)
       expect(result?.raw.top_k).toBe(20)
-      // 思考模式：temperature=1.0, top_p=0.95
-      expect(result?.raw_thinking?.temperature).toBe(1.0)
+      // 思考模式（客户端已细分到具体版本卡时）：Qwen3-Thinking-2507 官方 temperature=0.6
+      // 注意：Qwen3-30B-A3B/14B/8B 现匹配各自细化卡片，思考温度均为 0.6
+      expect(result?.raw_thinking?.temperature).toBe(0.6)
       expect(result?.raw_thinking?.top_p).toBe(0.95)
     }
   })
@@ -96,7 +97,47 @@ describe('matchModelRef', () => {
     expect(result?.name).not.toBe('Qwen3 系列')
   })
 
-  it('匹配 Qwen3-Coder 编程专用模型', () => {
+  it('匹配 Qwen3 具体版本（8B/14B/30B-A3B）细化卡片', () => {
+    // Qwen3 各具体版本应匹配各自的独立卡片，而非 qwen3 兜底
+    const cases: Array<[string, string]> = [
+      ['Qwen3-8B-Instruct', 'Qwen3-8B'],
+      ['Qwen3-8B-Instruct-2507-GGUF', 'Qwen3-8B'],
+      ['Qwen3-14B-Instruct', 'Qwen3-14B'],
+      ['Qwen3-30B-A3B-Instruct-2507', 'Qwen3-30B-A3B']
+    ]
+    for (const [name, expected] of cases) {
+      const result = matchModelRef(name, MODEL_REFS)
+      expect(result, `${name} should match ${expected}`).not.toBeNull()
+      expect(result?.name).toBe(expected)
+      // Qwen3 官方：非思考 t=0.7/top_p=0.8/top_k=20，思考 t=0.6/top_p=0.95（Qwen3-Thinking-2507）
+      expect(result?.raw.temperature).toBe(0.7)
+      expect(result?.raw.top_p).toBe(0.8)
+      expect(result?.raw.top_k).toBe(20)
+      expect(result?.raw_thinking?.temperature).toBe(0.6)
+      expect(result?.raw_thinking?.top_p).toBe(0.95)
+    }
+    // 未细分的未来版本仍兜底到 qwen3 系列，而非被具体版本误匹配
+    const t0 = matchModelRef('Qwen3-20B-SomeFutureVariant', MODEL_REFS)
+    expect(t0).not.toBeNull()
+    expect(t0?.name.startsWith('Qwen3')).toBe(true)
+  })
+
+  it('匹配 Qwen3.8 具体版本（9B）与兜底', () => {
+    // Qwen3.8-9B 应匹配独立卡片
+    const r9 = matchModelRef('Qwen3.8-9B-Instruct', MODEL_REFS)
+    expect(r9).not.toBeNull()
+    expect(r9?.name).toBe('Qwen3.8-9B')
+    expect(r9?.raw.temperature).toBe(0.7)
+    expect(r9?.raw_thinking?.temperature).toBe(1.0)
+    // 未明确的 Qwen3.8 变体兜底到系列卡片
+    const rFallback = matchModelRef('Qwen3.8-SomeVariant', MODEL_REFS)
+    expect(rFallback).not.toBeNull()
+    expect(rFallback?.name).toBe('Qwen3.8 系列')
+    // 关键：不被 qwen3-8b（8B）误匹配
+    expect(rFallback?.name).not.toBe('Qwen3-8B')
+  })
+
+  it('匹配 Qwen3 主力系列（Qwen3-30B-A3B / Qwen3-14B / Qwen3-8B 等）', () => {
     const result = matchModelRef('Qwen3-Coder-30B-A3B-Instruct-GGUF', MODEL_REFS)
     expect(result).not.toBeNull()
     // 编程推荐低温度（与 Qwen2.5-Coder 风格一致）

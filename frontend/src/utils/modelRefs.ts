@@ -322,57 +322,61 @@ export const MODEL_REFS: Record<string, ModelRefConfig> = {
     name: 'Llama 4 Scout',
     raw: { temperature: 0.6, top_p: 0.9, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
     raw_thinking: {
-      temperature: 0.8,
-      top_p: 0.95,
+      temperature: 0.6,
+      top_p: 0.9,
       top_k: 40,
       context_size: 32768,
       repeat_penalty: 1.0
     },
     params: [
       { label: '上下文长度', value: '32K (推荐) / 最大 10M' },
-      { label: '温度', value: '0.6 (非思考)' },
+      { label: '温度', value: '0.6' },
       { label: 'Top P', value: '0.9' },
+      { label: 'Min P', value: '0.01 (官方可选推荐)' },
       { label: 'Top K', value: '40' },
       { label: '重复惩罚', value: '1.0' },
       { label: '参数量', value: '~17B (MoE 16专家)' }
     ],
     params_thinking: [
       { label: '上下文长度', value: '32K (推荐) / 最大 10M' },
-      { label: '温度', value: '0.8 (思考模式)' },
-      { label: 'Top P', value: '0.95' },
+      { label: '温度', value: '0.6' },
+      { label: 'Top P', value: '0.9' },
+      { label: 'Min P', value: '0.01 (官方可选推荐)' },
       { label: 'Top K', value: '40' },
       { label: '重复惩罚', value: '1.0' },
       { label: '参数量', value: '~17B (MoE 16专家)' }
     ],
-    note: 'Llama 4 Scout MoE 架构，原生支持 10M 超长上下文，支持思考模式'
+    note: 'Llama 4 Scout MoE 架构，原生支持 10M 超长上下文。Meta 官方推荐：温度 0.6、Top_P 0.9、Min_P 0.01（可选但效果很好）'
   },
   'llama-4-maverick': {
     name: 'Llama 4 Maverick',
     raw: { temperature: 0.6, top_p: 0.9, top_k: 40, context_size: 32768, repeat_penalty: 1.0 },
     raw_thinking: {
-      temperature: 0.8,
-      top_p: 0.95,
+      temperature: 0.6,
+      top_p: 0.9,
       top_k: 40,
       context_size: 32768,
       repeat_penalty: 1.0
     },
     params: [
       { label: '上下文长度', value: '32K (推荐) / 最大 1M' },
-      { label: '温度', value: '0.6 (非思考)' },
+      { label: '温度', value: '0.6' },
       { label: 'Top P', value: '0.9' },
+      { label: 'Min P', value: '0.01 (官方可选推荐)' },
       { label: 'Top K', value: '40' },
       { label: '重复惩罚', value: '1.0' },
       { label: '参数量', value: '~17B (MoE 128专家)' }
     ],
     params_thinking: [
       { label: '上下文长度', value: '32K (推荐) / 最大 1M' },
-      { label: '温度', value: '0.8 (思考模式)' },
-      { label: 'Top P', value: '0.95' },
+      { label: '温度', value: '0.6' },
+      { label: 'Top P', value: '0.9' },
+      { label: 'Min P', value: '0.01 (官方可选推荐)' },
       { label: 'Top K', value: '40' },
       { label: '重复惩罚', value: '1.0' },
       { label: '参数量', value: '~17B (MoE 128专家)' }
     ],
-    note: 'Llama 4 Maverick MoE 架构，128专家路由，支持思考模式'
+    note: 'Llama 4 Maverick MoE 架构，128专家路由。Meta 官方推荐：温度 0.6、Top_P 0.9、Min_P 0.01（可选但效果很好）'
   },
   'deepseek-r1': {
     name: 'DeepSeek-R1',
@@ -690,7 +694,7 @@ export const MODEL_REFS: Record<string, ModelRefConfig> = {
     name: 'Qwen3 系列',
     raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
     raw_thinking: {
-      temperature: 1.0,
+      temperature: 0.6,
       top_p: 0.95,
       top_k: 20,
       context_size: 32768,
@@ -706,13 +710,162 @@ export const MODEL_REFS: Record<string, ModelRefConfig> = {
     ],
     params_thinking: [
       { label: '上下文长度', value: '32K (推荐) / 最大 128K (部分 256K)' },
-      { label: '温度', value: '1.0 (思考模式/常规)' },
+      { label: '温度', value: '0.6 (思考模式)' },
       { label: 'Top P', value: '0.95' },
       { label: 'Top K', value: '20' },
       { label: '重复惩罚', value: '1.0' },
       { label: '参数量', value: '8B/14B/30B-A3B (MoE) 等' }
     ],
-    note: 'Qwen3 系列官方推荐：非思考 temperature=0.7/top_p=0.8，思考 temperature=1.0/top_p=0.95。无审查/蒸馏变体参数一致'
+    note: 'Qwen3 系列通用兜底（8B/14B/30B-A3B 等已细分为独立卡片）。官方推荐：非思考 t=0.7/top_p=0.8，思考 t=0.6/top_p=0.95（Qwen3-Thinking-2507）。无审查/蒸馏变体参数一致'
+  },
+  // ------------------------------------------------------------
+  // Qwen3 具体版本卡片（细化）：Qwen3-8B / 14B / 30B-A3B
+  // Qwen3 家族官方采样推荐（Qwen3-Thinking-2507：思考 t=0.6/top_p=0.95/top_k=20；
+  // Instruct-2507：非思考 t=0.7/top_p=0.8/top_k=20），差异主要在参数量与上下文规格。
+  // key 长度均大于 qwen3 兜底，保证具体版本优先匹配
+  // ------------------------------------------------------------
+  'qwen3-8b': {
+    name: 'Qwen3-8B',
+    raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.6,
+      top_p: 0.95,
+      top_k: 20,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.7 (非思考/常规)' },
+      { label: 'Top P', value: '0.8 (非思考)' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~8B (Dense)' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.6 (思考模式)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~8B (Dense)' }
+    ],
+    note: 'Qwen3-8B 官方推荐：非思考 t=0.7/top_p=0.8，思考 t=0.6/top_p=0.95（Qwen3-Thinking-2507）。无审查/蒸馏变体参数一致'
+  },
+  'qwen3-14b': {
+    name: 'Qwen3-14B',
+    raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.6,
+      top_p: 0.95,
+      top_k: 20,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.7 (非思考/常规)' },
+      { label: 'Top P', value: '0.8 (非思考)' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~14B (Dense)' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.6 (思考模式)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~14B (Dense)' }
+    ],
+    note: 'Qwen3-14B 官方推荐：非思考 t=0.7/top_p=0.8，思考 t=0.6/top_p=0.95（Qwen3-Thinking-2507）。无审查/蒸馏变体参数一致'
+  },
+  'qwen3-30b': {
+    name: 'Qwen3-30B-A3B',
+    raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 0.6,
+      top_p: 0.95,
+      top_k: 20,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.7 (非思考/常规)' },
+      { label: 'Top P', value: '0.8 (非思考)' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~30B (MoE, 激活 3B)' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 128K' },
+      { label: '温度', value: '0.6 (思考模式)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~30B (MoE, 激活 3B)' }
+    ],
+    note: 'Qwen3-30B-A3B MoE 架构，激活参数仅 3B。官方推荐：非思考 t=0.7/top_p=0.8，思考 t=0.6/top_p=0.95。无审查/蒸馏变体参数一致'
+  },
+  // ------------------------------------------------------------
+  // Qwen3.8 卡片（细化）：9B + 兜底
+  // ------------------------------------------------------------
+  'qwen3.8-9b': {
+    name: 'Qwen3.8-9B',
+    raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 1.0,
+      top_p: 0.95,
+      top_k: 20,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K / YaRN 扩展' },
+      { label: '温度', value: '0.7 (非思考/常规)' },
+      { label: 'Top P', value: '0.8 (非思考)' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~9B (Dense)' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K / YaRN 扩展' },
+      { label: '温度', value: '1.0 (思考模式/常规)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '~9B (Dense)' }
+    ],
+    note: 'Qwen3.8-9B 官方推荐：非思考 t=0.7/top_p=0.8，思考 t=1.0/top_p=0.95。无审查/蒸馏变体参数一致'
+  },
+  'qwen3.8': {
+    name: 'Qwen3.8 系列',
+    raw: { temperature: 0.7, top_p: 0.8, top_k: 20, context_size: 32768, repeat_penalty: 1.0 },
+    raw_thinking: {
+      temperature: 1.0,
+      top_p: 0.95,
+      top_k: 20,
+      context_size: 32768,
+      repeat_penalty: 1.0
+    },
+    params: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K' },
+      { label: '温度', value: '0.7 (非思考/常规)' },
+      { label: 'Top P', value: '0.8 (非思考)' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '9B 等' }
+    ],
+    params_thinking: [
+      { label: '上下文长度', value: '32K (推荐) / 最大 256K' },
+      { label: '温度', value: '1.0 (思考模式/常规)' },
+      { label: 'Top P', value: '0.95' },
+      { label: 'Top K', value: '20' },
+      { label: '重复惩罚', value: '1.0' },
+      { label: '参数量', value: '9B 等' }
+    ],
+    note: 'Qwen3.8 系列官方推荐：非思考 t=0.7/top_p=0.8，思考 t=1.0/top_p=0.95。无审查/蒸馏变体参数一致'
   },
   'qwen3-coder': {
     name: 'Qwen3-Coder',
