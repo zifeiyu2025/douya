@@ -7,7 +7,7 @@ package version
 import "regexp"
 
 // Version 当前应用版本号（每次发版时更新）
-const Version = "0.12.5"
+const Version = "0.12.6"
 
 // GitHubOwner GitHub 仓库所有者
 const GitHubOwner = "zifeiyu2025"
