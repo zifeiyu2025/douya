@@ -5,6 +5,7 @@ package chat
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -17,6 +18,34 @@ const slotOpTimeout = 30 * time.Second
 // slotIDDefault 是豆芽默认使用的 slot 编号。
 // 豆芽以单 slot 模式运行（--parallel 1），slot 0 始终存在。
 const slotIDDefault = 0
+
+// maxSlotFileNameLen 限制槽位缓存文件名的最大长度，防止超长文件名触发系统限制。
+const maxSlotFileNameLen = 64
+
+// SlotFileName 根据对话 ID 生成安全、稳定的槽位缓存文件名。
+// 自动流程（会话内 save/restore）与手动按钮共用同一命名，保证两边保存的文件能被正确找到。
+//
+// 生活类比：像给文档起文件名一样，对话 ID 里的字母/数字/横线保留，其余一律换成下划线，
+// 再截断到一定长度，确保既能对上号又不会被系统当成非法路径。
+func SlotFileName(convID string) string {
+	var b strings.Builder
+	for _, r := range convID {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	name := b.String()
+	if name == "" {
+		name = "default"
+	}
+	if len(name) > maxSlotFileNameLen {
+		name = name[len(name)-maxSlotFileNameLen:]
+	}
+	return name
+}
 
 // tryRestoreSlot 在流式请求开始前尝试恢复指定对话的 KV 缓存。
 // 触发条件：用户启用了 SlotSaveEnabled 且上次保存的对话 ID 与当前一致。
@@ -49,7 +78,7 @@ func (s *Service) tryRestoreSlot(ctx context.Context, convID string) {
 	opCtx, cancel := context.WithTimeout(ctx, slotOpTimeout)
 	defer cancel()
 
-	if err := client.OperateSlot(opCtx, slotIDDefault, "restore"); err != nil {
+	if err := client.OperateSlot(opCtx, slotIDDefault, "restore", SlotFileName(convID)); err != nil {
 		// restore 失败不阻塞主流程：llama-server 会自动重新 prefill
 		log.Warn().Err(err).Str("conv_id", convID).Msg("[slot] restore failed, will fallback to full prefill")
 		return
@@ -77,7 +106,7 @@ func (s *Service) trySaveSlot(ctx context.Context, convID string) {
 	opCtx, cancel := context.WithTimeout(ctx, slotOpTimeout)
 	defer cancel()
 
-	if err := client.OperateSlot(opCtx, slotIDDefault, "save"); err != nil {
+	if err := client.OperateSlot(opCtx, slotIDDefault, "save", SlotFileName(convID)); err != nil {
 		log.Warn().Err(err).Str("conv_id", convID).Msg("[slot] save failed, next request will re-prefill")
 		return
 	}
@@ -120,7 +149,7 @@ func (s *Service) ClearSavedSlot(ctx context.Context) {
 	opCtx, cancel := context.WithTimeout(ctx, slotOpTimeout)
 	defer cancel()
 
-	if err := client.OperateSlot(opCtx, slotIDDefault, "erase"); err != nil {
+	if err := client.OperateSlot(opCtx, slotIDDefault, "erase", ""); err != nil {
 		// erase 失败不影响正确性，新模型加载后 slot 0 会被重新初始化
 		log.Warn().Err(err).Msg("[slot] erase failed during model switch, stale cache may persist on disk")
 		return

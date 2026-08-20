@@ -1075,17 +1075,32 @@ func (c *Client) GetSlots(ctx context.Context) ([]SlotInfo, error) {
 //   - action: "save"（保存 KV 缓存到磁盘）、"restore"（从磁盘恢复）、"erase"（删除磁盘文件）
 //
 // 失败时返回错误，调用方自行决定是否记录日志或忽略。
-func (c *Client) OperateSlot(ctx context.Context, slotID int, action string) error {
+func (c *Client) OperateSlot(ctx context.Context, slotID int, action, filename string) error {
 	// 白名单校验，避免 action 参数被注入到 URL 查询串
 	switch action {
 	case "save", "restore", "erase":
 	default:
 		return apperror.Newf(apperror.KindInvalidInput, "invalid slot action: %s (only save/restore/erase)", action)
 	}
+	// v10521+ 的 llama-server 要求 save/restore 在请求体中携带 filename 字段，
+	// 否则会因"解析空输入"返回 500。erase 不需要 body，也无需 filename。
+	if (action == "save" || action == "restore") && filename == "" {
+		return apperror.New(apperror.KindInvalidInput, "slot save/restore 需要提供 filename")
+	}
 	query := url.Values{"action": {action}}.Encode()
 	reqURL := fmt.Sprintf("%s/slots/%d?%s", c.baseURL, slotID, query)
-	// slot 操作无响应体需求，wantBody=false 节省一次 Body 读取
-	_, err := c.doSimpleJSONRequest(ctx, http.MethodPost, reqURL, nil, "slot "+action, false)
+
+	var body []byte
+	wantBody := false
+	if action == "save" || action == "restore" {
+		var err error
+		body, err = json.Marshal(map[string]any{"filename": filename})
+		if err != nil {
+			return apperror.Wrap(apperror.KindInternal, "failed to marshal slot operation request", err)
+		}
+		wantBody = true
+	}
+	_, err := c.doSimpleJSONRequest(ctx, http.MethodPost, reqURL, body, "slot "+action, wantBody)
 	return err
 }
 

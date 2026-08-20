@@ -1257,6 +1257,25 @@ func TestClearSavedSlot_WithOldID(t *testing.T) {
 	}
 }
 
+// TestSlotFileName 验证缓存文件名的安全生成：合法字符保留、非法替换、空输入兜底、超长截断
+func TestSlotFileName(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "常规对话ID保留", in: "conv-123", want: "conv-123"},
+		{name: "非法字符替换为下划线", in: "conv a/b\\c:？", want: "conv_a_b_c__"},
+		{name: "空输入兜底", in: "", want: "default"},
+		{name: "超长截断到64", in: strings.Repeat("a", 100), want: strings.Repeat("a", 64)},
+	}
+	for _, c := range cases {
+		if got := SlotFileName(c.in); got != c.want {
+			t.Errorf("%s: SlotFileName(%q) = %q, 期望 %q", c.name, c.in, got, c.want)
+		}
+	}
+}
+
 // =============================================================================
 // types.go DecodeString 补全分支
 // =============================================================================

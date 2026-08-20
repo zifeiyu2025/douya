@@ -101,7 +101,7 @@ export function RenameConversation(arg1:string,arg2:string):Promise<void>;
 
 export function RerankEnabled():Promise<boolean>;
 
-export function RestoreSlot(arg1:number):Promise<void>;
+export function RestoreSlot(arg1:string):Promise<void>;
 
 export function EraseSlot(arg1:number):Promise<void>;
 
@@ -109,7 +109,7 @@ export function SaveModelParams(arg1:string):Promise<void>;
 
 export function SaveMCPServers(arg1:Array<mcp.MCPServerConfig>):Promise<void>;
 
-export function SaveSlot(arg1:number):Promise<void>;
+export function SaveSlot(arg1:string):Promise<void>;
 
 export function SearchMessages(arg1:string):Promise<Array<chat.Message>>;
 

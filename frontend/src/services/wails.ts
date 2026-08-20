@@ -403,11 +403,11 @@ export const wails = {
   rerankEnabled: async (): Promise<boolean> => {
     return await RerankEnabled()
   },
-  saveSlot: async (slotID: number): Promise<void> => {
-    await SaveSlot(slotID)
+  saveSlot: async (conversationId: string): Promise<void> => {
+    await SaveSlot(conversationId)
   },
-  restoreSlot: async (slotID: number): Promise<void> => {
-    await RestoreSlot(slotID)
+  restoreSlot: async (conversationId: string): Promise<void> => {
+    await RestoreSlot(conversationId)
   },
   eraseSlot: async (slotID: number): Promise<void> => {
     await EraseSlot(slotID)

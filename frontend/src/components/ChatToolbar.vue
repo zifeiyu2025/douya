@@ -200,23 +200,6 @@
         <line x1="8" y1="23" x2="16" y2="23"></line>
       </svg>
     </button>
-    <button
-      v-if="settingsStore.config.slot_save_enabled"
-      class="kv-btn kv-save-btn"
-      :disabled="chatStore.isAnyGenerating"
-      title="保存 KV 缓存"
-      @click="handleSaveKV"
-    >
-      <n-icon size="22"><CloudUploadOutline /></n-icon>
-    </button>
-    <button
-      v-if="settingsStore.config.slot_save_enabled"
-      class="kv-btn kv-restore-btn"
-      title="恢复 KV 缓存"
-      @click="handleRestoreKV"
-    >
-      <n-icon size="22"><CloudDownloadOutline /></n-icon>
-    </button>
   </div>
 </template>
 
@@ -227,8 +210,6 @@ import {
   GlobeOutline,
   AttachOutline,
   BulbOutline,
-  CloudUploadOutline,
-  CloudDownloadOutline,
   LayersOutline
 } from '@vicons/ionicons5'
 import { useChatStore } from '../stores/chat'
@@ -236,7 +217,8 @@ import { useSettingsStore } from '../stores/settings'
 import { wails } from '../services/wails'
 import { showSuccess } from '../utils/showError'
 
-// 工具栏按钮组：思考模式、搜索模式、深度推理、附件、语音、KV 缓存
+// 工具栏按钮组：思考模式、搜索模式、深度推理、附件、语音
+//（KV 缓存已改为自动保存/恢复，无需手动按钮）
 // 通过 props 接收语音输入状态，通过 emit 向上传递语音切换与文件选择事件
 defineProps<{
   isListening: boolean
@@ -353,27 +335,6 @@ async function handleThinkClick() {
     case 'no_think':
       message.info('已关闭深度思考，快速回答（不思考）', { duration: 2000 })
       break
-  }
-}
-
-async function handleSaveKV() {
-  if (chatStore.isAnyGenerating) return
-  try {
-    await wails.saveSlot(0)
-    showSuccess(message, 'KV 缓存已保存')
-  } catch (e) {
-    message.destroyAll()
-    message.error(`保存 KV 缓存失败: ${e}`, { duration: 3000 })
-  }
-}
-
-async function handleRestoreKV() {
-  try {
-    await wails.restoreSlot(0)
-    showSuccess(message, 'KV 缓存已恢复')
-  } catch (e) {
-    message.destroyAll()
-    message.error(`恢复 KV 缓存失败: ${e}`, { duration: 3000 })
   }
 }
 
