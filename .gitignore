@@ -4,6 +4,10 @@ release/
 *.exe
 *.dll
 
+# llama.cpp 本地编译沙箱与一次性构建脚本
+.llamacpp-build/
+build_llamacpp_*.bat
+
 # Dependencies
 node_modules/
 
