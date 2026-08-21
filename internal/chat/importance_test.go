@@ -30,7 +30,7 @@ func TestScoreChatMessage_UserImportantKeyword(t *testing.T) {
 		content string
 		desc    string
 	}{
-		{"请记住我的项目用 Go 1.22", "中文'记住'"},
+		{"请记住我的项目用 Go 1.26", "中文'记住'"},
 		{"重要决策：使用 SQLite 而非 PostgreSQL", "中文'重要'"},
 		{"Remember to use UTF-8 encoding", "英文'remember'"},
 		{"This is important: don't forget the API key", "英文'important'+'don't forget'"},

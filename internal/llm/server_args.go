@@ -126,6 +126,10 @@ func (s *Server) appendRuntimeArgs(args []string) []string {
 	args = appendIntArg(args, "-c", ctxSize)
 	args = appendBoolArg(args, "--mmproj-auto", s.config.MmprojAuto)
 	args = appendBoolArg(args, "--mmproj-offload", s.config.MmprojOffload)
+	// 视觉投影专用 GPU 设备名（多显卡分卡，llama.cpp --mmproj-device/-mmdev）：
+	// 仅配置了非空值时传递；"none" 由 llama.cpp 自行解析为关闭 mmproj 卸载。
+	// 生活类比：告诉卡车司机把视觉设备单独放哪辆车的后备箱（不同显卡）。
+	args = appendStringArg(args, "--mmproj-device", s.config.MmprojDevice)
 	return args
 }
 

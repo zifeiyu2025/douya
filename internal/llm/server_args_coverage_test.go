@@ -195,6 +195,29 @@ func TestAppendRuntimeArgs_MmprojOffload(t *testing.T) {
 	}
 }
 
+// TestAppendRuntimeArgs_MmprojDevice 验证配置 mmproj_device 时传递 --mmproj-device
+func TestAppendRuntimeArgs_MmprojDevice(t *testing.T) {
+	s := newTestServer()
+	s.config.MmprojDevice = "cuda:1"
+
+	args := s.appendRuntimeArgs(nil)
+	if got := argValue(args, "--mmproj-device"); got != "cuda:1" {
+		t.Errorf("期望 --mmproj-device=cuda:1，实际: %q（args: %v）", got, args)
+	}
+}
+
+// TestAppendRuntimeArgs_MmprojDevice_Empty 验证 mmproj_device 为空时不传递（保持默认 auto）
+// 风险：空值若被错误传递，单显卡用户会因无效设备名导致 llama-server 启动失败。
+func TestAppendRuntimeArgs_MmprojDevice_Empty(t *testing.T) {
+	s := newTestServer()
+	s.config.MmprojDevice = ""
+
+	args := s.appendRuntimeArgs(nil)
+	if containsArg(args, "--mmproj-device") {
+		t.Errorf("期望空 mmproj_device 不传递 --mmproj-device，实际 args: %v", args)
+	}
+}
+
 // ===== appendReasoningArgs 测试 =====
 
 // TestAppendReasoningArgs_BackendSamplingMutex 验证后端采样启用时跳过 reasoning-budget

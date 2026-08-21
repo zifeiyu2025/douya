@@ -32,6 +32,11 @@ type Config struct {
 	// 之前是 bool 且默认 true，导致用户设 mmproj_offload=false 时被 `if cfg.MmprojOffload { d.MmprojOffload = true }`
 	// 单方向覆盖，"关闭"路径永远不可达。改为 *bool 后 false 可真正生效。
 	MmprojOffload   *bool  `json:"mmproj_offload"`
+	// MmprojDevice 视觉投影(mmproj)使用的 GPU 设备名（多显卡分卡）。
+	// 空字符串=不传递（llama.cpp auto，与主模型同卡）；"none"=关闭 mmproj 卸载；
+	// 也可指定具体设备名（如 "cuda:1"），需配合 --list-devices 查看可用设备。
+	// 生活类比：视觉编码器这工种在车间里被安排到哪台机器上干活。
+	MmprojDevice    string `json:"mmproj_device"`
 	LlamaServerPath string `json:"llama_server_path"`
 	// BackendType 计算后端类型（auto/cuda/hip/sycl/vulkan/openvino/cpu）。
 	// auto 表示根据硬件自动检测最合适的后端，其他值明确指定后端类型。
@@ -250,6 +255,7 @@ func DefaultConfig() *Config {
 		ModelPath:       "",
 		MmprojAuto:      true,
 		MmprojOffload:   nil,
+		MmprojDevice:    "",
 		LlamaServerPath: "runtime/llama-server.exe",
 		BackendType:     "auto", // 默认自动检测最合适的后端
 		APIBase:         "http://127.0.0.1:8080",

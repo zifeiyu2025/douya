@@ -246,6 +246,8 @@ export interface Config {
   mmproj_auto: boolean
   // mmproj GPU 卸载：null=自动（按硬件判断），true=强制启用，false=强制关闭
   mmproj_offload: boolean | null
+  // 视觉投影(mmproj)专用 GPU 设备名（多显卡分卡）：空=auto（与主模型同卡），"none"=关闭卸载，或如 "cuda:1"
+  mmproj_device: string
   llama_server_path: string
   // 计算后端类型：auto(自动检测)/cuda/hip/sycl/vulkan/openvino/cpu
   // 生活类比：像选发动机型号——auto 是"让系统帮你选"，其他是明确指定用哪种发动机
@@ -470,6 +472,7 @@ export const DEFAULT_CONFIG: Config = {
   model_path: '',
   mmproj_auto: true,
   mmproj_offload: null,
+  mmproj_device: '',
   llama_server_path: 'runtime/llama-server.exe',
   backend_type: 'auto', // 与 Go DefaultConfig 对齐（自动检测最合适的后端）
   last_successful_backend: '', // 与 Go DefaultConfig 对齐（无历史回退后端）

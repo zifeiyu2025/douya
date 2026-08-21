@@ -687,6 +687,7 @@ const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'repeat_penalty',
   'mmproj_auto',
   'mmproj_offload',
+  'mmproj_device',
   'kv_unified',
   'cache_idle_slots',
   'cache_reuse',

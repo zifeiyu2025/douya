@@ -83,10 +83,11 @@ func IsStackOverflowExit(errStr string) bool {
 }
 
 type ServerConfig struct {
-	ModelsDir     string
-	MmprojAuto    bool
-	MmprojOffload bool
-	ServerPath    string
+	ModelsDir       string
+	MmprojAuto      bool
+	MmprojOffload   bool
+	MmprojDevice    string // 视觉投影专用 GPU 设备名（多显卡分卡）；空=不传递，none=关闭卸载
+	ServerPath      string
 	// BackendType 当前使用的计算后端类型（cuda/hip/sycl/vulkan/openvino/cpu），不含 auto。
 	// 由启动流程根据硬件和配置解析后传入，供后续逻辑（如参数调优、日志记录）使用。
 	// 生活类比：记录当前车装的是什么型号的发动机，供后续保养（参数调优）参考。

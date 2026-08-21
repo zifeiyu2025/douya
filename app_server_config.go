@@ -175,6 +175,7 @@ func buildServerConfigFromFields(
 		Mlock:                  d.Mlock,
 		MmprojAuto:             cfg.MmprojAuto,
 		MmprojOffload:          d.MmprojOffload,
+		MmprojDevice:           cfg.MmprojDevice,
 		KVUnified:              cfg.KVUnified,
 		CacheIdleSlots:         cfg.CacheIdleSlots,
 		CacheRAM:               cfg.CacheRAM,
