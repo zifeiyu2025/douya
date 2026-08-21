@@ -7,8 +7,7 @@
 **隐私优先的本地 AI 桌面助手 · 基于 llama.cpp · 完全离线**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.12.2-blue.svg)](https://github.com/zifeiyu2025/douya/releases)
-[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.26.3-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![Vue](https://img.shields.io/badge/Vue-3-42b883?logo=vue.js&logoColor=white)](https://vuejs.org/)
 [![Wails](https://img.shields.io/badge/Wails-v2-red.svg)](https://wails.io/)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?logo=windows&logoColor=white)](https://github.com/zifeiyu2025/douya/releases)
@@ -58,6 +57,7 @@
 - **消息级联删除**：自动清理关联回复
 - **对话导出**：支持文件导出
 - **推理模型支持**：DeepSeek-R1 / QwQ 思考链可折叠
+- **KV 缓存持久化**：按对话自动保存 / 恢复 KV Cache，续聊更流畅
 - **系统提示词**：支持日期变量注入
 - **上下文溢出三层防御**：预防性裁剪 + 全量估算 + 错误后重试
 
@@ -72,7 +72,7 @@
 ### 🔍 联网搜索
 - **三态开关**：`off` / `auto`（智能）/ `on`（强制）
   - `auto`：强模型自主 Tool Call；弱模型预搜索 + 注入
-- **步降式链路**：Tavily → Ollama → 360 → Bing（顺序尝试，不并发）
+- **步降式链路**：Tavily → Ollama（顺序尝试，不并发）
 - **中文优化**：关键词加双引号精确匹配；DuckDuckGo `kl=cn-zh`、Bing `cc=cn&setlang=zh-Hans`
 - **结果自然融入**：XML 标签注入，系统提示词约束不使用 `[1][2]` 编号
 - **RAG 互斥**：RAG 开启时自动关闭联网搜索
@@ -88,6 +88,7 @@
 
 ### 🔌 外部工具接入
 - **OpenAI 兼容 API**：原生暴露 `/v1/chat/completions`、`/v1/embeddings` 等端点
+- **API Key 一键生成**：`sk-douya-` 前缀 + 随机字符，AES-GCM 加密存储
 - **暴露开关**：`0.0.0.0`（局域网）/ `127.0.0.1`（仅本机）一键切换
 - **API Key 鉴权**：`Authorization: Bearer <key>`
 - **已验证接入**：Claude Code、Codex、OpenCoder / Open Claw、通用 OpenAI 兼容客户端
@@ -126,7 +127,7 @@
 ### 方式二：从源码构建
 
 **环境要求**
-- Go 1.25+、Node.js 18+、Windows 10/11
+- Go 1.26+、Node.js 18+、Windows 10/11
 - NVIDIA GPU（推荐，VRAM ≥ 6GB）+ CUDA 12+
 - Wails CLI：`go install github.com/wailsapp/wails/v2/cmd/wails@latest`
 
@@ -146,7 +147,7 @@ wails dev
 ### 接入外部编程工具
 
 1. 「设置 → 服务 API KEY」开启「暴露服务器地址」
-2. 设置 API Key（防止未授权访问）
+2. 生成 API Key（防止未授权访问）
 3. 重启服务使配置生效
 4. 参阅 [docs/external-tools-access.md](docs/external-tools-access.md) 配置工具
 
@@ -161,17 +162,18 @@ wails dev
 
 ### 技术栈
 
-| 层级 | 技术 |
+| 层级 | 技术（实际锁定版本） |
 |------|------|
-| 桌面框架 | Go 1.25 + [Wails v2](https://wails.io/) |
-| 前端 | Vue 3 + TypeScript + [Naive UI](https://www.naiveui.com/) + Pinia v4 |
+| 桌面框架 | Go 1.26.3 + [Wails v2](https://wails.io/) `v2.14.0` |
+| 前端 | [Vue 3](https://vuejs.org/) `^3.5.41` + TypeScript + [Naive UI](https://www.naiveui.com/) `^2.44.1` + Pinia `^4.0.3` |
 | 推理引擎 | [llama.cpp](https://github.com/ggml-org/llama.cpp)（多后端：CUDA/HIP/SYCL/Vulkan/OpenVINO/CPU，Router 模式） |
-| 向量存储 | [BadgerDB v4](https://github.com/dgraph-io/badger)（HNSW 索引） |
-| 数据库 | SQLite3 |
-| PDF 解析 | [ledongthuc/pdf](https://github.com/ledongthuc/pdf) |
-| 日志 | [zerolog](https://github.com/rs/zerolog) |
-| 系统托盘 | [systray](https://github.com/fyne-io/systray) |
-| 构建工具 | Vite + vue-tsc |
+| 向量存储 | [BadgerDB v4](https://github.com/dgraph-io/badger) `v4.9.6`（HNSW 索引） |
+| 数据库 | [mattn/go-sqlite3](https://github.com/mattn/go-sqlite3) `v1.14.49` |
+| PDF 解析 | [ledongthuc/pdf](https://github.com/ledongthuc/pdf) `v0.0.0-20250511` |
+| 日志 | [zerolog](https://github.com/rs/zerolog) `v1.35.1` |
+| 系统托盘 | [fyne.io/systray](https://github.com/fyne-io/systray) `v1.12.2` |
+| 构建工具 | [Vite](https://vitejs.dev/) `^8.2.1` + vue-tsc `^3.3.10` |
+| 其他 | WebSocket `v1.5.3`、UUID `v1.6.0`、conpty `v0.1.4` |
 
 ### 项目结构
 
@@ -186,7 +188,7 @@ douya/
 │   ├── config/                 # 配置管理：JSON 持久化、参数验证
 │   ├── llm/                    # LLM 控制层：client / server / backend / preset / vram / ringbuffer
 │   ├── rag/                    # RAG 知识库：vector_store / bm25 / document_pipeline
-│   ├── search/                 # 搜索引擎：Tavily / Ollama / Bing（步降式）
+│   ├── search/                 # 搜索引擎：Tavily / Ollama（步降式）
 │   ├── secrets/                # AES-GCM 加密
 │   ├── store/                  # SQLite 存储：对话、消息、设置
 │   ├── system/                 # 硬件检测、GGUF 元数据、智能参数
@@ -215,7 +217,7 @@ douya/
 
 ### 架构亮点
 
-**多后端管理**：运行时按后端类型分子目录（`runtime/cuda/`、`runtime/vulkan/` 等），切换后端时按需从 llama.cpp GitHub Releases 下载解压。`backend_type=auto` 时根据 GPU 厂商（NVIDIA/AMD/Intel）自动推荐最合适的原生后端，无 GPU 时回退 CPU。
+**多后端管理**：运行时按后端类型分子目录（`runtime/cuda/`、`runtime/vulkan/` 等），切换后端时按需从 llama.cpp GitHub Releases 下载解压。`backend_type=auto` 时根据 GPU 厂商（NVIDIA/AMD/Intel）自动推荐最合适的原生后端，无 GPU 时回退 CPU。后端切换失败自动回滚到上次成功配置。
 
 **Router 模式模型切换**：利用 llama.cpp Router 的 LRU 自动卸载机制，切换模型无需手动 `UnloadModel` + 等待 VRAM 释放。Sleep-Idle 让空闲模型自动休眠，新请求自动唤醒。启动加 `--no-models-autoload` 避免与显式 `/models/load` 冲突。
 
@@ -224,6 +226,8 @@ douya/
 **多模态能力检测**：三层递进式——GGUF 预扫描（`clip.has_vision_encoder`）→ `/v1/models` 端点（`input_modalities`）→ `/props` 端点（最终依据）。
 
 **思考模式检测**：三级优先级——`/props supports_preserve_reasoning` > GGUF Architecture（qwen3/gemma2/gemma4/llama4/phi4/deepseek）> 文件名关键词。
+
+**思考强度控制**：通过请求级 `ReasoningEffort` 字段由 llama-server 原生透传给模板，无需手动注入提示词；硬思考模型（如 DeepSeek 系）始终预留充足 Token 预算。
 
 **Tool Call 支持检测**：基于 `/props` 的 `chat_template_caps.supports_tools`，替代弱模型白名单。
 
