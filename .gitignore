@@ -80,3 +80,9 @@ build/crash_out.txt
 *.zip
 security_best_practices_report.md
 code_review_report.md
+
+# Microsoft Store (MSIX) 打包相关：商店构建产物与清单不入仓库
+build/windows/msix/
+build/store/
+build/**/*.msix
+build/**/*.msixbundle
