@@ -530,22 +530,26 @@ func isMmprojName(lower string) bool {
 // 不用从头再来；中途不想下了也能暂停，已下载的部分会保留供下次续传。
 //
 // 行为约定：
-//   - 若 destPath 已存在且小于 totalSize，从断点恢复（Range 续传）；续传失败退化为重头下载。
-//   - 全新下载先写 destPath+".tmp"，成功后原子重命名；续传直接写 destPath。
+//   - 若 destPath 或 destPath+".tmp" 已存在且小于 totalSize，从断点恢复（Range 续传）；续传失败退化为重头下载。
+//   - 全新/续传均先写 destPath+".tmp"，成功后原子重命名（仅历史暂停路径的断点直接落在 destPath 本体上）。
 //   - ctx 取消时保留已下载部分（不删除），供下次续传；进度推送成功回调。
-//   - 完成后校验字节数，不一致则清理并报错。
+//   - 网络中断/读写失败同样保留 .tmp 断点，配合上层"重试下载"实现断点续传；
+//     仅完成后字节数校验不一致（数据可疑）时清理并报错。
 func DownloadHubFile(ctx context.Context, url, destPath string, totalSize int64, provider HubProvider, progressCB func(ModelDownloadProgress)) error {
 	destPath = filepath.Clean(destPath)
 
-	// 已存在且已完整 → 直接返回完成
+	// 断点探测：优先看目标文件本体（历史暂停路径），其次看失败时保留的 .tmp 部分文件。
+	// 两处都要求已知 totalSize 才能确认"部分文件"语义，未知大小则退化为全新下载。
 	var resumeFrom int64
 	if totalSize > 0 {
 		if info, err := os.Stat(destPath); err == nil {
-			resumeFrom = info.Size()
-			if resumeFrom >= totalSize {
+			if info.Size() >= totalSize {
 				emitProgress(progressCB, provider, "", destPath, totalSize, totalSize, "completed")
 				return nil
 			}
+			resumeFrom = info.Size()
+		} else if info, statErr := os.Stat(destPath + ".tmp"); statErr == nil && info.Size() > 0 {
+			resumeFrom = info.Size()
 		}
 	}
 
@@ -589,7 +593,21 @@ func DownloadHubFile(ctx context.Context, url, destPath string, totalSize int64,
 	var out *os.File
 	var tmpPath string
 	if resumeFrom > 0 {
-		out, err = os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE, 0o644)
+		if _, statErr := os.Stat(destPath); statErr == nil {
+			// 断点在目标文件本体上（历史暂停路径）：直接续写本体
+			out, err = os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE, 0o644)
+		} else {
+			// 断点在上次失败保留的 .tmp 上：续写临时文件，完成后仍走原子重命名
+			tmpPath = destPath + ".tmp"
+			out, err = os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE, 0o644)
+		}
+		if err == nil {
+			// 关键：把写偏移拨到断点处，否则 Write 会从文件头开始覆盖已有数据
+			if _, seekErr := out.Seek(resumeFrom, io.SeekStart); seekErr != nil {
+				out.Close()
+				return apperror.Wrap(apperror.KindInternal, "定位续传偏移失败", seekErr)
+			}
+		}
 	} else {
 		tmpPath = destPath + ".tmp"
 		out, err = os.Create(tmpPath)
@@ -637,9 +655,7 @@ func DownloadHubFile(ctx context.Context, url, destPath string, totalSize int64,
 			if _, werr := out.Write(buf[:n]); werr != nil {
 				out.Close()
 				outClosed = true
-				if tmpPath != "" {
-					_ = os.Remove(tmpPath)
-				}
+				// 写盘失败保留 .tmp 断点：可能是瞬时错误，重试可从断点续传
 				return apperror.Wrap(apperror.KindInternal, "写入文件失败", werr)
 			}
 			downloaded += int64(n)
@@ -661,9 +677,7 @@ func DownloadHubFile(ctx context.Context, url, destPath string, totalSize int64,
 		if readErr != nil {
 			out.Close()
 			outClosed = true
-			if tmpPath != "" {
-				_ = os.Remove(tmpPath)
-			}
+			// 网络中断保留 .tmp 断点：这是最高频的失败场景，重试可从断点续传
 			return apperror.Wrap(apperror.KindUnavailable, "读取下载响应失败", readErr)
 		}
 	}
@@ -700,6 +714,28 @@ func DownloadHubFile(ctx context.Context, url, destPath string, totalSize int64,
 
 	emitProgress(progressCB, provider, "", destPath, totalSize, totalSize, "completed")
 	return nil
+}
+
+// ProbeFileSize 通过 HEAD 请求探测下载文件的真实大小（字节）。
+//
+// 用于激活 DownloadHubFile 的 Range 断点续传与完成度校验：调用方拿到 totalSize 后，
+// 失败重试时能从 .tmp 已下载字节处继续，而不是从头再下数 GB。
+// 探测失败一律返回 0（未知大小），调用方以无续传模式降级，不阻断下载流程。
+func ProbeFileSize(ctx context.Context, url string) int64 {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, http.NoBody)
+	if err != nil {
+		return 0
+	}
+	req.Header.Set("User-Agent", githubUA)
+	resp, err := downloadHTTPClient.Do(req)
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.ContentLength <= 0 {
+		return 0
+	}
+	return resp.ContentLength
 }
 
 func emitProgress(cb func(ModelDownloadProgress), provider HubProvider, repoID, destPath string, total, done int64, status string) {

@@ -167,18 +167,24 @@ func (a *App) downloadSingle(prov llm.HubProvider, repoID, fileName, modelsDir s
 		return fmt.Errorf("无法为下载源 %s 构造下载地址", llm.ProviderDisplayName(prov))
 	}
 	destPath := filepath.Join(modelsDir, fileName)
-	if _, err := os.Stat(destPath); err == nil {
-		// 已存在同名文件，跳过下载，直接视为成功
-		zlog.Info().Str("file", destPath).Msg("[modelhub] 文件已存在，跳过下载")
-		a.emitModelDownloadProgress(llm.ModelDownloadProgress{
-			Provider: prov, RepoID: repoID, FilePath: fileName,
-			TotalBytes: 0, Downloaded: 0, Status: "completed",
-		})
-		return nil
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if err := llm.DownloadHubFile(ctx, url, destPath, 0, prov, func(p llm.ModelDownloadProgress) {
+
+	// 探测真实大小：激活 Range 断点续传与完成度校验；探测失败退化为无续传下载（totalSize=0）
+	totalSize := llm.ProbeFileSize(ctx, url)
+	if st, statErr := os.Stat(destPath); statErr == nil {
+		// 已存在同名文件：能确认已完整则跳过；仅是部分文件（上次取消/失败遗留的断点）
+		// 则继续往下走 DownloadHubFile 续传。无法确认大小时维持旧行为视为已完成。
+		if totalSize <= 0 || st.Size() >= totalSize {
+			zlog.Info().Str("file", destPath).Msg("[modelhub] 文件已存在，跳过下载")
+			a.emitModelDownloadProgress(llm.ModelDownloadProgress{
+				Provider: prov, RepoID: repoID, FilePath: fileName,
+				TotalBytes: 0, Downloaded: 0, Status: "completed",
+			})
+			return nil
+		}
+	}
+	if err := llm.DownloadHubFile(ctx, url, destPath, totalSize, prov, func(p llm.ModelDownloadProgress) {
 		a.emitModelDownloadProgress(p)
 	}); err != nil {
 		return err

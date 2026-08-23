@@ -213,6 +213,25 @@
       </div>
     </div>
 
+    <!-- 下载失败横幅：醒目展示失败状态并提供一键重试；
+         Go 侧已保留断点（.tmp），重试会从已下载字节处继续，不必从头再来 -->
+    <div v-if="downloadFailed && lastAttempt" class="download-failed" role="alert">
+      <div class="download-failed__body">
+        <div class="download-failed__title">模型下载中断</div>
+        <div class="download-failed__hint">
+          可能是网络波动或源站临时不可用。已下载的部分已保留断点，点击重试将从断点继续，无需重新下载。
+        </div>
+      </div>
+      <button
+        class="download-failed__retry"
+        :disabled="retrying || downloading"
+        :aria-label="'重试下载 ' + lastAttempt.mainFile"
+        @click="retryDownload"
+      >
+        {{ retrying ? '正在重试…' : '重试下载' }}
+      </button>
+    </div>
+
     <!-- 下载完成：移除进度条，提示重启应用以加载新模型 -->
     <div v-if="downloadDone" class="download-done">
       <div class="download-done__text">模型下载完成，重启应用后即可加载使用</div>
@@ -283,6 +302,20 @@ const selectedMmproj = ref('') // 用户额外勾选的 MMProj 文件
 const downloading = ref(false)
 const startingDownload = ref(false)
 const progressMap = ref<Record<string, ModelDownloadProgress>>({})
+
+// 最近一次发起的下载参数：下载中断/失败后，"重试下载"按钮据此原样重发，
+// 用户无需重新搜索、展开仓库、勾选文件。
+// 生活类比：快递单丢了没关系，我们留了底单，点一下就能让快递员重新发货，
+// 而且已送到的部分（断点）不用重送。
+interface DownloadAttempt {
+  provider: string
+  repoId: string
+  mainFile: string
+  mmproj: string
+}
+const lastAttempt = ref<DownloadAttempt | null>(null)
+// 正在重试（防重复点击重试按钮）
+const retrying = ref(false)
 
 // 存储事件退订函数，组件卸载时清理
 let unsubProgress: (() => void) | null = null
@@ -408,31 +441,28 @@ async function selectModel(m: HubModel) {
   }
 }
 
-async function startDownload() {
-  if (!selectedModel.value || !selectedFile.value) return
-  const mainFile = selectedFile.value
-  // 使用用户勾选的 MMProj（未勾选则传空，不下载 MMProj）
-  const mmproj = selectedMmproj.value
+/** 发起一次模型下载（startDownload 与 retryDownload 的公共逻辑） */
+async function beginDownload(attempt: DownloadAttempt): Promise<void> {
   startingDownload.value = true
   try {
-    await wails.downloadHubModel(provider.value, selectedModel.value.repo_id, mainFile, mmproj)
+    await wails.downloadHubModel(attempt.provider, attempt.repoId, attempt.mainFile, attempt.mmproj)
     downloading.value = true
     // 初始化进度占位
-    progressMap.value[mainFile] = {
-      provider: selectedModel.value.provider,
-      repo_id: selectedModel.value.repo_id,
-      file_path: mainFile,
+    progressMap.value[attempt.mainFile] = {
+      provider: attempt.provider,
+      repo_id: attempt.repoId,
+      file_path: attempt.mainFile,
       total_bytes: 0,
       downloaded: 0,
       percent: 0,
       status: 'downloading',
       error: ''
     }
-    if (mmproj) {
-      progressMap.value[mmproj] = {
-        provider: selectedModel.value.provider,
-        repo_id: selectedModel.value.repo_id,
-        file_path: mmproj,
+    if (attempt.mmproj) {
+      progressMap.value[attempt.mmproj] = {
+        provider: attempt.provider,
+        repo_id: attempt.repoId,
+        file_path: attempt.mmproj,
         total_bytes: 0,
         downloaded: 0,
         percent: 0,
@@ -440,10 +470,40 @@ async function startDownload() {
         error: ''
       }
     }
-  } catch (e) {
-    logError('发起下载失败', e)
   } finally {
     startingDownload.value = false
+  }
+}
+
+async function startDownload() {
+  if (!selectedModel.value || !selectedFile.value) return
+  const attempt: DownloadAttempt = {
+    provider: provider.value,
+    repoId: selectedModel.value.repo_id,
+    mainFile: selectedFile.value,
+    mmproj: selectedMmproj.value
+  }
+  // 留底单：无论本次结果如何，失败后都可一键原样重试
+  lastAttempt.value = attempt
+  try {
+    await beginDownload(attempt)
+  } catch (e) {
+    logError('发起下载失败', e)
+  }
+}
+
+/** 一键重试：用上次留底的参数重新发起下载；Go 侧已保留断点，会自动从已下载字节处续传 */
+async function retryDownload() {
+  const attempt = lastAttempt.value
+  if (!attempt || downloading.value || retrying.value || startingDownload.value) return
+  retrying.value = true
+  downloadFailed.value = false
+  try {
+    await beginDownload(attempt)
+  } catch (e) {
+    logError('重试下载发起失败', e)
+  } finally {
+    retrying.value = false
   }
 }
 
@@ -749,6 +809,68 @@ onUnmounted(() => {
   color: var(--error-color, #d03050);
   margin-top: 4px;
   word-break: break-all;
+}
+
+/* 下载失败横幅：区分于普通进度，用高对比警示样式（错误红），
+   与成功横幅（download-done）形成视觉呼应，让"失败可重试"一眼可见 */
+.download-failed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--error-color, #e5484d);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--error-color, #e5484d) 8%, transparent);
+}
+
+.download-failed__body {
+  min-width: 0;
+}
+
+.download-failed__title {
+  color: var(--error-color, #e5484d);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.download-failed__hint {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.download-failed__retry {
+  flex-shrink: 0;
+  padding: 6px 22px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--error-color, #e5484d);
+  background: transparent;
+  border: 1px solid var(--error-color, #e5484d);
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    color 0.2s,
+    background 0.2s,
+    border-color 0.2s;
+}
+
+.download-failed__retry:hover:not(:disabled) {
+  color: #fff;
+  background: var(--error-color, #e5484d);
+  border-color: var(--error-color, #e5484d);
+}
+
+.download-failed__retry:focus-visible {
+  outline: 2px solid var(--error-color, #e5484d);
+  outline-offset: 2px;
+}
+
+.download-failed__retry:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* 下载完成后的重启提示：区分于普通进度，用高对比重点提示（成功绿色） */
