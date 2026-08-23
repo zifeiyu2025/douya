@@ -1047,6 +1047,10 @@ func (s *Server) Ctx() context.Context {
 }
 
 func (s *Server) CloseJob() {
+	// 与 bindProcessToJobObject 的写入侧（持有 s.mu）对齐：读取 s.job 必须持锁，
+	// 否则应用退出清理可能与模型启动流程并发读写 s.job 构成数据竞争。
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.job != nil {
 		s.job.Close()
 	}
