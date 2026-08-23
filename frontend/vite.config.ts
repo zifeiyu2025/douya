@@ -36,6 +36,8 @@ export default defineConfig({
         // [\\/] 兼容 Windows 反斜杠路径分隔符；groups 按顺序匹配第一个命中的
         codeSplitting: {
           groups: [
+            // 模型参考参数数据表（C-7：源码 1747 行数据迁 JSON 资源后独立分块，多消费方共享不重复打包）
+            { name: 'model-refs', test: /[\\/]modelRefs\.data\.json/ },
             // Markdown 解析（marked）
             { name: 'lib-markdown', test: /node_modules[\\/]marked/ },
             // 代码高亮（highlight.js）
