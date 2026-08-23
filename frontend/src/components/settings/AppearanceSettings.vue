@@ -110,9 +110,10 @@ const ctx = inject<SettingsContext>(SETTINGS_CONTEXT_KEY)
 if (!ctx) {
   throw new Error('AppearanceSettings 必须在 SettingsView 内使用（缺少 settingsContext provide）')
 }
+// C-5 域切片：core 提供表单与保存，appearance 提供背景图 / 头像逻辑
+const { core, appearance } = ctx
+const { formConfig, autoSave } = core
 const {
-  formConfig,
-  autoSave,
   backgroundImageUrl,
   selectBackgroundImage,
   clearBackground,
@@ -121,7 +122,7 @@ const {
   clearAIAvatar,
   defaultUserAvatar,
   defaultAiAvatar
-} = ctx
+} = appearance
 const themeStore = useThemeStore()
 
 function handleModeChange(mode: 'auto' | 'light' | 'dark') {

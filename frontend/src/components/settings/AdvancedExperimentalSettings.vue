@@ -334,10 +334,11 @@
 </template>
 
 <script setup lang="ts">
-import { inject } from 'vue'
+import { defineAsyncComponent, inject } from 'vue'
 import { NFormItem, NSwitch, NInput, NInputNumber, NSelect } from 'naive-ui'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
-import MCPSettings from './MCPSettings.vue'
+// C-8 性能项：MCP 设置含终端交互逻辑，异步加载减小高级面板首包
+const MCPSettings = defineAsyncComponent(() => import('./MCPSettings.vue'))
 import LoraManager from '../LoraManager.vue'
 import HelpTip from '../ui/HelpTip.vue'
 
@@ -349,7 +350,9 @@ if (!ctx) {
     'AdvancedExperimentalSettings 必须在 SettingsView 内使用（缺少 settingsContext provide）'
   )
 }
-const { formConfig, autoSave } = ctx
+// C-5 域切片：高级面板自包含（Agent/后端采样互斥逻辑在面板内部），仅需核心表单与保存
+const { core } = ctx
+const { formConfig, autoSave } = core
 
 /** Agent 模式切换处理 */
 function handleAgentChange() {

@@ -20,7 +20,9 @@
 </template>
 
 <script setup lang="ts">
-import BackendManager from './BackendManager.vue'
+import { defineAsyncComponent } from 'vue'
+// C-8 性能项：后端管理器含下载逻辑且非首屏必需，异步加载
+const BackendManager = defineAsyncComponent(() => import('./BackendManager.vue'))
 import GpuAccelerationSettings from './GpuAccelerationSettings.vue'
 import KvCacheSettings from './KvCacheSettings.vue'
 import SpeculativeDecodingSettings from './SpeculativeDecodingSettings.vue'

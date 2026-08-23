@@ -151,7 +151,9 @@ const ctx = inject<SettingsContext>(SETTINGS_CONTEXT_KEY)
 if (!ctx) {
   throw new Error('TTSSettings 必须在 SettingsView 内使用（缺少 settingsContext provide）')
 }
-const { formConfig, autoSave } = ctx
+// C-5 域切片：TTS 仅需核心表单与保存
+const { core } = ctx
+const { formConfig, autoSave } = core
 
 const message = useMessage()
 const tts = useTTS()

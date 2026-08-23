@@ -80,7 +80,9 @@ defineOptions({ name: 'GpuAccelerationSettings' })
 
 // 从父级注入配置上下文（formConfig、autoSave 等共享状态）
 const ctx = inject<SettingsContext>(SETTINGS_CONTEXT_KEY)!
-const { formConfig, autoSave } = ctx
+// C-5 域切片：GPU 加速仅需核心表单与保存
+const { core } = ctx
+const { formConfig, autoSave } = core
 
 // ===== GPU 状态信息（从后端 getBackendStatus 获取） =====
 const gpuInfo = ref({

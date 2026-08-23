@@ -1,77 +1,23 @@
-import type { Ref, ComputedRef } from 'vue'
-import type { Config, SearchAPIKeys } from '../../services/wails'
-import type { ModelRefConfig, ModelRefRaw } from '../../utils/modelRefs'
-import type { UploadCustomRequestOptions } from 'naive-ui'
+import type { InjectionKey } from 'vue'
+// C-5 设置域重建：45 字段平铺 context 重构为五个类型化域切片
+// 各域 API 类型直接取自对应 composable 的返回值（ReturnType），新增成员自动同步，无需手写接口
+import type { useSettingsCore } from './composables/useSettingsCore'
+import type { useAppearanceSettings } from './composables/useAppearanceSettings'
+import type { useAIChatSettings } from './composables/useAIChatSettings'
+import type { usePerformanceSettings } from './composables/usePerformanceSettings'
+import type { useAPIServiceSettings } from './composables/useAPIServiceSettings'
 
 export interface SettingsContext {
-  // 核心响应式状态
-  formConfig: Ref<Config>
-  autoSave: () => Promise<void>
-  genParamsDirty: Ref<boolean>
-
-  // 外观相关
-  backgroundImageUrl: ComputedRef<string>
-  selectBackgroundImage: () => Promise<void>
-  clearBackground: () => void
-  handleAvatarUpload: (
-    data: UploadCustomRequestOptions,
-    fieldName: 'user_avatar' | 'ai_avatar'
-  ) => Promise<void>
-  clearUserAvatar: () => void
-  clearAIAvatar: () => void
-  defaultUserAvatar: string
-  defaultAiAvatar: string
-
-  // 推理相关
-  supportsReasoning: ComputedRef<boolean>
-
-  // 模型参考参数
-  currentModelRef: ComputedRef<ModelRefConfig | null>
-  activeModelRefRaw: ComputedRef<ModelRefRaw>
-  refShowThinking: Ref<boolean>
-  applyModelRef: () => void
-
-  // 模型专属参数预设（每模型保存各自的生成参数，切换时自动恢复）
-  hasModelPreset: Ref<boolean>
-  saveModelPreset: () => Promise<void>
-  clearModelPreset: () => Promise<void>
-  savingModelPreset: Ref<boolean>
-
-  // 上下文长度
-  contextSizeIndex: Ref<number>
-  contextSizeSteps: number[]
-  contextSizeMarks: Record<number, string>
-  formatContextSize: (size: number) => string
-  applyContextSizeRef: () => void
-
-  // API Key 相关
-  newOllamaApiKey: Ref<string>
-  newTavilyApiKey: Ref<string>
-  searchKeys: Ref<SearchAPIKeys>
-  saveSearchKeys: () => void
-  savingSearchKeys: Ref<boolean>
-  hasServerApiKey: Ref<boolean>
-  generateServerApiKey: () => Promise<void>
-  savingServerApiKey: Ref<boolean>
-  // 一次性展示的生成结果（仅生成时由后端返回明文，关闭展示即丢弃，后端不再提供查看接口）
-  generatedServerApiKey: Ref<string>
-  copyGeneratedApiKey: () => void
-  dismissGeneratedApiKey: () => void
-  onServerAPIKeyToggle: () => Promise<void>
-  onExposeServerToggle: () => Promise<void>
-  onEnableWebUIToggle: () => Promise<void>
-
-  // 高级设置选项
-  cacheTypeKOptions: ComputedRef<{ label: string; value: string }[]>
-  cacheTypeVOptions: ComputedRef<{ label: string; value: string }[]>
-  specTypeOptions: ComputedRef<{ label: string; value: string }[]>
-
-  // 实验设置
-  handleAgentChange: () => void
-  handleBackendSamplingChange: () => void
-
-  // Store（pinia store 类型过于复杂，保留 any；实际访问的属性均有类型保障）
-  settingsStore: any
+  /** 核心：formConfig / autoSave / dirty 状态 / 模型切换 hook 注册 */
+  core: ReturnType<typeof useSettingsCore>
+  /** 外观：背景图、头像 */
+  appearance: ReturnType<typeof useAppearanceSettings>
+  /** AI 对话：模型参考参数、推理、模型预设、上下文推荐 */
+  aiChat: ReturnType<typeof useAIChatSettings>
+  /** 性能：GPU 检测、上下文滑块、KV 缓存与推测解码选项 */
+  performance: ReturnType<typeof usePerformanceSettings>
+  /** API 服务：搜索密钥、服务端密钥、局域网 / Web UI 开关 */
+  apiService: ReturnType<typeof useAPIServiceSettings>
 }
 
-export const SETTINGS_CONTEXT_KEY = Symbol('settingsContext')
+export const SETTINGS_CONTEXT_KEY: InjectionKey<SettingsContext> = Symbol('settingsContext')

@@ -364,7 +364,10 @@ defineOptions({ name: 'KvCacheSettings' })
 
 // 从父级注入配置上下文（formConfig、autoSave 等共享状态）
 const ctx = inject<SettingsContext>(SETTINGS_CONTEXT_KEY)!
-const { formConfig, autoSave, cacheTypeKOptions, cacheTypeVOptions } = ctx
+// C-5 域切片：KV 缓存类型选项归入 performance 域
+const { core, performance } = ctx
+const { formConfig, autoSave } = core
+const { cacheTypeKOptions, cacheTypeVOptions } = performance
 
 // 折叠状态：默认收起，避免一进设置页就看到一大片专家参数
 const expanded = ref(false)
