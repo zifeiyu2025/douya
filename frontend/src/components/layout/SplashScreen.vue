@@ -78,7 +78,10 @@
         <!-- 下载进度条：仅在 downloading 阶段显示 -->
         <div v-if="stage === 'downloading'" class="splash-download">
           <div class="download-bar">
-            <div class="download-bar-fill" :style="{ width: progress + '%' }"></div>
+            <div
+              class="download-bar-fill"
+              :style="{ transform: 'scaleX(' + progress / 100 + ')' }"
+            ></div>
           </div>
           <span class="download-percent">{{ progress }}%</span>
         </div>
@@ -457,10 +460,12 @@ const stageText = computed(() => {
 }
 
 .download-bar-fill {
+  width: 100%;
   height: 100%;
   background: var(--accent-primary);
   border-radius: 2px;
-  transition: width 0.3s ease;
+  transform-origin: left;
+  transition: transform 0.3s ease;
   box-shadow: 0 0 6px var(--accent-primary);
 }
 

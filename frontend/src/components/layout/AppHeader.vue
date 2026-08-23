@@ -43,7 +43,7 @@
                 <span class="load-progress-bar">
                   <span
                     class="load-progress-bar-fill"
-                    :style="{ width: modelLoadProgress.progress + '%' }"
+                    :style="{ transform: 'scaleX(' + modelLoadProgress.progress / 100 + ')' }"
                   ></span>
                 </span>
               </span>
@@ -643,10 +643,12 @@ function onHeaderDoubleClick(e: MouseEvent) {
 
 .load-progress-bar-fill {
   display: block;
+  width: 100%;
   height: 100%;
   background: var(--accent-primary);
   border-radius: 2px;
-  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transform-origin: left;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @keyframes switchingPulse {

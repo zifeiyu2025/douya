@@ -13,7 +13,10 @@
         <span v-if="promptEta" class="prompt-eta">(ETA: {{ promptEta }}s)</span>
       </span>
       <div class="prompt-bar">
-        <div class="prompt-bar-fill" :style="{ width: promptPercent + '%' }"></div>
+        <div
+          class="prompt-bar-fill"
+          :style="{ transform: 'scaleX(' + promptPercent / 100 + ')' }"
+        ></div>
       </div>
     </template>
     <!-- 空闲：显示已用 token 数 / 上下文上限 -->
@@ -309,10 +312,12 @@ onUnmounted(() => {
 }
 
 .prompt-bar-fill {
+  width: 100%;
   height: 100%;
   background: var(--accent-success);
   border-radius: 1.5px;
-  transition: width 0.3s ease;
+  transform-origin: left;
+  transition: transform 0.3s ease;
 }
 
 /* ---- 输入 token 计数样式 ---- */

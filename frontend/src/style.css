@@ -939,7 +939,9 @@ html.dark .app-layout::before {
 }
 
 /* ===== 现代科技滚动条 =====
- * 默认细且半透明，hover 时变粗变色，不抢视觉焦点
+ * 默认细且半透明，hover 时变粗变色，不抢视觉焦点。
+ * C-8 动效审计唯一保留的 width 过渡：::-webkit-scrollbar 伪元素几何
+ * 无法用 transform 替代，且为低频 hover 交互，重排成本可忽略。
  */
 ::-webkit-scrollbar {
   width: 6px;
