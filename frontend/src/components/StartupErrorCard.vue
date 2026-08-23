@@ -46,7 +46,7 @@ export interface StartupErrorCardPayload {
   detail: string
 }
 
-const props = defineProps<{
+defineProps<{
   show: boolean
   payload: StartupErrorCardPayload | null
 }>()

@@ -41,17 +41,31 @@
     </div>
 
     <!-- 搜索提示 / 空状态 -->
-    <n-empty v-if="!searched && !searching" description="搜索想要下载的模型" class="state-empty" size="small">
+    <n-empty
+      v-if="!searched && !searching"
+      description="搜索想要下载的模型"
+      class="state-empty"
+      size="small"
+    >
       <template #extra>
-        <span class="state-hint">支持 ModelScope 魔搭社区 与 HF 国内镜像，下载断点续传、断网可重来</span>
+        <span class="state-hint">
+          支持 ModelScope 魔搭社区 与 HF 国内镜像，下载断点续传、断网可重来
+        </span>
       </template>
     </n-empty>
 
     <!-- 模型搜索结果列表 -->
     <div v-if="searched" class="model-list">
-      <div v-if="searching" class="list-loading"><n-spin size="small" /> 正在搜索并校验是否有可下载的 .gguf…</div>
+      <div v-if="searching" class="list-loading">
+        <n-spin size="small" />
+        正在搜索并校验是否有可下载的 .gguf…
+      </div>
       <template v-else>
-        <n-empty v-if="models.length === 0" description="没有找到含 .gguf 文件的模型，换个关键词试试" size="small" />
+        <n-empty
+          v-if="models.length === 0"
+          description="没有找到含 .gguf 文件的模型，换个关键词试试"
+          size="small"
+        />
         <div
           v-for="m in models"
           :key="m.provider + '/' + m.repo_id"
@@ -66,8 +80,12 @@
               <span v-if="m.downloads > 0">下载 {{ formatCount(m.downloads) }}</span>
               <span v-if="m.likes > 0">点赞 {{ formatCount(m.likes) }}</span>
             </div>
-            <div v-if="filesLoading && selectedModel?.repo_id === m.repo_id" class="model-item__files-loading">
-              <n-spin size="small" /> 加载文件列表…
+            <div
+              v-if="filesLoading && selectedModel?.repo_id === m.repo_id"
+              class="model-item__files-loading"
+            >
+              <n-spin size="small" />
+              加载文件列表…
             </div>
             <!-- 加载失败：明确展示原因，避免误报为"无可下载" -->
             <div
@@ -87,23 +105,20 @@
             >
               <div class="files-title">请选择要下载的文件：</div>
               <n-radio-group v-model:value="selectedFile" class="files-group">
-                <div class="file-option" v-for="f in ggufFiles" :key="f.path">
+                <div v-for="f in ggufFiles" :key="f.path" class="file-option">
                   <n-radio :value="f.path" :disabled="downloading">
                     <span class="file-option__name">{{ f.path }}</span>
                   </n-radio>
                   <span class="file-option__size">{{ formatSize(f.size) }}</span>
-                  <n-tag
-                    v-if="f.is_mmproj"
-                    size="tiny"
-                    type="warning"
-                    :bordered="false"
-                  >MMProj</n-tag>
+                  <n-tag v-if="f.is_mmproj" size="tiny" type="warning" :bordered="false">
+                    MMProj
+                  </n-tag>
                 </div>
               </n-radio-group>
               <template v-if="mmprojFiles.length > 0">
                 <div class="files-title files-title--sub">可选：多模态投影文件（MMProj）</div>
                 <div class="files-group">
-                  <div class="file-option" v-for="f in mmprojFiles" :key="f.path">
+                  <div v-for="f in mmprojFiles" :key="f.path" class="file-option">
                     <n-checkbox
                       :checked="selectedMmproj === f.path"
                       :disabled="downloading"
@@ -117,7 +132,9 @@
                   </div>
                 </div>
               </template>
-              <div class="mmproj-note">主文件必须是 .gguf；若为多模态模型，可额外勾选上方的 MMProj 文件以启用图片理解</div>
+              <div class="mmproj-note">
+                主文件必须是 .gguf；若为多模态模型，可额外勾选上方的 MMProj 文件以启用图片理解
+              </div>
               <n-button
                 type="primary"
                 size="small"
@@ -149,8 +166,13 @@
             class="load-more-btn"
             :disabled="searching"
             @click="loadMore"
-          >加载更多</n-button>
-          <div v-else class="list-loading"><n-spin size="small" /> 正在加载下一页…</div>
+          >
+            加载更多
+          </n-button>
+          <div v-else class="list-loading">
+            <n-spin size="small" />
+            正在加载下一页…
+          </div>
           <div v-if="loadingMoreError" class="load-more-err">{{ loadingMoreError }}</div>
         </div>
       </template>
@@ -182,7 +204,9 @@
           :status="p.status === 'failed' ? 'error' : 'success'"
           :height="8"
         />
-        <div v-if="p.status === 'failed' && p.error" class="progress-item__error">{{ p.error }}</div>
+        <div v-if="p.status === 'failed' && p.error" class="progress-item__error">
+          {{ p.error }}
+        </div>
         <div v-if="p.status === 'downloading'" class="progress-item__bytes">
           {{ formatSize(p.downloaded) }} / {{ formatSize(p.total_bytes) }}
         </div>
@@ -219,7 +243,12 @@ import {
   NEmpty
 } from 'naive-ui'
 import { SearchOutline } from '@vicons/ionicons5'
-import { wails, type HubModel, type HubFile, type ModelDownloadProgress } from '../../services/wails'
+import {
+  wails,
+  type HubModel,
+  type HubFile,
+  type ModelDownloadProgress
+} from '../../services/wails'
 import { logError } from '../../utils/logger'
 
 defineOptions({ name: 'ModelDownloader' })
@@ -556,7 +585,9 @@ onUnmounted(() => {
   border-radius: 10px;
   padding: 12px 14px;
   cursor: pointer;
-  transition: border-color 0.2s, background 0.2s;
+  transition:
+    border-color 0.2s,
+    background 0.2s;
 }
 
 .model-item:hover {
@@ -747,7 +778,10 @@ onUnmounted(() => {
   border: 1px solid var(--success-color);
   border-radius: 8px;
   cursor: pointer;
-  transition: color 0.2s, background 0.2s, border-color 0.2s;
+  transition:
+    color 0.2s,
+    background 0.2s,
+    border-color 0.2s;
 }
 
 .download-done__restart:hover:not(:disabled) {

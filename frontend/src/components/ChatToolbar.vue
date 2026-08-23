@@ -206,16 +206,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { NIcon, useMessage } from 'naive-ui'
-import {
-  GlobeOutline,
-  AttachOutline,
-  BulbOutline,
-  LayersOutline
-} from '@vicons/ionicons5'
-import { useChatStore } from '../stores/chat'
+import { GlobeOutline, AttachOutline, BulbOutline, LayersOutline } from '@vicons/ionicons5'
 import { useSettingsStore } from '../stores/settings'
 import { wails } from '../services/wails'
-import { showSuccess } from '../utils/showError'
 
 // 工具栏按钮组：思考模式、搜索模式、深度推理、附件、语音
 //（KV 缓存已改为自动保存/恢复，无需手动按钮）
@@ -230,7 +223,6 @@ const emit = defineEmits<{
   fileSelect: [type: string, file: File]
 }>()
 
-const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
 const message = useMessage()
 
