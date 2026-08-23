@@ -497,15 +497,42 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
+  // ===== 进度事件订阅单例化（C-7：useModelSwitch 可重入化） =====
+  // 生活类比：以前每个调用者都各自装一个"门铃"，快递员来了每家门铃都响一遍；
+  // 现在整栋楼共用一个门铃——第一个住户装上，最后一个住户搬走才拆掉。
+  // 引用计数归零才真正退订；released 标志保证同一 unsubscribe 重复调用不会错乱计数。
+
+  let switchProgressRefCount = 0
+  let switchProgressReleaseShared: (() => void) | null = null
+
   function registerSwitchProgressListener(): () => void {
-    const unsubscribe = wails.subscribeSwitchProgress(progress => {
-      // 仅在 idle 接受进度事件,首次加载时记录 first_load
-      if (switchState.value.phase === 'idle') {
-        beginFirstLoad(progress.targetModel || currentModel.value)
+    switchProgressRefCount++
+    if (!switchProgressReleaseShared) {
+      const unsubscribe = wails.subscribeSwitchProgress(progress => {
+        // 仅在 idle 接受进度事件,首次加载时记录 first_load
+        if (switchState.value.phase === 'idle') {
+          beginFirstLoad(progress.targetModel || currentModel.value)
+        }
+        reportProgress(progress.stage as BackendProgressStage)
+      })
+      let sharedReleased = false
+      switchProgressReleaseShared = () => {
+        if (sharedReleased) return
+        sharedReleased = true
+        unsubscribe()
+        switchProgressReleaseShared = null
       }
-      reportProgress(progress.stage as BackendProgressStage)
-    })
-    return unsubscribe
+    }
+    let callerReleased = false
+    return () => {
+      if (callerReleased) return
+      callerReleased = true
+      switchProgressRefCount--
+      if (switchProgressRefCount <= 0 && switchProgressReleaseShared) {
+        switchProgressReleaseShared()
+        switchProgressRefCount = 0
+      }
+    }
   }
 
   function registerMmprojUnavailableListener(): () => void {
@@ -522,15 +549,38 @@ export const useSettingsStore = defineStore('settings', () => {
     })
   }
 
+  let modelLoadProgressRefCount = 0
+  let modelLoadProgressReleaseShared: (() => void) | null = null
+
   function registerModelLoadProgressListener(): () => void {
-    return wails.subscribeModelLoadProgress((progress: ModelLoadProgressEvent) => {
-      if (progress.status === 'running') {
-        // 模型加载完成，清除进度状态
-        modelLoadProgress.value = null
-      } else {
-        modelLoadProgress.value = progress
+    modelLoadProgressRefCount++
+    if (!modelLoadProgressReleaseShared) {
+      const unsubscribe = wails.subscribeModelLoadProgress((progress: ModelLoadProgressEvent) => {
+        if (progress.status === 'running') {
+          // 模型加载完成，清除进度状态
+          modelLoadProgress.value = null
+        } else {
+          modelLoadProgress.value = progress
+        }
+      })
+      let sharedReleased = false
+      modelLoadProgressReleaseShared = () => {
+        if (sharedReleased) return
+        sharedReleased = true
+        unsubscribe()
+        modelLoadProgressReleaseShared = null
       }
-    })
+    }
+    let callerReleased = false
+    return () => {
+      if (callerReleased) return
+      callerReleased = true
+      modelLoadProgressRefCount--
+      if (modelLoadProgressRefCount <= 0 && modelLoadProgressReleaseShared) {
+        modelLoadProgressReleaseShared()
+        modelLoadProgressRefCount = 0
+      }
+    }
   }
 
   function resetSwitchProgress() {
