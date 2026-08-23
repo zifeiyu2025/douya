@@ -658,8 +658,10 @@ func DetectCapabilities(info ModelInfo) ModelCapabilities {
 	return caps
 }
 
+// ModelMeta 是 llama-server /v1/models 返回的 meta 字段的宽松透传（仅 NParams 被消费）。
+// 注意：不声明 vocab_type——该字段零消费者且类型脆弱（llama.cpp 可能将其改为字符串），
+// 若用 int 接收会让整个 rawModelInfo 的 JSON 解析失败，波及模型信息获取链路。
 type ModelMeta struct {
-	VocabType int     `json:"vocab_type"`
 	NVocab    int     `json:"n_vocab"`
 	NCtxTrain int     `json:"n_ctx_train"`
 	NEmbd     int     `json:"n_embd"`
