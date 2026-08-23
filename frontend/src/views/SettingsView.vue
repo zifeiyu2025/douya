@@ -16,7 +16,7 @@
     </div>
     <div class="settings-content">
       <n-form label-placement="left" label-width="120" :model="formConfig">
-        <n-collapse :default-expanded-names="['appearance']" display-directive="show">
+        <n-collapse v-model:expanded-names="expandedNames" display-directive="show">
           <!-- ==================== 外观 ==================== -->
           <n-collapse-item name="appearance">
             <template #header>
@@ -84,7 +84,7 @@
           </n-collapse-item>
 
           <!-- ==================== 模型下载 ==================== -->
-          <n-collapse-item name="model-download">
+          <n-collapse-item ref="modelDownloadRef" name="model-download">
             <template #header>
               <div class="settings-group-header">
                 <span class="settings-group-title">模型下载</span>
@@ -111,7 +111,8 @@
 </template>
 
 <script setup lang="ts">
-import { defineAsyncComponent, onMounted, provide } from 'vue'
+import { defineAsyncComponent, nextTick, onMounted, provide, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { NForm, NCollapse, NCollapseItem, useMessage } from 'naive-ui'
 import AppearanceSettings from '../components/settings/AppearanceSettings.vue'
 import AIChatSettings from '../components/settings/AIChatSettings.vue'
@@ -132,6 +133,13 @@ import { usePerformanceSettings } from '../components/settings/composables/usePe
 import { useAPIServiceSettings } from '../components/settings/composables/useAPIServiceSettings'
 
 const message = useMessage()
+const route = useRoute()
+
+// 折叠面板受控展开：默认展开"外观"；欢迎页"前往模型下载"跳转时带
+// open=model-download 路由参数，此处自动展开"模型下载"面板并滚动到可见，
+// 避免用户落地设置页后找不到下载入口（无模型首启"死路"修复）
+const expandedNames = ref<string[]>(['appearance'])
+const modelDownloadRef = ref<InstanceType<typeof NCollapseItem> | null>(null)
 
 // C-5 设置域重建：SettingsView 退化为编排壳，原 805 行 script 拆分到 composables/
 // 组装顺序即依赖链：core ← performance ← aiChat；appearance / apiService 仅依赖 core
@@ -150,6 +158,13 @@ provide(SETTINGS_CONTEXT_KEY, settingsContext)
 
 // 显式按序初始化（原 onMounted 逻辑等价拆分）：配置 → 性能/GPU → 密钥状态 → 模型预设
 onMounted(async () => {
+  // 接受路由参数展开指定面板（如 model-download），并滚动到对应区域
+  const openName = route.query.open
+  if (openName && typeof openName === 'string' && !expandedNames.value.includes(openName)) {
+    expandedNames.value = [...expandedNames.value, openName]
+    await nextTick()
+    modelDownloadRef.value?.$el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
   await core.init()
   await performance.init()
   await apiService.init()

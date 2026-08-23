@@ -870,8 +870,7 @@ export const useChatStore = defineStore('chat', () => {
       messages.value = messages.value.filter((m: Message) => !m.id.startsWith('temp-'))
       lastError.value = ''
       nextTick(() => {
-        lastError.value =
-          String(e || '发送消息失败') + '\n💡 如果服务未启动，请等待模型加载完成后再试'
+        lastError.value = String(e || '发送消息失败') + '\n💡 若服务仍在加载，请稍候片刻再试'
       })
       logError('发送消息失败', e)
     }

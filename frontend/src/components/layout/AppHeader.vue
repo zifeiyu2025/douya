@@ -11,13 +11,15 @@
       </div>
     </div>
     <div class="main-header-right" style="--wails-draggable: no-drag">
+      <!-- 禁用逻辑：切换中必禁；服务未运行但有模型时禁（无法切换）；
+           一个模型都没有时不禁——让"未找到模型"占位引导可见，避免无模型首启"死路" -->
       <n-select
         :value="selectedModel"
         :options="displayModelOptions"
         size="small"
         placeholder="选择模型"
         class="model-selector"
-        :disabled="isModelSwitching || !serverStatus.running"
+        :disabled="isModelSwitching || (modelOptions.length > 0 && !serverStatus.running)"
         :render-label="renderModelLabel"
         @update:value="handleModelChange"
       />

@@ -259,7 +259,9 @@ const activeCardModel = computed<ModelOption | null>(() => {
 })
 
 function goModelDownloader() {
-  router.push('/settings')
+  // 带 open=model-download 路由参数：SettingsView 会展开"模型下载"折叠面板并滚动到可见，
+  // 避免用户落地设置页后还要手动找下载入口（无模型首启"死路"修复）
+  router.push('/settings?open=model-download')
 }
 
 onMounted(async () => {
