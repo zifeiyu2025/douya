@@ -50,10 +50,16 @@
           :progress="splashProgress"
         />
         <ServerConsole ref="consoleRef" />
-        <GpuTypeChoiceDialog
-          :show="gpuTypeChoiceVisible"
-          :payload="gpuTypeChoicePayload"
-          @choose="handleGpuTypeChoice"
+        <StartupErrorCard
+          :show="startupErrorVisible"
+          :payload="startupErrorPayload"
+          @exit="handleStartupErrorExit"
+        />
+        <BackendDownloadDialog
+          :show="backendDownloadVisible"
+          :payload="backendDownloadPayload"
+          @download="handleBackendDownload(true)"
+          @exit="handleBackendDownload(false)"
         />
       </n-dialog-provider>
     </n-message-provider>
@@ -70,7 +76,8 @@ import ServerConsole from './components/ServerConsole.vue'
 import AppHeader from './components/AppHeader.vue'
 import ModelSwitchOverlay from './components/ModelSwitchOverlay.vue'
 import ExitOverlay from './components/ExitOverlay.vue'
-import GpuTypeChoiceDialog from './components/GpuTypeChoiceDialog.vue'
+import StartupErrorCard from './components/StartupErrorCard.vue'
+import BackendDownloadDialog from './components/BackendDownloadDialog.vue'
 // Task 21：抽取 mainAreaStyle 背景图逻辑为纯函数，便于单元测试双主题支持
 import { buildBackgroundStyle } from './utils/backgroundStyle'
 import { useSettingsStore } from './stores/settings'
@@ -124,9 +131,12 @@ const {
   splashProgress,
   showExitOverlay,
   exitProgress,
-  gpuTypeChoiceVisible,
-  gpuTypeChoicePayload,
-  handleGpuTypeChoice
+  startupErrorVisible,
+  startupErrorPayload,
+  handleStartupErrorExit,
+  backendDownloadVisible,
+  backendDownloadPayload,
+  handleBackendDownload
 } = useAppLifecycle()
 
 // ----- 服务器控制台 -----

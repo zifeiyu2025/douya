@@ -197,6 +197,8 @@ import { usePromptProgress } from '../composables/usePromptProgress'
 import { setupCodeCopyDelegation } from '../utils/codeCopy'
 import { logError } from '../utils/logger'
 import { isSafeUrl } from '../utils/lightSanitize'
+import { classifyError } from '../utils/errorGuidance'
+import { discreteDialog } from '../utils/discrete'
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
 import defaultAiAvatar from '../assets/images/appicon.png'
 // 任务 38：虚拟滚动组件（局部导入便于 vue-tsc 类型解析；插件已在 main.ts 全局注册）
@@ -439,12 +441,29 @@ watch(
   }
 )
 
+// 剥离 "[ERR_CODE]" 技术前缀，避免向用户暴露内部错误码
+function stripErrCodePrefix(err: string): string {
+  return err.replace(/^\[[A-Z_]+\]\s*/, '')
+}
+
+// 生成错误展示：用户可手动解决的错误（上下文溢出/OOM/文件缺失等）弹结构化指引
+// 对话框（标题+描述+编号建议），其余错误保持 toast 展示原始信息
 watch(
   () => chatStore.lastError,
   err => {
-    if (err) {
+    if (!err) return
+    const guidance = classifyError(err)
+    if (guidance) {
+      const suggestions = guidance.suggestions.map((s, i) => `${i + 1}. ${s}`).join('\n')
+      discreteDialog.error({
+        title: guidance.title,
+        content: `${guidance.description}\n\n修复建议：\n${suggestions}\n\n错误详情：${stripErrCodePrefix(err)}`,
+        positiveText: '知道了',
+        style: { whiteSpace: 'pre-wrap' }
+      })
+    } else {
       message.destroyAll()
-      message.error(err)
+      message.error(stripErrCodePrefix(err))
     }
   }
 )

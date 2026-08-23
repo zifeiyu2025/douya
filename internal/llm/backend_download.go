@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -26,6 +27,12 @@ import (
 // GitHubReleasesAPI 是 llama.cpp releases 的 GitHub API 地址。
 // 默认查询 latest release，获取最新构建的 Windows 后端 zip 包。
 const GitHubReleasesAPI = "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest"
+
+// GitHubReleasesListAPI 是 llama.cpp releases 列表的 GitHub API 地址（从新到旧）。
+// llama.cpp 2026-08-21 起采用语义化版本双轨发布：稳定版（vX.Y.Z）release 只含
+// nightly-tag.txt 指针文件，没有二进制；二进制包仍在 nightly（bXXXXX）release 中。
+// 当 releases/latest 是稳定版时，需查询此列表找最新的含二进制资产的 nightly release。
+const GitHubReleasesListAPI = "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=15"
 
 // githubUA 是请求 GitHub API 时使用的 User-Agent 标识。
 // GitHub 要求所有 API 请求必须携带 User-Agent（https://docs.github.com/en/rest/overview/resources-in-the-rest-api#user-agent-required），
@@ -51,13 +58,98 @@ var downloadHTTPClient = &http.Client{
 	},
 }
 
-// fetchGitHubLatestRelease 查询 GitHub API 获取 llama.cpp 最新 release。
-// 该函数被 FindReleaseAsset 和 FindCudartAsset 共用，避免重复的 HTTP 请求逻辑。
+// githubDownloadProxyPrefixes 是 GitHub release 下载的加速代理镜像前缀列表。
+// 生活类比：主路（GitHub 原始链接）太堵，就绕几条"小路"（国内加速镜像）去取货。
 //
-// 生活类比：总台接线员——无论是问发动机型号还是配件型号，都打同一个电话，
-// 不用每次重新拨号。
+// 构造方式：在原 GitHub release 下载直链前拼上镜像前缀，例如：
+//
+//	原始：https://github.com/ggml-org/llama.cpp/releases/download/b8581/xxx.zip
+//	代理：https://gh-proxy.com/https://github.com/ggml-org/llama.cpp/releases/download/b8581/xxx.zip
+//
+// 注意：此类社区加速镜像时效性不稳定，可能失效。若某个镜像不可用，
+// 直接在此列表中删除该条目或替换为新镜像即可，无需改动下载逻辑。
+var githubDownloadProxyPrefixes = []string{
+	"https://gh-proxy.com/",
+}
+
+// buildDownloadURLs 根据原始 GitHub 下载直链，生成"候选下载源列表"。
+// 列表顺序即下载尝试顺序：优先走加速代理（国内快），最后回落原始 GitHub 源兜底。
+// 对非 GitHub 域名（如未来接入其他源）的 URL 直接原样返回单个候选，不做代理拼接。
+func buildDownloadURLs(originalURL string) []string {
+	urls := make([]string, 0, len(githubDownloadProxyPrefixes)+1)
+	for _, prefix := range githubDownloadProxyPrefixes {
+		urls = append(urls, prefix+originalURL)
+	}
+	urls = append(urls, originalURL)
+	return urls
+}
+
+// fetchGitHubLatestRelease 查询 GitHub API，获取 llama.cpp 最新含二进制资产的 release。
+// 该函数被 FindReleaseAsset、FindCudartAsset 和 GetLatestReleaseTag 共用。
+//
+// 兼容两种发布模式（llama.cpp 2026-08-21 起改为语义化版本双轨发布）：
+//  1. 旧模式：releases/latest 是 bXXXXX nightly，直接含二进制 zip → 直接使用
+//  2. 新模式：releases/latest 是 vX.Y.Z 稳定版，只有 nightly-tag.txt 指针文件，
+//     二进制包仍在 bXXXXX nightly release 中 → 改查 releases 列表，
+//     从新到旧找第一个含二进制资产的 release
+//
+// 生活类比：去仓库提货——先问最新一批货；如果最新一批只是张"提货单"
+// （指针文件没有实物），就翻最近的到货记录，找真正有货的那一批。
 func fetchGitHubLatestRelease() (*GitHubRelease, error) {
-	req, err := http.NewRequest("GET", GitHubReleasesAPI, http.NoBody)
+	return fetchLatestBinaryRelease(GitHubReleasesAPI, GitHubReleasesListAPI)
+}
+
+// fetchLatestBinaryRelease 是 fetchGitHubLatestRelease 的可测试核心。
+// latestURL 查询单个 release，listURL 查询 release 列表（从新到旧）。
+// 由 fetchGitHubLatestRelease 用真实 GitHub API 地址调用，测试用 httptest 地址调用。
+func fetchLatestBinaryRelease(latestURL, listURL string) (*GitHubRelease, error) {
+	release, err := fetchRelease(latestURL)
+	if err != nil {
+		return nil, err
+	}
+
+	// release 含 zip 二进制资产（旧模式 nightly）→ 直接使用
+	if releaseHasBinaryAsset(release) {
+		return release, nil
+	}
+
+	// 新模式：latest 是稳定版指针（如 v0.2.0，只有 nightly-tag.txt）
+	// 改查 releases 列表，从新到旧找第一个含二进制资产的 release（最新 nightly）
+	log.Info().
+		Str("tag", release.TagName).
+		Msg("[backend] 最新 release 无二进制资产（语义化版本发布模式），改查 release 列表")
+
+	list, err := fetchReleaseList(listURL)
+	if err != nil {
+		return nil, err
+	}
+	for i := range list {
+		if releaseHasBinaryAsset(&list[i]) {
+			log.Info().
+				Str("tag", list[i].TagName).
+				Msg("[backend] 已找到最新含二进制资产的 release")
+			return &list[i], nil
+		}
+	}
+
+	return nil, apperror.Newf(apperror.KindNotFound, "最近 %d 个 release 中均未找到二进制资产", len(list))
+}
+
+// releaseHasBinaryAsset 判断 release 是否含有二进制 zip 资产。
+// llama.cpp 稳定版（vX.Y.Z）release 只含 nightly-tag.txt 指针文件；
+// nightly（bXXXXX）release 含 *.zip 二进制包。
+func releaseHasBinaryAsset(release *GitHubRelease) bool {
+	for _, a := range release.Assets {
+		if strings.HasSuffix(a.Name, ".zip") {
+			return true
+		}
+	}
+	return false
+}
+
+// fetchRelease 查询单个 release API 并解析为 GitHubRelease。
+func fetchRelease(apiURL string) (*GitHubRelease, error) {
+	req, err := http.NewRequest("GET", apiURL, http.NoBody)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.KindUnavailable, "创建 GitHub API 请求失败", err)
 	}
@@ -85,6 +177,39 @@ func fetchGitHubLatestRelease() (*GitHubRelease, error) {
 	}
 
 	return &release, nil
+}
+
+// fetchReleaseList 查询 GitHub releases 列表 API（返回结果从新到旧）。
+// 用于 releases/latest 是稳定版指针时，从列表中查找最新的含二进制资产的 nightly release。
+func fetchReleaseList(apiURL string) ([]GitHubRelease, error) {
+	req, err := http.NewRequest("GET", apiURL, http.NoBody)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.KindUnavailable, "创建 GitHub API 请求失败", err)
+	}
+	req.Header.Set("User-Agent", githubUA)
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := githubHTTPClient.Do(req)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.KindUnavailable, "请求 GitHub API 失败", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, apperror.Newf(apperror.KindUnavailable, "GitHub API 返回非 200 状态码: %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.KindUnavailable, "读取 GitHub API 响应失败", err)
+	}
+
+	var list []GitHubRelease
+	if err := json.Unmarshal(body, &list); err != nil {
+		return nil, apperror.Wrap(apperror.KindUnavailable, "解析 GitHub API 响应失败", err)
+	}
+
+	return list, nil
 }
 
 // DownloadProgress 下载进度信息，通过回调函数推送给调用方。
@@ -321,7 +446,45 @@ func DownloadCudartZip(runtimeDir string, progressCB func(DownloadProgress)) (st
 // downloadFile 是通用的文件下载函数，支持进度回调。
 // 从 downloadURL 下载到 destPath，先写入 .tmp 临时文件，完成后原子重命名。
 // 下载过程中实时计算 SHA256 哈希并记录日志，便于完整性审计。
+//
+// 支持"候选源自动切换"：优先走加速代理镜像下载，代理失败时自动回落原始 GitHub 源。
+// 生活类比：先走快捷小路（代理镜像）取货，小路堵了再绕回主路（GitHub 原始源）。
 func downloadFile(downloadURL, destPath string, totalSize int64, bt BackendType, assetName, tagName string, progressCB func(DownloadProgress)) error {
+	urls := buildDownloadURLs(downloadURL)
+	var lastErr error
+	for i, u := range urls {
+		// 非首个候选（即代理失败需要换源）时，清理可能的残留临时文件，并从新源重新下载
+		if i > 0 {
+			_ = os.Remove(destPath + ".tmp")
+			if progressCB != nil {
+				progressCB(DownloadProgress{
+					Backend:    bt,
+					AssetName:  assetName,
+					TagName:    tagName,
+					TotalBytes: totalSize,
+					Status:     "retrying",
+					Label:      "切换下载源重试",
+				})
+			}
+			log.Warn().
+				Str("asset", assetName).
+				Str("url", u).
+				Err(lastErr).
+				Msg("[backend] 上一个下载源失败，自动切换到下一个下载源")
+		}
+		if err := downloadFileFromURL(u, destPath, totalSize, bt, assetName, tagName, progressCB); err != nil {
+			lastErr = err
+			continue
+		}
+		return nil
+	}
+	return apperror.Wrap(apperror.KindUnavailable, "所有下载源均失败", lastErr)
+}
+
+// downloadFileFromURL 是 downloadFile 的单一来源下载核心。
+// 从指定 downloadURL 下载到 destPath，所有网络/写入/校验逻辑都在此完成。
+// 由 downloadFile 在候选源列表中逐个调用，实现"一源失败换下一源"。
+func downloadFileFromURL(downloadURL, destPath string, totalSize int64, bt BackendType, assetName, tagName string, progressCB func(DownloadProgress)) error {
 	tmpPath := destPath + ".tmp"
 	out, err := os.Create(tmpPath)
 	if err != nil {
@@ -475,15 +638,57 @@ func DownloadBackendZipWithContext(ctx context.Context, bt BackendType, runtimeD
 
 	_ = os.Remove(tmpPath)
 
+	// 候选源自动切换：优先走加速代理镜像（国内快），失败自动回落原始 GitHub 源。
+	// 生活类比：与 downloadFile 相同——先走快捷小路取货，小路堵了再绕回主路。
+	urls := buildDownloadURLs(asset.BrowserDownloadURL)
+	var lastErr error
+	for i, u := range urls {
+		// 非首个候选（即代理失败需要换源）时，清理残留临时文件并通知前端重试状态
+		if i > 0 {
+			_ = os.Remove(tmpPath)
+			if progressCB != nil {
+				progressCB(DownloadProgress{
+					Backend:    bt,
+					AssetName:  asset.Name,
+					TagName:    tagName,
+					TotalBytes: asset.Size,
+					Status:     "retrying",
+					Label:      "切换下载源重试",
+				})
+			}
+			log.Warn().
+				Str("asset", asset.Name).
+				Str("url", u).
+				Err(lastErr).
+				Msg("[backend] 上一个下载源失败，自动切换到下一个下载源")
+		}
+		path, err := downloadBackendZipFromURL(ctx, u, tmpPath, destPath, bt, asset.Name, tagName, asset.Size, progressCB)
+		if err != nil {
+			lastErr = err
+			// 用户主动取消时不换源重试，直接返回
+			if ctx.Err() != nil {
+				return "", err
+			}
+			continue
+		}
+		return path, nil
+	}
+	return "", apperror.Wrap(apperror.KindUnavailable, "所有下载源均失败", lastErr)
+}
+
+// downloadBackendZipFromURL 是 DownloadBackendZipWithContext 的单源下载核心。
+// 从指定 downloadURL 下载后端 zip 到 destPath，支持 context 取消。
+// 由 DownloadBackendZipWithContext 在候选源列表中逐个调用，实现"一源失败换下一源"。
+func downloadBackendZipFromURL(ctx context.Context, downloadURL, tmpPath, destPath string, bt BackendType, assetName, tagName string, assetSize int64, progressCB func(DownloadProgress)) (string, error) {
 	log.Info().
 		Str("backend", bt.String()).
-		Str("url", asset.BrowserDownloadURL).
+		Str("url", downloadURL).
 		Str("dest", destPath).
-		Int64("size", asset.Size).
+		Int64("size", assetSize).
 		Msg("[backend] 开始下载后端 zip 包")
 
 	// 使用带 context 的请求，支持取消
-	req, err := http.NewRequestWithContext(ctx, "GET", asset.BrowserDownloadURL, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, "GET", downloadURL, http.NoBody)
 	if err != nil {
 		return "", apperror.Wrap(apperror.KindUnavailable, "创建下载请求失败", err)
 	}
@@ -513,7 +718,7 @@ func DownloadBackendZipWithContext(ctx context.Context, bt BackendType, runtimeD
 
 	totalSize := resp.ContentLength
 	if totalSize <= 0 {
-		totalSize = asset.Size
+		totalSize = assetSize
 	}
 
 	buf := make([]byte, 64*1024)
@@ -557,7 +762,7 @@ func DownloadBackendZipWithContext(ctx context.Context, bt BackendType, runtimeD
 				}
 				progressCB(DownloadProgress{
 					Backend:    bt,
-					AssetName:  asset.Name,
+					AssetName:  assetName,
 					TagName:    tagName,
 					TotalBytes: totalSize,
 					Downloaded: downloaded,
@@ -589,7 +794,7 @@ func DownloadBackendZipWithContext(ctx context.Context, bt BackendType, runtimeD
 
 	sha256Hex := hex.EncodeToString(hash.Sum(nil))
 	log.Info().
-		Str("asset", asset.Name).
+		Str("asset", assetName).
 		Int64("size", totalSize).
 		Str("sha256", sha256Hex).
 		Msg("[backend] 下载完成，SHA256 哈希已记录")
@@ -602,7 +807,7 @@ func DownloadBackendZipWithContext(ctx context.Context, bt BackendType, runtimeD
 	if progressCB != nil {
 		progressCB(DownloadProgress{
 			Backend:    bt,
-			AssetName:  asset.Name,
+			AssetName:  assetName,
 			TagName:    tagName,
 			TotalBytes: totalSize,
 			Downloaded: totalSize,

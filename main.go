@@ -293,40 +293,81 @@ func activateExistingWindow() {
 }
 
 func main() {
-	if isWailsBindingsProcess() {
-		return
+	// wailsbuild 会编译并运行 wailsbindings.exe 来生成前端绑定。
+	// 该进程只需执行下方的 wails.Run（Wails 在 bindings 构建标签下自动生成绑定后退出），
+	// 不能启动日志/单实例互斥/系统托盘，否则会干扰正在运行的真实实例（此前这些启动逻辑不加条件，
+	// 导致绑定进程的 main 直接 return，wailsjs 绑定文件长期未被重新生成）。
+	// 生活类比：绑定生成进程像"登记员只来抄写清单"，抄完就走，不用开灯烧水。
+	isBindingsProcess := isWailsBindingsProcess()
+
+	if !isBindingsProcess {
+		// 记录应用启动时间（供 Health() 计算 uptime）
+		appStartTime = time.Now()
+
+		// 初始化日志系统（同时输出到控制台和文件）
+		logDir := filepath.Join(appDir(), "data", "logs")
+		logger.Init(logDir)
+		log.Info().Str("logDir", logDir).Msg("豆芽启动中...")
 	}
 
-	// 记录应用启动时间（供 Health() 计算 uptime）
-	appStartTime = time.Now()
-
-	// 初始化日志系统（同时输出到控制台和文件）
-	logDir := filepath.Join(appDir(), "data", "logs")
-	logger.Init(logDir)
-	log.Info().Str("logDir", logDir).Msg("豆芽启动中...")
-
-	mutexHandle, isFirst := tryAcquireMutex()
+	var mutexHandle uintptr
+	isFirst := true
+	if !isBindingsProcess {
+		mutexHandle, isFirst = tryAcquireMutex()
+	}
 	if !isFirst {
-		activateExistingWindow()
-		log.Info().Msg("检测到已有实例运行，激活已有窗口")
-		return
+		// 重启场景（DOUYA_RESTART=1）：旧实例正在退出，此处等待其释放互斥后再重试，
+		// 避免新进程因"检测到已有实例"被直接退出，导致"重启变退出"。
+		if os.Getenv("DOUYA_RESTART") == "1" {
+			// 关闭首次失败获得的句柄（避免泄漏），进入轮询等待
+			if mutexHandle != 0 {
+				_ = syscall.CloseHandle(syscall.Handle(mutexHandle))
+				mutexHandle = 0
+			}
+			log.Info().Msg("[restart] 等待旧实例释放互斥体...")
+			deadline := time.Now().Add(20 * time.Second)
+			for !isFirst && time.Now().Before(deadline) {
+				time.Sleep(200 * time.Millisecond)
+				h2, ok2 := tryAcquireMutex()
+				if ok2 {
+					mutexHandle = h2
+					isFirst = true
+					break
+				}
+				if h2 != 0 {
+					_ = syscall.CloseHandle(syscall.Handle(h2))
+				}
+			}
+		}
+		if !isFirst {
+			activateExistingWindow()
+			log.Info().Msg("检测到已有实例运行，激活已有窗口")
+			return
+		}
 	}
-	log.Info().Msg("单实例互斥体获取成功")
-	if mutexHandle != 0 {
-		defer func() { _ = syscall.CloseHandle(syscall.Handle(mutexHandle)) }()
+	if !isBindingsProcess {
+		log.Info().Msg("单实例互斥体获取成功")
+		if mutexHandle != 0 {
+			defer func() { _ = syscall.CloseHandle(syscall.Handle(mutexHandle)) }()
+		}
 	}
 
 	app := NewApp()
 
 	// 提前创建 LocalFileLoader，保存引用以便托盘最小化时清理缓存
-	fileLoader := &LocalFileLoader{
-		baseDir: appDir(),
-		// LRU 缓存：最多 100 个文件，总大小上限 50MB，超限淘汰最久未访问的
-		cache: newFileLRUCache(100, 50*1024*1024),
-	}
-	app.fileLoader = fileLoader
+	// 绑定生成进程不创建（避免调用 appDir() 在临时目录产生默认配置等副作用）
+	var fileLoader http.Handler
+	if !isBindingsProcess {
+		localFileLoader := &LocalFileLoader{
+			baseDir: appDir(),
+			// LRU 缓存：最多 100 个文件，总大小上限 50MB，超限淘汰最久未访问的
+			cache: newFileLRUCache(100, 50*1024*1024),
+		}
+		app.fileLoader = localFileLoader
+		fileLoader = localFileLoader
 
-	go systray.Run(app.onSystrayReady, app.onSystrayExit)
+		go systray.Run(app.onSystrayReady, app.onSystrayExit)
+	}
 
 	err := wails.Run(&options.App{
 		Title:     "豆芽 - AI 聊天助手",
@@ -353,7 +394,9 @@ func main() {
 		},
 	})
 
-	systray.Quit()
+	if !isBindingsProcess {
+		systray.Quit()
+	}
 
 	if err != nil {
 		log.Error().Err(err).Msg("Wails 运行失败")

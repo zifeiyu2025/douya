@@ -4,10 +4,7 @@
 package llm
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -47,8 +44,13 @@ var buildNumberRegexp = regexp.MustCompile(`build\s*(\d+)`)
 var commitRegexp = regexp.MustCompile(`commit[:\s]+([0-9a-f]+)`)
 
 // tagRegexp 匹配 GitHub release tag 名（如 "b10216"）。
-// llama.cpp 的 release tag 格式固定为 "b" + 数字，数字与 --version 输出的构建编号一致。
+// llama.cpp 的 nightly release tag 格式固定为 "b" + 数字，数字与 --version 输出的构建编号一致。
 var tagRegexp = regexp.MustCompile(`^b(\d+)$`)
+
+// assetBuildNumberRegexp 从 asset 文件名中提取构建编号。
+// 如 "llama-b10549-bin-win-cuda-13.3-x64.zip" 提取 10549。
+// 用于 release tag 是语义化版本（vX.Y.Z）但 asset 文件名仍带 b 构建编号的兜底场景。
+var assetBuildNumberRegexp = regexp.MustCompile(`-b(\d+)-`)
 
 // VersionInfo 描述版本检查结果。
 //
@@ -144,49 +146,38 @@ func parseServerVersionOutput(output string) (version int, commit string, err er
 //
 // 生活类比：打电话给应用商店（GitHub API），问"llama.cpp 最新版是什么编号？"。
 //
-// 复用 backend_download.go 中的 GitHubReleasesAPI 常量和 GitHubRelease 结构。
+// 复用 backend_download.go 中的 fetchGitHubLatestRelease：
+// llama.cpp 2026-08 起语义化版本双轨发布（稳定版 vX.Y.Z 只含指针文件），
+// fetchGitHubLatestRelease 会自动跳过无二进制的稳定版，返回最新含二进制的 nightly。
 //
 // 返回：
 //   - version: 构建编号（如 10220），0 表示解析失败
 //   - tag: release tag（如 "b10220"）
 //   - err: 查询失败时的错误
 func GetLatestReleaseTag() (version int, tag string, err error) {
-	req, err := http.NewRequest("GET", GitHubReleasesAPI, http.NoBody)
+	release, err := fetchGitHubLatestRelease()
 	if err != nil {
-		return 0, "", apperror.Wrap(apperror.KindInternal, "创建 GitHub API 请求失败", err)
-	}
-	req.Header.Set("User-Agent", githubUA)
-	req.Header.Set("Accept", "application/vnd.github+json")
-
-	resp, err := githubHTTPClient.Do(req)
-	if err != nil {
-		return 0, "", apperror.Wrap(apperror.KindUnavailable, "请求 GitHub API 失败", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return 0, "", apperror.Newf(apperror.KindUnavailable, "GitHub API 返回非 200 状态码: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, "", apperror.Wrap(apperror.KindInternal, "读取 GitHub API 响应失败", err)
-	}
-
-	var release GitHubRelease
-	if err := json.Unmarshal(body, &release); err != nil {
-		return 0, "", apperror.Wrap(apperror.KindInternal, "解析 GitHub API 响应失败", err)
+		return 0, "", err
 	}
 
 	tag = release.TagName
 	// 从 tag（如 "b10220"）提取构建编号
-	matches := tagRegexp.FindStringSubmatch(tag)
-	if len(matches) < 2 {
-		return 0, tag, apperror.Newf(apperror.KindInternal, "无法从 tag %q 解析构建编号", tag)
-	}
-	version, err = strconv.Atoi(matches[1])
-	if err != nil {
-		return 0, tag, apperror.Wrapf(apperror.KindInternal, "解析构建编号 %q 失败", err, matches[1])
+	if matches := tagRegexp.FindStringSubmatch(tag); len(matches) >= 2 {
+		version, err = strconv.Atoi(matches[1])
+		if err != nil {
+			return 0, tag, apperror.Wrapf(apperror.KindInternal, "解析构建编号 %q 失败", err, matches[1])
+		}
+	} else {
+		// 兜底：tag 是语义化版本（vX.Y.Z，如稳定版 release 直接带二进制），
+		// 从 asset 文件名中提取构建编号（如 llama-b10549-bin-win-cuda-13.3-x64.zip → 10549）
+		version = extractBuildFromAssets(release.Assets)
+		if version == 0 {
+			return 0, tag, apperror.Newf(apperror.KindInternal, "无法从 tag %q 及其资产中解析构建编号", tag)
+		}
+		log.Info().
+			Str("tag", tag).
+			Int("version", version).
+			Msg("[version] tag 为语义化版本，已从 asset 文件名提取构建编号")
 	}
 
 	log.Info().
@@ -194,6 +185,20 @@ func GetLatestReleaseTag() (version int, tag string, err error) {
 		Str("tag", tag).
 		Msg("[version] GitHub 最新 release")
 	return version, tag, nil
+}
+
+// extractBuildFromAssets 从 release 的资产文件名列表中提取构建编号。
+// 遍历所有资产，找到第一个形如 "llama-b10549-..." 的文件名并返回其中的构建编号。
+// 所有资产都无法提取时返回 0。
+func extractBuildFromAssets(assets []GitHubAsset) int {
+	for _, a := range assets {
+		if matches := assetBuildNumberRegexp.FindStringSubmatch(a.Name); len(matches) >= 2 {
+			if n, err := strconv.Atoi(matches[1]); err == nil {
+				return n
+			}
+		}
+	}
+	return 0
 }
 
 // CheckForUpdate 组合本地版本查询和远程版本查询，返回完整的版本对比结果。

@@ -3,6 +3,7 @@
   "model_path": "",
   "mmproj_auto": true,
   "mmproj_offload": null,
+  "mmproj_device": "",
   "llama_server_path": "runtime/llama-server.exe",
   "backend_type": "auto",
   "last_successful_backend": "",

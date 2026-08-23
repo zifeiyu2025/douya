@@ -61,8 +61,14 @@
     <div class="update-section">
       <n-divider>版本更新</n-divider>
 
+      <!-- Store 版：更新由 Microsoft Store 接管，隐藏应用内更新入口 -->
+      <div v-if="isStoreMode" class="update-row">
+        <span class="update-current">当前版本：v{{ currentVersion }}</span>
+        <span class="update-status-text">此版本由 Microsoft Store 自动更新</span>
+      </div>
+
       <!-- 空闲状态 -->
-      <div v-if="updateStatus === 'idle'" class="update-row">
+      <div v-else-if="updateStatus === 'idle'" class="update-row">
         <span class="update-current">当前版本：v{{ currentVersion }}</span>
         <n-button type="primary" size="small" ghost @click="handleCheckUpdate">检查更新</n-button>
       </div>
@@ -159,6 +165,8 @@ import pkg from '../../../package.json'
 
 const message = useMessage()
 const currentVersion = ref(pkg.version)
+// 是否为 Microsoft Store (MSIX) 版：Store 版隐藏"检查更新"入口，由商店自动更新
+const isStoreMode = ref(false)
 const githubUrl = ref('https://github.com/zifeiyu2025/douya')
 const updateStatus = ref<
   'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'installing' | 'error'
@@ -168,6 +176,12 @@ const downloadPercent = ref(0)
 const errorMessage = ref('')
 
 async function loadVersion() {
+  try {
+    isStoreMode.value = await wails.isStoreMode()
+  } catch {
+    // Store 检测失败时默认 false（便携版行为），不影响正常使用
+    isStoreMode.value = false
+  }
   try {
     currentVersion.value = await wails.getAppVersion()
   } catch {

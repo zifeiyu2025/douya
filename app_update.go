@@ -48,6 +48,12 @@ func (a *App) GetGitHubURL() string {
 // CheckUpdate 检查是否有新版本
 // 生活类比：就像手机应用商店的"检查更新"功能，看看有没有新版本可以下载
 func (a *App) CheckUpdate() (*UpdateInfo, error) {
+	// Store (MSIX) 版禁用应用内自更新：商店政策 10.1.5 禁止应用绕过商店自行更新，
+	// 更新统一由 Microsoft Store 接管。
+	if isStoreMode() {
+		return nil, apperror.New(apperror.KindUnavailable, "此版本由 Microsoft Store 自动更新，无需手动检查")
+	}
+
 	// 拼接 GitHub API 地址（URL 构造统一走 version 包，避免多处硬编码）
 	apiURL := version.GitHubAPIURL() + "/releases/latest"
 
@@ -103,6 +109,11 @@ func (a *App) CheckUpdate() (*UpdateInfo, error) {
 // PerformUpdate 执行自动更新
 // 生活类比：就像手机下载更新包后自动安装——先下载，然后重启应用完成替换
 func (a *App) PerformUpdate(downloadURL string, latestVersion string) error {
+	// Store (MSIX) 版禁用应用内自更新（商店政策 10.1.5），更新由 Microsoft Store 接管
+	if isStoreMode() {
+		return apperror.New(apperror.KindUnavailable, "此版本由 Microsoft Store 自动更新，无法手动安装更新")
+	}
+
 	// 安全：校验下载 URL，防止 SSRF 攻击
 	// 基于 GO-SSRF-001 安全实践：不信任前端传入的 URL，必须为 HTTPS 且来自 GitHub 域名
 	if err := validateUpdateURL(downloadURL); err != nil {

@@ -21,7 +21,11 @@ import { computed, onMounted, onUnmounted, readonly, ref, watch } from 'vue'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import { wails } from '../services/wails'
-import type { ServerWarningEvent } from '../services/wails'
+import type {
+  ServerWarningEvent,
+  StartupErrorPayload,
+  BackendDownloadRequestPayload
+} from '../services/wails'
 import { discreteDialog, discreteMessage } from '../utils/discrete'
 import { logError } from '../utils/logger'
 import { classifyError } from '../utils/errorGuidance'
@@ -46,44 +50,58 @@ export function useAppLifecycle() {
     }
   )
 
-  // ===== 灰色地带 GPU 类型选择对话框状态 =====
-  // 后端检测到 auto + GPUType=unknown 时触发，让用户选择推理后端
-  const gpuTypeChoiceVisible = ref(false)
-  const gpuTypeChoicePayload = ref<{
-    gpu_name: string
-    gpu_vendor: string
-    gpu_vram_mb: number
-    gpu_type: string
-    timeout_seconds: number
-  } | null>(null)
+  // ===== 启动期致命错误卡状态 =====
+  // 后端遇到无法继续启动的错误时，通过 EventStartupError 推送 / GetStartupError 兜底查询，
+  // 前端在启动屏上展示全屏错误卡，用户确认后调用 confirmStartupError 通知后端退出。
+  // 生活类比：店门口"暂停营业"红灯，顾客看清原因、按「退出」店家才落闸关门。
+  const startupErrorVisible = ref(false)
+  const startupErrorPayload = ref<StartupErrorPayload | null>(null)
 
   /**
-   * 弹出灰色地带 GPU 类型选择对话框。
-   * 用户选择后调用 resolveGpuTypeChoice 通知后端，后端解除 startup 阻塞继续启动。
+   * 展示启动错误卡：设置载荷并置为可见（同一时间只可能有一条致命错误）。
    */
-  function showGpuTypeChoiceDialog(payload: {
-    gpu_name: string
-    gpu_vendor: string
-    gpu_vram_mb: number
-    gpu_type: string
-    timeout_seconds: number
-  }) {
-    gpuTypeChoicePayload.value = payload
-    gpuTypeChoiceVisible.value = true
+  function showStartupError(err: StartupErrorPayload) {
+    startupErrorPayload.value = { title: err.title, brief: err.brief, detail: err.detail }
+    startupErrorVisible.value = true
   }
 
   /**
-   * 用户在对话框中选择后端后调用。
-   * "我不清楚" 映射为 cpu，直接继续启动无需读秒等待。
+   * 用户在错误卡上点「退出」：通知后端解除阻塞退出，并关闭错误卡。
    */
-  async function handleGpuTypeChoice(backend: string) {
-    gpuTypeChoiceVisible.value = false
-    gpuTypeChoicePayload.value = null
+  async function handleStartupErrorExit() {
+    startupErrorVisible.value = false
     try {
-      await wails.resolveGpuTypeChoice(backend)
+      await wails.confirmStartupError()
     } catch (e) {
-      logError('resolveGpuTypeChoice failed', e)
-      discreteMessage.error('后端选择失败，将使用默认配置启动')
+      logError('confirmStartupError failed', e)
+      discreteDialog.error({
+        title: '无法退出',
+        content: '向后端确认退出时出错，请手动关闭应用。',
+        positiveText: '知道了'
+      })
+    }
+  }
+
+  // ===== "是否下载后端"确认框状态 =====
+  // runtime 缺失需下载时，后端推送 EventBackendDownloadRequest，前端弹框询问；
+  // 用户作答后调用 resolveBackendDownloadConfirm 写回 channel，解除后端阻塞等待。
+  // 生活类比：店家广播"要不要订购发动机"，顾客在漂亮界面上答复后才下单或关门。
+  const backendDownloadVisible = ref(false)
+  const backendDownloadPayload = ref<BackendDownloadRequestPayload | null>(null)
+
+  function showBackendDownloadDialog(payload: BackendDownloadRequestPayload) {
+    backendDownloadPayload.value = payload
+    backendDownloadVisible.value = true
+  }
+
+  async function handleBackendDownload(proceed: boolean) {
+    backendDownloadVisible.value = false
+    backendDownloadPayload.value = null
+    try {
+      await wails.resolveBackendDownloadConfirm(proceed)
+    } catch (e) {
+      logError('resolveBackendDownloadConfirm failed', e)
+      discreteMessage.error('提交选择失败，将默认继续下载')
     }
   }
 
@@ -270,12 +288,37 @@ export function useAppLifecycle() {
       )
     )
 
-    // 灰色地带 GPU 类型选择监听：auto 模式 + GPUType=unknown 时后端检测到未知的显卡状态，
-    // 弹出对话框让用户选择推理后端，避免错误启用 GPU 导致 OOM。
-    // 生活类比：车检员无法判断是跑车还是电瓶车时，让车主自己选驾驶模式。
+    // 启动期致命错误卡：后端无法继续启动时推送，前端展示错误卡，用户确认后退出。
+    // 生活类比：开店时设备出故障，不只挂"暂停营业"牌，还告诉顾客具体原因、怎么修。
     unsubscribers.push(
-      wails.subscribeHardwareGpuTypeUnknown(payload => {
-        showGpuTypeChoiceDialog(payload)
+      wails.subscribeStartupError(err => {
+        showStartupError(err)
+      })
+    )
+
+    // "是否下载后端"确认框：runtime 缺失需下载时推送，让用户决定下载或退出。
+    unsubscribers.push(
+      wails.subscribeBackendDownloadRequest(payload => {
+        showBackendDownloadDialog(payload)
+      })
+    )
+
+    // 知识库（RAG）初始化失败：非阻塞提示，不打断启动流程。
+    // 生活类比：店铺的货架资料整理坏了，但收银和日常营业照常——提醒一句即可。
+    unsubscribers.push(
+      wails.subscribeRagDisabled(data => {
+        discreteMessage.warning(data?.detail || '知识库已禁用，基本对话不受影响', {
+          duration: 8000
+        })
+      })
+    )
+
+    // 无可用模型：非阻塞提示"如何下载模型"的引导文案，看完可正常进界面。
+    unsubscribers.push(
+      wails.subscribeModelNotice(data => {
+        discreteMessage.info(data?.message || '没有可用的模型，请先下载模型', {
+          duration: 12000
+        })
       })
     )
 
@@ -345,6 +388,19 @@ export function useAppLifecycle() {
 
     // 3. 加载配置（await 可能耗时，但 watch 已注册，不会错过期间的事件）
     await settingsStore.loadConfig()
+
+    // 启动错误的事后兜底查询：后端可能在前端 WebView 挂载前就已触发 EventStartupError，
+    // 若事件恰好错过，这里主动查询一次并展示错误卡，避免信息丢失。
+    // 生活类比：顾客进店时告示可能已经贴了很久（事件错过了），店家要再口头确认一遍
+    // "您看到暂停营业的原因了吗"——保证每个顾客都不会错过。
+    try {
+      const pending = await wails.getStartupError()
+      if (pending && !startupErrorVisible.value) {
+        showStartupError(pending)
+      }
+    } catch (e) {
+      logError('getStartupError failed', e)
+    }
 
     // 同步 TTS 配置到 useTTS（让朗读用用户配置的发音人/语速/音调/音量）
     tts.updateConfig({
@@ -439,9 +495,13 @@ export function useAppLifecycle() {
     // 退出动效状态（外部只读）
     showExitOverlay: readonly(isExiting), // Readonly<Ref<boolean>>：是否显示退出遮罩
     exitProgress: readonly(exitMessage), // Readonly<Ref<string>>：退出进度消息
-    // 灰色地带 GPU 类型选择对话框状态（外部只读 + 操作回调）
-    gpuTypeChoiceVisible: readonly(gpuTypeChoiceVisible),
-    gpuTypeChoicePayload: readonly(gpuTypeChoicePayload),
-    handleGpuTypeChoice
+    // 启动期致命错误卡状态
+    startupErrorVisible: readonly(startupErrorVisible),
+    startupErrorPayload: readonly(startupErrorPayload),
+    handleStartupErrorExit,
+    // "是否下载后端"确认框状态
+    backendDownloadVisible: readonly(backendDownloadVisible),
+    backendDownloadPayload: readonly(backendDownloadPayload),
+    handleBackendDownload
   }
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -348,11 +347,12 @@ func (a *App) GracefulExit() {
 }
 
 // RestartApp 重启应用：先启动新进程，再退出当前进程。
-// 通过临时 bat 脚本延迟启动新进程，确保旧进程完全退出后再启动新的，
-// 避免端口/文件锁冲突。
+// 通过环境变量 DOUYA_RESTART=1 告知新进程"正在重启"：
+// 新进程在 main 里检测到已有实例（单实例互斥）时会等待本进程退出、
+// 释放互斥后再真正启动，从而避免"重启变退出"。
 //
-// 生活类比：换班时，先让接班的人到岗准备好，老员工再下班，
-// 中间留几秒钟交接时间，避免两人同时操作同一个岗位（端口/文件冲突）。
+// 生活类比：换班时，先告诉接班人"我马上下班，你把岗位接好"，
+// 接班人知道老员工正在离岗，会等一会儿再接手，不会误以为岗位还占着而走人。
 func (a *App) RestartApp() {
 	exe, err := os.Executable()
 	if err != nil {
@@ -367,31 +367,22 @@ func (a *App) RestartApp() {
 		zlog.Warn().Str("exe", exe).Msg("[restart] exe 路径包含特殊字符，重启可能失败")
 	}
 
-	// 创建临时 bat 脚本：等待 2 秒后启动新进程，然后删除自身
-	// 权限设为 0600，仅文件所有者可读写，避免被其他用户篡改
-	batPath := filepath.Join(filepath.Dir(exe), "restart_douya.bat")
-	batContent := fmt.Sprintf("@echo off\r\ntimeout /t 2 /nobreak >nul\r\nstart \"\" %q\r\ndel \"%%~f0\"\r\n", exe)
-	if err := os.WriteFile(batPath, []byte(batContent), 0o600); err != nil {
-		zlog.Error().Err(err).Msg("[restart] 创建重启脚本失败")
-		a.forceQuit()
-		return
-	}
-
-	// 异步启动 bat 脚本（不等待其完成）
-	cmd := exec.Command("cmd", "/c", batPath)
+	// 直接启动新进程，注入 DOUYA_RESTART=1 环境变量，
+	// 新进程会在单实例互斥释放后接管启动，app 层无需额外等待标志。
+	cmd := exec.Command(exe)
+	cmd.Env = append(os.Environ(), "DOUYA_RESTART=1")
 	cmd.Stdin = nil
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	if err := cmd.Start(); err != nil {
-		zlog.Error().Err(err).Msg("[restart] 启动重启脚本失败")
-		os.Remove(batPath)
+		zlog.Error().Err(err).Msg("[restart] 启动新进程失败")
 		a.forceQuit()
 		return
 	}
 
-	zlog.Info().Str("exe", exe).Msg("[restart] 重启脚本已启动，即将退出当前进程")
+	zlog.Info().Str("exe", exe).Msg("[restart] 新进程已启动，即将退出当前进程")
 
-	// 短暂等待确保 bat 脚本已开始执行，然后退出当前进程
+	// 短暂等待确保新进程已开始执行，然后退出当前进程释放互斥体
 	go func() {
 		// 防止 panic 导致整个进程崩溃
 		defer recoverLog("[restart] 退出等待 goroutine panic")

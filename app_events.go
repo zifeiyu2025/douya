@@ -28,16 +28,30 @@ const (
 	EventBackendDownloadStart    = "backend:downloadStart"
 	EventBackendDownloadProgress = "backend:downloadProgress"
 	EventBackendDownloadComplete = "backend:downloadComplete"
+	// 模型下载（内置下载器，来源 ModelScope / HF 镜像）事件。
+	EventModelDownloadProgress = "model:downloadProgress"
+	EventModelDownloadComplete = "model:downloadComplete"
 	EventWindowCloseRequest      = "window:closeRequest"
 	EventShutdownProgress        = "shutdown:progress"
 	EventSearchAutoDisabled      = "search:autoDisabled"
-	// EventHardwareGpuTypeUnknown: 灰色地带场景下通知前端弹出用户选择对话框。
-	// 触发条件：auto 模式 + GPUType=unknown（检测到未知的显卡状态）。
-	// 生活类比：就像车检员无法判断是跑车还是电瓶车时，让车主自己来选——
-	// 车检员把车况信息（GPU 名称/显存）发给车主（前端），让车主决定怎么开。
-	EventHardwareGpuTypeUnknown = "hardware:gpuTypeUnknown"
+	// EventStartupError: 启动期致命错误。后端遇到无法继续启动的错误时推送，
+	// 前端据此在启动屏上展示错误卡（标题/简述/详情），用户确认后后端才退出。
+	// 生活类比：店门口亮起"暂停营业"红灯，顾客先看到原因再关门。
+	EventStartupError = "startup:error"
+	// EventBackendDownloadRequest: 后端在 runtime 缺失且需要下载时推送，通知前端
+	// 弹"是否下载后端"对话框。后端在 channel 上阻塞等待，前端确认后调
+	// ResolveBackendDownloadConfirm 放行。
+	// 生活类比：店里的发动机仓库缺货，店家广播问顾客"要不要帮您订购"，
+	// 顾客答复（写 channel）后店家才决定下单（下载）还是关门。
+	EventBackendDownloadRequest = "startup:backendDownloadRequest"
+	// EventStartupRagDisabled: 知识库（RAG）初始化失败时推送，提示前端用非阻塞
+	// 的方式告知用户"知识库已禁用，但基本对话不受影响"，不打断启动流程。
+	EventStartupRagDisabled = "startup:ragDisabled"
+	// EventStartupModelNotice: 没有可用的模型时推送，前端用非阻塞提示展示
+	// 一段"如何下载模型"的引导文案，用户看完可正常进入界面。
+	EventStartupModelNotice = "startup:modelNotice"
 	// P3.6 修复：EventUpdateCheck 已被移除——前端使用同步 CheckUpdate RPC，
-	// 无事件监听者，emit 是死代码。保留 EventUpdateProgress（前端有订阅）。
+	// 无事件监听者，保留 EventUpdateProgress（前端有订阅）。
 	EventUpdateProgress = "update:progress"
 )
 

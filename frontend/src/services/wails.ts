@@ -75,10 +75,16 @@ import {
   RefreshMcpTools,
   SwitchBackend,
   DownloadBackend,
+  DownloadHubModel,
+  SearchHubModels,
+  ListHubModelFiles,
   GetAppVersion,
+  IsStoreMode,
   CheckUpdate,
   PerformUpdate,
-  ResolveGpuTypeChoice,
+  ConfirmStartupError,
+  GetStartupError,
+  ResolveBackendDownloadConfirm,
   SynthesizeSpeech
 } from '../../wailsjs/go/main/App'
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
@@ -100,7 +106,12 @@ import {
   EventBackendDownloadStart,
   EventBackendDownloadProgress,
   EventBackendDownloadComplete,
-  EventHardwareGpuTypeUnknown
+  EventModelDownloadProgress,
+  EventModelDownloadComplete,
+  EventStartupError,
+  EventBackendDownloadRequest,
+  EventStartupRagDisabled,
+  EventStartupModelNotice
 } from './events'
 import { chat as ChatModel } from '../../wailsjs/go/models'
 
@@ -190,16 +201,21 @@ export interface BackendDownloadStart {
   name: string
 }
 
-/**
- * 灰色地带事件 payload：后端检测到未知的显卡状态时推送给前端，
- * 让用户在对话框中选择推理后端。
- */
-export interface GpuTypeUnknownPayload {
+/** 启动致命错误 payload：后端无法继续启动时推送，前端在启动屏展示错误卡 */
+export interface StartupErrorPayload {
+  title: string
+  brief: string
+  detail: string
+}
+
+/** "是否下载后端"确认 payload：runtime 缺失时推送，前端展示后让用户选择 */
+export interface BackendDownloadRequestPayload {
   gpu_name: string
-  gpu_vendor: string
-  gpu_vram_mb: number
-  gpu_type: string
+  backend_name: string
+  backend_type: string
+  missing_files: string
   timeout_seconds: number
+  source_url: string
 }
 
 /** 后端下载完成事件 */
@@ -208,6 +224,46 @@ export interface BackendDownloadComplete {
   success: boolean
   error?: string
   server_path?: string
+}
+
+/** 模型下载源上的一个模型仓库 */
+export interface HubModel {
+  provider: string
+  repo_id: string
+  name: string
+  downloads: number
+  likes: number
+}
+
+/** 仓库内的一个可下载文件 */
+export interface HubFile {
+  provider: string
+  repo_id: string
+  path: string
+  size: number
+  is_gguf: boolean
+  is_mmproj: boolean
+  url: string
+}
+
+/** 模型下载进度事件 */
+export interface ModelDownloadProgress {
+  provider: string
+  repo_id: string
+  file_path: string
+  total_bytes: number
+  downloaded: number
+  percent: number
+  status: string
+  error: string
+}
+
+/** 模型下载完成事件 */
+export interface ModelDownloadComplete {
+  repo_id: string
+  file: string
+  success: boolean
+  error?: string
 }
 
 /** 异常清理事件 */
@@ -601,6 +657,10 @@ export const wails = {
   getAppVersion: async (): Promise<string> => {
     return await GetAppVersion()
   },
+  // 是否为 Microsoft Store (MSIX) 版：Store 版隐藏"检查更新"入口，由商店自动更新
+  isStoreMode: async (): Promise<boolean> => {
+    return await IsStoreMode()
+  },
   checkUpdate: async (): Promise<UpdateInfo> => {
     return (await CheckUpdate()) as UpdateInfo
   },
@@ -672,18 +732,43 @@ export const wails = {
     EventsOn(EventBackendDownloadComplete, callback)
     return () => EventsOff(EventBackendDownloadComplete)
   },
-  // ============ 灰色地带 GPU 类型选择 ============
-  // auto 模式 + GPUType=unknown 时，后端检测到未知的显卡状态，让用户选择推理后端。
-  // 生活类比：车检员无法判断是跑车还是电瓶车时，让车主自己选驾驶模式。
-  subscribeHardwareGpuTypeUnknown: (
-    callback: (payload: GpuTypeUnknownPayload) => void
-  ): (() => void) => {
-    EventsOn(EventHardwareGpuTypeUnknown, callback)
-    return () => EventsOff(EventHardwareGpuTypeUnknown)
+  // ============ 启动期前端化对话框（区别于 OS 级弹窗） ============
+  // 让"启动期必要的弹窗"都改由前端呈现：后端推事件 → 前端弹界面组件 → 用户作答 → RPC 回传。
+  // 生活类比：店家把问题写进"意见本"交给前台（事件），等回执（channel），
+  // 顾客（前端）在漂亮的界面上作答后把回执（RPC）交回来。
+  // 启动致命错误：后端无法继续启动时推送，前端展示错误卡
+  subscribeStartupError: (callback: (err: StartupErrorPayload) => void): (() => void) => {
+    EventsOn(EventStartupError, callback)
+    return () => EventsOff(EventStartupError)
   },
-  // 用户选择后端后调用，解除后端 startup 的阻塞等待
-  resolveGpuTypeChoice: async (backend: string): Promise<void> => {
-    await ResolveGpuTypeChoice(backend)
+  // 兜底查询当前是否有待确认的启动致命错误（避免事件因 WebView 未挂载而错过）
+  getStartupError: async (): Promise<StartupErrorPayload | null> => {
+    return (await GetStartupError()) as StartupErrorPayload | null
+  },
+  // 用户在错误卡上点"退出"后调用，通知后端可以退出了
+  confirmStartupError: async (): Promise<void> => {
+    await ConfirmStartupError()
+  },
+  // "是否下载后端"确认对话框请求
+  subscribeBackendDownloadRequest: (
+    callback: (payload: BackendDownloadRequestPayload) => void
+  ): (() => void) => {
+    EventsOn(EventBackendDownloadRequest, callback)
+    return () => EventsOff(EventBackendDownloadRequest)
+  },
+  // 用户对"是否下载后端"作答后调用（true=下载，false=退出）
+  resolveBackendDownloadConfirm: async (proceed: boolean): Promise<void> => {
+    await ResolveBackendDownloadConfirm(proceed)
+  },
+  // 知识库（RAG）初始化失败：非阻塞提示"知识库已禁用"
+  subscribeRagDisabled: (callback: (data: { detail: string }) => void): (() => void) => {
+    EventsOn(EventStartupRagDisabled, callback)
+    return () => EventsOff(EventStartupRagDisabled)
+  },
+  // 无可用模型：非阻塞提示"如何下载模型"的引导文案
+  subscribeModelNotice: (callback: (data: { message: string }) => void): (() => void) => {
+    EventsOn(EventStartupModelNotice, callback)
+    return () => EventsOff(EventStartupModelNotice)
   },
   // ============ TTS 在线合成（Edge TTS / 微软在线神经语音） ============
   // 有网时优先调用，返回 MP3 的 base64 字符串；无网/失败由前端 useTTS 回退本地 Web Speech API。
@@ -696,7 +781,39 @@ export const wails = {
     pitch: number,
     volume: number
   ): Promise<string> => {
-    return (await SynthesizeSpeech(text, voice ?? '', rate, pitch, volume)) as string
+    // Wails 运行时把 Go 的 []byte 以 base64 字符串传给前端，但绑定生成器把 []byte 映射为
+    // Array<number>（对 []uint8 的映射缺陷），故先用 unknown 中转再做 string 断言。
+    return (await SynthesizeSpeech(text, voice ?? '', rate, pitch, volume)) as unknown as string
+  },
+  // ============ 模型下载（内置下载器，来源 ModelScope / HF 镜像） ============
+  // 生活类比：像"网购模型"——在下载源上搜索（第 page 页，从 1 起）、挑仓库、选文件，然后快递到家（models 目录）。
+  searchHubModels: async (provider: string, query: string, page = 1): Promise<HubModel[]> => {
+    return (await SearchHubModels(provider, query, page)) as HubModel[]
+  },
+  listHubModelFiles: async (provider: string, repoID: string): Promise<HubFile[]> => {
+    return (await ListHubModelFiles(provider, repoID)) as HubFile[]
+  },
+  downloadHubModel: async (
+    provider: string,
+    repoID: string,
+    mainFile: string,
+    mmprojFile: string
+  ): Promise<void> => {
+    await DownloadHubModel(provider, repoID, mainFile, mmprojFile ?? '')
+  },
+  // 监听模型下载进度事件：下载过程中实时推送进度
+  subscribeModelDownloadProgress: (
+    callback: (progress: ModelDownloadProgress) => void
+  ): (() => void) => {
+    EventsOn(EventModelDownloadProgress, callback)
+    return () => EventsOff(EventModelDownloadProgress)
+  },
+  // 监听模型下载完成事件：下载全部完成/失败后推送结果
+  subscribeModelDownloadComplete: (
+    callback: (result: ModelDownloadComplete) => void
+  ): (() => void) => {
+    EventsOn(EventModelDownloadComplete, callback)
+    return () => EventsOff(EventModelDownloadComplete)
   }
 } as const
 

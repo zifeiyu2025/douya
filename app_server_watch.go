@@ -521,31 +521,22 @@ func (a *App) handleBackendStartupFailure(ctx context.Context, phase string, err
 		// 回退成功：推送"已回退"状态（而非"启动失败"），避免前端启动屏和后端弹窗信息不一致
 		// C2 修复：之前此处推送的是"启动失败"，与后端弹窗"已自动回退"矛盾
 		a.emitErrorStatus(ctx, fmt.Sprintf("后端启动失败，已自动回退到上一次配置：%v（请重启应用）", err))
-
-		_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-			Type:  runtime.WarningDialog,
-			Title: "后端启动失败，已自动回退",
-			Message: fmt.Sprintf(
-				"%s失败：%v\n\n"+
-					"已自动回退到上一次成功的后端配置。\n"+
-					"点击「确定」后应用将退出，请重新启动应用使回退配置生效。",
-				phase, err),
-		})
-		a.forceQuit()
+		// 前端化：改用启动错误事件，由前端错误卡展示、用户确认后退出（而非 OS 级弹窗）
+		a.emitFatalError(ctx, "后端启动失败，已自动回退",
+			"已回退到上一次成功的后端配置，需重新启动应用生效。",
+			fmt.Sprintf("%s失败：%v\n\n已自动回退到上一次成功的后端配置。\n点击「退出」后应用将关闭，请重新启动应用使回退配置生效。", phase, err))
 		return
 	}
 
-	// 无可回退配置：推送错误状态 + 弹窗 + forceQuit
+	// 无可回退配置：推送错误状态 + 前端化错误卡 + forceQuit
 	// M2+M3 修复：之前此路径只弹窗不退出，应用处于不可用状态；
 	// 且 WaitForReady 超时此路径无弹窗，与 Start 失败不一致。
 	a.emitErrorStatus(ctx, fmt.Sprintf("%s失败：%v", phase, err))
 
-	_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-		Type:    runtime.ErrorDialog,
-		Title:   "启动失败",
-		Message: fmt.Sprintf("%s失败：%v\n\n应用将退出，请检查配置或后端文件后重新启动。", phase, err),
-	})
-	a.forceQuit()
+	// 前端化：改用启动错误事件，由前端错误卡展示、用户确认后退出
+	a.emitFatalError(ctx, "启动失败",
+		"引擎启动失败，应用将退出。",
+		fmt.Sprintf("%s失败：%v\n\n应用将退出，请检查配置或后端文件后重新启动。", phase, err))
 }
 
 // makeStatusCallback 创建服务器状态变化回调。

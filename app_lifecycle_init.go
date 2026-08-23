@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
-	"douya/internal/apperror"
 	"douya/internal/config"
 	"douya/internal/llm"
 	"douya/internal/rag"
@@ -40,22 +40,19 @@ func (a *App) loadAndValidateConfig(ctx context.Context) (string, error) {
 	loadedCfg, err := config.Load(cfgPath)
 	if err != nil {
 		zlog.Error().Err(err).Msg("load config failed")
-		_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-			Type:  runtime.ErrorDialog,
-			Title: "配置加载失败",
-			Message: fmt.Sprintf(
-				"加载配置文件失败：\n%v\n\n"+
-					"可能原因：\n"+
-					"• 配置文件被其他程序占用\n"+
-					"• 磁盘空间不足或无写入权限\n"+
-					"• 文件系统错误\n\n"+
-					"建议：\n"+
-					"1. 关闭其他可能占用该文件的程序\n"+
-					"2. 检查磁盘空间和写入权限\n"+
-					"3. 备份后删除配置文件：%s\n"+
-					"   （下次启动会自动创建默认配置）",
-				err, cfgPath),
-		})
+		a.emitFatalError(ctx, "配置加载失败",
+			"无法读取配置文件，应用需要退出。",
+			fmt.Sprintf("加载配置文件失败：\n%v\n\n"+
+				"可能原因：\n"+
+				"• 配置文件被其他程序占用\n"+
+				"• 磁盘空间不足或无写入权限\n"+
+				"• 文件系统错误\n\n"+
+				"建议：\n"+
+				"1. 关闭其他可能占用该文件的程序\n"+
+				"2. 检查磁盘空间和写入权限\n"+
+				"3. 备份后删除配置文件：%s\n"+
+				"   （下次启动会自动创建默认配置）",
+			err, cfgPath))
 		return "", err
 	}
 	a.setConfig(loadedCfg)
@@ -75,22 +72,19 @@ func (a *App) ensureDirectories(ctx context.Context) (runtimeDir, modelsDir stri
 	for _, dir := range []string{runtimeDir, modelsDir} {
 		if mkErr := os.MkdirAll(dir, 0o755); mkErr != nil {
 			zlog.Error().Err(mkErr).Str("dir", dir).Msg("[startup] 创建目录失败")
-			_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-				Type:  runtime.ErrorDialog,
-				Title: "目录创建失败",
-				Message: fmt.Sprintf(
-					"创建目录失败：\n%v\n\n"+
-						"目标目录：%s\n\n"+
-						"可能原因：\n"+
-						"• 磁盘空间不足\n"+
-						"• 没有写入权限\n"+
-						"• 路径包含非法字符\n\n"+
-						"建议：\n"+
-						"1. 检查磁盘空间是否充足\n"+
-						"2. 确认应用目录有写入权限\n"+
-						"3. 尝试以管理员身份运行应用",
-					mkErr, dir),
-			})
+			a.emitFatalError(ctx, "目录创建失败",
+				"无法创建应用所需的目录，应用需要退出。",
+				fmt.Sprintf("创建目录失败：\n%v\n\n"+
+					"目标目录：%s\n\n"+
+					"可能原因：\n"+
+					"• 磁盘空间不足\n"+
+					"• 没有写入权限\n"+
+					"• 路径包含非法字符\n\n"+
+					"建议：\n"+
+					"1. 检查磁盘空间是否充足\n"+
+					"2. 确认应用目录有写入权限\n"+
+					"3. 尝试以管理员身份运行应用",
+				mkErr, dir))
 			return "", "", mkErr
 		}
 	}
@@ -109,116 +103,38 @@ func (a *App) ensureDirectories(ctx context.Context) (runtimeDir, modelsDir stri
 func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
 	cfg := a.getConfig()
 
-	// fromGpuTypeChoice 标记"本次后端来自灰色地带用户选择"。
-	// 这类后端如果安装/加载失败，不走默认的下载流程，而是弹询问框让用户决定是否回退 CPU。
-	// 生活类比：车检员让车主自己选了驾驶模式，如果选的模式不适用（比如选了跑车模式但车不是跑车），
-	// 车检员会回来问车主"要不要换成稳妥的 CPU 模式"，而不是直接让车主去买新车。
-	fromGpuTypeChoice := false
-
-	// ===== 灰色地带检测：auto 模式 + GPUType=unknown 时让用户选择后端 =====
-	// 触发条件：
-	//   1. 用户未手动指定后端（BackendType == "auto"）
-	//   2. 检测到 AMD 或 Intel GPU 但显卡状态未知（GPUType == "unknown"）
-	// 此时自动检测无法做出可靠决策，让用户在 UI 上选择，避免错误启用 GPU 导致 OOM。
-	//
-	// 完整逻辑链：
-	//   - 检测到独显 → 加载对应厂商后端（CUDA/HIP/SYCL）
-	//   - 检测到核显 → 直接走 CPU 后端（HasGPU=false）
-	//   - 灰色地带 → 弹框让用户选择（本分支）
-	//   - 用户选择的后端尝试失败 → 询问是否回退 CPU（下方 fromGpuTypeChoice 分支）
-	if (cfg.BackendType == "" || cfg.BackendType == string(llm.BackendAuto)) &&
-		a.hwInfo != nil && a.hwInfo.GPUType == system.GPUTypeUnknown &&
-		(a.hwInfo.HasAMDGPU || a.hwInfo.HasIntelGPU) {
-		chosen := a.waitForGpuTypeChoice(ctx)
-		if chosen != "" {
-			// 用户已选择后端：写入配置并持久化，下次启动不再弹窗
-			zlog.Info().Str("chosen", chosen).Msg("[startup] 用户选择了推理后端，保存到配置")
-			if err := a.updateConfig(func(c *config.Config) error {
-				c.BackendType = chosen
-				return nil
-			}); err != nil {
-				zlog.Warn().Err(err).Msg("[startup] 保存用户选择的后端失败，将仅本次生效")
-			} else {
-				cfgPath := filepath.Join(appDir(), "config.json")
-				if saveErr := config.Save(cfgPath, a.getConfig()); saveErr != nil {
-					zlog.Warn().Err(saveErr).Msg("[startup] 持久化配置失败，将仅本次生效")
-				}
-			}
-			// 刷新 cfg 快照，让后续 ResolveBackendTypeWithRuntime 用新的 BackendType
-			cfg = a.getConfig()
-			// 标记本次后端来自灰色地带用户选择，失败时走"询问 CPU 回退"分支
-			fromGpuTypeChoice = true
-		}
-		// chosen == "" 表示超时，继续走 auto 流程（ResolveBackendTypeWithRuntime 会按厂商推断）
-	}
+	// 说明：不再为 AMD/Intel "灰色地带"（GPUType=unknown）弹窗询问用户。
+	// ResolveBackendType 已能可靠决策：auto 模式下 NVIDIA→CUDA，AMD/Intel→Vulkan，
+	// 无 GPU→CPU。既保证开箱即用（不打断启动询问），又让非 N 卡用户自动用上最稳的
+	// Vulkan。原"用户手动选后端失败后询问是否回退 CPU"的弹窗也随之移除，
+	// 改为下方统一的静默回退逻辑。
+	// 生活类比：车检员不再犹豫反问"这是哪款车"，而是直接按车况自动选好驾驶模式，
+	// 遇到装不上的发动机也悄悄换成稳妥的 CPU 模式，全程不问话。
 
 	// P3 改进：使用带运行时预校验的解析函数，auto 模式下优先选择已安装的后端，
 	// 避免推断出未下载的后端（如 Vulkan）后走下载流程（原实现会失败再回退 CPU）
 	resolvedBackend := llm.ResolveBackendTypeWithRuntime(a.hwInfo, cfg.BackendType, runtimeDir)
 	serverPath, err := llm.EnsureBackendInstalled(resolvedBackend, runtimeDir, nil)
 	if err != nil {
-		// 灰色地带用户选择的后端失败时，区分两种情况：
-		//   1. KindNotFound（zip 包未下载）→ 走下载流程（后续 validatePaths 弹下载对话框）
-		//   2. 其他错误（解压失败/磁盘问题/驱动不兼容）→ 询问是否回退 CPU
-		//
-		// 生活类比：车检员让车主选了跑车模式，但发现跑车引擎还没进货（未下载），
-		// 就告诉车主"引擎需要订购，要不要下订单？"——而不是问"要不要换 CPU 模式"。
-		// 但如果引擎到了却装不上（解压失败/不兼容），才问"要不要换稳妥的 CPU 模式"。
-		if fromGpuTypeChoice && resolvedBackend != llm.BackendCPU {
-			if apperror.Is(err, apperror.KindNotFound) {
-				// zip 包未下载：让 serverPath 保持空，后续 validatePaths 会弹下载对话框
-				zlog.Warn().Err(err).Str("backend", resolvedBackend.String()).
-					Msg("[startup] 灰色地带用户选择的后端未下载，走下载流程")
+		// 统一的静默回退逻辑：auto 模式 + 非 CPU 后端安装失败时，自动降级到 CPU。
+		// 同时记录错误供日志诊断。手动模式或无需回退的情况走下方原逻辑。
+		// 生活类比：车检员选了驾驶模式但发动机装不上，不再回头问车主，
+		// 而是安静地换装稳妥的 CPU 发动机，全程不打扰。
+		isAuto := cfg.BackendType == "" || cfg.BackendType == string(llm.BackendAuto)
+		zlog.Warn().Err(err).Str("backend", resolvedBackend.String()).Bool("auto", isAuto).
+			Msg("[startup] 后端安装失败")
+		// 自动模式 + NVIDIA 独显 + 原生 CUDA：优先下载对应 CUDA 版本，
+		// 不要静默降级到已装的 CPU 兜底（否则用户删除 cuda 目录后无法重新拉取 CUDA）。
+		skipSilentCPUFallback := isAuto &&
+			resolvedBackend == llm.BackendCUDA &&
+			a.hwInfo != nil && a.hwInfo.GPUVendor == "nvidia"
+		if isAuto && resolvedBackend != llm.BackendCPU && !skipSilentCPUFallback {
+			fallbackPath, cpuErr := llm.EnsureBackendInstalled(llm.BackendCPU, runtimeDir, nil)
+			if cpuErr != nil {
+				zlog.Error().Err(cpuErr).Msg("[startup] CPU 后端也安装失败，validatePaths 将报告缺失文件")
 			} else {
-				// 其他失败（解压失败/磁盘问题）：询问是否回退 CPU
-				zlog.Warn().Err(err).Str("backend", resolvedBackend.String()).
-					Msg("[startup] 灰色地带用户选择的后端安装失败，询问是否回退 CPU")
-				if a.askUseCPUFallback(ctx, resolvedBackend.String()) {
-					// 用户同意回退 CPU
-					fallbackPath, cpuErr := llm.EnsureBackendInstalled(llm.BackendCPU, runtimeDir, nil)
-					if cpuErr != nil {
-						zlog.Error().Err(cpuErr).Msg("[startup] CPU 后端也安装失败，validatePaths 将报告缺失文件")
-					} else {
-						serverPath = fallbackPath
-						resolvedBackend = llm.BackendCPU
-						// 更新配置为 CPU，避免下次启动再弹灰色地带对话框
-						if updateErr := a.updateConfig(func(c *config.Config) error {
-							c.BackendType = string(llm.BackendCPU)
-							return nil
-						}); updateErr != nil {
-							zlog.Warn().Err(updateErr).Msg("[startup] 更新配置为 CPU 失败")
-						} else {
-							cfgPath := filepath.Join(appDir(), "config.json")
-							if saveErr := config.Save(cfgPath, a.getConfig()); saveErr != nil {
-								zlog.Warn().Err(saveErr).Msg("[startup] 持久化 CPU 配置失败")
-							}
-						}
-					}
-				} else {
-					// 用户拒绝回退 CPU：退出应用
-					zlog.Info().Msg("[startup] 用户拒绝回退 CPU，退出应用")
-					a.forceQuit()
-					return true
-				}
-			}
-		} else {
-			// 原有逻辑：auto 模式静默回退 CPU，手动模式走下载流程
-			isAuto := cfg.BackendType == "" || cfg.BackendType == string(llm.BackendAuto)
-			zlog.Warn().Err(err).Str("backend", resolvedBackend.String()).Bool("auto", isAuto).
-				Msg("[startup] 后端安装失败")
-			// 自动模式 + NVIDIA 独显 + 原生 CUDA：优先下载对应 CUDA 版本，
-			// 不要静默降级到已装的 CPU 兜底（否则用户删除 cuda 目录后无法重新拉取 CUDA）。
-			skipSilentCPUFallback := isAuto &&
-				resolvedBackend == llm.BackendCUDA &&
-				a.hwInfo != nil && a.hwInfo.GPUVendor == "nvidia"
-			if isAuto && resolvedBackend != llm.BackendCPU && !skipSilentCPUFallback {
-				fallbackPath, cpuErr := llm.EnsureBackendInstalled(llm.BackendCPU, runtimeDir, nil)
-				if cpuErr != nil {
-					zlog.Error().Err(cpuErr).Msg("[startup] CPU 后端也安装失败，validatePaths 将报告缺失文件")
-				} else {
-					serverPath = fallbackPath
-					resolvedBackend = llm.BackendCPU
-				}
+				serverPath = fallbackPath
+				resolvedBackend = llm.BackendCPU
 			}
 		}
 	}
@@ -265,35 +181,20 @@ func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
 		missingMsg.WriteString("  ❌ 推理引擎（llama-server.exe）及依赖文件缺失\n")
 	}
 
-	askMsg := fmt.Sprintf(
-		"检测到您的显卡：%s\n"+
-			"推荐后端：%s\n\n"+
-			"runtime 目录缺少以下文件：\n%s\n"+
-			"是否从 GitHub 自动下载并安装？\n"+
-			"（来源：https://github.com/ggml-org/llama.cpp/releases）\n\n"+
-			"点击「是」将在启动界面显示下载进度，完成后自动重启应用。\n"+
-			"点击「否」将直接退出应用。",
-		gpuName, info.DisplayName, missingMsg.String())
-
-	dlResult, dlErr := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-		Type:    runtime.QuestionDialog,
-		Title:   "缺少推理后端，是否下载？",
-		Message: askMsg,
-		Buttons: []string{"是", "否"},
+	// P2.6（前端化）：不再使用 OS 级 MessageDialog，改为事件+channel 模式，
+	// 让前端以"前端风格"对话框询问用户；前端答复后解除阻塞。
+	// 生活类比：店家把"要不要订购发动机"写进意见本交给前台（前端），
+	// 在柜台等回执——顾客（前端）在漂亮的界面上作答后才下单或关门。
+	proceed := a.waitForBackendDownloadConfirm(ctx, BackendDownloadRequestPayload{
+		GPUName:        gpuName,
+		BackendName:    info.DisplayName,
+		BackendType:    resolvedBackend.String(),
+		MissingFiles:   missingMsg.String(),
+		TimeoutSeconds: int(backendChoiceTimeout / time.Second),
+		SourceURL:      "https://github.com/ggml-org/llama.cpp/releases",
 	})
-	// 对话框调用失败时 dlResult 为空，白名单退出逻辑会走默认下载路径；此处仅留痕诊断
-	if dlErr != nil {
-		zlog.Error().Err(dlErr).Msg("[startup] MessageDialog 调用失败，将按默认流程继续（下载）")
-	}
 
-	// 记录返回值用于调试（Wails MessageDialog 在不同 Windows 版本下返回值可能有编码差异）
-	zlog.Info().Str("dlResult", dlResult).Msg("[startup] MessageDialog 返回值")
-
-	// Windows 上 QuestionDialog 默认显示"是/否"按钮：
-	//   - 点"是" → 下载（默认行为，也兼容"Yes"、"下载"等返回值）
-	//   - 点"否" → 退出（明确匹配"否"、"No"、"退出"等）
-	// 逻辑采用"白名单退出"：只有明确选择否定意图才退出，避免编码不匹配导致误退出
-	if dlResult == "否" || dlResult == "No" || dlResult == "退出" || dlResult == "Cancel" {
+	if !proceed {
 		zlog.Info().Msg("[startup] 用户取消下载，退出应用")
 		a.forceQuit()
 		return true
@@ -381,11 +282,13 @@ func (a *App) handleMissingModels(ctx context.Context) {
 		Bool("dir_missing", checkResult.ModelsDirMissing).
 		Bool("empty", checkResult.ModelsEmpty).
 		Msg("[startup] models directory empty, continuing startup")
-	_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-		Type:    runtime.WarningDialog,
-		Title:   "模型目录为空",
-		Message: msg.String(),
-	})
+	// 前端化：不再用 OS 级弹窗阻塞，改为推送非阻塞事件，
+	// 由前端以轻量提示展示"如何下载模型"的引导文案；用户看完可正常进入界面。
+	if ctx != nil {
+		runtime.EventsEmit(ctx, EventStartupModelNotice, map[string]any{
+			"message": msg.String(),
+		})
+	}
 	runtime.EventsEmit(ctx, EventServerStatus, llm.ServerStatus{
 		Running:    false,
 		ModelReady: false,
@@ -401,38 +304,44 @@ func (a *App) loadSecrets(ctx context.Context) error {
 	key, err := secrets.LoadOrCreateKey(keyPath)
 	if err != nil {
 		zlog.Error().Err(err).Msg("[startup] load encryption key failed")
-		_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-			Type:    runtime.ErrorDialog,
-			Title:   "加密密钥加载失败",
-			Message: fmt.Sprintf("加载加密密钥失败：\n%v\n\n请按上述提示处理后重新启动应用。", err),
-		})
+		// 前端化：改为发送启动错误事件，让前端在启动屏上以"错误卡"展示，
+		// 用户确认后才退出（而非直接操作系统级弹窗）。
+		a.emitFatalError(ctx, "加密密钥加载失败",
+			"无法读取或创建加密密钥，应用需要退出。",
+			fmt.Sprintf("加载加密密钥失败：\n%v\n\n"+
+				"密钥文件：%s\n\n"+
+				"可能原因：\n"+
+				"• 密钥文件已损坏（长度不是 32 字节）\n"+
+				"• 没有写入权限\n"+
+				"• 磁盘空间不足\n\n"+
+				"注意：请勿直接删除密钥文件，否则历史上已加密的对话数据将无法解密。\n"+
+				"请按上述提示处理后重新启动应用。", err, keyPath))
 		return err
 	}
 	a.encKey = key
 	return nil
 }
 
-// initDatabase 初始化数据库，失败时弹窗提示并返回 error。
+// initDatabase 初始化数据库，失败时以前端风格提示并返回 error。
 func (a *App) initDatabase(ctx context.Context, dbPath string) error {
 	db, err := store.Init(dbPath, a.encKey)
 	if err != nil {
 		zlog.Error().Err(err).Msg("init database failed")
-		_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-			Type:  runtime.ErrorDialog,
-			Title: "数据库初始化失败",
-			Message: fmt.Sprintf(
-				"初始化数据库失败：\n%v\n\n"+
-					"可能原因：\n"+
-					"• 数据库文件损坏（异常退出可能导致）\n"+
-					"• 磁盘空间不足\n"+
-					"• 没有写入权限\n\n"+
-					"建议：\n"+
-					"1. 检查磁盘空间是否充足\n"+
-					"2. 备份后删除数据库文件：%s\n"+
-					"   （下次启动会自动重建，但历史对话记录会丢失）\n"+
-					"3. 确认应用目录有写入权限",
-				err, dbPath),
-		})
+		// 前端化：DB 初始化失败属致命错误（后续功能都依赖数据库），
+		// 改为发送启动错误事件，由前端错误卡展示、用户确认后退出。
+		a.emitFatalError(ctx, "数据库初始化失败",
+			"无法初始化数据库，应用需要退出。",
+			fmt.Sprintf("初始化数据库失败：\n%v\n\n"+
+				"数据库文件：%s\n\n"+
+				"可能原因：\n"+
+				"• 数据库文件损坏（异常退出可能导致）\n"+
+				"• 磁盘空间不足\n"+
+				"• 没有写入权限\n\n"+
+				"建议：\n"+
+				"1. 检查磁盘空间是否充足\n"+
+				"2. 备份后删除数据库文件（下次启动会自动重建，但历史对话记录会丢失）\n"+
+				"3. 确认应用目录有写入权限",
+				err, dbPath))
 		return err
 	}
 	a.db = db
@@ -499,23 +408,25 @@ func (a *App) initRAG(ctx context.Context, cfg *config.Config) {
 	ragVS, err := rag.NewVectorStore(ragDir)
 	if err != nil {
 		zlog.Error().Err(err).Msg("[startup] RAG vector store init failed (RAG disabled)")
-		// RAG 失败不阻塞启动（基本对话功能仍可用），但用户应知道 RAG 不可用
-		_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-			Type:  runtime.WarningDialog,
-			Title: "知识库功能不可用",
-			Message: fmt.Sprintf(
-				"知识库（RAG）初始化失败，已自动禁用知识库功能。\n"+
-					"基本对话功能不受影响，但无法使用文档问答。\n\n"+
-					"错误信息：%v\n\n"+
-					"可能原因：\n"+
-					"• 知识库存储目录被占用或损坏\n"+
-					"• 磁盘空间不足\n\n"+
-					"建议：\n"+
-					"1. 重启应用尝试自动恢复\n"+
-					"2. 备份后删除目录：%s\n"+
-					"   （下次启动会自动重建，已有知识库内容会丢失）",
-				err, ragDir),
-		})
+		// 前端化：RAG 失败不阻塞启动（基本对话功能仍可用），
+		// 改为推送非阻塞事件，由前端以轻量提示告知用户"知识库已禁用"，
+		// 不再用操作系统级弹窗打断启动。
+		if ctx != nil {
+			runtime.EventsEmit(ctx, EventStartupRagDisabled, map[string]any{
+				"detail": fmt.Sprintf(`知识库（RAG）初始化失败，已自动禁用知识库功能。
+基本对话功能不受影响，但无法使用文档问答。
+
+错误信息：%v
+
+可能原因：
+• 知识库存储目录被占用或损坏
+• 磁盘空间不足
+
+建议：
+1. 重启应用尝试自动恢复
+2. 备份后删除目录：%s（下次启动会自动重建，已有知识库内容会丢失）`, err, ragDir),
+			})
+		}
 		return
 	}
 	a.ragVS = ragVS

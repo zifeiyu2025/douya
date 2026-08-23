@@ -83,6 +83,17 @@
             <AdvancedExperimentalSettings />
           </n-collapse-item>
 
+          <!-- ==================== 模型下载 ==================== -->
+          <n-collapse-item name="model-download">
+            <template #header>
+              <div class="settings-group-header">
+                <span class="settings-group-title">模型下载</span>
+                <span class="settings-group-desc">ModelScope / HF 镜像内置下载</span>
+              </div>
+            </template>
+            <ModelDownloader />
+          </n-collapse-item>
+
           <!-- ==================== 关于 ==================== -->
           <n-collapse-item name="about">
             <template #header>
@@ -123,6 +134,7 @@ import WebSearchSettings from '../components/settings/WebSearchSettings.vue'
 import PerformanceSettings from '../components/settings/PerformanceSettings.vue'
 import APIServiceSettings from '../components/settings/APIServiceSettings.vue'
 import AdvancedExperimentalSettings from '../components/settings/AdvancedExperimentalSettings.vue'
+import ModelDownloader from '../components/settings/ModelDownloader.vue'
 import AboutSettings from '../components/settings/AboutSettings.vue'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from '../components/settings/settingsContext'
 // F-1.17：readFileAsDataURL 抽取到 imageProcess.ts 统一导出，消除两处重复定义

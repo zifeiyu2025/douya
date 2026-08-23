@@ -172,3 +172,46 @@ func parseIntSafe(s string) (int, error) {
 	}
 	return n, nil
 }
+
+// TestExtractBuildFromAssets 验证从资产文件名提取构建编号的兜底逻辑。
+// 场景：release tag 是语义化版本（vX.Y.Z）但 asset 文件名仍带 b 构建编号。
+func TestExtractBuildFromAssets(t *testing.T) {
+	tests := []struct {
+		name   string
+		assets []string
+		want   int
+	}{
+		{
+			name:   "标准 llama 包名",
+			assets: []string{"llama-b10549-bin-win-cuda-13.3-x64.zip", "llama-b10549-bin-win-cpu-x64.zip"},
+			want:   10549,
+		},
+		{
+			name:   "首个资产无编号_后续资产可提取",
+			assets: []string{"nightly-tag.txt", "llama-b10549-bin-win-cuda-13.3-x64.zip"},
+			want:   10549,
+		},
+		{
+			name:   "全为 v 格式资产_无法提取",
+			assets: []string{"llama-v0.2.0-bin-win-cuda-13.3-x64.zip", "nightly-tag.txt"},
+			want:   0,
+		},
+		{
+			name:   "空资产列表",
+			assets: nil,
+			want:   0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var assets []GitHubAsset
+			for _, n := range tt.assets {
+				assets = append(assets, GitHubAsset{Name: n})
+			}
+			if got := extractBuildFromAssets(assets); got != tt.want {
+				t.Errorf("extractBuildFromAssets(%v) = %d, 期望 %d", tt.assets, got, tt.want)
+			}
+		})
+	}
+}

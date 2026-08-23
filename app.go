@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -109,6 +110,9 @@ type App struct {
 	// 生活类比：正在装修的房间门上挂个"施工中"牌子，避免两队施工队同时开干。
 	downloadMu          sync.Mutex
 	downloadingBackends map[string]bool
+	// downloadingModels 防止同一模型文件重复下载（key: provider/repoID/file）。
+	// 生活类比：同一个粽子同时只能包一个，避免煮糊。
+	downloadingModels map[string]bool
 	// switchMu 防止短时间内的重复后端切换操作（最小冷却间隔 3s）。
 	// 生活类比：发动机切换有冷却时间，不能刚熄火就立刻再换挡。
 	switchMu        sync.Mutex
@@ -116,12 +120,22 @@ type App struct {
 	lastServerErrMu sync.RWMutex
 	// fileLoader 是本地文件服务的引用，托盘最小化时调用 ClearCache 释放内存
 	fileLoader *LocalFileLoader
-	// gpuTypeChoiceChan 用于灰色地带场景下后端阻塞等待前端用户选择推理后端。
-	// 触发条件：auto 模式 + GPUType=unknown。后端发送 EventHardwareGpuTypeUnknown 事件后，
-	// 在此 channel 上阻塞等待，前端用户选择后调用 ResolveGpuTypeChoice 写入选择结果。
-	// 生活类比：像车检员把车况表交给车主后站在门口等回执——车主选完填回执（写 channel），
-	// 车检员拿到回执（读 channel）才继续办手续。nil 表示无需等待。
-	gpuTypeChoiceChan chan string
+
+	// backendDownloadChan 用于"后端下载确认"：runtime 缺失需下载时，
+	// installBackend 发送 EventBackendDownloadRequest 后在此 channel 上阻塞等待，
+	// 前端用户点「是/否」后调用 ResolveBackendDownloadConfirm 写入结果。
+	// 生活类比：店家广播"要不要订购发动机"后等在订购单（channel）旁，
+	// 顾客答复（写 channel）店家才决定下单还是关门。nil 表示无需等待。
+	backendDownloadChan chan bool
+
+	// startupError 保存最近一次启动期致命错误（标题/简述/详情），供前端启动错误卡展示。
+	// 采用原子值避免并发读写的竞态；nil 表示无致命错误。
+	// startupErrorChan 用于阻塞等待前端确认致命错误（前端渲染错误卡后调用 ConfirmStartupError 放行）。
+	// 店门口的红灯（startupError）亮了——顾客得先看到"暂停营业的原因"（错误卡）并点确认，
+	// 店家（后端）收到确认（写 channel）才会关门（forceQuit）。nil 表示当前无致命错误等待确认。
+	startupErrorMu   sync.Mutex
+	startupError     *StartupError
+	startupErrorChan chan struct{}
 }
 
 func NewApp() *App {
@@ -289,6 +303,12 @@ func resolveAppDir() string {
 	}
 	exeDir := filepath.Dir(exePath)
 
+	// Store (MSIX) 模式：安装目录只读，数据统一写到 %LOCALAPPDATA%\Douya。
+	// 必须在便携模式的目录查找之前判断，否则会误把只读安装目录当作数据根目录。
+	if isStoreMode() {
+		return storeAppDir(exePath)
+	}
+
 	// 候选目录：exe 同目录 + 直接上级目录（最多 2 个候选）
 	searchDirs := []string{exeDir}
 	parent := filepath.Dir(exeDir)
@@ -364,6 +384,63 @@ func resolveAppDir() string {
 		return exeDir
 	}
 	return targetDir
+}
+
+// isStoreMode 检测当前是否为 Microsoft Store (MSIX) 安装版。
+//
+// MSIX 打包的应用安装在 %ProgramFiles%\WindowsApps\<PackageFullName>\ 下，
+// 该目录是只读的。因此通过 exe 路径判断是否位于 WindowsApps 目录，
+// 据此切换数据目录策略（便携版写 exe 旁，Store 版写 AppData）。
+//
+// 生活类比：判断自己是"拎包入住"（便携版，东西放行李箱旁），
+// 还是"酒店式管理"（商店版，行李统一寄存到前台）。
+func isStoreMode() bool {
+	exePath, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	// WindowsApps 是 MSIX/AppX 应用的唯一安装位置（大小写不敏感匹配）
+	return strings.Contains(strings.ToLower(exePath), `\windowsapps\`)
+}
+
+// storeAppDir 返回 Store (MSIX) 版的数据目录。
+//
+// MSIX 安装目录（WindowsApps）只读，配置/数据/模型必须写到用户可写目录，
+// 否则启动时写入 config.json 即失败。
+//
+// 数据目录：%LOCALAPPDATA%\Douya\
+// 回退顺序：LOCALAPPDATA → APPDATA → exe 所在目录。
+func storeAppDir(exePath string) string {
+	base := os.Getenv("LOCALAPPDATA")
+	if base == "" {
+		base = os.Getenv("APPDATA")
+	}
+	if base == "" {
+		base = filepath.Dir(exePath)
+	}
+	dir := filepath.Join(base, "Douya")
+
+	// 确保数据目录存在
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		zlog.Error().Err(err).Str("dir", dir).Msg("[appDir] 创建 Store 数据目录失败")
+	}
+
+	// 生成默认配置（若无），保证后续 loadAndValidateConfig 能正常读到配置
+	cfgPath := filepath.Join(dir, "config.json")
+	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
+		if err := config.Save(cfgPath, config.DefaultConfig()); err != nil {
+			zlog.Error().Err(err).Msg("[appDir] 创建 Store 默认配置失败")
+		}
+	}
+
+	zlog.Info().Str("dir", dir).Msg("[appDir] Store 模式数据目录")
+	return dir
+}
+
+// IsStoreMode 返回当前是否为 Microsoft Store (MSIX) 版，
+// 供前端据此隐藏"检查更新"等应用内自更新入口（商店政策 10.1.5）。
+func (a *App) IsStoreMode() bool {
+	return isStoreMode()
 }
 
 func resolvePath(p string) string {
