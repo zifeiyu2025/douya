@@ -36,7 +36,7 @@
 import { ref, computed, watch } from 'vue'
 import { NIcon } from 'naive-ui'
 import { ChevronForwardOutline, BulbOutline } from '@vicons/ionicons5'
-import { useMorphRender } from '../composables/useMorphRender'
+import { useMorphRender } from '../../composables/useMorphRender'
 
 const props = defineProps<{
   content: string

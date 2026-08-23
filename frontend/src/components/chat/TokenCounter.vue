@@ -44,11 +44,11 @@
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
-import { wails } from '../services/wails'
-import { useSettingsStore } from '../stores/settings'
-import { useChatStore } from '../stores/chat'
-import { showSuccess, showError } from '../utils/showError'
-import { usePromptProgress } from '../composables/usePromptProgress'
+import { wails } from '../../services/wails'
+import { useSettingsStore } from '../../stores/settings'
+import { useChatStore } from '../../stores/chat'
+import { showSuccess, showError } from '../../utils/showError'
+import { usePromptProgress } from '../../composables/usePromptProgress'
 
 const props = withDefaults(
   defineProps<{

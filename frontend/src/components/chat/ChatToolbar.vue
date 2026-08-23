@@ -27,6 +27,10 @@
     >
       <n-icon size="22"><GlobeOutline /></n-icon>
     </button>
+    <!-- 采样参数快捷抽屉：直调 composable 导出的 open，免 emit 链（C-4 第④项） -->
+    <button class="params-btn" title="生成参数调节" @click="openParamsPanel">
+      <n-icon size="22"><OptionsOutline /></n-icon>
+    </button>
     <div class="attach-wrapper">
       <button class="attach-btn" :disabled="isSwitching" title="添加附件" @click="toggleAttachMenu">
         <n-icon size="22"><AttachOutline /></n-icon>
@@ -206,9 +210,16 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { NIcon, useMessage } from 'naive-ui'
-import { GlobeOutline, AttachOutline, BulbOutline, LayersOutline } from '@vicons/ionicons5'
-import { useSettingsStore } from '../stores/settings'
-import { wails } from '../services/wails'
+import {
+  GlobeOutline,
+  AttachOutline,
+  BulbOutline,
+  LayersOutline,
+  OptionsOutline
+} from '@vicons/ionicons5'
+import { useSettingsStore } from '../../stores/settings'
+import { wails } from '../../services/wails'
+import { openParamsPanel } from '../../composables/useSamplingSettings'
 
 // 工具栏按钮组：思考模式、搜索模式、深度推理、附件、语音
 //（KV 缓存已改为自动保存/恢复，无需手动按钮）
@@ -449,6 +460,7 @@ onUnmounted(() => {
 }
 
 .search-btn,
+.params-btn,
 .attach-btn,
 .voice-btn,
 .kv-btn {
@@ -534,6 +546,7 @@ onUnmounted(() => {
 }
 
 .search-btn:hover,
+.params-btn:hover,
 .attach-btn:hover:not(:disabled),
 .voice-btn:hover,
 .kv-btn:hover:not(:disabled) {

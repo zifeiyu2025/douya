@@ -4,12 +4,15 @@
       <MessageList />
     </div>
     <ChatInput @send="handleSend" />
+    <!-- 采样参数快捷抽屉：开关状态在 useSamplingSettings 模块级单例中，ChatToolbar 直调打开 -->
+    <ParamsPanel />
   </div>
 </template>
 
 <script setup lang="ts">
-import MessageList from '../components/MessageList.vue'
-import ChatInput from '../components/ChatInput.vue'
+import MessageList from '../components/chat/MessageList.vue'
+import ChatInput from '../components/chat/ChatInput.vue'
+import ParamsPanel from '../components/chat/ParamsPanel.vue'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import { useMessage } from 'naive-ui'

@@ -1,37 +1,74 @@
 /**
- * 虚拟滚动 feature flag（任务 38）
- *
- * 安全审查 #38：本文件仅是 feature flag 开关，不涉及敏感数据处理，
- * 已在安全审查报告中记录为无需修改，仅保留说明。
+ * 虚拟滚动开关 + 小会话自动降级（改进计划 C-4）
  *
  * 生活类比：
- *   这个开关就像汽车上的"运动模式"按钮——默认关闭，日常驾驶用普通模式更稳；
- *   需要高性能时可显式开启（localStorage 设为 'true'），享受虚拟滚动。
+ *   虚拟滚动就像餐厅只做顾客看得见的那几桌菜——几百桌的大宴会厅（超长对话）
+ *   能省下大量后厨人力（DOM 渲染开销）；但小餐馆（小会话）本来就只有几桌，
+ *   全做反而更省事。所以：默认走"智能模式"，大会话自动启用虚拟滚动，小会话
+ *   自动退回普通渲染；用户仍可通过 localStorage 显式关闭该能力。
  *
  * 设计要点：
- *   - 纯前端开关，不进入后端 Config，使用 localStorage 持久化（与 theme store 一致）
+ *   - C-4 转正：enableVirtualScroll 语义从"实验性开关"升级为"允许虚拟滚动"，
+ *     默认 true；仅当显式写入 'false' 时才整体关闭（老用户已写入的 'true'/'false'
+ *     均被尊重，行为兼容）
+ *   - 小会话自动降级：消息数 < VIRTUAL_ENTER_THRESHOLD 时普通渲染；
+ *     已进入虚拟模式后，消息数回落到 VIRTUAL_EXIT_THRESHOLD 以下才退出。
+ *     两个阈值构成"滞回"，避免在临界点附近删除消息导致渲染路径反复切换抖动
  *   - 模块级单例 ref，跨组件共享同一响应式状态
- *     （MessageList 读取控制渲染分支，ExperimentalSettings 写入切换）
- *   - 默认 false（关闭），用户可显式开启，保留原 v-for 作为默认平稳模式
- *
- * 为什么默认关闭：
- *   虚拟滚动模式下，流式占位气泡在 DynamicScroller 外部（作为 .message-list 的子元素），
- *   而 .virtual-scroller-wrap 设置了 flex:1 占满高度，导致流式占位气泡被推到视口外。
- *   滚动到底部时气泡从底部滑入视口，视觉上表现为"头像和气泡从下到上移动"。
- *   普通对话场景下 v-for 渲染性能足够，虚拟滚动仅在超长对话（数百条以上）才有明显优势。
  */
-import { ref, watch } from 'vue'
+import { ref, watch, computed, type Ref, type ComputedRef } from 'vue'
 
 const STORAGE_KEY = 'douya-enable-virtual-scroll'
 
-// 模块级单例：默认关闭虚拟滚动，用户可显式开启（localStorage 设为 'true'）
-const enableVirtualScroll = ref(localStorage.getItem(STORAGE_KEY) === 'true')
+// 进入虚拟滚动的最小消息数（低于此值普通渲染性能足够，且规避虚拟模式的占位气泡布局特例）
+export const VIRTUAL_ENTER_THRESHOLD = 50
+// 退出虚拟滚动的回落线（与进入线构成滞回区间 [40, 50)）
+export const VIRTUAL_EXIT_THRESHOLD = 40
+
+// 模块级单例：转正后默认允许；显式设为 'false' 才整体关闭
+const enableVirtualScroll = ref(localStorage.getItem(STORAGE_KEY) !== 'false')
 
 // 持久化：开关变化即写回 localStorage
 watch(enableVirtualScroll, val => {
   localStorage.setItem(STORAGE_KEY, String(val))
 })
 
-export function useVirtualScroll() {
-  return { enableVirtualScroll }
+/**
+ * 不关心会话规模时的用法（保持旧签名兼容）：
+ *   const { enableVirtualScroll } = useVirtualScroll()
+ * 关心会话规模的用法（C-4 推荐路径）：
+ *   const { shouldUseVirtualScroll } = useVirtualScroll(messageCountRef)
+ */
+// 重载签名：让类型系统按入参区分两种返回形状，
+// 否则联合类型会把 shouldUseVirtualScroll 推断为 possibly undefined
+export function useVirtualScroll(messageCount: Ref<number>): {
+  enableVirtualScroll: Ref<boolean>
+  shouldUseVirtualScroll: ComputedRef<boolean>
+}
+export function useVirtualScroll(messageCount?: undefined): {
+  enableVirtualScroll: Ref<boolean>
+}
+export function useVirtualScroll(messageCount?: Ref<number>) {
+  if (!messageCount) return { enableVirtualScroll }
+
+  // 当前是否处于虚拟模式（内部状态，带滞回：进入难、退出易反向）
+  const virtualActive = ref(false)
+
+  const shouldUseVirtualScroll = computed(() => {
+    if (!enableVirtualScroll.value) {
+      virtualActive.value = false
+      return false
+    }
+    const count = messageCount.value ?? 0
+    if (virtualActive.value) {
+      // 已在虚拟模式：跌破退出线才回到普通渲染
+      if (count < VIRTUAL_EXIT_THRESHOLD) virtualActive.value = false
+    } else if (count >= VIRTUAL_ENTER_THRESHOLD) {
+      // 普通模式：达到进入线才切虚拟滚动
+      virtualActive.value = true
+    }
+    return virtualActive.value
+  })
+
+  return { enableVirtualScroll, shouldUseVirtualScroll }
 }

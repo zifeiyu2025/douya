@@ -2,7 +2,7 @@
   <div
     ref="messageListRef"
     class="message-list"
-    :class="{ 'message-list--virtual': enableVirtualScroll }"
+    :class="{ 'message-list--virtual': shouldUseVirtualScroll }"
   >
     <!-- 模型切换 overlay 已移至 App.vue 统一管理，避免重复 -->
     <div v-if="(!messages || messages.length === 0) && !isGenerating" class="message-list-empty">
@@ -32,11 +32,21 @@
             <span class="chip-text">{{ action.title }}</span>
           </button>
         </div>
+
+        <!-- 当前模型大卡：真实 GGUF 元数据，给用户"本地已就绪"的确定感（C-4 新增） -->
+        <div v-if="activeCardModel" class="welcome-model-card">
+          <ModelDetailCard :model="activeCardModel" />
+        </div>
+        <!-- 一个模型都没有时引导前往设置页下载器 -->
+        <div v-else class="no-model-guide">
+          <span class="no-model-text">还没有可用模型，下载一个就能开始对话啦</span>
+          <button class="no-model-btn" @click="goModelDownloader">前往模型下载</button>
+        </div>
       </div>
     </div>
     <template v-else>
-      <!-- 任务 38：虚拟滚动分支（实验性，feature flag 控制，默认关闭） -->
-      <div v-if="enableVirtualScroll" class="virtual-scroller-wrap">
+      <!-- C-4 虚拟滚动转正：按消息数滞回自动启停（进入 50 / 退出 40），可经 localStorage 整体关闭 -->
+      <div v-if="shouldUseVirtualScroll" class="virtual-scroller-wrap">
         <DynamicScroller
           ref="scrollerRef"
           :items="messages"
@@ -51,7 +61,7 @@
           </template>
         </DynamicScroller>
       </div>
-      <!-- 原 v-for 渲染分支（默认，回滚兜底） -->
+      <!-- 小会话自动降级的 v-for 渲染分支（滞回退出线以下走此处） -->
       <template v-else>
         <MessageItem v-for="msg in messages" :key="msg.id" :message="msg" />
       </template>
@@ -180,27 +190,30 @@
 
 <script setup lang="ts">
 import { computed, watch, ref, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import MessageItem from './MessageItem.vue'
 import ThinkBlock from './ThinkBlock.vue'
 import SearchStatus from './SearchStatus.vue'
 import ContextTrimmed from './ContextTrimmed.vue'
-import { useChatStore } from '../stores/chat'
-import { useSettingsStore } from '../stores/settings'
-import { wails } from '../services/wails'
-import { renderMarkdown, escapeHtml } from '../utils/markdown'
-import { useMorphRender } from '../composables/useMorphRender'
-import { useScrollToBottom } from '../composables/useScrollToBottom'
-// 任务 38：虚拟滚动 feature flag（默认关闭，纯前端 localStorage 开关）
-import { useVirtualScroll } from '../composables/useVirtualScroll'
-import { usePromptProgress } from '../composables/usePromptProgress'
-import { setupCodeCopyDelegation } from '../utils/codeCopy'
-import { logError } from '../utils/logger'
-import { isSafeUrl } from '../utils/lightSanitize'
-import { classifyError } from '../utils/errorGuidance'
-import { discreteDialog } from '../utils/discrete'
-import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
-import defaultAiAvatar from '../assets/images/appicon.png'
+import ModelDetailCard from '../models/ModelDetailCard.vue'
+import { useChatStore } from '../../stores/chat'
+import { useSettingsStore } from '../../stores/settings'
+import { wails } from '../../services/wails'
+import type { ModelOption } from '../../services/wails'
+import { renderMarkdown, escapeHtml } from '../../utils/markdown'
+import { useMorphRender } from '../../composables/useMorphRender'
+import { useScrollToBottom } from '../../composables/useScrollToBottom'
+// 虚拟滚动：转正后按消息数滞回自动启停（C-4）
+import { useVirtualScroll } from '../../composables/useVirtualScroll'
+import { usePromptProgress } from '../../composables/usePromptProgress'
+import { setupCodeCopyDelegation } from '../../utils/codeCopy'
+import { logError } from '../../utils/logger'
+import { isSafeUrl } from '../../utils/lightSanitize'
+import { classifyError } from '../../utils/errorGuidance'
+import { discreteDialog } from '../../utils/discrete'
+import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime'
+import defaultAiAvatar from '../../assets/images/appicon.png'
 // 任务 38：虚拟滚动组件（局部导入便于 vue-tsc 类型解析；插件已在 main.ts 全局注册）
 import { DynamicScroller, DynamicScrollerItem } from 'vue-virtual-scroller'
 
@@ -226,6 +239,37 @@ const quickActions: QuickAction[] = [
 function handleQuickAction(action: QuickAction) {
   chatStore.sendMessage(action.prompt, settingsStore.searchMode)
 }
+
+// ===== 空状态模型大卡（C-4 新增）=====
+// 拉取本机可用模型列表，匹配当前选中模型后复用设置页的 ModelDetailCard，
+// 让用户在开始对话前就能看到真实 GGUF 元数据（参数量/量化/体积），建立"已就绪"的确定感
+const router = useRouter()
+const availableModels = ref<ModelOption[]>([])
+
+const activeCardModel = computed<ModelOption | null>(() => {
+  const list = availableModels.value
+  if (!list || list.length === 0) return null
+  // 匹配优先级：当前选中模型 > 默认模型 > 列表第一个（与 AppHeader 的 name 匹配口径一致）
+  return (
+    list.find(m => m.name === settingsStore.currentModel) ??
+    list.find(m => m.is_default) ??
+    list[0] ??
+    null
+  )
+})
+
+function goModelDownloader() {
+  router.push('/settings')
+}
+
+onMounted(async () => {
+  try {
+    availableModels.value = await wails.getAvailableModels()
+  } catch (e) {
+    // 空状态卡片属增强信息，拉取失败静默降级为无卡欢迎页
+    logError('空状态获取模型列表失败:', e)
+  }
+})
 
 const messages = computed(() => chatStore.messages)
 const isGenerating = computed(() => chatStore.isGenerating)
@@ -340,8 +384,9 @@ const {
   startObserver
 } = useScrollToBottom()
 
-// 任务 38：虚拟滚动 feature flag（默认关闭）
-const { enableVirtualScroll } = useVirtualScroll()
+// C-4 虚拟滚动转正：传入消息数启用滞回自动启停（进入线 50 / 退出线 40），
+// 用户显式写入 localStorage douya-enable-virtual-scroll=false 时整体关闭
+const { shouldUseVirtualScroll } = useVirtualScroll(computed(() => messages.value?.length ?? 0))
 
 // 外层 .message-list 容器 ref（非虚拟模式下的滚动容器；虚拟模式下作为稳定外壳）
 // 注意：此处不再等同于 useScrollToBottom 的 containerRef，containerRef 由下方 watcher 按开关切换
@@ -354,9 +399,9 @@ const scrollerRef = ref<InstanceType<typeof DynamicScroller> | null>(null)
 // - 开启：DynamicScroller 根元素（.vue-recycle-scroller，$el）作为滚动容器
 // useScrollToBottom 内部 watch(containerRef, { flush: 'sync' }) 会自动重绑 scroll 监听器
 watch(
-  [() => enableVirtualScroll.value, messageListRef, scrollerRef],
+  [() => shouldUseVirtualScroll.value, messageListRef, scrollerRef],
   () => {
-    if (enableVirtualScroll.value && scrollerRef.value) {
+    if (shouldUseVirtualScroll.value && scrollerRef.value) {
       // DynamicScroller 的 $el 即其内部 RecycleScroller 的滚动根节点
       // 注：DynamicScroller 的 $el 类型未在 vue-virtual-scroller 类型声明中导出，
       // 此处用 as any 绕过，见安全审查 #39。后续可扩展 shims-vue-virtual-scroller.d.ts。
@@ -735,6 +780,49 @@ watch(
   color: var(--text-secondary);
 }
 
+/* C-4 空状态重建：当前模型大卡（真实 GGUF 元数据），层级与 quick-actions 对齐避免被背景图压住 */
+.welcome-model-card {
+  position: relative;
+  z-index: 1;
+  width: min(560px, 100%);
+}
+
+/* 无模型引导：虚线胶囊条 + 描边按钮，形态呼应 action-chip 族 */
+.no-model-guide {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  background: var(--bg-primary);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--border-radius-md);
+}
+
+.no-model-text {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.no-model-btn {
+  padding: 7px 16px;
+  background: transparent;
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--accent-primary);
+  transition: all 0.2s ease;
+}
+
+.no-model-btn:hover {
+  background: var(--accent-primary);
+  color: #fff;
+}
+
 /* 模型切换 overlay 样式已移至 App.vue 统一管理 */
 
 /* 回到底部按钮：正圆包裹箭头（36x36，密度优化） */
@@ -887,6 +975,13 @@ watch(
   /* 复用全局滚动条样式（webkit 细滚动条由全局 ::-webkit-scrollbar 提供） */
 }
 
+/* C-4 流式占位钉底修复：虚拟模式下 wrap 独占剩余高度并允许收缩，
+   占位气泡是它的兄弟元素，保持自然高度（flex-shrink:0），
+   始终钉在视口内可见——修复生成指示器被推出口视口的问题 */
+.message-list--virtual > .message-item {
+  flex-shrink: 0;
+}
+
 /* 虚拟模式下回到底部按钮改用绝对定位：
  * 原始 position:sticky 依赖滚动容器，而虚拟模式下滚动发生在 DynamicScroller
  * 内部，sticky 相对 .message-list（overflow:hidden）无法生效。 */
@@ -917,6 +1012,11 @@ watch(
 .dark .action-chip:hover {
   border-color: var(--accent-primary);
   background: var(--accent-tertiary);
+}
+
+.dark .no-model-guide {
+  background: var(--bg-tertiary);
+  border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
 }
 
 /* 背景图模式：流式气泡半透明，与 MessageItem.vue 的气泡层 80% 一致 */

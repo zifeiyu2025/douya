@@ -138,17 +138,17 @@
 import { ref, shallowRef, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { NIcon, useMessage } from 'naive-ui'
 import { CutOutline, CopyOutline, ClipboardOutline, TextOutline } from '@vicons/ionicons5'
-import { useChatStore } from '../stores/chat'
-import { useSettingsStore } from '../stores/settings'
-import type { Attachment } from '../services/wails'
+import { useChatStore } from '../../stores/chat'
+import { useSettingsStore } from '../../stores/settings'
+import type { Attachment } from '../../services/wails'
 import TokenCounter from './TokenCounter.vue'
 import ChatToolbar from './ChatToolbar.vue'
 import AttachmentPreview from './AttachmentPreview.vue'
-import { useAttachments } from '../composables/useAttachments'
+import { useAttachments } from '../../composables/useAttachments'
 // 语音输入与上下文菜单逻辑抽取为 composable（基于架构优化：ChatInput.vue 1789 行→拆分独立职责）
 // STT（语音输入）基于浏览器 Web Speech API 实现
-import { useVoiceInput } from '../composables/useSpeech'
-import { useContextMenu } from '../composables/useContextMenu'
+import { useVoiceInput } from '../../composables/useSpeech'
+import { useContextMenu } from '../../composables/useContextMenu'
 
 const emit = defineEmits<{
   send: [content: string, images?: string[], attachments?: Attachment[]]

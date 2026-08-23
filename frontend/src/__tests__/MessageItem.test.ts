@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp, defineComponent, h, nextTick, ref, type App as VueApp } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
-import MessageItem from '../components/MessageItem.vue'
+import MessageItem from '../components/chat/MessageItem.vue'
 import { setupCodeCopyDelegation } from '../utils/codeCopy'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
@@ -30,17 +30,19 @@ vi.mock('naive-ui', () => ({
   }),
   useDialog: () => ({
     create: vi.fn()
-  })
+  }),
+  // MessageBubble 编辑态使用 n-button（unplugin 编译期注入 NButton），测试环境以原生 button 桩替代
+  NButton: { name: 'NButtonStub', template: '<button><slot /></button>' }
 }))
 
-vi.mock('../components/ThinkBlock.vue', () => ({
+vi.mock('../components/chat/ThinkBlock.vue', () => ({
   default: {
     name: 'ThinkBlockStub',
     template: '<div class="think-block-stub" />'
   }
 }))
 
-vi.mock('../components/SearchStatus.vue', () => ({
+vi.mock('../components/chat/SearchStatus.vue', () => ({
   default: {
     name: 'SearchStatusStub',
     template: '<div class="search-status-stub" />'

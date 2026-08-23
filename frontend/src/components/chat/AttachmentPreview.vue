@@ -97,7 +97,7 @@
 </template>
 
 <script setup lang="ts">
-import type { Attachment } from '../services/wails'
+import type { Attachment } from '../../services/wails'
 
 // 附件预览栏：展示已选附件的缩略图、文件名、类型与删除按钮
 // 通过 props 接收附件列表，删除操作通过 emit 交给父组件处理

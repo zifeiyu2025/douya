@@ -15,6 +15,7 @@ import {
   ExportConversation,
   ExportConversationWithDialog,
   DeleteMessage,
+  EditMessage,
   CompressConversation,
   RegenerateMessage,
   CountTokens,
@@ -94,6 +95,11 @@ export const chatMethods = {
   },
   deleteMessage: async (id: string): Promise<void> => {
     await DeleteMessage(id)
+  },
+  // C-4：消息编辑——后端仅落库新内容（单一职责），
+  // "截断后续 + 重新生成"的编排由前端驱动（复用 chatStore.regenerateMessage）
+  editMessage: async (messageID: string, newContent: string): Promise<void> => {
+    await EditMessage(messageID, newContent)
   },
   // P2-A3: 手动触发对话压缩
   compressConversation: async (convID: string): Promise<CompressResult> => {
