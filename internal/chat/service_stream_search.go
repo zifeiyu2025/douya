@@ -149,10 +149,10 @@ func (s *Service) newStreamAccumulatorWithCallbacks(convID string, searchResp *s
 			return
 		}
 		lastSpeedEmit = now
-		s.emitForConv(convID, "token_speed", map[string]any{
-			"tokensPerSecond":   timings.PredictedPerSecond,
-			"predictedN":        timings.PredictedN,
-			"tokens_per_second": timings.PredictedPerSecond,
+		// C-7 协议唯一事实化：改用类型化 struct 发射，移除 tokens_per_second 重复字段
+		s.emitForConv(convID, EventTokenSpeed, TokenSpeedContent{
+			TokensPerSecond: timings.PredictedPerSecond,
+			PredictedN:      timings.PredictedN,
 		})
 	}
 	acc.OnPromptProgress = func(progress llm.SSEPromptProgress) {

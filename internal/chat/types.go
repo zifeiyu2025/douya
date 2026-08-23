@@ -67,7 +67,7 @@ const (
 	EventThinking            = "thinking"             // 思考增量，content: string
 	EventToolCallStart       = "tool_call_start"      // 工具调用开始，content: ToolCallStartContent
 	EventSearchStart         = "search_start"         // 搜索开始，content: string
-	EventSearchResult        = "search_result"        // 搜索结果，content: []search.SearchResult
+	EventSearchResult        = "search_result"        // 搜索结果，content: SearchResultContent（C-7 起预搜索与 tool call 统一格式）
 	EventSearchError         = "search_error"         // 搜索失败，content: string（用户友好的错误提示）
 	EventTokenSpeed          = "token_speed"          // 生成速度，content: TokenSpeedContent
 	EventPromptProgress      = "prompt_progress"      // 提示词进度，content: PromptProgressContent
@@ -79,8 +79,8 @@ const (
 	EventAssistantMessage    = "assistant_message"    // 助手消息，content: Message
 	EventUserMessage         = "user_message"         // 用户消息，content: Message
 	EventConversationUpdated = "conversation_updated" // 会话更新，content: Conversation
-	EventConversationDeleted = "conversation_deleted" // 会话删除，content: string | { id: string }
-	EventMessageDeleted      = "message_deleted"      // 消息删除，content: string | { id: string }
+	EventConversationDeleted = "conversation_deleted" // 会话删除，content: string（会话 ID，C-7 起唯一格式）
+	EventMessageDeleted      = "message_deleted"      // 消息删除，content: string（消息 ID，C-7 起唯一格式）
 )
 
 // ===== 类型化 Content struct（任务 31.4） =====
@@ -105,10 +105,10 @@ type SearchResultContent struct {
 }
 
 // TokenSpeedContent 生成速度事件的内容
+// C-7 协议唯一事实化：移除 tokens_per_second 重复字段（原为兼容 generation_speed 消费者）
 type TokenSpeedContent struct {
-	TokensPerSecond  float64 `json:"tokensPerSecond"`   // 生成速度（tokens/s）
-	PredictedN       int     `json:"predictedN"`        // 已生成 token 数
-	TokensPerSecond2 float64 `json:"tokens_per_second"` // 兼容原 generation_speed 消费者
+	TokensPerSecond float64 `json:"tokensPerSecond"` // 生成速度（tokens/s）
+	PredictedN      int     `json:"predictedN"`      // 已生成 token 数
 }
 
 // PromptProgressContent 提示词处理进度事件的内容

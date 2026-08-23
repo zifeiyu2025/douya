@@ -84,10 +84,10 @@ export interface SearchStartEvent extends StreamEventBase {
   content: string
 }
 
-/** 搜索结果（content 为含 tool_call_id 的结果对象，用于并发 tool call 关联） */
+/** 搜索结果（content 统一为含 tool_call_id 的对象，预搜索与 tool call 路径格式一致） */
 export interface SearchResultEvent extends StreamEventBase {
   type: 'search_result'
-  content: { tool_call_id: string; results: SearchResult[] } | SearchResult[]
+  content: { tool_call_id: string; results: SearchResult[] }
 }
 
 /** 搜索失败（content 为用户友好的错误提示字符串） */
@@ -99,7 +99,7 @@ export interface SearchErrorEvent extends StreamEventBase {
 /** 生成速度（content 为速度统计） */
 export interface TokenSpeedEvent extends StreamEventBase {
   type: 'token_speed'
-  content: { tokensPerSecond?: number; predictedN?: number; tokens_per_second?: number }
+  content: { tokensPerSecond?: number; predictedN?: number }
 }
 
 /** 提示词处理进度（content 为进度统计） */
@@ -161,16 +161,16 @@ export interface ConversationUpdatedEvent extends StreamEventBase {
   content: Conversation
 }
 
-/** 会话删除（content 为会话 ID 或含 id 的对象） */
+/** 会话删除（content 为会话 ID 字符串，后端唯一格式） */
 export interface ConversationDeletedEvent extends StreamEventBase {
   type: 'conversation_deleted'
-  content: string | { id: string }
+  content: string
 }
 
-/** 消息删除（content 为消息 ID 或含 id 的对象） */
+/** 消息删除（content 为消息 ID 字符串，后端唯一格式） */
 export interface MessageDeletedEvent extends StreamEventBase {
   type: 'message_deleted'
-  content: string | { id: string }
+  content: string
 }
 
 /**

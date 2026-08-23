@@ -106,30 +106,35 @@ describe('chat store - handleStreamEvent', () => {
     expect(store.isSearching).toBe(true)
   })
 
-  it('should handle search_result event with string content', () => {
+  it('should handle search_result event (canonical tool_call_id+results payload)', () => {
     const store = useChatStore()
     setupGeneratingState(store)
 
-    const searchResults = JSON.stringify([
-      { title: '测试结果', url: 'https://example.com', snippet: '摘要' }
-    ])
-    store.handleStreamEvent({ type: 'search_result', content: searchResults } as StreamEvent)
+    // C-7 协议唯一事实化：后端统一发射 { tool_call_id, results } 结构
+    const results = [{ title: '测试结果', url: 'https://example.com', snippet: '摘要' }]
+    store.handleStreamEvent({
+      type: 'search_result',
+      content: { tool_call_id: 'search_pre_1', results }
+    } as StreamEvent)
 
     expect(store.isSearching).toBe(false)
-    expect(store.searchResults).toBe(searchResults)
+    expect(store.searchResults).toBe(JSON.stringify(results))
   })
 
-  it('should handle search_result event with object content', () => {
+  it('should clear searchResults on empty search_result payload', () => {
     const store = useChatStore()
     setupGeneratingState(store)
+    // 预置旧结果，验证空结果事件会清空展示
+    const state = store.convStreamingStates.get('')
+    if (state) state.searchResults = '[{"title":"old"}]'
 
-    const searchResp = {
-      results: [{ title: '测试结果', url: 'https://example.com', snippet: '摘要' }],
-      engine: 'test'
-    }
-    store.handleStreamEvent({ type: 'search_result', content: searchResp } as StreamEvent)
+    store.handleStreamEvent({
+      type: 'search_result',
+      content: { tool_call_id: 'search_pre_2', results: [] }
+    } as StreamEvent)
 
     expect(store.isSearching).toBe(false)
+    expect(store.searchResults).toBe('')
   })
 
   it('should handle done event', () => {

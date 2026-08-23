@@ -399,10 +399,9 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   // 已迁移：content 类型对齐 SearchResultEvent['content']（任务 24）
-  // P1-2 修复：兼容三种 payload 形式
-  // 1. 新格式：{ tool_call_id: string, results: SearchResult[] }（并发 tool call 关联）
-  // 2. 旧格式：SearchResult[]（数组，向后兼容）
-  // 3. 旧格式：string（JSON 字符串，向后兼容）
+  // C-7 协议唯一事实化：后端预搜索与 tool call 路径统一发射 { tool_call_id, results } 结构，
+  // 历史的 string / 裸数组两种兼容分支已随协议收敛删除。
+  // 存储保持 JSON 字符串形态（与消息持久化格式一致，SearchStatus 直接解析渲染）
   function handleSearchResult(
     convId: string,
     content: Extract<StreamEvent, { type: 'search_result' }>['content']
@@ -412,18 +411,7 @@ export const useChatStore = defineStore('chat', () => {
     const state = getConvState(convId)
     state.isSearching = false
     state.searchQuery = ''
-    if (typeof content === 'string') {
-      // 字符串形式：直接使用（后端已 JSON.stringify）
-      state.searchResults = content
-    } else if (Array.isArray(content)) {
-      // 旧数组形式：序列化为 JSON 字符串
-      state.searchResults = content.length > 0 ? JSON.stringify(content) : ''
-    } else if (content && Array.isArray(content.results)) {
-      // 新格式：{ tool_call_id, results }
-      state.searchResults = content.results.length > 0 ? JSON.stringify(content.results) : ''
-    } else {
-      state.searchResults = ''
-    }
+    state.searchResults = content.results.length > 0 ? JSON.stringify(content.results) : ''
   }
 
   // 处理搜索失败事件：把后端推送的友好错误提示写入 searchError 状态
@@ -450,8 +438,9 @@ export const useChatStore = defineStore('chat', () => {
       state.tokensPerSecond = content.tokensPerSecond
       state.predictedN = content.predictedN || 0
       // 同时更新全局生成速度（原 generation_speed 事件功能，仅当前生成会话）
+      // C-7 协议唯一事实化：后端已移除 tokens_per_second 重复字段，仅读驼峰命名
       if (convId === generatingConvId.value || convId === '') {
-        generationSpeed.value = content.tokens_per_second || content.tokensPerSecond
+        generationSpeed.value = content.tokensPerSecond
       }
     }
   }
@@ -660,11 +649,11 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   // 已迁移：content 类型对齐 ConversationDeletedEvent['content']（任务 24）
-  // content 为 string | { id: string } 联合类型，typeof 是必要的类型守卫而非兜底
+  // C-7 协议唯一事实化：后端三处发射点均为裸 string ID，{ id } 对象兼容分支已删除
   function handleConvDeleted(
     content: Extract<StreamEvent, { type: 'conversation_deleted' }>['content']
   ) {
-    const deletedId = typeof content === 'string' ? content : content.id
+    const deletedId = content
     conversations.value = conversations.value.filter((c: Conversation) => c.id !== deletedId)
     convStreamingStates.delete(deletedId)
     if (generatingConvId.value === deletedId) generatingConvId.value = ''
@@ -675,14 +664,12 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   // 已迁移：content 类型对齐 MessageDeletedEvent['content']（任务 24）
-  // content 为 string | { id: string } 联合类型，typeof 是必要的类型守卫而非兜底
   function handleMsgDeleted(
     content: Extract<StreamEvent, { type: 'message_deleted' }>['content'],
     isCurrentConv: boolean
   ) {
-    const deletedId = typeof content === 'string' ? content : content.id
-    if (deletedId && isCurrentConv) {
-      messages.value = messages.value.filter((m: Message) => m.id !== deletedId)
+    if (content && isCurrentConv) {
+      messages.value = messages.value.filter((m: Message) => m.id !== content)
     }
   }
 

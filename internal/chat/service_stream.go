@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -827,12 +828,22 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 	if (params.SearchMode == "auto" || params.SearchMode == "on") && !caps.ToolCallSupport {
 		s.emitForConv(convID, "search_start", userContent)
 		searchResp = s.doSearch(cancelCtx, userContent)
+		// C-7 协议唯一事实化：search_result 事件统一发射 SearchResultContent 结构，
+		// 预搜索路径与 tool call 路径（service_tool_call_loop.go）格式一致；
+		// ID 复用 search_pre_ 前缀约定，便于调试时识别来源
+		preCallID := fmt.Sprintf("search_pre_%d", atomic.AddInt64(&searchPreCallSeq, 1))
 		if searchResp != nil && len(searchResp.Results) > 0 {
-			s.emitForConv(convID, "search_result", searchResp.Results)
+			s.emitForConv(convID, EventSearchResult, SearchResultContent{
+				ToolCallID: preCallID,
+				Results:    searchResp.Results,
+			})
 			searchContext = formatSearchResultsWithLang(searchResp.Results, detectLanguage(userContent))
 			// M7: 裁剪移到 buildLLMMessages 内部，根据剩余 token 预算动态裁剪
 		} else {
-			s.emitForConv(convID, "search_result", []search.SearchResult{})
+			s.emitForConv(convID, EventSearchResult, SearchResultContent{
+				ToolCallID: preCallID,
+				Results:    []search.SearchResult{},
+			})
 			// 搜索失败时把实际原因通过 search_error 事件推给前端，让用户看到具体问题
 			// （之前只 log.Info，用户看到"正在搜索..."消失后没有任何提示）
 			if searchResp != nil && searchResp.Error != "" && len(searchResp.Results) == 0 {
