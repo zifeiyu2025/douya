@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	"douya/internal/apperror"
 	"douya/internal/config"
 	"douya/internal/llm"
@@ -302,6 +304,8 @@ func storeMsgToChat(m *store.Message) *Message {
 					MimeType: a.MimeType,
 				})
 			}
+		} else {
+			log.Warn().Err(err).Str("messageID", m.ID).Msg("[chat] 历史消息附件反序列化失败，该消息附件将不展示")
 		}
 	}
 	return msg

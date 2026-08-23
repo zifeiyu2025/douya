@@ -747,6 +747,8 @@ func buildHistoryUserMessage(m *store.Message, content string, currentAttachment
 				return buildMessageFromAttachments(m.Role, content, dbAttachments)
 			}
 			return llm.NewTextMessage(m.Role, content)
+		} else if err != nil {
+			log.Warn().Err(err).Str("messageID", m.ID).Msg("[chat] 历史消息附件反序列化失败，该轮上下文降级为纯文本")
 		}
 	}
 
@@ -835,6 +837,8 @@ func (s *Service) buildHistoryFromDB(dbMsgs []*store.Message, currentUserContent
 				}
 				history = append(history, msg)
 				continue
+			} else if err != nil {
+				log.Warn().Err(err).Str("messageID", m.ID).Msg("[chat] 历史消息工具调用反序列化失败，该条按普通文本处理")
 			}
 		}
 
