@@ -120,20 +120,60 @@ func (a *App) GetAvailableModels() ([]llm.ModelOption, error) {
 		isDefault := p.Alias == "default"
 		fileName := filepath.Base(p.ModelPath)
 		isLoaded, status := findModelMatch(p.Name, modelStatuses)
+
+		// 补充真实 GGUF 元数据（量化/规模/文件大小）。解析带缓存，首次后开销 O(1)；
+		// 单个文件解析失败仅留空该行详情并告警，不影响整体列表返回。
+		sizeLabel, quantType, fileSizeBytes := "", "", int64(0)
+		if meta, err := system.ParseGGUFMetadataCached(resolvePath(p.ModelPath)); err == nil {
+			sizeLabel = meta.SizeLabel
+			quantType = meta.FileType
+			fileSizeBytes = meta.FileSize
+		} else {
+			zlog.Warn().Err(err).Str("model", p.Name).Msg("[models] 解析 GGUF 元数据失败，列表详情字段留空")
+		}
+
 		options = append(options, llm.ModelOption{
-			Name:         p.Name,
-			ModelPath:    p.ModelPath,
-			FileName:     fileName,
-			IsDefault:    isDefault,
-			IsLoaded:     isLoaded,
-			MmprojVision: p.MmprojVision,
-			MmprojAudio:  p.MmprojAudio,
-			MmprojVideo:  p.MmprojVideo,
-			Status:       status,
+			Name:          p.Name,
+			ModelPath:     p.ModelPath,
+			FileName:      fileName,
+			IsDefault:     isDefault,
+			IsLoaded:      isLoaded,
+			MmprojVision:  p.MmprojVision,
+			MmprojAudio:   p.MmprojAudio,
+			MmprojVideo:   p.MmprojVideo,
+			Status:        status,
+			SizeLabel:     sizeLabel,
+			QuantType:     quantType,
+			FileSizeBytes: fileSizeBytes,
 		})
 	}
 
 	return options, nil
+}
+
+// GetModelDetails 返回指定模型的静态详情（GGUF 元数据 + 多模态能力）。
+// 参数兼容模型名称或模型文件名（含 .gguf 后缀），与 DeleteModel 的定位方式对齐。
+func (a *App) GetModelDetails(modelRef string) (*llm.ModelDetails, error) {
+	a.presetsMu.RLock()
+	var preset llm.ModelPreset
+	found := false
+	for _, p := range a.presets {
+		if p.Name == modelRef || filepath.Base(p.ModelPath) == filepath.Base(modelRef) {
+			preset = p
+			found = true
+			break
+		}
+	}
+	a.presetsMu.RUnlock()
+	if !found {
+		return nil, apperror.New(apperror.KindInvalidInput, "未找到指定模型: "+modelRef)
+	}
+
+	details, err := llm.BuildModelDetails(resolvePath(preset.ModelPath), preset.MmprojVision, preset.MmprojAudio)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.KindInternal, "解析模型详情失败", err)
+	}
+	return &details, nil
 }
 
 func (a *App) ReloadModels() error {

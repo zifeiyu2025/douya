@@ -47,15 +47,18 @@ type ModelPreset struct {
 }
 
 type ModelOption struct {
-	Name         string `json:"name"`
-	ModelPath    string `json:"model_path"`
-	FileName     string `json:"file_name"`
-	IsDefault    bool   `json:"is_default"`
-	IsLoaded     bool   `json:"is_loaded"`
-	MmprojVision bool   `json:"mmproj_vision"`
-	MmprojAudio  bool   `json:"mmproj_audio"`
-	MmprojVideo  bool   `json:"mmproj_video"`
-	Status       string `json:"status"`
+	Name          string `json:"name"`
+	ModelPath     string `json:"model_path"`
+	FileName      string `json:"file_name"`
+	IsDefault     bool   `json:"is_default"`
+	IsLoaded      bool   `json:"is_loaded"`
+	MmprojVision  bool   `json:"mmproj_vision"`
+	MmprojAudio   bool   `json:"mmproj_audio"`
+	MmprojVideo   bool   `json:"mmproj_video"`
+	Status        string `json:"status"`
+	SizeLabel     string `json:"size_label"`      // GGUF 参数量规模标签（如 "4B"），解析失败为空
+	QuantType     string `json:"quant_type"`      // GGUF 量化类型名（如 "Q4_K - Medium"），解析失败为空
+	FileSizeBytes int64  `json:"file_size_bytes"` // 模型文件大小（字节），解析失败为 0
 }
 
 // writeStringField 写入字符串字段（值为空则跳过）。
@@ -417,4 +420,38 @@ func DeriveModelName(filename string) string {
 	name = strings.Trim(name, "-")
 
 	return name
+}
+
+// ModelDetails 模型文件的静态详情：来自 GGUF 元数据与 mmproj 旁车能力探测。
+// 与模型是否已加载无关，前端用于模型详情卡片与空状态大卡片展示。
+type ModelDetails struct {
+	NParams       int64  `json:"n_params"`        // 参数量（如 4000000000）
+	SizeLabel     string `json:"size_label"`      // 参数量规模标签（如 "4B"）
+	QuantType     string `json:"quant_type"`      // 量化类型名（如 "Q4_K - Medium"），未知为空
+	ContextLength int    `json:"context_length"`  // 训练上下文长度（token）
+	ExpertCount   int    `json:"expert_count"`    // MoE 专家总数（非 MoE 模型为 0）
+	FileSizeBytes int64  `json:"file_size_bytes"` // 文件大小（字节）
+	HasVision     bool   `json:"has_vision"`      // 是否带视觉投影（mmproj 含 vision encoder）
+	HasAudio      bool   `json:"has_audio"`       // 是否带音频投影（mmproj 含 audio encoder）
+}
+
+// BuildModelDetails 基于 GGUF 元数据构建模型静态详情。
+//
+// 参数：
+//   - absModelPath: 模型文件的绝对路径（GGUF 解析带缓存，重复调用开销为 O(1)）
+//   - hasVision/hasAudio: 来自 preset 扫描阶段的 mmproj 能力判定结果；
+//     即使 GGUF 主文件解析失败也会保留返回（部分信息好过没有），错误随 err 上抛由调用方定夺。
+func BuildModelDetails(absModelPath string, hasVision, hasAudio bool) (ModelDetails, error) {
+	details := ModelDetails{HasVision: hasVision, HasAudio: hasAudio}
+	meta, err := system.ParseGGUFMetadataCached(absModelPath)
+	if err != nil {
+		return details, err
+	}
+	details.NParams = meta.NParams
+	details.SizeLabel = meta.SizeLabel
+	details.QuantType = meta.FileType
+	details.ContextLength = meta.ContextLength
+	details.ExpertCount = meta.ExpertCount
+	details.FileSizeBytes = meta.FileSize
+	return details, nil
 }
