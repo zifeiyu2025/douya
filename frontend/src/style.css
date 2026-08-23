@@ -1774,3 +1774,44 @@ html.dark .n-message.n-message--info-type {
   outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
 }
+
+/* ========================================
+ * 知识库段落公共样式（C-6：KBSelector/DocumentManager/RagSettings 三段复用）
+ * 生活类比：三块展板共用同一套"板块外框和标题栏"，
+ * 样式统一在物业（style.css）定一次，各展板只放自己的内容。
+ * ======================================== */
+.kb-section {
+  flex-shrink: 0;
+  padding-bottom: 24px;
+}
+
+.kb-section + .kb-section {
+  margin-top: 8px;
+}
+
+.kb-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.section-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.kb-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: auto;
+  padding: 2px 8px;
+  background: var(--bg-tertiary);
+  border-radius: var(--border-radius-sm);
+}
