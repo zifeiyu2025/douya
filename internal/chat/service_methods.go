@@ -185,6 +185,20 @@ func (s *Service) DeleteMessage(id string) error {
 	return nil
 }
 
+// EditMessage 更新指定消息的正文内容（消息编辑链路的 service 层入口）。
+// 仅落库新 content；"截断后续消息 + 重新生成"的编排由前端驱动（见改进计划 C-4），
+// 本方法保持单一职责，便于独立测试与复用。
+func (s *Service) EditMessage(messageID string, newContent string) error {
+	if strings.TrimSpace(newContent) == "" {
+		return apperror.New(apperror.KindInvalidInput, "编辑后的内容不能为空")
+	}
+	if err := store.UpdateMessageContent(s.db, messageID, newContent, secrets.CipherKey(s.cipher)); err != nil {
+		log.Error().Err(err).Str("messageID", messageID).Msg("[chat] EditMessage failed")
+		return err
+	}
+	return nil
+}
+
 // RegenerateMessage regenerates the last assistant message in a conversation.
 func (s *Service) RegenerateMessage(msgID string, searchMode string) error {
 	// C-7 修复：用 beginGeneration 统一锁/取消逻辑，消除与 SendMessage 的重复代码

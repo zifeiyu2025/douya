@@ -192,6 +192,21 @@ func (a *App) DeleteMessage(id string) error {
 	return a.service.DeleteMessage(id)
 }
 
+// EditMessage 编辑指定消息的正文内容（消息编辑链路的绑定层入口）。
+// 仅落库新内容；"截断后续消息并重新生成"的交互编排由前端负责（见改进计划 C-4）。
+func (a *App) EditMessage(messageID string, newContent string) error {
+	if err := a.requireReady(); err != nil {
+		return err
+	}
+	if err := validateNonEmpty("消息ID", messageID); err != nil {
+		return err
+	}
+	if err := validateNonEmpty("编辑内容", newContent); err != nil {
+		return err
+	}
+	return a.service.EditMessage(messageID, newContent)
+}
+
 // CompressConversation 手动触发对话压缩（P2-A3）。
 // 用户点击 TokenCounter 旁的"立即压缩"按钮时调用，同步返回压缩结果。
 // 注意：此方法会阻塞至摘要生成完成（可能数秒~数十秒），前端需显示 loading。

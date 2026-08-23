@@ -368,3 +368,24 @@ func deleteMessagesBatchInternal(db *sql.DB, ids []string) error {
 	}
 	return nil
 }
+
+// UpdateMessageContent 更新指定消息的正文内容（消息编辑功能的存储层入口）。
+// 新内容经既有加密管线（encryptField → "enc:" 前缀密文）落库，与 CreateMessage 的加密策略保持一致。
+// 通过 RowsAffected 判断目标消息是否存在：不存在时返回 KindNotFound，便于上层给出准确提示。
+// 注意：仅更新 content 字段，其余字段（思考内容/附件/工具调用等）不受影响。
+func UpdateMessageContent(db *sql.DB, id string, newContent string, encKey []byte) error {
+	encrypted, err := encryptField(newContent, encKey)
+	if err != nil {
+		return apperror.Wrap(apperror.KindInternal, "encrypt message content", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), dbOpTimeout)
+	defer cancel()
+	res, err := db.ExecContext(ctx, "UPDATE messages SET content = ? WHERE id = ?", encrypted, id)
+	if err != nil {
+		return apperror.Wrap(apperror.KindInternal, "update message content", err)
+	}
+	if affected, err := res.RowsAffected(); err == nil && affected == 0 {
+		return apperror.New(apperror.KindNotFound, "消息不存在: "+id)
+	}
+	return nil
+}
