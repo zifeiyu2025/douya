@@ -67,12 +67,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, defineAsyncComponent, ref } from 'vue'
 import { darkTheme, zhCN, dateZhCN } from 'naive-ui'
 import { NConfigProvider, NMessageProvider, NDialogProvider } from 'naive-ui'
 import Sidebar from './components/layout/Sidebar.vue'
 import SplashScreen from './components/layout/SplashScreen.vue'
-import ServerConsole from './components/ServerConsole.vue'
 import AppHeader from './components/layout/AppHeader.vue'
 import ModelSwitchOverlay from './components/ModelSwitchOverlay.vue'
 import ExitOverlay from './components/ExitOverlay.vue'
@@ -88,6 +87,9 @@ import { useThemeOverrides } from './composables/useThemeOverrides'
 import { useModelSwitch } from './composables/useModelSwitch'
 import { useWindowControls } from './composables/useWindowControls'
 import { useAppLifecycle } from './composables/useAppLifecycle'
+// C-8 性能强化：ServerConsole 连带 xterm 全家桶（约 447 kB 分块）延迟到首次打开抽屉才加载，
+// 移出首屏依赖图；consoleRef.value?.toggle() 可选链调用天然兼容异步挂载时机
+const ServerConsole = defineAsyncComponent(() => import('./components/ServerConsole.vue'))
 
 // ----- Store / 主题 -----
 const settingsStore = useSettingsStore()

@@ -339,7 +339,8 @@ import { NFormItem, NSwitch, NInput, NInputNumber, NSelect } from 'naive-ui'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
 // C-8 性能项：MCP 设置含终端交互逻辑，异步加载减小高级面板首包
 const MCPSettings = defineAsyncComponent(() => import('./MCPSettings.vue'))
-import LoraManager from '../LoraManager.vue'
+// C-8 性能项：LoRA 管理器为低频重组件，与 MCPSettings 同策略异步加载
+const LoraManager = defineAsyncComponent(() => import('../LoraManager.vue'))
 import HelpTip from '../ui/HelpTip.vue'
 
 defineOptions({ name: 'AdvancedExperimentalSettings' })
