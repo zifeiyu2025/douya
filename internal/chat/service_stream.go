@@ -776,11 +776,17 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 		Content:        params.Content,
 	}
 	if len(params.Images) > 0 {
-		imgJSON, _ := json.Marshal(params.Images)
+		imgJSON, err := json.Marshal(params.Images)
+		if err != nil {
+			log.Warn().Err(err).Msg("[chat] 序列化用户消息图片失败，该消息将不含图片数据")
+		}
 		userMsg.Images = string(imgJSON)
 	}
 	if len(params.Attachments) > 0 {
-		attJSON, _ := json.Marshal(params.Attachments)
+		attJSON, err := json.Marshal(params.Attachments)
+		if err != nil {
+			log.Warn().Err(err).Msg("[chat] 序列化用户消息附件失败，该消息将不含附件数据")
+		}
 		userMsg.Attachments = string(attJSON)
 	}
 	if err := store.CreateMessage(s.db, userMsg, secrets.CipherKey(s.cipher)); err != nil {
