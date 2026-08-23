@@ -440,4 +440,11 @@ func (s *Service) CompressConversation(convID string) (*CompressResult, error) {
 // 测试导出函数
 func StoreMsgToChat(m *store.Message) *Message           { return storeMsgToChat(m) } // Exported for testing
 func GetDB(s *Service) *sql.DB                           { return s.db }              // Exported for testing
-func SetCurrentCancel(s *Service, fn context.CancelFunc) { s.currentCancel = fn }     // Exported for testing
+// SetCurrentCancel 供测试设置 currentCancel。
+// 与生产路径（beginGeneration/Stop）一致：写入共享字段前必须持有 s.mutex，
+// 避免测试并发场景下与真实流式流程构成数据竞争。
+func SetCurrentCancel(s *Service, fn context.CancelFunc) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.currentCancel = fn
+}
