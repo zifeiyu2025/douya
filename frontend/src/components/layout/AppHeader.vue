@@ -21,52 +21,58 @@
         :render-label="renderModelLabel"
         @update:value="handleModelChange"
       />
-      <div class="server-status" :title="modelFullName">
-        <div v-if="switchProgressStage !== 'idle'" class="switching-animation">
-          <div class="loading-spinner"></div>
-          <span class="status-text">
-            {{ switchingModelName }} · {{ switchStageText }}{{ switchDuration }}
-          </span>
-        </div>
-        <div
-          v-else-if="modelLoadProgress && modelLoadProgress.status === 'loading'"
-          class="load-progress-animation"
-        >
-          <div class="loading-spinner"></div>
-          <div class="load-progress-info">
-            <span class="status-text">
-              {{ loadProgressModelName }} · 加载 {{ modelLoadProgress.progress }}%
+      <!-- C-3: 状态区可点击，弹出当前模型的真实 GGUF 元数据详情卡 -->
+      <n-popover trigger="click" placement="bottom-end" :show-arrow="false" raw>
+        <template #trigger>
+          <button type="button" class="server-status" aria-label="查看模型详情">
+            <span v-if="switchProgressStage !== 'idle'" class="switching-animation">
+              <span class="loading-spinner"></span>
+              <span class="status-text">
+                {{ switchingModelName }} · {{ switchStageText }}{{ switchDuration }}
+              </span>
             </span>
-            <div class="load-progress-bar">
-              <div
-                class="load-progress-bar-fill"
-                :style="{ width: modelLoadProgress.progress + '%' }"
-              ></div>
-            </div>
-          </div>
-        </div>
-        <div v-else-if="modelLoadFailed" class="error-animation">
-          <span class="status-dot stopped" />
-          <span class="status-text error-text">{{ errorModelName }} · 加载失败</span>
-        </div>
-        <div
-          v-else-if="isServerLoading && switchProgressStage === 'idle' && !isFirstLoad"
-          class="loading-animation"
-        >
-          <div class="loading-spinner"></div>
-          <span class="status-text">{{ modelName || '启动中...' }}</span>
-        </div>
-        <template v-else>
-          <span class="status-dot" :class="serverStatus.running ? 'running' : 'stopped'" />
-          <span
-            class="status-text"
-            :class="{ 'error-text': !serverStatus.running && serverStatus.error }"
-          >
-            {{ modelName }} ·
-            {{ serverStatus.running ? '已就绪' : serverStatus.error || '未运行' }}
-          </span>
+            <span
+              v-else-if="modelLoadProgress && modelLoadProgress.status === 'loading'"
+              class="load-progress-animation"
+            >
+              <span class="loading-spinner"></span>
+              <span class="load-progress-info">
+                <span class="status-text">
+                  {{ loadProgressModelName }} · 加载 {{ modelLoadProgress.progress }}%
+                </span>
+                <span class="load-progress-bar">
+                  <span
+                    class="load-progress-bar-fill"
+                    :style="{ width: modelLoadProgress.progress + '%' }"
+                  ></span>
+                </span>
+              </span>
+            </span>
+            <span v-else-if="modelLoadFailed" class="error-animation">
+              <span class="status-dot stopped" />
+              <span class="status-text error-text">{{ errorModelName }} · 加载失败</span>
+            </span>
+            <span
+              v-else-if="isServerLoading && switchProgressStage === 'idle' && !isFirstLoad"
+              class="loading-animation"
+            >
+              <span class="loading-spinner"></span>
+              <span class="status-text">{{ modelName || '启动中...' }}</span>
+            </span>
+            <span v-else class="status-idle">
+              <span class="status-dot" :class="serverStatus.running ? 'running' : 'stopped'" />
+              <span
+                class="status-text"
+                :class="{ 'error-text': !serverStatus.running && serverStatus.error }"
+              >
+                {{ modelName }} ·
+                {{ serverStatus.running ? '已就绪' : serverStatus.error || '未运行' }}
+              </span>
+            </span>
+          </button>
         </template>
-      </div>
+        <ModelDetailCard :model="currentModelDetail" />
+      </n-popover>
     </div>
     <div class="window-controls" style="--wails-draggable: no-drag">
       <button class="win-btn" title="服务器控制台" @click="emit('toggle-console')">
@@ -99,7 +105,7 @@
 
 <script setup lang="ts">
 import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
-import { NButton, NIcon, NSelect, NTooltip } from 'naive-ui'
+import { NButton, NIcon, NPopover, NSelect, NTooltip } from 'naive-ui'
 import {
   MenuOutline,
   SunnyOutline,
@@ -107,23 +113,25 @@ import {
   TerminalOutline,
   TrashOutline
 } from '@vicons/ionicons5'
-import AppIcon from './ui/AppIcon.vue'
-import { useChatStore } from '../stores/chat'
-import { fixUtf8 } from '../utils/utf8'
-import { discreteMessage, discreteDialog } from '../utils/discrete'
-import { useSettingsStore } from '../stores/settings'
-import { useThemeStore } from '../stores/theme'
-import { formatModelName, formatModelNameFromPath, extractQuantSuffix } from '../utils/model'
-import { classifyError } from '../utils/errorGuidance'
-import { logError } from '../utils/logger'
-import type { Conversation, ModelOption } from '../services/wails'
-import { wails } from '../services/wails'
+import AppIcon from '../ui/AppIcon.vue'
+import ModelDetailCard from '../models/ModelDetailCard.vue'
+// C-3 模型详情卡：点击状态区弹出，展示 B-5 真实 GGUF 元数据
+import { useChatStore } from '../../stores/chat'
+import { fixUtf8 } from '../../utils/utf8'
+import { discreteMessage, discreteDialog } from '../../utils/discrete'
+import { useSettingsStore } from '../../stores/settings'
+import { useThemeStore } from '../../stores/theme'
+import { formatModelName, formatModelNameFromPath, extractQuantSuffix } from '../../utils/model'
+import { classifyError } from '../../utils/errorGuidance'
+import { logError } from '../../utils/logger'
+import type { Conversation, ModelOption } from '../../services/wails'
+import { wails } from '../../services/wails'
 
-// 顶部标题栏：模型选择器、服务器状态显示、窗口控制按钮
+// 顶部标题栏：模型选择器、服务器状态显示（含模型详情卡）、窗口控制按钮
 // - store（settings/theme/chat）为 pinia 单例，本组件直接 import 使用
 // - switchDuration / switchStageText：来自 useModelSwitch 的本地计时器状态与文字映射，
 //   由 App.vue 调用 useModelSwitch 后通过 props 传入（避免本组件重复调用 composable
-//   导致 wails 事件监听重复注册）
+//   导致 wails 事件监听重复注册；C-7 可重入化后本组件可直接消费 composable）
 // - 窗口控制（最小化/最大化/关闭/双击标题栏）：通过 emit 交由 App.vue 调用 useWindowControls
 // - isMaximized：来自 useWindowControls 的本地状态，通过 prop 传入
 defineProps<{
@@ -180,19 +188,23 @@ const loadProgressModelName = computed(() => {
 })
 
 // ----- 模型选择 -----
-const modelOptions = ref<
-  {
-    label: string
-    value: string
-    fullName: string
-    quantSuffix: string
-    isLoaded: boolean
-    mmprojVision: boolean
-    mmprojAudio: boolean
-    mmprojVideo: boolean
-    status: string
-  }[]
->([])
+interface ModelOptionView {
+  label: string
+  value: string
+  fullName: string
+  /** 从文件名猜测的量化后缀（回退用） */
+  quantSuffix: string
+  /** GGUF 解析出的真实量化类型名（B-5），可能为空 */
+  quantType?: string
+  /** GGUF 参数量规模标签（B-5，如 "4B"），可能为空 */
+  sizeLabel?: string
+  isLoaded: boolean
+  mmprojVision: boolean
+  mmprojAudio: boolean
+  mmprojVideo: boolean
+  status: string
+}
+const modelOptions = ref<ModelOptionView[]>([])
 const availableModels = ref<ModelOption[]>([])
 const selectedModel = ref('')
 
@@ -210,6 +222,12 @@ const displayModelOptions = computed(() => {
   return modelOptions.value
 })
 
+// 当前选中模型的完整信息（详情卡数据源；找不到时为 null，卡片显示空态由父级隐藏）
+const currentModelDetail = computed<ModelOption | null>(() => {
+  const found = availableModels.value.find(m => m.name === selectedModel.value)
+  return found ?? null
+})
+
 const modelName = computed(() => {
   if (selectedModel.value) {
     return formatModelName(selectedModel.value).display
@@ -217,16 +235,6 @@ const modelName = computed(() => {
   const path = settingsStore.config.model_path
   if (!path) return ''
   return formatModelNameFromPath(path).display
-})
-
-const modelFullName = computed(() => {
-  const model = availableModels.value.find(m => m.name === selectedModel.value)
-  if (model?.file_name) return model.file_name
-  if (selectedModel.value) {
-    return selectedModel.value
-  }
-  const path = settingsStore.config.model_path
-  return path || ''
 })
 
 const errorModelName = computed(() => {
@@ -256,35 +264,43 @@ watch(
   }
 )
 
-function renderModelLabel(option: {
-  label: string
-  value: string
-  fullName?: string
-  quantSuffix?: string
-  isLoaded?: boolean
-  mmprojVision?: boolean
-  mmprojAudio?: boolean
-  mmprojVideo?: boolean
-  status?: string
-}) {
-  const children = [h('span', option.label)]
-  if (option.quantSuffix) {
-    children.push(
-      h(
-        'span',
-        {
-          style: 'color: var(--text-muted); font-size: 11px; margin-left: 4px; font-weight: 400;'
-        },
-        option.quantSuffix
-      )
-    )
-  }
+function renderModelLabel(option: ModelOptionView) {
+  // 下拉项元数据展示：参数量规模（accent 强调）+ 量化类型（弱化小字）
+  // 真实 GGUF 数据（quantType）优先于文件名猜测（quantSuffix）
+  const quantText = option.quantType || option.quantSuffix
+  const childSpans = [
+    h('span', option.label),
+    ...(option.sizeLabel
+      ? [
+          h(
+            'span',
+            {
+              style:
+                'color: var(--accent-primary); font-size: 11px; margin-left: 6px; font-weight: 600;'
+            },
+            option.sizeLabel
+          )
+        ]
+      : []),
+    ...(quantText
+      ? [
+          h(
+            'span',
+            {
+              style:
+                'color: var(--text-muted); font-size: 11px; margin-left: 4px; font-weight: 400;'
+            },
+            quantText
+          )
+        ]
+      : [])
+  ]
   const tags: string[] = []
   if (option.mmprojVision) tags.push('📷')
   if (option.mmprojAudio) tags.push('🎤')
   if (option.mmprojVideo) tags.push('🎬')
   if (tags.length > 0) {
-    children.push(
+    childSpans.push(
       h(
         'span',
         {
@@ -295,7 +311,7 @@ function renderModelLabel(option: {
     )
   }
   if (option.status === 'sleeping') {
-    children.push(
+    childSpans.push(
       h(
         'span',
         {
@@ -305,7 +321,7 @@ function renderModelLabel(option: {
       )
     )
   } else if (option.status === 'loading') {
-    children.push(
+    childSpans.push(
       h(
         'span',
         {
@@ -315,7 +331,7 @@ function renderModelLabel(option: {
       )
     )
   } else if (option.isLoaded) {
-    children.push(
+    childSpans.push(
       h(
         'span',
         {
@@ -352,7 +368,7 @@ function renderModelLabel(option: {
       h(
         'span',
         { style: 'display: inline-flex; align-items: center; min-width: 0; overflow: hidden' },
-        children
+        childSpans
       ),
       deleteBtn
     ]
@@ -373,12 +389,13 @@ async function loadAvailableModels() {
     availableModels.value = models
     modelOptions.value = models.map(m => {
       const { display } = formatModelName(m.name)
-      const quantSuffix = extractQuantSuffix(m.file_name || '')
       return {
         label: display,
         value: m.name,
         fullName: m.file_name || m.name,
-        quantSuffix,
+        quantSuffix: extractQuantSuffix(m.file_name || ''),
+        quantType: m.quant_type || undefined,
+        sizeLabel: m.size_label || undefined,
         isLoaded: m.is_loaded,
         mmprojVision: m.mmproj_vision,
         mmprojAudio: m.mmproj_audio,
@@ -586,7 +603,8 @@ function onHeaderDoubleClick(e: MouseEvent) {
 .loading-animation,
 .switching-animation,
 .error-animation,
-.load-progress-animation {
+.load-progress-animation,
+.status-idle {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -624,6 +642,7 @@ function onHeaderDoubleClick(e: MouseEvent) {
 }
 
 .load-progress-bar-fill {
+  display: block;
   height: 100%;
   background: var(--accent-primary);
   border-radius: 2px;
@@ -691,5 +710,34 @@ function onHeaderDoubleClick(e: MouseEvent) {
 .win-btn-close:active {
   background: #bf0f1d;
   color: #ffffff;
+}
+
+/* ===== 状态区按钮化（C-3）=====
+ * 由 div 改为 button：可点击弹出模型详情卡；
+ * 视觉与原 div 完全一致（透明底、无边框），仅增加 hover 反馈与 cursor:pointer
+ */
+.server-status {
+  display: flex;
+  align-items: center;
+  padding: 4px 10px;
+  background: transparent;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.server-status:hover {
+  background: var(--bg-hover);
+}
+
+.server-status:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
 }
 </style>

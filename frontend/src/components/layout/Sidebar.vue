@@ -26,45 +26,57 @@
       </n-input>
     </div>
     <!-- SubTask 10.2: 会话列表去卡片化 — row 布局，无边框，hover/active 用 bg 层级 -->
+    <!-- C-3: 列表按更新时间分为 今天/昨天/最近7天/更早 四组，组间以小字标题分隔 -->
     <div class="conversation-list">
       <div v-if="chatStore.isLoadingConversations" class="loading-container">
         <div class="loading-spinner"></div>
         <span class="loading-text">加载对话中...</span>
       </div>
       <template v-else>
-        <div
-          v-for="(conv, idx) in filteredConversations"
-          :key="conv.id"
-          class="conversation-item"
-          :class="{ active: conv.id === chatStore.currentConversationId }"
-          :style="{ '--stagger-idx': Math.min(idx, 12) }"
-          role="button"
-          tabindex="0"
-          :aria-label="`会话：${fixUtf8(conv.title) || '新对话'}`"
-          :aria-current="conv.id === chatStore.currentConversationId ? 'true' : undefined"
-          @click="handleSelect(conv.id)"
-          @keydown.enter.prevent="handleSelect(conv.id)"
-          @contextmenu.prevent="handleContextMenu($event, conv)"
-        >
-          <div class="conversation-item-info">
-            <div class="conversation-item-title" :title="fixUtf8(conv.title) || '新对话'">
-              {{ fixUtf8(conv.title) || '新对话' }}
+        <template v-if="groupedConversations.length > 0">
+          <section
+            v-for="group in groupedConversations"
+            :key="group.key"
+            class="conversation-group"
+          >
+            <div class="group-label">{{ group.label }}</div>
+            <div
+              v-for="{ conv, staggerIdx } in group.items"
+              :key="conv.id"
+              class="conversation-item"
+              :class="{ active: conv.id === chatStore.currentConversationId }"
+              :style="{ '--stagger-idx': staggerIdx }"
+              role="button"
+              tabindex="0"
+              :aria-label="`会话：${fixUtf8(conv.title) || '新对话'}`"
+              :aria-current="conv.id === chatStore.currentConversationId ? 'true' : undefined"
+              @click="handleSelect(conv.id)"
+              @keydown.enter.prevent="handleSelect(conv.id)"
+              @contextmenu.prevent="handleContextMenu($event, conv)"
+            >
+              <div class="conversation-item-info">
+                <div class="conversation-item-title" :title="fixUtf8(conv.title) || '新对话'">
+                  {{ fixUtf8(conv.title) || '新对话' }}
+                </div>
+                <div class="conversation-item-preview">
+                  <template v-if="chatStore.generatingConvId === conv.id">生成中...</template>
+                  <template v-else>{{ getPreview(conv) }}</template>
+                </div>
+              </div>
+              <n-dropdown
+                :options="contextMenuOptions"
+                :show="contextMenuConv?.id === conv.id"
+                :x="contextMenuX"
+                :y="contextMenuY"
+                placement="bottom-start"
+                @select="handleContextAction($event, conv)"
+                @clickoutside="contextMenuConv = null"
+              />
             </div>
-            <div class="conversation-item-preview">
-              <template v-if="chatStore.generatingConvId === conv.id">生成中...</template>
-              <template v-else>{{ getPreview(conv) }}</template>
-            </div>
-          </div>
-          <n-dropdown
-            :options="contextMenuOptions"
-            :show="contextMenuConv?.id === conv.id"
-            :x="contextMenuX"
-            :y="contextMenuY"
-            placement="bottom-start"
-            @select="handleContextAction($event, conv)"
-            @clickoutside="contextMenuConv = null"
-          />
-        </div>
+          </section>
+        </template>
+        <!-- 搜索无结果时的空态提示 -->
+        <div v-else-if="searchQuery" class="empty-search">未找到相关对话</div>
       </template>
     </div>
     <!-- SubTask 10.4: 底部入口 row 布局，hover bg-hover，无边框 -->
@@ -98,11 +110,11 @@ import {
   FileTrayFullOutline,
   GridOutline
 } from '@vicons/ionicons5'
-import { useChatStore } from '../stores/chat'
-import { fixUtf8 } from '../utils/utf8'
-import { showSuccess } from '../utils/showError'
-import type { Conversation } from '../services/wails'
-import appLogo from '../assets/images/appicon.png'
+import { useChatStore } from '../../stores/chat'
+import { fixUtf8 } from '../../utils/utf8'
+import { showSuccess } from '../../utils/showError'
+import type { Conversation } from '../../services/wails'
+import appLogo from '../../assets/images/appicon.png'
 
 defineProps<{ collapsed: boolean }>()
 
@@ -137,10 +149,57 @@ const contextMenuOptions = [
   createMenuItem('delete', TrashOutline, '删除', true)
 ]
 
+// ----- 会话日期分组（C-3）-----
+// 按更新时间把会话归入四组：今天 / 昨天 / 最近 7 天 / 更早。
+// 分组依据"日历天"而非毫秒差：跨午夜后"23 小时前"的会话应显示为"昨天"而非"今天"。
+type DateGroupKey = 'today' | 'yesterday' | 'week' | 'older'
+
+const GROUP_LABELS: Record<DateGroupKey, string> = {
+  today: '今天',
+  yesterday: '昨天',
+  week: '最近 7 天',
+  older: '更早'
+}
+
+const GROUP_ORDER: DateGroupKey[] = ['today', 'yesterday', 'week', 'older']
+
+/** 取某天的零点时间戳（本地时区），用于按日历天比较 */
+function startOfDay(date: Date): number {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+}
+
+/** 把更新时间归类到分组键；解析失败时安全回落到"更早" */
+function classifyByDate(dateStr: string): DateGroupKey {
+  const d = new Date(dateStr)
+  const dayDiff = Math.floor((startOfDay(new Date()) - startOfDay(d)) / (24 * 60 * 60 * 1000))
+  if (Number.isNaN(dayDiff)) return 'older'
+  if (dayDiff <= 0) return 'today'
+  if (dayDiff === 1) return 'yesterday'
+  if (dayDiff < 7) return 'week'
+  return 'older'
+}
+
 const filteredConversations = computed(() => {
   if (!searchQuery.value) return chatStore.conversations
   const q = searchQuery.value.toLowerCase()
   return chatStore.conversations.filter(c => c.title.toLowerCase().includes(q))
+})
+
+/** 过滤后的会话按日期分组；空组不出现，组内保持原排序，stagger 索引跨组连续递增 */
+const groupedConversations = computed(() => {
+  const buckets = new Map<DateGroupKey, Conversation[]>()
+  for (const conv of filteredConversations.value) {
+    const key = classifyByDate(conv.updated_at)
+    const list = buckets.get(key)
+    if (list) list.push(conv)
+    else buckets.set(key, [conv])
+  }
+  let staggerIdx = 0
+  return GROUP_ORDER.filter(key => buckets.has(key)).map(key => ({
+    key,
+    label: GROUP_LABELS[key],
+    items: buckets.get(key)!.map(conv => ({ conv, staggerIdx: Math.min(staggerIdx++, 12) }))
+  }))
 })
 
 function getPreview(conv: Conversation): string {
@@ -318,6 +377,31 @@ async function handleExport(id: string, format: string) {
 }
 
 .loading-text {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ===== C-3: 日期分组 =====
+ * 组标题：小字号弱化文本，仅作视觉分隔，不参与交互
+ */
+.conversation-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.group-label {
+  padding: 10px 12px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+/* 搜索无结果空态 */
+.empty-search {
+  padding: 24px 16px;
+  text-align: center;
   font-size: 12px;
   color: var(--text-muted);
 }

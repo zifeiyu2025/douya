@@ -669,6 +669,12 @@ export interface ModelOption {
   mmproj_audio: boolean
   mmproj_video: boolean
   status: string
+  /** GGUF 参数量规模标签（如 "4B"），解析失败为空（B-5） */
+  size_label?: string
+  /** GGUF 量化类型名（如 "Q4_K - Medium"），解析失败为空（B-5） */
+  quant_type?: string
+  /** 模型文件大小（字节），解析失败为 0（B-5） */
+  file_size_bytes?: number
 }
 
 export interface SwitchResult {
