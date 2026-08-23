@@ -9,18 +9,20 @@ import { resolve } from 'node:path'
  * 生活类比：就像装修房子前先量好尺寸清单，确保每块瓷砖（CSS 变量）
  * 都符合设计师（GitHub Primer）的规格要求，避免装错颜色。
  *
- * 本测试通过读取 style.css 文件，解析 :root 和 html.dark 块中的
- * CSS 变量，验证其值符合 GitHub Primer 设计系统规范。
+ * 本测试通过读取 styles/tokens.css 文件（设计令牌单一事实来源），
+ * 解析亮色与深色两个令牌块中的 CSS 变量，验证其值符合
+ * GitHub Primer 设计系统规范；同时对全部样式文件做"禁用色"扫描。
  */
 
-// 读取 style.css 文件内容
-const styleCssPath = resolve(__dirname, '../style.css')
-const styleContent = readFileSync(styleCssPath, 'utf-8')
+// 读取令牌文件与全局样式文件内容
+const tokensCssPath = resolve(__dirname, '../styles/tokens.css')
+const tokensContent = readFileSync(tokensCssPath, 'utf-8')
+const styleContent = readFileSync(resolve(__dirname, '../style.css'), 'utf-8')
 
 /**
  * 从指定选择器块中提取 CSS 变量
  * @param content CSS 文件内容
- * @param selector 选择器（如 ':root' 或 'html.dark'）
+ * @param selector 选择器名称（如 ':root' 或 'html.dark'）
  * @returns 变量名到值的映射
  */
 function extractCssVars(content: string, selector: string): Record<string, string> {
@@ -42,10 +44,10 @@ function extractCssVars(content: string, selector: string): Record<string, strin
   return vars
 }
 
-const lightVars = extractCssVars(styleContent, ':root')
-const darkVars = extractCssVars(styleContent, 'html.dark')
+const lightVars = extractCssVars(tokensContent, ':root')
+const darkVars = extractCssVars(tokensContent, 'html.dark')
 
-describe('GitHub 主题令牌 - 亮色模式 (:root)', () => {
+describe('GitHub 主题令牌 - 亮色模式', () => {
   it('主色调应为 GitHub 蓝 #0969da', () => {
     expect(lightVars['--accent-primary']).toBe('#0969da')
   })
@@ -103,7 +105,7 @@ describe('GitHub 主题令牌 - 亮色模式 (:root)', () => {
   })
 })
 
-describe('GitHub 主题令牌 - 深色模式 (html.dark)', () => {
+describe('GitHub 主题令牌 - 深色模式', () => {
   it('主色调应为 GitHub dark_high_contrast 蓝 #4493f8', () => {
     expect(darkVars['--accent-primary']).toBe('#4493f8')
   })
@@ -161,20 +163,24 @@ describe('GitHub 主题令牌 - 深色模式 (html.dark)', () => {
   })
 })
 
-describe('移除微信绿配色', () => {
-  it('style.css 中不应再出现微信绿 #07c160', () => {
+describe('移除微信绿配色（扫描令牌文件与全局样式）', () => {
+  it('不应再出现微信绿 #07c160', () => {
+    expect(tokensContent.toLowerCase()).not.toContain('#07c160')
     expect(styleContent.toLowerCase()).not.toContain('#07c160')
   })
 
-  it('style.css 中不应再出现微信用户气泡绿 #95ec69', () => {
+  it('不应再出现微信用户气泡绿 #95ec69', () => {
+    expect(tokensContent.toLowerCase()).not.toContain('#95ec69')
     expect(styleContent.toLowerCase()).not.toContain('#95ec69')
   })
 
-  it('style.css 中不应再出现深色微信绿 #86e6ab', () => {
+  it('不应再出现深色微信绿 #86e6ab', () => {
+    expect(tokensContent.toLowerCase()).not.toContain('#86e6ab')
     expect(styleContent.toLowerCase()).not.toContain('#86e6ab')
   })
 
-  it('style.css 中不应再出现深色用户气泡绿 #4a9f44', () => {
+  it('不应再出现深色用户气泡绿 #4a9f44', () => {
+    expect(tokensContent.toLowerCase()).not.toContain('#4a9f44')
     expect(styleContent.toLowerCase()).not.toContain('#4a9f44')
   })
 })
@@ -193,6 +199,34 @@ describe('深色模式背景层次正确（primary 最深，tertiary 最浅）',
     const secondary = parseHexColor(darkVars['--bg-secondary'])
     const tertiary = parseHexColor(darkVars['--bg-tertiary'])
     expect(luminance(secondary)).toBeLessThan(luminance(tertiary))
+  })
+})
+
+describe('令牌文件完整性（防回归守卫）', () => {
+  it('style.css 中不应再定义令牌块（已迁移至 tokens.css）', () => {
+    expect(styleContent).not.toMatch(/^:root\s*\{/m)
+    expect(styleContent).not.toMatch(/^html\.dark\s*\{/m)
+  })
+
+  it('tokens.css 应定义全部核心布局尺寸令牌', () => {
+    for (const key of [
+      '--sidebar-width',
+      '--header-height',
+      '--msg-max-width',
+      '--border-radius-sm',
+      '--border-radius-lg',
+      '--transition-fast'
+    ]) {
+      expect(lightVars[key]).toBeTruthy()
+    }
+  })
+
+  it('深色令牌应是亮色令牌的子集（防止单侧拼错变量名；布局/圆角/动效等主题无关令牌仅亮色定义）', () => {
+    const normalizeKey = (k: string) => k.replace(/-(light|dark)$/, '')
+    const lightKeys = new Set(Object.keys(lightVars).map(normalizeKey))
+    const darkKeys = Object.keys(darkVars).map(k => normalizeKey(k))
+    const orphan = darkKeys.filter(k => !lightKeys.has(k))
+    expect(orphan).toEqual([])
   })
 })
 

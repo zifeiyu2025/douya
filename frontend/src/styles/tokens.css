@@ -1,0 +1,227 @@
+/* ========================================
+ * DOUYA 设计令牌（Design Tokens）— 单一事实来源
+ *
+ * 本文件是全局视觉规格的唯一权威定义，包含：
+ *   - 布局尺寸 / 主色调 / 语义色 / 背景层次 / 文字层次
+ *   - 边框圆角 / 阴影 / 动效曲线 / 代码高亮配色
+ *   - 亮色（默认）与深色（html.dark）两套完整规格
+ *
+ * 修改本文件时的同步契约：
+ *   1. useThemeOverrides.ts 中 Naive UI 覆盖值必须手动同步
+ *   2. themeTokens.test.ts 会自动解析本文件并校验关键令牌值
+ *
+ * 设计语言：GitHub Primer 蓝 + 简约现代科幻风
+ * ======================================== */
+
+:root {
+  --sidebar-width: 280px;
+  --sidebar-collapsed-width: 0px;
+  --header-height: 56px;
+  --input-area-min-height: 100px;
+  --msg-max-width: 1200px;
+
+  /* 主色调 - GitHub 蓝 */
+  --accent-primary: #0969da;
+  --accent-secondary: #218bff;
+  --accent-tertiary: #ddf4ff;
+  --accent-success: #1f883d;
+  --accent-warning: #d4a72c;
+  --accent-danger: #cf222e;
+  --accent-think: #16a34a;
+  --accent-think-glow: #22c55e;
+
+  /* 语义色变量集（附件标签/状态色专用，每色系三档：primary/soft/strong） */
+  /* 红色语义色（danger/error/PDF 附件） */
+  --accent-r-primary: #cf222e;
+  --accent-r-soft: rgba(207, 34, 46, 0.12);
+  --accent-r-strong: #a40e26;
+
+  /* 黄色语义色（warning/LoRA warning） */
+  --accent-y-primary: #d4a72c;
+  --accent-y-soft: rgba(212, 167, 44, 0.15);
+  --accent-y-strong: #9a6700;
+
+  /* 紫色语义色（audio 附件） */
+  --accent-p-primary: #8250df;
+  --accent-p-soft: rgba(130, 80, 223, 0.12);
+  --accent-p-strong: #6f42c1;
+
+  /* 绿色语义色（success/video 附件，与 --accent-success 协调） */
+  --accent-g-primary: #1f883d;
+  --accent-g-soft: rgba(31, 136, 61, 0.12);
+  --accent-g-strong: #1a7f37;
+
+  /* 灰色语义色（file 附件/中性） */
+  --accent-n-primary: #656d76;
+  --accent-n-soft: rgba(101, 109, 118, 0.12);
+  --accent-n-strong: #3b4147;
+
+  /* 语义色别名（供组件 var(--warning-color) 等引用，与上方语义色变量保持一致） */
+  --warning-color: var(--accent-y-primary);
+  --error-color: var(--accent-r-primary);
+  --success-color: var(--accent-g-primary);
+
+  /* 亮色 .has-background 模式专用（毛玻璃白底） */
+  --bg-glass-primary: rgba(255, 255, 255, 0.72);
+  --bg-glass-secondary: rgba(255, 255, 255, 0.55);
+  --bg-glass-tertiary: rgba(255, 255, 255, 0.4);
+  --bg-glass-hover: rgba(255, 255, 255, 0.65);
+  --bg-glass-active: rgba(255, 255, 255, 0.5);
+
+  /* 背景色系 - canvas/subtle/muted 三层（柔和米白调，降低刺眼感） */
+  --bg-primary: #fbfbfc;
+  --bg-secondary: #f3f4f7;
+  --bg-tertiary: #e8eaef;
+  --bg-sidebar: #f3f4f7;
+  --bg-hover: #eceef2;
+  --bg-active: #e0e3e9;
+  --bg-user-msg: #e3edf7;
+  --bg-ai-msg: #fbfbfc;
+  --bg-input: #fbfbfc;
+  --bg-code: #e8eaef;
+
+  /* 文字色系 - default/muted/subtle 三层 */
+  --text-primary: #1f2328;
+  --text-secondary: #656d76;
+  --text-muted: #848d97;
+  --text-tertiary: #6e7681;
+  --text-user-msg: #0969da;
+  --text-ai-msg: #1f2328;
+
+  /* 边框和阴影 */
+  --border-color: #d0d7de;
+  --border-light: #eaeef2;
+  --border-radius-xs: 4px;
+  --border-radius-sm: 8px;
+  --border-radius-md: 12px;
+  --border-radius-lg: 16px;
+  --border-radius-xl: 20px;
+
+  /* 次级表面（中性半透明灰，用于代码块 header/行内代码/hover/滚动条等次要表面） */
+  --surface-subtle: rgba(0, 0, 0, 0.04);
+  --surface-subtle-hover: rgba(0, 0, 0, 0.08);
+  --surface-border-subtle: rgba(0, 0, 0, 0.06);
+  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+
+  --shadow-sm: 0 1px 0 rgba(31, 35, 40, 0.04);
+  --shadow-md: 0 3px 6px rgba(140, 149, 159, 0.15);
+  --shadow-lg: 0 8px 24px rgba(140, 149, 159, 0.2);
+
+  --transition-fast: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  --link-light: #0969da;
+  --link-hover-light: #218bff;
+
+  /* VSCode Light+ 代码高亮配色（统一管理亮/暗两套主题） */
+  --code-comment: #008000;
+  --code-keyword: #0000ff;
+  --code-string: #a31515;
+  --code-number: #098658;
+  --code-function: #795e26;
+  --code-type: #267f99;
+  --code-variable: #001080;
+  --code-attribute: #0070c1;
+  --code-regexp: #811f3f;
+  --code-tag: #800000;
+}
+
+html.dark {
+  /* 主色调 - GitHub dark_high_contrast 蓝（更亮以保证纯黑背景下的可读性） */
+  --accent-primary: #4493f8;
+  --accent-secondary: #5b9eff;
+  --accent-tertiary: #0c2d6b;
+  --accent-success: #3fb950;
+  --accent-warning: #d29922;
+  --accent-danger: #f85149;
+  --accent-think: #3fb950;
+  --accent-think-glow: #56d364;
+
+  /* 语义色变量集（附件标签/状态色专用，每色系三档：primary/soft/strong） */
+  /* 红色语义色 */
+  --accent-r-primary: #f85149;
+  --accent-r-soft: rgba(248, 81, 73, 0.15);
+  --accent-r-strong: #da3633;
+
+  /* 黄色语义色 */
+  --accent-y-primary: #d29922;
+  --accent-y-soft: rgba(210, 153, 34, 0.15);
+  --accent-y-strong: #e3b341;
+
+  /* 紫色语义色 */
+  --accent-p-primary: #a371f7;
+  --accent-p-soft: rgba(163, 113, 247, 0.15);
+  --accent-p-strong: #bc8cff;
+
+  /* 绿色语义色 */
+  --accent-g-primary: #3fb950;
+  --accent-g-soft: rgba(63, 185, 80, 0.15);
+  --accent-g-strong: #46d369;
+
+  /* 灰色语义色 */
+  --accent-n-primary: #8b949e;
+  --accent-n-soft: rgba(139, 148, 158, 0.15);
+  --accent-n-strong: #c9d1d9;
+
+  /* 语义色别名（供组件 var(--warning-color) 等引用，与上方语义色变量保持一致） */
+  --warning-color: var(--accent-y-primary);
+  --error-color: var(--accent-r-primary);
+  --success-color: var(--accent-g-primary);
+
+  /* 深色 .has-background 模式专用（毛玻璃黑底） */
+  --bg-glass-primary: rgba(13, 17, 23, 0.72);
+  --bg-glass-secondary: rgba(13, 17, 23, 0.55);
+  --bg-glass-tertiary: rgba(13, 17, 23, 0.4);
+  --bg-glass-hover: rgba(22, 27, 34, 0.65);
+  --bg-glass-active: rgba(22, 27, 34, 0.5);
+
+  /* 背景色系 - GitHub dark_high_contrast canvas/subtle/muted（接近纯黑） */
+  /* 交互区域（聊天区、侧边栏、输入框）用纯黑 #000000，次级元素保持层次 */
+  --bg-primary: #000000;
+  --bg-secondary: #0d1117;
+  --bg-tertiary: #161b22;
+  --bg-sidebar: #000000;
+  --bg-hover: #161b22;
+  --bg-active: #21262d;
+  --bg-user-msg: #0c2d6b;
+  --bg-ai-msg: #0d1117;
+  --bg-input: #000000;
+  --bg-code: #0d1117;
+
+  /* 文字色系 - GitHub dark_high_contrast（高对比度白，便于纯黑下阅读） */
+  --text-primary: #f0f6fc;
+  --text-secondary: #c9d1d9;
+  --text-muted: #8b949e;
+  --text-tertiary: #6e7681;
+  --text-user-msg: #4493f8;
+  --text-ai-msg: #f0f6fc;
+
+  /* 边框和阴影 - 纯黑下加深阴影增强层次 */
+  --border-color: #30363d;
+  --border-light: #161b22;
+
+  /* 次级表面（深色版：白色半透明，用于代码块 header/行内代码/hover/滚动条等次要表面） */
+  --surface-subtle: rgba(255, 255, 255, 0.05);
+  --surface-subtle-hover: rgba(255, 255, 255, 0.1);
+  --surface-border-subtle: rgba(255, 255, 255, 0.08);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.15);
+
+  --shadow-sm: 0 0 transparent;
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.9);
+  --shadow-lg: 0 16px 32px rgba(0, 0, 0, 0.95);
+
+  --link-dark: #4493f8;
+  --link-hover-dark: #5b9eff;
+
+  /* VSCode Dark+ 代码高亮配色 */
+  --code-comment: #6a9955;
+  --code-keyword: #569cd6;
+  --code-string: #ce9178;
+  --code-number: #b5cea8;
+  --code-function: #dcdcaa;
+  --code-type: #4ec9b0;
+  --code-variable: #9cdcfe;
+  --code-attribute: #9cdcfe;
+  --code-regexp: #d16969;
+  --code-tag: #569cd6;
+}

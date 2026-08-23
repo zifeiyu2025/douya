@@ -10,11 +10,11 @@
  * 设计决策：硬编码两套 overrides（light/dark），通过 isDark 切换
  *  - 优点 1：性能最佳（无 DOM 读取，无 getComputedStyle 调用）
  *  - 优点 2：不依赖 DOM，SSR 安全，可在 pinia 任意上下文使用
- *  - 缺点：需要与 style.css 的 :root 和 html.dark 块手动同步
+ *  - 缺点：需要与 styles/tokens.css 的亮色/深色令牌块手动同步
  *
- * ⚠️ 同步维护要求：修改本文件颜色值时，必须同步修改 style.css 中
- *   :root（亮色）和 html.dark（深色）对应的 CSS 变量值，反之亦然。
- *   themeTokens.test.ts 会校验 style.css 的值，但不会校验本文件，
+ * ⚠️ 同步维护要求：修改本文件颜色值时，必须同步修改 styles/tokens.css 中
+ *   亮色与深色两个令牌块的对应 CSS 变量值，反之亦然。
+ *   themeTokens.test.ts 会校验 tokens.css 的令牌值，但不会校验本文件，
  *   所以改动时请手动核对两处一致。
  */
 import { computed, type ComputedRef } from 'vue'
@@ -23,7 +23,7 @@ import { useThemeStore } from '../stores/theme'
 
 /**
  * 亮色模式 overrides
- * 与 style.css 第 9-76 行 :root 块保持同步
+ * 与 styles/tokens.css 亮色令牌块保持同步
  */
 const lightOverrides: GlobalThemeOverrides = {
   common: {
@@ -178,7 +178,7 @@ const lightOverrides: GlobalThemeOverrides = {
 
 /**
  * 深色模式 overrides
- * 与 style.css 第 78-132 行 html.dark 块保持同步
+ * 与 styles/tokens.css 深色令牌块保持同步
  */
 const darkOverrides: GlobalThemeOverrides = {
   common: {

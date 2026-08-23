@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import router from './router'
 import App from './App.vue'
+import './styles/tokens.css'
 import './style.css'
 // 任务 38：虚拟滚动（实验性，feature flag 默认关闭）
 // - 引入 vue-virtual-scroller 的样式
