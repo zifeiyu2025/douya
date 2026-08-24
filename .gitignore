@@ -81,6 +81,10 @@ build/crash_out.txt
 security_best_practices_report.md
 code_review_report.md
 
+# 运行时大文件：本地模型与 llama.cpp 二进制（build/ 为应用数据根目录）
+build/models/
+build/runtime/
+
 # Microsoft Store (MSIX) 打包相关：商店构建产物与清单不入仓库
 build/windows/msix/
 build/store/
