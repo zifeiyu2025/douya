@@ -1273,15 +1273,17 @@ func FuzzyMatchModelID(id, name string) bool {
 	return false
 }
 
-// DeleteStream 调用 DELETE /v1/stream/:conv_id 停止指定会话的流式生成
+// DeleteStream 停止指定会话的流式生成
 // 基于 llama.cpp SSE Replay Buffer 功能（b9809+）
+// b10605+ 变更：conv_id 从路径段改为查询参数传递（服务端从 req.get_param("conv_id") 取值），
+// 旧的路径段式 DELETE /v1/stream/{id} 在新版下永远 404，会导致"停止生成"静默失效
 // 生活类比：就像挂断电话，不仅自己不听，还告诉对方也不用继续说了
 // 返回 nil 表示成功停止（包括会话不存在的情况，幂等操作）
 func (c *Client) DeleteStream(ctx context.Context, convID string) error {
 	if convID == "" {
 		return nil
 	}
-	reqURL := c.baseURL + "/v1/stream/" + url.PathEscape(convID)
+	reqURL := c.baseURL + "/v1/stream?conv_id=" + url.QueryEscape(convID)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, reqURL, http.NoBody)
 	if err != nil {
 		return apperror.Wrap(apperror.KindInternal, "failed to create delete stream request", err)

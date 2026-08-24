@@ -694,6 +694,13 @@ func (s *Server) GracefulStop(timeout time.Duration) error {
 		log.Error().Err(err).Msg("graceful shutdown request failed (will force stop)")
 	} else {
 		defer resp.Body.Close()
+		// b10605+ 的 llama-server 路由表已移除 /shutdown 端点（返回 404/405）。
+		// 注意 HTTP 404 不会产生 Go 层面的 err，若不在此拦截会误以为"请求已送达"
+		// 而白等满整个超时才强制停止；此时应立即降级为强制停止
+		if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
+			log.Info().Int("status", resp.StatusCode).Msg("[server] /shutdown not supported by this llama-server build, falling back to force stop")
+			return s.Stop()
+		}
 		log.Info().Msg("graceful shutdown request sent, waiting for server to exit...")
 	}
 
