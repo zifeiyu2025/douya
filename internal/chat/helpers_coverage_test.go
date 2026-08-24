@@ -185,11 +185,11 @@ func TestEstimateAttachmentTokensFromJSON_ValidEmptyArray(t *testing.T) {
 
 // TestEstimateAttachmentTokensFromJSON_TextAttachment 文本附件按内容估算
 func TestEstimateAttachmentTokensFromJSON_TextAttachment(t *testing.T) {
-	// 中文文本：4 字 * 2 token/字 + 1 = 9，+ 20 wrapper = 29
+	// 中文文本：4 字按新系数 1 token/字 + 1 = 5，+ 20 wrapper = 25
 	json := `[{"type":"text","data":"你好世界"}]`
 	got := estimateAttachmentTokensFromJSON(json)
-	if got != 29 {
-		t.Errorf("中文文本附件应返回 29, 实际 %d", got)
+	if got != 25 {
+		t.Errorf("中文文本附件应返回 25, 实际 %d", got)
 	}
 }
 
@@ -236,10 +236,10 @@ func TestEstimateAttachmentTokensWithData_TextEmpty(t *testing.T) {
 
 // TestEstimateAttachmentTokensWithData_TextChinese 中文文本附件
 func TestEstimateAttachmentTokensWithData_TextChinese(t *testing.T) {
-	// "你好" = 2 字 * 2 token + 1 = 5，+ 20 wrapper = 25
+	// "你好" = 2 字按新系数 1 token/字 + 1 = 3，+ 20 wrapper = 23
 	got := EstimateAttachmentTokensWithData("text", "你好")
-	if got != 25 {
-		t.Errorf("中文文本应返回 25, 实际 %d", got)
+	if got != 23 {
+		t.Errorf("中文文本应返回 23, 实际 %d", got)
 	}
 }
 
@@ -854,12 +854,12 @@ func TestSetImageTokenEstimate_Negative(t *testing.T) {
 // EstimateTokensByLang 测试
 // =============================================================================
 
-// TestEstimateTokensByLang_Chinese 中文按 2 token/字估算
+// TestEstimateTokensByLang_Chinese 中文按 1 token/字估算（保留约 50% 安全边际）
 func TestEstimateTokensByLang_Chinese(t *testing.T) {
-	// 4 个中文字 = 4*2+1 = 9
+	// 4 个中文字 = 4*1+1 = 5
 	got := EstimateTokensByLang("你好世界", "zh")
-	if got != 9 {
-		t.Errorf("中文 4 字应返回 9, 实际 %d", got)
+	if got != 5 {
+		t.Errorf("中文 4 字应返回 5, 实际 %d", got)
 	}
 }
 
@@ -886,8 +886,8 @@ func TestEstimateTokensByLang_Empty(t *testing.T) {
 func TestEstimateTokensByLang_LongText(t *testing.T) {
 	longZh := strings.Repeat("你", 1000)
 	got := EstimateTokensByLang(longZh, "zh")
-	if got != 2001 {
-		t.Errorf("1000 个中文字应返回 2001, 实际 %d", got)
+	if got != 1001 {
+		t.Errorf("1000 个中文字应返回 1001, 实际 %d", got)
 	}
 }
 

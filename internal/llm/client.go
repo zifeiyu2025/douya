@@ -225,6 +225,11 @@ func (c *Client) StreamChatWithConvID(ctx context.Context, req *ChatCompletionRe
 		line := scanner.Text()
 
 		if !strings.HasPrefix(line, "data: ") {
+			// bug F 修复：SSE 规范行（空行/注释/event/id/retry）静默跳过；
+			// 规范外内容此前完全静默，现记 Debug 保留排障线索
+			if !isIgnorableSSELine(line) {
+				log.Debug().Str("line", sseLogSnippet(line)).Msg("[sse] unexpected non-data line")
+			}
 			continue
 		}
 
@@ -236,6 +241,7 @@ func (c *Client) StreamChatWithConvID(ctx context.Context, req *ChatCompletionRe
 
 		var chunk SSEChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			log.Warn().Err(err).Str("payload", sseLogSnippet(data)).Msg("[sse] failed to parse chat chunk")
 			continue
 		}
 
@@ -251,6 +257,30 @@ func (c *Client) StreamChatWithConvID(ctx context.Context, req *ChatCompletionRe
 	}
 
 	return nil
+}
+
+// isIgnorableSSELine 判断非 "data: " 前缀的行是否属于 SSE 规范定义的正常行
+// （空行事件分隔符、":" 注释心跳、"event:/id:/retry:" 标准字段）。
+// 规范外的未知内容返回 false，供调用方记录可观测日志（bug F）。
+func isIgnorableSSELine(line string) bool {
+	if line == "" || strings.HasPrefix(line, ":") {
+		return true
+	}
+	for _, prefix := range []string{"event:", "id:", "retry:"} {
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// sseLogSnippet 截取 SSE 行前 200 字节用于日志输出，避免异常大载荷刷爆日志。
+func sseLogSnippet(s string) string {
+	const maxLen = 200
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "...(truncated)"
 }
 
 func FixUTF8(s string) string {
@@ -842,6 +872,9 @@ func (c *Client) WatchModelLoadProgress(ctx context.Context, modelName string, o
 
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data: ") {
+			if !isIgnorableSSELine(line) {
+				log.Debug().Str("line", sseLogSnippet(line)).Msg("[sse] unexpected non-data line (model progress)")
+			}
 			continue
 		}
 		data := strings.TrimPrefix(line, "data: ")
@@ -851,6 +884,7 @@ func (c *Client) WatchModelLoadProgress(ctx context.Context, modelName string, o
 
 		var event ModelLoadEvent
 		if err := json.Unmarshal([]byte(data), &event); err != nil {
+			log.Warn().Err(err).Str("payload", sseLogSnippet(data)).Msg("[sse] failed to parse model load event")
 			continue
 		}
 
@@ -1096,7 +1130,12 @@ func (c *Client) OperateSlot(ctx context.Context, slotID int, action, filename s
 	wantBody := false
 	if action == "save" || action == "restore" {
 		var err error
-		body, err = json.Marshal(map[string]any{"filename": filename})
+		// 新版 llama-server 与 /tokenize 同理要求请求体携带 model 字段，
+		// 缺失时返回 "model name is missing" 导致 slot 保存失败
+		body, err = json.Marshal(map[string]any{
+			"filename": filename,
+			"model":    c.GetCurrentModel(),
+		})
 		if err != nil {
 			return apperror.Wrap(apperror.KindInternal, "failed to marshal slot operation request", err)
 		}

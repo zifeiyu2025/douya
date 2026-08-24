@@ -109,13 +109,15 @@ func (s *Service) tryRefineMaxTokens(ctx context.Context, req *llm.ChatCompletio
 
 	text, err := client.ApplyTemplate(tokenizeCtx, req.Messages)
 	if err != nil {
-		log.Debug().Err(err).Msg("[tokenize] apply template failed, skip refinement")
+		// bug D 修复：此处仅在估算值已超上下文 75% 时才会到达，
+		// 校准失败会直接影响后续 max_tokens 决策，Debug 级别在生产日志不可见，升级为 Warn
+		log.Warn().Err(err).Msg("[tokenize] apply template failed, skip refinement")
 		return
 	}
 
 	tokens, err := client.Tokenize(tokenizeCtx, text)
 	if err != nil {
-		log.Debug().Err(err).Msg("[tokenize] tokenize failed, skip refinement")
+		log.Warn().Err(err).Msg("[tokenize] tokenize failed, skip refinement")
 		return
 	}
 
@@ -269,6 +271,20 @@ func (s *Service) finalizeStreamResult(cancelCtx context.Context, convID string,
 	content := acc.FullContent.String()
 	thinkingContent := acc.FullThinking.String()
 	if content == "" && thinkingContent == "" {
+		// 用户主动取消属正常路径：前端已收到 stopped 事件，静默跳过即可
+		if cancelCtx.Err() != nil {
+			log.Info().Str("convID", convID).Msg("[chat] 生成已取消，跳过空消息保存")
+			return nil
+		}
+		// bug B 修复：异常空回复不再静默吞掉——记 Warn 日志便于排查，
+		// 并向前端发 error 事件，避免出现"AI 已读不回"且无任何解释的情况
+		log.Warn().
+			Str("convID", convID).
+			Str("finish_reason", acc.FinishReason).
+			Int("prompt_tokens", acc.PromptTokens).
+			Bool("first_token_sent", acc.FirstTokenSent).
+			Msg("[chat] 模型返回空内容，未保存 assistant 消息")
+		s.emitForConv(convID, "error", "模型返回了空回复，请重试；若持续出现，请检查模型是否加载完整或调整生成参数")
 		return nil
 	}
 

@@ -230,12 +230,12 @@ func TestEstimateMessageTokens_EmptyMessage(t *testing.T) {
 // TestEstimateMessageTokens_ContentOnly 验证仅文本内容的 token 估算
 func TestEstimateMessageTokens_ContentOnly(t *testing.T) {
 	m := &store.Message{
-		Content: "你好世界", // 4 个中文字符，2 token/字 = 8 token
+		Content: "你好世界", // 4 个中文字符，新系数 1 token/字 + 1 = 5 token
 	}
 	got := EstimateMessageTokens(m)
-	// 8 (content) + 10 (template) = 18
-	if got < 18 {
-		t.Errorf("中文内容消息 token 估算 %d，期望 >= 18", got)
+	// 5 (content) + 10 (template) = 15
+	if got < 15 {
+		t.Errorf("中文内容消息 token 估算 %d，期望 >= 15", got)
 	}
 }
 
