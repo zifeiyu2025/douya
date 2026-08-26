@@ -142,17 +142,19 @@ func parseServerVersionOutput(output string) (version int, commit string, err er
 	return version, commit, nil
 }
 
-// GetLatestReleaseTag 查询 GitHub API，获取 llama.cpp 最新 release 的 tag 和构建编号。
+// GetLatestReleaseTag 查询 GitHub API，获取 llama.cpp 当前锁定版本的 tag 和构建编号。
 //
-// 生活类比：打电话给应用商店（GitHub API），问"llama.cpp 最新版是什么编号？"。
+// 生活类比：打电话给应用商店（GitHub API），问"当前适配认可的版本是什么编号？"。
 //
 // 复用 backend_download.go 中的 fetchGitHubLatestRelease：
-// llama.cpp 2026-08 起语义化版本双轨发布（稳定版 vX.Y.Z 只含指针文件），
-// fetchGitHubLatestRelease 会自动跳过无二进制的稳定版，返回最新含二进制的 nightly。
+// 版本固定策略下返回的是 PinnedReleaseTag 锁定的已验证版本（而非上游绝对最新）。
+// 因此 HasUpdate=true 的含义是"存在比本地更新的已验证版本"，用户据此点击
+// 更新时下载到的正是该验证版本——提示与下载永远一致，不会引导用户
+// 拿到未经适配的后端。
 //
 // 返回：
-//   - version: 构建编号（如 10220），0 表示解析失败
-//   - tag: release tag（如 "b10220"）
+//   - version: 构建编号（如 10605），0 表示解析失败
+//   - tag: release tag（如 "b10605"）
 //   - err: 查询失败时的错误
 func GetLatestReleaseTag() (version int, tag string, err error) {
 	release, err := fetchGitHubLatestRelease()

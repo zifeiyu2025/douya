@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "model_path": "",
   "mmproj_auto": true,
   "mmproj_offload": null,
@@ -32,6 +32,16 @@
   "programming_mode": "auto",
   "chat_background": "",
   "chat_background_opacity": 0.9,
+  "background_light": {
+    "opacity": 0.85,
+    "blur": 0,
+    "mask_alpha": 0.15
+  },
+  "background_dark": {
+    "opacity": 0.75,
+    "blur": 0,
+    "mask_alpha": 0.4
+  },
   "user_avatar": "",
   "ai_avatar": "",
   "search_mode": "off",

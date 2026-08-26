@@ -31,7 +31,7 @@ type Config struct {
 	// 使用 *bool 是为了区分"未设置"与"显式 false"：
 	// 之前是 bool 且默认 true，导致用户设 mmproj_offload=false 时被 `if cfg.MmprojOffload { d.MmprojOffload = true }`
 	// 单方向覆盖，"关闭"路径永远不可达。改为 *bool 后 false 可真正生效。
-	MmprojOffload   *bool  `json:"mmproj_offload"`
+	MmprojOffload *bool `json:"mmproj_offload"`
 	// MmprojDevice 视觉投影(mmproj)使用的 GPU 设备名（多显卡分卡）。
 	// 空字符串=不传递（llama.cpp auto，与主模型同卡）；"none"=关闭 mmproj 卸载；
 	// 也可指定具体设备名（如 "cuda:1"），需配合 --list-devices 查看可用设备。
@@ -82,9 +82,18 @@ type Config struct {
 	ProgrammingMode       string  `json:"programming_mode"`
 	ChatBackground        string  `json:"chat_background"`
 	ChatBackgroundOpacity float64 `json:"chat_background_opacity"`
-	UserAvatar            string  `json:"user_avatar"`
-	AiAvatar              string  `json:"ai_avatar"`
-	SearchMode            string  `json:"search_mode"` // "off", "auto", "on"
+	// 每主题独立背景参数（v3 引入）：同一张 chat_background 图，
+	// 亮色/暗色主题各存一套「表面透明度 / 背景模糊 / 遮罩强度」，
+	// 解决旧方案"一套参数通吃两主题"导致的亮色雾面、深色泛白问题。
+	// 注意：三个参数均存在合法零值（如 blur=0 表示不模糊），
+	// 因此不进入 intFieldRules/floatFieldRules 范围表，
+	// 校验采用条件式处理（见 Validate/repairInvalidFields 中 backgroundXxx 相关分支），
+	// 避免 repairInvalidFields 把合法零值误修回默认值。
+	BackgroundLight ThemeBackgroundParams `json:"background_light"`
+	BackgroundDark  ThemeBackgroundParams `json:"background_dark"`
+	UserAvatar      string                `json:"user_avatar"`
+	AiAvatar        string                `json:"ai_avatar"`
+	SearchMode      string                `json:"search_mode"` // "off", "auto", "on"
 	// Deprecated: 已迁移到 Reasoning 字段，保留仅为向后兼容
 	ThinkingEnabled bool `json:"thinking_enabled"`
 	// Deprecated: 已迁移到 Reasoning 字段，保留仅为向后兼容
@@ -249,9 +258,38 @@ type Config struct {
 	MCPServers []MCPServerConfig `json:"mcp_servers"`
 }
 
+// ThemeBackgroundParams 单个主题的背景视觉参数。
+// 设计动机：旧方案只有一个全局 chat_background_opacity，亮暗主题被迫共用，
+// 导致亮色模式蒙白纱（雾面）、深色模式只适配特定颜色背景图。
+// v3 起亮暗各存一套，前端按当前主题取用对应参数。
+type ThemeBackgroundParams struct {
+	// Opacity 表面透明度系数（0-1）。
+	// 含义：界面表面（气泡/面板/卡片）保留多少底色。
+	// 无背景图时前端强制按 1 处理（完全实色，观感与旧版一致）；
+	// 有背景图时值越小表面越通透，背景图越清晰可见。
+	Opacity float64 `json:"opacity"`
+	// Blur 背景图模糊半径（px，0=不模糊）。类似 VSCode 背景插件的模糊选项，
+	// 用于让过于锐利的壁纸不干扰文字阅读。
+	Blur float64 `json:"blur"`
+	// MaskAlpha 遮罩强度（0-1）。在背景图上叠加一层与主题同向的遮罩
+	// （亮色叠白、深色叠黑），用于压低背景对比度保证文字可读性。
+	MaskAlpha float64 `json:"mask_alpha"`
+}
+
+// clamp01 将浮点值收敛到 [0,1] 区间（NaN 视为 0）。
+func clamp01(v float64) float64 {
+	if v < 0 || v != v { // v != v 是 NaN 判定的惯用写法
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
+}
+
 func DefaultConfig() *Config {
 	return &Config{
-		Version:         2, // 当前配置 schema 版本号（P4.3 与 currentConfigVersion/migrate 对齐）
+		Version:         3, // 当前配置 schema 版本号（与 currentConfigVersion/migrate 对齐）
 		ModelPath:       "",
 		MmprojAuto:      true,
 		MmprojOffload:   nil,
@@ -286,23 +324,28 @@ func DefaultConfig() *Config {
 		ProgrammingMode:            "auto",   // 默认自动检测（coder 模型启用编程版提示词）
 		ChatBackground:             "",
 		ChatBackgroundOpacity:      0.9,
-		UserAvatar:                 "",
-		AiAvatar:                   "",
-		SearchMode:                 "off",
-		ThinkingEnabled:            true,
-		ThinkingSoftSwitch:         "auto",
-		SleepIdleSeconds:           -1, // 与 llama.cpp 默认值对齐，-1 禁用空闲休眠
-		ModelsMax:                  1,
-		RAGEnabled:                 false,
-		RAGActiveKB:                "default",
-		RAGTopK:                    3,
-		RAGMinScore:                0.3,
-		RAGChunkSize:               512,
-		RAGChunkOverlap:            64,
-		ReasoningBudgetMessage:     "",
-		ReasoningBudgetStartTag:    "",
-		ReasoningBudgetEndTag:      "",
-		Mmap:                       true,
+		// 每主题背景参数默认值（仅在设置了背景图时生效）：
+		// 亮色表面保留较多底色+轻遮罩，避免旧版"白纱雾面"；
+		// 深色表面更通透+较重黑遮罩，保证任意壁纸下文字对比度。
+		BackgroundLight:         ThemeBackgroundParams{Opacity: 0.85, Blur: 0, MaskAlpha: 0.15},
+		BackgroundDark:          ThemeBackgroundParams{Opacity: 0.75, Blur: 0, MaskAlpha: 0.40},
+		UserAvatar:              "",
+		AiAvatar:                "",
+		SearchMode:              "off",
+		ThinkingEnabled:         true,
+		ThinkingSoftSwitch:      "auto",
+		SleepIdleSeconds:        -1, // 与 llama.cpp 默认值对齐，-1 禁用空闲休眠
+		ModelsMax:               1,
+		RAGEnabled:              false,
+		RAGActiveKB:             "default",
+		RAGTopK:                 3,
+		RAGMinScore:             0.3,
+		RAGChunkSize:            512,
+		RAGChunkOverlap:         64,
+		ReasoningBudgetMessage:  "",
+		ReasoningBudgetStartTag: "",
+		ReasoningBudgetEndTag:   "",
+		Mmap:                    true,
 		// KV 缓存 GPU 卸载：默认开启，与 llama.cpp 原生默认（kv-offload: enabled）一致。
 		// 开启后 KV cache 保留在显卡显存，逐 token 推理速度更快；但会增加显存占用，
 		// 显存紧张的小显卡可关闭（KV 落入内存），或依赖 llama.cpp 的 --fit 自动缩小上下文来兜底。
@@ -562,7 +605,7 @@ func ensureConfigFields(path string, userData []byte, cfg *Config) {
 // 每次新增 schema 变更时递增此常量，并在 migrate 中追加对应迁移分支。
 // P4.3 修复：此前为 1，但 migrate 中已有 v1→v2 分支（CacheReuse），
 // 实际迁移产物版本是 2，常量与 DefaultConfig 的 1 均不匹配真实 schema 版本。
-const currentConfigVersion = 2
+const currentConfigVersion = 3
 
 // migrate 执行配置 schema 版本迁移链。
 // 根据 cfg.Version 逐步升级到 currentConfigVersion。
@@ -596,8 +639,46 @@ func (c *Config) migrate(data []byte) {
 		}
 		c.Version = 2
 	}
-	// 未来版本迁移在此追加，例如：
-	// if c.Version < 3 { /* v2 -> v3 迁移逻辑 */; c.Version = 3 }
+	// v2 -> v3：引入每主题独立背景参数（background_light/background_dark）。
+	// 旧配置只有单一 chat_background_opacity，迁移时以其为种子生成两套参数，
+	// 保证老用户升级后背景观感平滑过渡（而非突然变成新默认值）。
+	if c.Version < 3 {
+		c.migratePerThemeBackground(data)
+		c.Version = 3
+	}
+}
+
+// migratePerThemeBackground v2→v3：将旧的单值透明度种子化到每主题参数。
+// 沿用 migrateLegacyThinking 的"原始 JSON 检测键是否存在"模式：
+// 仅当磁盘配置缺少 background_light 键时才写入种子值，
+// 区分"旧配置缺键"与"用户已在 v3 上显式设置"，绝不覆盖用户已有选择。
+//
+// 关键陷阱说明：json.Unmarshal 对缺失字段保持结构体零值 {0,0,0}，
+// 若不在此处主动种子化，老用户升级后表面会全透（opacity=0），界面不可读。
+func (c *Config) migratePerThemeBackground(data []byte) {
+	var raw map[string]json.RawMessage
+	parseOK := json.Unmarshal(data, &raw) == nil && raw != nil
+	if parseOK {
+		if _, ok := raw["background_light"]; ok {
+			return // 用户已在 v3 配置上运行，保留其显式设置
+		}
+	}
+	// 以旧的单一透明度为种子；异常值（越界/NaN）回退到旧版默认 0.9
+	base := c.ChatBackgroundOpacity
+	// 极老配置连 chat_background_opacity 键都不存在（Unmarshal 后为零值 0），
+	// 不能把 0 当作用户选择，否则种子出"全透明表面"，界面不可读
+	if parseOK {
+		if _, ok := raw["chat_background_opacity"]; !ok {
+			base = 0.9
+		}
+	}
+	if base < 0 || base > 1 || base != base {
+		base = 0.9
+	}
+	// 深色主题：表面更通透一点（沉浸感），遮罩相应加重保证文字对比度；
+	// 亮色主题：保持原透明度不变，仅加轻遮罩替代旧版的全局白纱。
+	c.BackgroundLight = ThemeBackgroundParams{Opacity: clamp01(base), Blur: 0, MaskAlpha: 0.15}
+	c.BackgroundDark = ThemeBackgroundParams{Opacity: clamp01(base * 0.85), Blur: 0, MaskAlpha: 0.40}
 }
 
 // migrateLegacyThinking 将旧版 thinking 配置迁移到 Reasoning 字段。
@@ -773,6 +854,25 @@ func (c *Config) repairInvalidFields() []string {
 		c.ProactiveCompressThreshold = defaults.ProactiveCompressThreshold
 	}
 
+	// 每主题背景参数校验：三个参数均存在合法零值（blur=0/mask=0/opacity 极端值），
+	// 不能进 floatFieldRules 范围表（否则零值会被误修回默认），
+	// 采用条件式处理：仅当超出 [0,1] 时修复回该主题默认值。
+	for name, p := range map[string]*ThemeBackgroundParams{
+		"background_light": &c.BackgroundLight,
+		"background_dark":  &c.BackgroundDark,
+	} {
+		def := defaults.BackgroundLight
+		if name == "background_dark" {
+			def = defaults.BackgroundDark
+		}
+		if p.Opacity < 0 || p.Opacity > 1 || p.Opacity != p.Opacity ||
+			p.Blur < 0 || p.Blur != p.Blur ||
+			p.MaskAlpha < 0 || p.MaskAlpha > 1 || p.MaskAlpha != p.MaskAlpha {
+			repaired = append(repaired, fmt.Sprintf("%s: {%.2f %.2f %.2f} -> {%.2f %.2f %.2f}", name, p.Opacity, p.Blur, p.MaskAlpha, def.Opacity, def.Blur, def.MaskAlpha))
+			*p = def
+		}
+	}
+
 	// 跨字段约束修复
 	if c.RAGChunkSize > 0 && c.RAGChunkOverlap > 0 && c.RAGChunkOverlap >= c.RAGChunkSize {
 		repaired = append(repaired, fmt.Sprintf("rag_chunk_overlap: %d -> %d", c.RAGChunkOverlap, defaults.RAGChunkOverlap))
@@ -855,6 +955,22 @@ func (c *Config) Validate() error {
 	// P1-A1: 主动压缩阈值，> 0 时才校验 0.5-0.95
 	if c.ProactiveCompressThreshold > 0 && (c.ProactiveCompressThreshold < 0.5 || c.ProactiveCompressThreshold > 0.95) {
 		return apperror.Newf(apperror.KindInvalidConfig, "invalid proactive_compress_threshold: %.2f (must be 0.5-0.95 or 0 for default)", c.ProactiveCompressThreshold)
+	}
+
+	// 每主题背景参数：合法零值放行（blur=0/mask=0），仅越界/NaN 报错
+	for name, p := range map[string]ThemeBackgroundParams{
+		"background_light": c.BackgroundLight,
+		"background_dark":  c.BackgroundDark,
+	} {
+		if p.Opacity < 0 || p.Opacity > 1 || p.Opacity != p.Opacity {
+			return apperror.Newf(apperror.KindInvalidConfig, "invalid %s.opacity: %.2f (must be 0-1)", name, p.Opacity)
+		}
+		if p.Blur < 0 || p.Blur != p.Blur {
+			return apperror.Newf(apperror.KindInvalidConfig, "invalid %s.blur: %.2f (must be >= 0)", name, p.Blur)
+		}
+		if p.MaskAlpha < 0 || p.MaskAlpha > 1 || p.MaskAlpha != p.MaskAlpha {
+			return apperror.Newf(apperror.KindInvalidConfig, "invalid %s.mask_alpha: %.2f (must be 0-1)", name, p.MaskAlpha)
+		}
 	}
 
 	// 依赖/互斥检查（跨字段约束）

@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"douya/internal/apperror"
 	"douya/internal/chat"
 	"douya/internal/config"
+	"douya/internal/distinfo"
 	"douya/internal/llm"
 	"douya/internal/modelruntime"
 	"douya/internal/pathutil"
@@ -388,19 +388,13 @@ func resolveAppDir() string {
 
 // isStoreMode 检测当前是否为 Microsoft Store (MSIX) 安装版。
 //
-// MSIX 打包的应用安装在 %ProgramFiles%\WindowsApps\<PackageFullName>\ 下，
-// 该目录是只读的。因此通过 exe 路径判断是否位于 WindowsApps 目录，
-// 据此切换数据目录策略（便携版写 exe 旁，Store 版写 AppData）。
+// 检测逻辑已收敛到 internal/distinfo 包（唯一事实来源），此处保留薄包装
+// 以兼容既有调用点。新增渠道相关判断请直接使用 distinfo 包。
 //
 // 生活类比：判断自己是"拎包入住"（便携版，东西放行李箱旁），
 // 还是"酒店式管理"（商店版，行李统一寄存到前台）。
 func isStoreMode() bool {
-	exePath, err := os.Executable()
-	if err != nil {
-		return false
-	}
-	// WindowsApps 是 MSIX/AppX 应用的唯一安装位置（大小写不敏感匹配）
-	return strings.Contains(strings.ToLower(exePath), `\windowsapps\`)
+	return distinfo.IsStore()
 }
 
 // storeAppDir 返回 Store (MSIX) 版的数据目录。
@@ -410,6 +404,11 @@ func isStoreMode() bool {
 //
 // 数据目录：%LOCALAPPDATA%\Douya\
 // 回退顺序：LOCALAPPDATA → APPDATA → exe 所在目录。
+//
+// 首次进入新数据目录时执行一次性旧数据迁移（审计报告 §4.1）：
+// 旧版本可能把 config.json/data/ 留在安装目录旁（MSIX 文件虚拟化下可读），
+// 迁移保证老用户升级后聊天记录不丢。迁移在创建默认配置之前执行，
+// 否则目标目录已初始化会被迁移逻辑判定为跳过。
 func storeAppDir(exePath string) string {
 	base := os.Getenv("LOCALAPPDATA")
 	if base == "" {
@@ -424,6 +423,14 @@ func storeAppDir(exePath string) string {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		zlog.Error().Err(err).Str("dir", dir).Msg("[appDir] 创建 Store 数据目录失败")
 	}
+
+	// 一次性迁移旧版遗留数据（幂等；失败降级，不阻塞启动）
+	exeDir := filepath.Dir(exePath)
+	candidates := []string{exeDir}
+	if parent := filepath.Dir(exeDir); parent != exeDir {
+		candidates = append(candidates, parent)
+	}
+	distinfo.MigrateLegacyStoreData(dir, candidates)
 
 	// 生成默认配置（若无），保证后续 loadAndValidateConfig 能正常读到配置
 	cfgPath := filepath.Join(dir, "config.json")

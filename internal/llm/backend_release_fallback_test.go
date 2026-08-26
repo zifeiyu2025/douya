@@ -6,6 +6,8 @@ package llm
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -131,5 +133,25 @@ func TestFetchLatestBinaryReleaseNoBinary(t *testing.T) {
 
 	if _, err := fetchLatestBinaryRelease(latestSrv.URL, listSrv.URL); err == nil {
 		t.Error("所有 release 均无二进制资产时应返回错误，实际返回 nil")
+	}
+}
+
+// TestPinnedReleaseAPIConfig 验证版本固定配置的完整性：
+// GitHubReleasesAPI 必须指向 PinnedReleaseTag 对应的 release 详情接口，
+// 且 tag 必须是 "b+数字" 形式的 nightly tag。
+// 这是版本固定策略的"看门狗"测试——防止未来有人把 API 地址误改回
+// releases/latest，导致应用重新自动跟随上游最新版（违背固定策略）。
+func TestPinnedReleaseAPIConfig(t *testing.T) {
+	want := "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/" + PinnedReleaseTag
+	if GitHubReleasesAPI != want {
+		t.Errorf("GitHubReleasesAPI = %q, 期望 %q（必须指向固定 tag 的 release 详情接口，而非 releases/latest）", GitHubReleasesAPI, want)
+	}
+
+	if !strings.HasPrefix(PinnedReleaseTag, "b") {
+		t.Errorf("PinnedReleaseTag = %q, 应为 \"b+数字\" 形式的 nightly tag", PinnedReleaseTag)
+	}
+	buildNum := strings.TrimPrefix(PinnedReleaseTag, "b")
+	if _, err := strconv.Atoi(buildNum); err != nil {
+		t.Errorf("PinnedReleaseTag = %q, 构建编号部分 %q 应可解析为整数: %v", PinnedReleaseTag, buildNum, err)
 	}
 }

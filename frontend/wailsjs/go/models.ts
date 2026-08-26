@@ -263,6 +263,22 @@ export namespace config {
 	        this.enabled = source["enabled"];
 	    }
 	}
+	export class ThemeBackgroundParams {
+	    opacity: number;
+	    blur: number;
+	    mask_alpha: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ThemeBackgroundParams(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.opacity = source["opacity"];
+	        this.blur = source["blur"];
+	        this.mask_alpha = source["mask_alpha"];
+	    }
+	}
 	export class Config {
 	    version: number;
 	    model_path: string;
@@ -297,6 +313,8 @@ export namespace config {
 	    programming_mode: string;
 	    chat_background: string;
 	    chat_background_opacity: number;
+	    background_light: ThemeBackgroundParams;
+	    background_dark: ThemeBackgroundParams;
 	    user_avatar: string;
 	    ai_avatar: string;
 	    search_mode: string;
@@ -459,6 +477,8 @@ export namespace config {
 	        this.programming_mode = source["programming_mode"];
 	        this.chat_background = source["chat_background"];
 	        this.chat_background_opacity = source["chat_background_opacity"];
+	        this.background_light = this.convertValues(source["background_light"], ThemeBackgroundParams);
+	        this.background_dark = this.convertValues(source["background_dark"], ThemeBackgroundParams);
 	        this.user_avatar = source["user_avatar"];
 	        this.ai_avatar = source["ai_avatar"];
 	        this.search_mode = source["search_mode"];

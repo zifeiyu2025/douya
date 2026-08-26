@@ -1,4 +1,4 @@
-﻿[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::InputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 # 兼容 PowerShell 5.1：不依赖 >$null 2>&1 重定向语法
@@ -109,7 +109,14 @@ foreach ($dir in $syncDirs) {
             Write-Host "  已同步: $dir\" -ForegroundColor Green
         } else {
             New-Item -ItemType Directory -Path $dst -Force | Out-Null
-            Write-Host "  已创建空目录: $dir\（源目录无文件）" -ForegroundColor Yellow
+            if ($dir -eq "runtime") {
+                # 事实源为空说明从未部署过编译产物：发布包将不含预置后端，
+                # 用户首次启动需联网下载（体积大、体验差）。明确告警而非静默创建。
+                Write-Host "  [警告] 项目 runtime\ 为空：发布包不含预置后端，用户首次启动需联网下载！" -ForegroundColor Red
+                Write-Host "  [警告] 请先运行 scripts\deploy-runtime.ps1 部署编译产物到 runtime\。" -ForegroundColor Red
+            } else {
+                Write-Host "  已创建空目录: $dir\（源目录无文件）" -ForegroundColor Yellow
+            }
         }
     } else {
         New-Item -ItemType Directory -Path $dst -Force | Out-Null

@@ -197,6 +197,7 @@ douya/
 │   ├── pdfutil/                # PDF text extraction (with regex fallback)
 │   ├── httputil/               # HTTP utilities
 │   ├── pathutil/               # Path utilities
+│   ├── distinfo/               # Distribution channel detection (portable / Microsoft Store) & old-install data migration
 │   ├── apperror/               # Error handling
 │   ├── logger/                 # Logging configuration
 │   └── version/                # Version info
@@ -213,9 +214,22 @@ douya/
 ├── tests/                      # Test suite (incl. -race race detection)
 │   └── screenshots/            # App screenshots
 ├── docs/                       # Documentation
-├── build/                      # Wails build config + icons
+├── build/                      # Wails build config + icons (incl. windows/msix store manifests)
 └── scripts/                    # Helper scripts (version consistency check, pre-commit)
 ```
+
+### Distribution Channels: Portable vs Microsoft Store
+
+Douya ships through two distribution channels, identified uniformly by `internal/distinfo` (based on whether the exe path resides under `\WindowsApps\`):
+
+| Capability | Release (portable) | Microsoft Store |
+|------|--------------|-----------|
+| Full features | ✅ Complete | ✅ Provided |
+| Data directory | exe-adjacent `data/` | `%LOCALAPPDATA%\Douya` (the WindowsApps install directory is read-only) |
+| In-app self-update | ✅ Supported | ❌ Soft-blocked (Store policy 10.1.5; updates go through the Store) |
+| Legacy data migration | N/A | On first launch, `config.json` and `data/` from the previous install directory are migrated automatically |
+
+> Before releasing, run `scripts\check_version_consistency.ps1` to verify version consistency: the main version (version.go, package.json) must be three-segment and strictly equal across sources; the exe file properties (wails.json ProductVersion) and the MSIX manifest (AppxManifest.xml Identity Version) are four-segment x.y.z.n whose first three segments must equal the main version.
 
 ### Architecture Highlights
 

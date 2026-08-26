@@ -255,6 +255,30 @@ func scanSubdirModels(modelsDir string) ([]ModelPreset, error) {
 	return presets, nil
 }
 
+// smartDefaultCtxSizeCap 智能默认上下文的安全上限（token）。
+// 取值与 ServerConfig.ApplyBackendSafetyLimits 对 Vulkan/CPU 后端的封顶值一致，
+// 确保智能默认在任何后端下都安全；CUDA 用户需要更大值可在设置中显式配置全局上下文。
+const smartDefaultCtxSizeCap = 32768
+
+// SmartDefaultCtxSize 根据模型训练上下文长度推导默认服务上下文大小。
+//
+// 设计意图（对标 LM Studio 的加载滑块逻辑）：
+//   - 上限依据 = 模型 GGUF 元数据中的训练上下文长度，而非一刀切的固定值；
+//     训练 8K 的模型（如 Gemma2/3）得到 8K，训练 128K 的模型得到封顶 32K
+//   - 封顶 smartDefaultCtxSizeCap：控制 KV cache 显存占用在保守范围，
+//     极端 OOM 场景由服务端崩溃降级链（ctx 减半重试）兜底
+//   - 训练长度未知（<=0）返回 0：preset 不写 ctx-size 行（writeIntField 跳过零值），
+//     回落到 llama.cpp 默认行为，与元数据缺失时的历史行为一致
+func SmartDefaultCtxSize(trainCtxLength int) int {
+	if trainCtxLength <= 0 {
+		return 0
+	}
+	if trainCtxLength > smartDefaultCtxSizeCap {
+		return smartDefaultCtxSizeCap
+	}
+	return trainCtxLength
+}
+
 // buildPresetFromModelFile 从模型文件构建 ModelPreset。
 // 生活类比：像档案管理员根据文件名和所在目录，填好一张标准档案卡片（preset）。
 //
@@ -273,6 +297,12 @@ func buildPresetFromModelFile(dir, fileName, modelPath string, sleepIdle int) Mo
 		MmprojPath: mmprojPath,
 		Jinja:      true,
 		SleepIdle:  sleepIdle,
+	}
+
+	// 智能默认 ctx-size：从 GGUF 元数据读训练上下文长度（解析带缓存，重复扫描开销 O(1)）。
+	// 元数据读取失败时不写 CtxSize（保持零值），回落到全局配置或 llama.cpp 默认。
+	if meta, err := system.ParseGGUFMetadataCached(filepath.Join(dir, fileName)); err == nil {
+		preset.CtxSize = SmartDefaultCtxSize(meta.ContextLength)
 	}
 
 	if mmprojPath != "" {

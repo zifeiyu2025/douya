@@ -20,10 +20,15 @@ config.json
 router-preset.ini
 mcp_servers.json
 
-# Runtime binaries (keep structure txt files)
-runtime/*.exe
-runtime/*.dll
+# Runtime binaries：只允许结构占位文件(txt/md)入库，编译产物一律忽略
+runtime/**
+!runtime/**/
+!runtime/**/*.txt
+!runtime/**/*.md
 engines_backup/
+
+# 槽位 KV 缓存与冒烟测试运行时数据
+build/slots/
 
 # Model files (keep structure txt files)
 models/*.gguf

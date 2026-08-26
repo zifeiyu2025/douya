@@ -451,9 +451,9 @@ func TestLoad_LegacyVersionMigratesToV1(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load 返回了非预期的错误: %v", err)
 	}
-	// 旧版本（Version=0）应迁移到最新版本
-	if cfg.Version != 2 {
-		t.Errorf("期望迁移后 Version=2，实际得到: %d", cfg.Version)
+	// 旧版本（Version=0）应沿迁移链升级到最新版本
+	if cfg.Version != currentConfigVersion {
+		t.Errorf("期望迁移后 Version=%d，实际得到: %d", currentConfigVersion, cfg.Version)
 	}
 	// 旧版 thinking_soft_switch="think" 应迁移为 reasoning="on"
 	if cfg.Reasoning != "on" {
@@ -473,8 +473,8 @@ func TestMigrate_LegacyVersion(t *testing.T) {
 	rawData := []byte(`{"thinking_enabled":true,"thinking_soft_switch":"no_think"}`)
 	cfg.migrate(rawData)
 
-	if cfg.Version != 2 {
-		t.Errorf("期望迁移后 Version=2，实际得到: %d", cfg.Version)
+	if cfg.Version != currentConfigVersion {
+		t.Errorf("期望迁移后 Version=%d，实际得到: %d", currentConfigVersion, cfg.Version)
 	}
 	// thinking_soft_switch="no_think" 应迁移为 reasoning="off"
 	if cfg.Reasoning != "off" {
@@ -482,20 +482,173 @@ func TestMigrate_LegacyVersion(t *testing.T) {
 	}
 }
 
+// TestMigrate_V2ToV3_SeedsPerThemeBackground 验证 v2→v3 迁移：
+// 磁盘缺少 background_light 键时，以旧 chat_background_opacity 为种子
+// 生成亮/暗两套背景参数，且深色透明度按 0.85 系数略降（沉浸感）。
+func TestMigrate_V2ToV3_SeedsPerThemeBackground(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Version = 2
+	cfg.ChatBackgroundOpacity = 0.6
+
+	rawData := []byte(`{"version":2,"chat_background_opacity":0.6}`)
+	cfg.migrate(rawData)
+
+	if cfg.Version != 3 {
+		t.Errorf("期望迁移后 Version=3，实际得到: %d", cfg.Version)
+	}
+	// 亮色种子 = 旧值原样保留
+	if cfg.BackgroundLight.Opacity != 0.6 {
+		t.Errorf("期望亮色 Opacity 种子=0.6，实际 %v", cfg.BackgroundLight.Opacity)
+	}
+	// 暗色种子 = 旧值 × 0.85 = 0.51
+	if cfg.BackgroundDark.Opacity != 0.51 {
+		t.Errorf("期望暗色 Opacity 种子=0.51（0.6×0.85），实际 %v", cfg.BackgroundDark.Opacity)
+	}
+	// 遮罩按主题差异化：暗色遮罩应比亮色重
+	if cfg.BackgroundDark.MaskAlpha <= cfg.BackgroundLight.MaskAlpha {
+		t.Errorf("期望暗色 MaskAlpha(%v) > 亮色(%v)", cfg.BackgroundDark.MaskAlpha, cfg.BackgroundLight.MaskAlpha)
+	}
+}
+
+// TestMigrate_PerThemeBackground_KeepsExplicit 验证磁盘已含 background_light 键时
+// 迁移绝不覆盖用户显式设置（区分"缺键"与"用户设过"的关键保护）。
+func TestMigrate_PerThemeBackground_KeepsExplicit(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Version = 0 // 极端场景：version 字段缺失但用户已手动写入新键
+	cfg.ThinkingEnabled = true
+	cfg.ThinkingSoftSwitch = "think"
+	cfg.Reasoning = ""
+	explicit := ThemeBackgroundParams{Opacity: 0.42, Blur: 4, MaskAlpha: 0.1}
+	cfg.BackgroundLight = explicit
+
+	rawData := []byte(`{"background_light":{"opacity":0.42,"blur":4,"mask_alpha":0.1}}`)
+	cfg.migrate(rawData)
+
+	if cfg.BackgroundLight != explicit {
+		t.Errorf("期望显式设置的 background_light 不被迁移覆盖，实际 %+v", cfg.BackgroundLight)
+	}
+}
+
+// TestMigrate_V2ToV3_MissingOpacityKeyFallsBack 验证极老配置连
+// chat_background_opacity 键都没有时，种子回退到旧版默认 0.9，
+// 而不是把零值 0 当作用户选择生成"全透明表面"。
+func TestMigrate_V2ToV3_MissingOpacityKeyFallsBack(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Version = 2
+	// 模拟 Unmarshal 后：磁盘无该键 → ChatBackgroundOpacity 为零值 0
+	cfg.ChatBackgroundOpacity = 0
+
+	rawData := []byte(`{"version":2}`)
+	cfg.migrate(rawData)
+
+	if cfg.BackgroundLight.Opacity != 0.9 {
+		t.Errorf("期望缺失键时种子回退到 0.9，实际 %v", cfg.BackgroundLight.Opacity)
+	}
+}
+
+// TestMigrate_V2ToV3_AbnormalSeedFallsBack 验证越界/NaN 种子回退到 0.9
+func TestMigrate_V2ToV3_AbnormalSeedFallsBack(t *testing.T) {
+	for name, badSeed := range map[string]float64{
+		"越界大值": 7.5,
+		"负数":   -0.3,
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.Version = 2
+			cfg.ChatBackgroundOpacity = badSeed
+			rawData := []byte(`{"version":2,"chat_background_opacity":7.5}`)
+			cfg.migrate(rawData)
+			if cfg.BackgroundLight.Opacity != 0.9 {
+				t.Errorf("期望异常种子回退到 0.9，实际 %v", cfg.BackgroundLight.Opacity)
+			}
+		})
+	}
+}
+
 // TestMigrate_AlreadyCurrentVersion 验证已是当前版本的配置不触发迁移
 func TestMigrate_AlreadyCurrentVersion(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.Version = 2
+	cfg.Version = currentConfigVersion
 	cfg.Reasoning = "auto"
-	// 原始数据包含 version 字段（值为当前版本），不应触发迁移，reasoning 不被覆盖
-	rawData := []byte(`{"version":2,"thinking_enabled":true,"thinking_soft_switch":"think"}`)
+	// 显式改写背景参数，验证当前版本配置不会被迁移逻辑碰
+	custom := ThemeBackgroundParams{Opacity: 0.33, Blur: 2, MaskAlpha: 0.2}
+	cfg.BackgroundLight = custom
+	// 原始数据包含 version 字段（值为当前版本），不应触发迁移，字段不被覆盖
+	rawData := []byte(`{"version":3,"thinking_enabled":true,"thinking_soft_switch":"think"}`)
 	cfg.migrate(rawData)
 
-	if cfg.Version != 2 {
-		t.Errorf("期望 Version 保持 2，实际得到: %d", cfg.Version)
+	if cfg.Version != currentConfigVersion {
+		t.Errorf("期望 Version 保持 %d，实际得到: %d", currentConfigVersion, cfg.Version)
 	}
 	if cfg.Reasoning != "auto" {
 		t.Errorf("期望 Reasoning 不被覆盖（仍为 auto），实际得到: %q", cfg.Reasoning)
+	}
+	if cfg.BackgroundLight != custom {
+		t.Errorf("期望 BackgroundLight 不被覆盖，实际 %+v", cfg.BackgroundLight)
+	}
+}
+
+// ===== 每主题背景参数校验测试（v3） =====
+
+// TestValidate_BackgroundParams_ZeroValuesLegal 验证合法零值放行：
+// blur=0（不模糊）、mask_alpha=0（无遮罩）都是用户可能选择的正常值，
+// 不应被范围校验拒绝，也不应被 repairInvalidFields 修复。
+func TestValidate_BackgroundParams_ZeroValuesLegal(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.BackgroundLight = ThemeBackgroundParams{Opacity: 0.5, Blur: 0, MaskAlpha: 0}
+	cfg.BackgroundDark = ThemeBackgroundParams{Opacity: 1, Blur: 0, MaskAlpha: 1}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("背景参数合法零值应通过校验，实际错误: %v", err)
+	}
+	if repaired := cfg.repairInvalidFields(); len(repaired) != 0 {
+		t.Errorf("背景参数合法零值不应触发修复，实际 %v", repaired)
+	}
+}
+
+// TestValidate_BackgroundParams_OutOfRange 验证越界参数在 Validate 中报错
+func TestValidate_BackgroundParams_OutOfRange(t *testing.T) {
+	cases := []struct {
+		name string
+		mut  func(c *Config)
+	}{
+		{"亮色opacity越界", func(c *Config) { c.BackgroundLight.Opacity = 1.5 }},
+		{"暗色mask越界", func(c *Config) { c.BackgroundDark.MaskAlpha = -0.1 }},
+		{"负blur", func(c *Config) { c.BackgroundDark.Blur = -3 }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			tc.mut(cfg)
+			if err := cfg.Validate(); err == nil {
+				t.Errorf("期望 %s 返回错误，实际 nil", tc.name)
+			}
+		})
+	}
+}
+
+// TestRepair_BackgroundParams_OutOfRange 验证越界参数被修复回该主题默认值
+func TestRepair_BackgroundParams_OutOfRange(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.BackgroundLight.Opacity = 1.7
+	cfg.BackgroundDark.MaskAlpha = -0.5
+	repaired := cfg.repairInvalidFields()
+
+	def := DefaultConfig()
+	if cfg.BackgroundLight.Opacity != def.BackgroundLight.Opacity {
+		t.Errorf("期望亮色 Opacity 修复回默认 %v，实际 %v", def.BackgroundLight.Opacity, cfg.BackgroundLight.Opacity)
+	}
+	if cfg.BackgroundDark.MaskAlpha != def.BackgroundDark.MaskAlpha {
+		t.Errorf("期望暗色 MaskAlpha 修复回默认 %v，实际 %v", def.BackgroundDark.MaskAlpha, cfg.BackgroundDark.MaskAlpha)
+	}
+	found := false
+	for _, msg := range repaired {
+		if containsStr(msg, "background_") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("期望修复列表包含 background_* 条目，实际 %v", repaired)
 	}
 }
 

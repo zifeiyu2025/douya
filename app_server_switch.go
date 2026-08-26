@@ -197,6 +197,31 @@ func (a *App) reloadPresetWithoutMmproj(ctx context.Context, modelName string) b
 }
 
 // regeneratePresetWithoutMmproj 重新生成不含指定模型 mmproj 的 preset 文件
+// applyCtxSizeArbitration ctx-size 来源仲裁：用户显式配置 > 模型智能默认。
+//
+// 背景：preset 扫描层会依据 GGUF 元数据的训练上下文长度给每个模型写入智能默认
+// ctx-size；而 llama.cpp 的 preset 机制中 per-model 段优先于 [*] 全局段。
+// 因此当用户在设置中显式配置了全局上下文时，必须清空 per-model 值，
+// 否则智能默认会反过来覆盖用户配置（违背"用户显式配置最优先"原则）。
+// 用户未配置时不做任何事，让智能默认生效——这正是本特性的核心价值。
+func (a *App) applyCtxSizeArbitration(presets []llm.ModelPreset) {
+	globalCtxSize := a.getConfig().ContextSize
+	if globalCtxSize <= 0 {
+		return
+	}
+	cleared := 0
+	for i := range presets {
+		if presets[i].CtxSize > 0 {
+			presets[i].CtxSize = 0
+			cleared++
+		}
+	}
+	if cleared > 0 {
+		zlog.Info().Int("global_ctx_size", globalCtxSize).Int("cleared_models", cleared).
+			Msg("[preset] 用户已显式配置全局上下文，忽略各模型的智能默认 ctx-size")
+	}
+}
+
 // 当模型因 mmproj 不兼容导致子进程崩溃时调用，让模型以纯文本模式加载
 // 返回 true 表示成功去掉了 mmproj 并重新生成了 preset 文件
 func (a *App) regeneratePresetWithoutMmproj(modelName string) bool {
@@ -308,7 +333,8 @@ func (a *App) generatePresetFile() error {
 
 	var globalDefaults map[string]string
 	if a.hwInfo != nil {
-		// 上下文长度：用户显式配置时写入 preset 全局默认，否则不写（llama.cpp 使用默认 4096）
+		// 上下文长度：用户显式配置时写入 preset 全局默认；否则依赖各模型的智能默认
+		// （来自 GGUF 训练长度），元数据缺失的模型才回落 llama.cpp 默认 4096
 		globalDefaults = map[string]string{
 			"mmproj-offload": "1",
 			"pooling":        "mean",
@@ -319,6 +345,7 @@ func (a *App) generatePresetFile() error {
 		zlog.Info().Msg("[preset] global defaults")
 	}
 
+	a.applyCtxSizeArbitration(presets)
 	content := llm.GeneratePreset(presets, globalDefaults)
 	presetPath := filepath.Join(appDir(), "router-preset.ini")
 	if err := llm.WritePresetFile(presetPath, content); err != nil {

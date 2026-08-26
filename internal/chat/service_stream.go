@@ -562,6 +562,22 @@ func (s *Service) savePartialContentIfAny(convID string, acc *StreamAccumulator)
 	s.emitForConv(convID, "assistant_message", storeMsgToChat(aiMsg))
 }
 
+// emitOutputTruncatedIfLengthCapped 在 finish_reason=length 时向前端发送输出截断提示。
+//
+// 背景：calcMaxTokens 为防 prompt 溢出会压缩生成预算；当回复触及该上限时
+// llama-server 返回 finish_reason=length，表现为"话说到一半戛然而止"。
+// 若不显式告知，用户无从分辨"模型说完了"与"被截断了"——对标 LM Studio 的
+// contextLengthReached 显式上报，避免 Ollama 式静默截断只写日志的反面模式。
+// 普通回复路径（finalizeStreamResult）与 tool call 循环最终保存路径
+// （saveToolCallFinalMessage）均需调用本方法。
+func (s *Service) emitOutputTruncatedIfLengthCapped(convID string, acc *StreamAccumulator) {
+	if acc.FinishReason != "length" {
+		return
+	}
+	log.Info().Str("convID", convID).Msg("[chat] 回复因达到 max_tokens 上限被截断，已通知前端")
+	s.emitForConv(convID, EventOutputTruncated, OutputTruncatedContent{Reason: "length"})
+}
+
 // retryStreamAfterContextExceeded 在上下文溢出时裁剪消息并重试流式请求。
 // 生活类比：像行李超重时，先扔掉一些不重要的东西（裁剪消息），再重新办托运（重试请求）。
 //

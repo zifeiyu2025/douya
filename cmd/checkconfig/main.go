@@ -113,8 +113,35 @@ func extractTSFields(content string, startMarker string, endMarker string) map[s
 	// 从起始标记后开始查找
 	content = content[startIdx+len(startMarker):]
 
-	// 找到结束标记（第一个独立的 "}"）
-	endIdx := strings.Index(content, "}")
+	// 从起始标记后开始查找结束标记。
+	// 升级说明：早期实现用 strings.Index 找"第一个 }"作为块结尾，
+	// 当 DEFAULT_CONFIG 出现嵌套对象字面量（如 background_light: { opacity: 0.85 }）时，
+	// 嵌套对象的 } 会被误判为整块结尾，导致其后所有字段解析丢失（假性漂移）。
+	// 改用大括号深度计数：归零处即真正的块结尾。
+	// 关键细节：若起始标记自身以 "{" 结尾（本项目两个标记都是），
+	// 块首已被标记消费，初始深度必须是 1；
+	// 否则按 0 起步、由扫描中遇到的第一个 "{" 建立。
+	// 注意：嵌套对象请写成单行（如 { opacity: 0.85, blur: 0 }），
+	// 多行嵌套会让内部键被误识别为独立字段。
+	depth := 0
+	if strings.HasSuffix(startMarker, "{") {
+		depth = 1
+	}
+	endIdx := -1
+	for i := 0; i < len(content); i++ {
+		switch content[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				endIdx = i
+			}
+		}
+		if endIdx != -1 {
+			break
+		}
+	}
 	if endIdx == -1 {
 		fmt.Fprintf(os.Stderr, "未找到结束标记 }\n")
 		os.Exit(1)

@@ -24,14 +24,35 @@ import (
 	"douya/internal/apperror"
 )
 
-// GitHubReleasesAPI 是 llama.cpp releases 的 GitHub API 地址。
-// 默认查询 latest release，获取最新构建的 Windows 后端 zip 包。
-const GitHubReleasesAPI = "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest"
+// PinnedReleaseTag 是当前锁定的 llama.cpp 官方预编译版本 tag。
+//
+// 设计意图（版本固定策略）：应用只下载经过人工适配验证的官方预编译资产，
+// 不再自动跟随上游最新构建。原因：llama.cpp 迭代很快，若上游出现较大变化
+// （参数改名、行为变更、资产结构调整），自动跟随会导致新下载的后端与
+// 应用适配逻辑不兼容，出现模型加载失败等问题。
+//
+// 当前锁定 b10605：已验证其服务端源码与本应用适配的开发版（10612）完全一致，
+// 且 Windows x64 四个变体（cpu / cuda-12.4 / cuda-13.3 / vulkan）
+// 及配套 cudart 包在官方 release 中齐全。
+//
+// 升级流程：上游发布新版后，人工验证兼容性（重点核对 --server 参数面与
+// 资产命名规则），确认无误后将此常量改为新 tag（如 "b10800"）即可，
+// 后端下载与版本更新检查会同时跟随新版本。
+const PinnedReleaseTag = "b10605"
+
+// githubReleasesTagsBase 是按 tag 查询单个 release 的 GitHub API 地址前缀。
+const githubReleasesTagsBase = "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/"
+
+// GitHubReleasesAPI 是 llama.cpp 固定版本的 release 详情 API 地址。
+// 已从 releases/latest 改为指向 PinnedReleaseTag 锁定的 release，
+// 确保下载与更新检查只面向经过验证的版本，不随上游漂移。
+const GitHubReleasesAPI = githubReleasesTagsBase + PinnedReleaseTag
 
 // GitHubReleasesListAPI 是 llama.cpp releases 列表的 GitHub API 地址（从新到旧）。
 // llama.cpp 2026-08-21 起采用语义化版本双轨发布：稳定版（vX.Y.Z）release 只含
 // nightly-tag.txt 指针文件，没有二进制；二进制包仍在 nightly（bXXXXX）release 中。
-// 当 releases/latest 是稳定版时，需查询此列表找最新的含二进制资产的 nightly release。
+// 版本固定模式下，固定 tag 的 release 直接含二进制资产，此列表查询仅作为
+// 异常情况的兜底路径保留（见 fetchLatestBinaryRelease）。
 const GitHubReleasesListAPI = "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=15"
 
 // githubUA 是请求 GitHub API 时使用的 User-Agent 标识。
@@ -84,17 +105,19 @@ func buildDownloadURLs(originalURL string) []string {
 	return urls
 }
 
-// fetchGitHubLatestRelease 查询 GitHub API，获取 llama.cpp 最新含二进制资产的 release。
+// fetchGitHubLatestRelease 查询 GitHub API，获取 llama.cpp 当前锁定版本的 release。
 // 该函数被 FindReleaseAsset、FindCudartAsset 和 GetLatestReleaseTag 共用。
 //
-// 兼容两种发布模式（llama.cpp 2026-08-21 起改为语义化版本双轨发布）：
-//  1. 旧模式：releases/latest 是 bXXXXX nightly，直接含二进制 zip → 直接使用
-//  2. 新模式：releases/latest 是 vX.Y.Z 稳定版，只有 nightly-tag.txt 指针文件，
-//     二进制包仍在 bXXXXX nightly release 中 → 改查 releases 列表，
-//     从新到旧找第一个含二进制资产的 release
+// 版本固定策略：不再查询 releases/latest 追上游最新，而是查询固定 tag
+// （PinnedReleaseTag）对应的 release，保证下载与更新检查只面向经过验证的版本，
+// 防止上游较大变化导致新下载的后端加载失败。
 //
-// 生活类比：去仓库提货——先问最新一批货；如果最新一批只是张"提货单"
-// （指针文件没有实物），就翻最近的到货记录，找真正有货的那一批。
+// 兼容两种发布模式的兜底逻辑（fetchLatestBinaryRelease）保持不变：
+// 正常情况下固定 tag 的 release 直接含二进制 zip（旧模式直通路径）；
+// 若固定 tag 意外不含二进制资产（异常情况），仍会尝试从 release 列表寻找可用二进制。
+//
+// 生活类比：不再每天问仓库"最新一批货是啥"，而是固定去熟悉的批次号提货——
+// 那一批是我们开箱验过货的，不会拿到对不上型号的零件。
 func fetchGitHubLatestRelease() (*GitHubRelease, error) {
 	return fetchLatestBinaryRelease(GitHubReleasesAPI, GitHubReleasesListAPI)
 }

@@ -560,5 +560,6 @@ func (s *Service) saveToolCallFinalMessage(convID string, acc *StreamAccumulator
 	chatMsg.TokensPerSecond = acc.TokensPerSecond
 	chatMsg.PredictedN = acc.PredictedN
 	s.emitForConv(convID, "assistant_message", chatMsg)
+	s.emitOutputTruncatedIfLengthCapped(convID, acc)
 	return nil
 }

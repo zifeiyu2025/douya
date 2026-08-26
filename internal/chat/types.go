@@ -72,6 +72,7 @@ const (
 	EventTokenSpeed          = "token_speed"          // 生成速度，content: TokenSpeedContent
 	EventPromptProgress      = "prompt_progress"      // 提示词进度，content: PromptProgressContent
 	EventContextTrimmed      = "context_trimmed"      // 上下文裁剪，content: ContextTrimmedContent
+	EventOutputTruncated     = "output_truncated"     // 输出截断（finish_reason=length），content: OutputTruncatedContent
 	EventDone                = "done"                 // 生成完成，content: nil
 	EventStopped             = "stopped"              // 生成停止，content: nil
 	EventError               = "error"                // 错误，content: string
@@ -117,6 +118,14 @@ type PromptProgressContent struct {
 	Cache     int `json:"cache"`     // 缓存命中 token 数
 	Processed int `json:"processed"` // 已处理 token 数
 	TimeMs    int `json:"timeMs"`    // 处理耗时（毫秒）
+}
+
+// OutputTruncatedContent 输出截断事件的内容。
+// 场景：模型回复因触及 max_tokens 上限（finish_reason=length）而中途停止，
+// 用户看到的回复戛然而止却不知原因——对标 LM Studio 的 contextLengthReached 显式上报，
+// 避免 Ollama 式"静默截断只写日志"的反面模式。
+type OutputTruncatedContent struct {
+	Reason string `json:"reason"` // 截断原因，当前固定为 "length"
 }
 
 // ContextTrimmedContent 上下文裁剪事件的内容
