@@ -1,9 +1,7 @@
 /**
  * vue-virtual-scroller（v2.0.0-beta，Vue 3 版）未附带 TypeScript 类型声明。
  * 此处提供宽松的类型 shim，仅用于让 vue-tsc 通过模板类型检查。
- *
- * 生活类比：就像给一个没有说明书的工具贴上简单的标签，至少让质检员（vue-tsc）
- * 知道它是合法工具，不至于直接拒收。具体每个参数怎么用，由我们在调用处自行保证。
+ * 类型不做精确约束，具体参数用法由调用处自行保证。
  *
  * 说明：DefineComponent 的 SlotsType 位于第 13 个泛型参数位，因此前面用 12 个 any
  * 占位，只为把默认插槽的 props 类型传进去，让模板里 `#default="{ item, index, active }"`

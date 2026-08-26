@@ -40,12 +40,12 @@ export function useScrollToBottom(threshold = 150) {
     // 即时滚动：scroll 事件在同步代码中触发，可在微任务中重置
     // smooth 滚动：动画持续期间需要保持标志，用 setTimeout 延迟重置
     if (behavior === 'smooth') {
-      // L-19：原硬编码 500ms，长内容 smooth 动画可能 >500ms，
+      // 原硬编码 500ms，长内容 smooth 动画可能 >500ms，
       // 标志提前重置期间用户滚动会被误判为"主动上滑"关闭自动滚动。
       // 改为根据 scrollHeight 动态估算时长（每 1000px 约 100ms，上限 2000ms），
       // 保留 500ms 下限兜底短内容场景。
       const animEstimate = Math.min(Math.max(el.scrollHeight / 10, 500), 2000)
-      // Bug 3 修复：smooth 动画期间监听用户 wheel/touch 事件，
+      // smooth 动画期间监听用户 wheel/touch 事件，
       // 一旦用户主动滚动立即取消程序化滚动标志，让用户可以接管滚动
       const cancelProg = () => {
         isProgrammaticScroll = false
@@ -179,7 +179,7 @@ export function useScrollToBottom(threshold = 150) {
     observer = new MutationObserver(() => {
       scheduleScroll()
     })
-    // L-9：移除 characterData 观察——流式期间 v-html 重写 DOM 会让
+    // 移除 characterData 观察——流式期间 v-html 重写 DOM 会让
     // characterData 在每个 token 都回调，虽有 RAF 批处理但仍有微任务开销。
     // childList 已覆盖新消息节点插入；流式内容变化由 watchContentChange
     // 通过响应式 watch 触发 scheduleScroll，无需 characterData。

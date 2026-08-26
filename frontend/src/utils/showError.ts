@@ -1,8 +1,6 @@
 /**
  * 通用错误提示工具
  * 统一项目中所有"操作失败"类错误的提示格式，避免风格不一致。
- *
- * 生活类比：像客服中心的统一应答模板，无论哪个部门接到投诉，都用一致的方式回复客户。
  */
 
 import type { MessageApiInjection } from 'naive-ui/es/message/src/MessageProvider'

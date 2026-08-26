@@ -27,7 +27,7 @@
     >
       <n-icon size="22"><GlobeOutline /></n-icon>
     </button>
-    <!-- 采样参数快捷抽屉：直调 composable 导出的 open，免 emit 链（C-4 第④项） -->
+    <!-- 采样参数快捷抽屉：直调 composable 导出的 open，免 emit 链 -->
     <button class="params-btn" title="生成参数调节" @click="openParamsPanel">
       <n-icon size="22"><OptionsOutline /></n-icon>
     </button>
@@ -498,46 +498,14 @@ onUnmounted(() => {
 }
 
 .deep-reason-btn .deep-reason-icon {
-  transition:
-    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-    opacity 0.3s ease;
-  will-change: transform;
-}
-
-.deep-reason-btn:hover .deep-reason-icon {
-  transform: scale(1.08) rotate(-8deg);
+  /* 书房风：图标不再缩放旋转，仅保留淡入过渡 */
+  transition: opacity 0.2s ease;
 }
 
 .deep-reason-btn.active {
+  /* 书房风：激活态保持静态苔绿落印，不做光晕呼吸 */
   color: var(--accent-primary);
   background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
-  animation: deep-reason-pulse 3.5s ease-in-out infinite;
-}
-
-.deep-reason-btn.active .deep-reason-icon {
-  animation: deep-reason-shimmer 2s ease-in-out infinite;
-}
-
-@keyframes deep-reason-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-primary) 0%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 8px 1px color-mix(in srgb, var(--accent-primary) 22%, transparent);
-  }
-}
-
-@keyframes deep-reason-shimmer {
-  0%,
-  100% {
-    filter: drop-shadow(0 0 0 transparent);
-    transform: scale(1);
-  }
-  50% {
-    filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent-primary) 40%, transparent));
-    transform: scale(1.05);
-  }
 }
 
 .attach-btn:disabled {
@@ -568,8 +536,9 @@ onUnmounted(() => {
 }
 
 .search-btn.active {
-  color: var(--accent-g-primary);
-  background: var(--accent-g-soft);
+  /* 书房风：激活态使用苔绿真实令牌，淡底由 color-mix 现调 */
+  color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
 }
 
 .search-btn.auto-mode {
@@ -613,10 +582,8 @@ onUnmounted(() => {
 }
 
 .think-btn .think-icon {
-  transition:
-    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-    opacity 0.3s ease;
-  will-change: transform;
+  /* 图标不再缩放，仅保留淡入过渡 */
+  transition: opacity 0.2s ease;
 }
 
 .think-btn.no-think-mode {
@@ -637,23 +604,9 @@ onUnmounted(() => {
 }
 
 .think-btn.active {
+  /* 与深思按钮同语汇：静态激活态，去光晕脉冲 */
   color: var(--accent-primary);
   background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
-  animation: think-pulse 3s ease-in-out infinite;
-}
-
-.think-btn.active .think-icon {
-  transform: scale(1.05);
-}
-
-@keyframes think-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-primary) 0%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 6px 1px color-mix(in srgb, var(--accent-primary) 18%, transparent);
-  }
 }
 
 .voice-btn.active {

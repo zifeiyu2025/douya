@@ -1,30 +1,28 @@
 <!--
-  KnowledgeView: 知识库管理视图（C-6 编排壳）
-  三段子组件：KBSelector（知识库）/ DocumentManager（文档管理）/ RagSettings（检索设置）。
+  KnowledgeView: 知识库管理视图 ·「档案柜」书房版式
+  版式隐喻：整页是一格档案柜 ——
+    柜铭（衬线标题 + 引言副题）→ 一条细工具栏（选卷 / 新建 / 删除）
+    → 正文两节：§一 档案目录（DocumentManager）、§二 检索配置（RagSettings）。
   状态与逻辑集中在 useKnowledge 单一状态源，经 provide 注入子组件。
 -->
 <template>
   <div class="knowledge-container">
-    <div class="knowledge-header">
-      <button class="back-btn" type="button" aria-label="返回" @click="$router.push('/')">
-        <svg width="20" height="20" viewBox="0 0 512 512" fill="none" aria-hidden="true">
-          <path
-            d="M244 400L100 256l144-144M120 256h292"
-            stroke="currentColor"
-            stroke-width="48"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
+    <!-- 柜铭：返回 + 衬线标题 -->
+    <header class="kb-masthead">
+      <button class="masthead-back" type="button" aria-label="返回" @click="$router.push('/')">
+        <AppIcon name="back" :size="17" />
       </button>
-      <div class="header-title-group">
-        <span class="knowledge-title">知识库管理</span>
-        <span class="knowledge-subtitle">管理文档和检索设置</span>
+      <div class="masthead-text">
+        <h1 class="kb-title">知识库</h1>
+        <p class="kb-motto">卷宗归档之处——上传文档，编目成册，供问答时检索征引。</p>
       </div>
-    </div>
+    </header>
 
-    <div class="knowledge-body">
-      <KBSelector />
+    <!-- 细工具栏：知识库切换 / 新建 / 删除（panel 表面 + hairline 底边，由子组件自带） -->
+    <KBSelector />
+
+    <!-- 正文滚动区：两节目录各自限宽居中 -->
+    <div class="kb-body">
       <DocumentManager />
       <RagSettings />
     </div>
@@ -33,6 +31,7 @@
 
 <script setup lang="ts">
 import { provide, onMounted } from 'vue'
+import AppIcon from '../components/ui/AppIcon.vue'
 import KBSelector from '../components/knowledge/KBSelector.vue'
 import DocumentManager from '../components/knowledge/DocumentManager.vue'
 import RagSettings from '../components/knowledge/RagSettings.vue'
@@ -56,48 +55,71 @@ onMounted(async () => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg-secondary);
+  /* B5 veil 结构层：容器统一铺一层结构色，内部区块不再叠底
+   * （避免半透明平方效应闷死背景图） */
+  background: var(--surface-veil);
 }
 
-.knowledge-header {
+/* ===== 柜铭 ===== */
+.kb-masthead {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 14px 24px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
+  gap: 16px;
+  /* 顶部净空沿用既有约定（避让拖拽带），底边为柜铭与工具栏的章节界 */
+  padding: 62px 32px 18px;
+  border-bottom: 1px solid var(--border-light);
   flex-shrink: 0;
-  height: var(--header-height);
-  box-sizing: border-box;
 }
 
-.knowledge-body {
+/* 返回钮：素面方钮，悬浮才着一阶纸色 */
+.masthead-back {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.masthead-back:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.masthead-text {
+  min-width: 0;
+}
+
+.kb-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+
+.kb-motto {
+  margin: 2px 0 0;
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+}
+
+/* ===== 正文滚动区 ===== */
+.kb-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 24px 28px 32px;
-  display: flex;
-  flex-direction: column;
-}
-
-/* .back-btn 样式已抽取到 style.css 全局（F-1.15），此处不再重复 */
-
-.header-title-group {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.knowledge-title {
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.2px;
-}
-
-.knowledge-subtitle {
-  font-size: 12px;
-  color: var(--text-muted);
-  font-weight: 400;
+  padding: 28px 32px 64px;
 }
 </style>

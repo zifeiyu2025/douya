@@ -1,11 +1,6 @@
 /**
  * 全局 discrete API（message / dialog）
  *
- * 生活类比：就像一个"主题感知的对讲机"——每次你要喊一条消息（message）
- * 或弹一个对话框（dialog）时，对讲机会先检查当前是白天（亮色）还是
- * 夜晚（深色），如果主题变了，就重新调一台对应主题的对讲机出来用，
- * 确保提示样式永远跟当前界面配色一致。
- *
  * 为什么用 Proxy？
  * - discrete API 需要在非组件代码（如 pinia store）中调用，无法用
  *   useMessage()/useDialog()（这俩只能在 setup 内用）

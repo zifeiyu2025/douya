@@ -19,9 +19,9 @@ import { SWITCH_TIMING } from '../../types/settings'
  * + 启动兜底轮询 + 看门狗 + watch 副作用，整体围绕 switchState 一个状态变量，
  * 适合提取为独立 composable。
  *
- * 生活类比：像电梯调度系统——startSwitch 是按下楼层按钮，finishSuccess 是到达目标楼层，
- * finishFailure 是故障报错，finishTimeout 是超时兜底，reset 是手动复位。
- * watch 副作用像电梯的自动关门定时器：到达后 800ms 自动回 idle，故障后 5s 自动复位。
+ * 状态流转函数职责：startSwitch 发起切换进入 switching 态，finishSuccess 到达就绪态，
+ * finishFailure 故障报错，finishTimeout 超时兜底，reset 手动复位。
+ * watch 副作用负责自动流转：ready_after_switch 后 800ms 自动回 idle，failed 后 5s 自动复位。
  */
 
 /** 状态机所需的共享状态依赖 */
@@ -49,7 +49,7 @@ export function useSwitchStateMachine(deps: SwitchStateDeps) {
   /**
    * 上报后端进度（server:switchProgress 事件的 stage 字段）。
    *
-   * 生活类比：像快递物流跟踪——后端一路推送"已揽件→运输中→派送中→已签收"，
+   * 后端在切换过程中持续推送进度阶段，
    * 前端在这里把每一条状态更新到 switchState.progressStage，UI 就能实时显示当前阶段，
    * 而不是一直停留在"准备切换"直到 wails.switchModel 返回。
    *

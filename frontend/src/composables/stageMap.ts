@@ -1,11 +1,8 @@
 /**
- * 模型切换阶段进度映射常量（F-1.14 抽取）
+ * 模型切换阶段进度映射常量
  *
  * useAppLifecycle.ts 和 useModelSwitch.ts 原各自维护一份相同的 stageMap，
  * 新增阶段易漏改，抽取为单一常量确保两处一致。
- *
- * 生活类比：像火车站的到站显示屏——每个阶段（idle/loading/done/failed）
- * 对应一个固定的"已行驶百分比"，不管哪个候车室（composable）看都是同一块屏。
  */
 import type { SwitchProgressStage } from '../types/settings'
 

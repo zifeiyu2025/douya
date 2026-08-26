@@ -40,6 +40,14 @@ async function handleSend(content: string, images?: string[], attachments?: Atta
 </script>
 
 <style scoped>
+/* 聊天主容器：纵向弹性列，撑满 .main-area 高度——
+   消息列表（flex:1）与输入框（固定高）的布局基石 */
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
 .message-list-wrapper {
   flex: 1;
   min-height: 0;

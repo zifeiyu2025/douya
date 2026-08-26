@@ -28,7 +28,7 @@ vi.mock('../services/wails', async importOriginal => {
       regenerateMessage: vi.fn(),
       getAvailableModels: vi.fn().mockResolvedValue([]),
       switchModel: vi.fn(),
-      // F-1.10：subscribe 函数返回 unsubscribe，替代原 onXxx/offXxx 配对
+      // subscribe 函数返回 unsubscribe，替代原 onXxx/offXxx 配对
       subscribeChatStream: vi.fn().mockReturnValue(() => {}),
       subscribeServerStatus: vi.fn().mockReturnValue(() => {}),
       subscribeSwitchProgress: vi.fn().mockReturnValue(() => {}),
@@ -55,6 +55,7 @@ function setupGeneratingState(store: ReturnType<typeof useChatStore>, convId: st
     searchQuery: '',
     searchError: '',
     contextTrimmed: null,
+    outputTruncated: false,
     tokensPerSecond: 0,
     predictedN: 0,
     promptProgress: null
@@ -111,7 +112,7 @@ describe('chat store - handleStreamEvent', () => {
     const store = useChatStore()
     setupGeneratingState(store)
 
-    // C-7 协议唯一事实化：后端统一发射 { tool_call_id, results } 结构
+    // 后端统一发射 { tool_call_id, results } 结构
     const results = [{ title: '测试结果', url: 'https://example.com', snippet: '摘要' }]
     store.handleStreamEvent({
       type: 'search_result',

@@ -1,15 +1,24 @@
 <!--
-  RagSettings: RAG 检索设置区（C-6 自 KnowledgeView 拆分）
+  RagSettings: 检索配置区（自 KnowledgeView 拆分）
   启用开关（与联网搜索互斥）、检索参数、分块参数、嵌入模型配置与保存。
+  对外契约保持不变：无 props、无 emits，依赖 KnowledgeView 的 provide 上下文。
 -->
 <template>
-  <div class="kb-section">
-    <div class="kb-section-header">
-      <span class="section-icon">⚙️</span>
-      <span class="section-title">RAG 设置</span>
-    </div>
+  <section class="rag-section">
+    <!-- 节头：§ 编号 + 标题 -->
+    <header class="rag-head">
+      <span class="section-num head-no">§ 二</span>
+      <h2 class="head-title">检索配置</h2>
+      <span class="head-space" />
+    </header>
 
-    <n-form label-placement="left" label-width="96" :model="ragConfig" class="rag-form">
+    <n-form
+      label-placement="left"
+      label-width="96"
+      :model="ragConfig"
+      :show-feedback="false"
+      class="rag-form"
+    >
       <n-form-item label="启用知识库">
         <n-switch v-model:value="ragConfig.enabled" @update:value="handleRAGToggle" />
       </n-form-item>
@@ -64,56 +73,53 @@
             @update:value="onManualEmbeddingModelInput"
           />
           <div class="embedding-help">
-            <div class="embedding-status">
-              <span v-if="ragConfig.embeddingModel" class="status-active">
-                ✓ 使用专用嵌入模型：{{ ragConfig.embeddingModel }}
-              </span>
-              <span v-else class="status-fallback">
-                ⚠ 未配置专用嵌入模型，将使用聊天模型（检索质量可能较差）
-              </span>
-            </div>
-            <div class="embedding-recommend">
+            <!-- 状态行以印章方点替代符号图标 -->
+            <p class="embed-status">
+              <span class="status-seal" :class="ragConfig.embeddingModel ? 'is-set' : 'is-unset'" />
+              <template v-if="ragConfig.embeddingModel">
+                已配置专用嵌入模型：
+                <span class="embed-model">{{ ragConfig.embeddingModel }}</span>
+              </template>
+              <template v-else>未配置专用嵌入模型，将使用聊天模型（检索质量可能较差）</template>
+            </p>
+            <p class="embed-recommend">
               <span class="recommend-label">推荐模型：</span>
               <span class="recommend-tags">
-                <span class="recommend-tag" @click="selectRecommendedModel('nomic-embed-text')">
-                  nomic-embed-text
-                </span>
-                <span class="recommend-tag" @click="selectRecommendedModel('bge-base-en-v1.5')">
-                  bge-base-en-v1.5
-                </span>
-                <span class="recommend-tag" @click="selectRecommendedModel('bge-large-zh-v1.5')">
-                  bge-large-zh-v1.5
-                </span>
+                <button
+                  v-for="name in RECOMMENDED_MODELS"
+                  :key="name"
+                  type="button"
+                  class="recommend-tag"
+                  @click="selectRecommendedModel(name)"
+                >
+                  {{ name }}
+                </button>
               </span>
-            </div>
-            <div class="embedding-tip">💡 专用嵌入模型更快、更准确。留空则使用当前聊天模型。</div>
+            </p>
+            <p class="embed-tip">
+              <AppIcon name="bulb" :size="12" class="tip-icon" />
+              专用嵌入模型更快、更准确。留空则使用当前聊天模型。
+            </p>
           </div>
         </div>
       </n-form-item>
     </n-form>
 
-    <div class="rag-save-row">
-      <n-button
-        type="primary"
-        size="small"
-        :loading="savingRAG"
-        class="save-btn"
-        @click="handleSaveRAGConfig"
-      >
+    <footer class="rag-save-row">
+      <n-button type="primary" size="small" :loading="savingRAG" @click="handleSaveRAGConfig">
         <template #icon>
-          <n-icon size="16"><CheckmarkCircleOutline /></n-icon>
+          <AppIcon name="check" :size="14" />
         </template>
         保存设置
       </n-button>
-    </div>
-  </div>
+    </footer>
+  </section>
 </template>
 
 <script setup lang="ts">
 import { inject } from 'vue'
 import {
   NButton,
-  NIcon,
   NForm,
   NFormItem,
   NInput,
@@ -122,10 +128,13 @@ import {
   NSlider,
   NSwitch
 } from 'naive-ui'
-import { CheckmarkCircleOutline } from '@vicons/ionicons5'
+import AppIcon from '../ui/AppIcon.vue'
 import { KNOWLEDGE_CONTEXT_KEY, type KnowledgeContext } from './knowledgeContext'
 
 defineOptions({ name: 'RagSettings' })
+
+/** 推荐嵌入模型清单（点击即回填） */
+const RECOMMENDED_MODELS = ['nomic-embed-text', 'bge-base-en-v1.5', 'bge-large-zh-v1.5'] as const
 
 const ctx = inject<KnowledgeContext>(KNOWLEDGE_CONTEXT_KEY)
 if (!ctx) {
@@ -149,8 +158,36 @@ const {
 </script>
 
 <style scoped>
-.rag-form {
-  margin-bottom: 4px;
+.rag-section {
+  max-width: 880px;
+  margin: 52px auto 0;
+}
+
+/* ===== 节头（与文档列表同款章节界） ===== */
+.rag-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.head-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
+}
+
+.head-space {
+  flex: 1;
+}
+
+/* ===== 表单 ===== */
+.rag-form :deep(.n-form-item) {
+  margin-bottom: 16px;
 }
 
 .slider-wrap {
@@ -164,21 +201,21 @@ const {
   flex: 1;
 }
 
+/* 数值批注：等宽字 + 右对齐，不着底色 */
 .slider-mark {
-  min-width: 36px;
-  text-align: center;
-  font-size: 13px;
-  font-weight: 600;
+  min-width: 38px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
   color: var(--accent-primary);
-  background: var(--accent-tertiary);
-  padding: 2px 8px;
-  border-radius: var(--border-radius-sm);
 }
 
 .rag-input {
   width: 120px;
 }
 
+/* ===== 嵌入模型 ===== */
 .embedding-config {
   display: flex;
   flex-direction: column;
@@ -191,45 +228,53 @@ const {
   width: 100%;
 }
 
+/* 批注纸：三级纸面 + hairline 边框，无投影 */
 .embedding-help {
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 10px 12px;
   background: var(--bg-tertiary);
-  border-radius: 6px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--border-radius-sm);
   font-size: 12px;
   line-height: 1.6;
 }
 
-.embedding-status {
+.embed-status,
+.embed-recommend,
+.embed-tip {
   display: flex;
   align-items: center;
-  gap: 4px;
-}
-
-/* RAG 设置状态色：启用 → --accent-g-primary */
-.status-active {
-  color: var(--accent-g-primary);
-  font-weight: 500;
-}
-
-/* RAG 设置状态色：禁用/未配置 → --text-muted */
-.status-fallback {
-  color: var(--text-muted);
-  font-weight: 500;
-}
-
-.embedding-recommend {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+}
+
+.status-seal {
+  width: 5px;
+  height: 5px;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+
+/* 已配置=苔绿 / 未配置=赭石（延续印章方点语言） */
+.status-seal.is-set {
+  background: var(--accent-primary);
+}
+
+.status-seal.is-unset {
+  background: var(--accent-warning);
+}
+
+.embed-model {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--accent-success-g-primary);
 }
 
 .recommend-label {
   color: var(--text-secondary);
-  font-weight: 500;
 }
 
 .recommend-tags {
@@ -238,36 +283,43 @@ const {
   flex-wrap: wrap;
 }
 
+/* 推荐模型签：等宽小字 + hairline 边框，悬浮仅着苔绿描边与浅纸底 */
 .recommend-tag {
   padding: 2px 8px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.2s;
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-light);
+  border-radius: var(--border-radius-xs);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    border-color var(--transition-fast),
+    background var(--transition-fast);
 }
 
 .recommend-tag:hover {
-  background: var(--accent-primary);
-  color: white;
+  color: var(--accent-primary);
   border-color: var(--accent-primary);
+  background: var(--accent-tertiary);
 }
 
-.embedding-tip {
+.embed-tip {
   color: var(--text-tertiary);
   font-size: 11px;
 }
 
+.tip-icon {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+/* ===== 保存行 ===== */
 .rag-save-row {
   display: flex;
   justify-content: flex-end;
-  padding-top: 4px;
+  padding-top: 14px;
   border-top: 1px solid var(--border-light);
-}
-
-.save-btn {
-  font-weight: 600;
 }
 </style>

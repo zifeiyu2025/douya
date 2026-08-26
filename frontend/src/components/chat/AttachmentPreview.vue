@@ -144,13 +144,19 @@ function typeLabel(type: string): string {
   gap: 10px;
   padding: 6px 10px;
   border-radius: var(--border-radius-sm);
-  background: var(--bg-secondary);
+  /* 书房风缩略卡：panel 纸面 + hairline 细边 */
+  background: var(--surface-panel);
+  border: 1px solid var(--border-light);
   max-width: 220px;
-  transition: all 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
 
+/* hover：苔绿细线落笔提示可交互，配单层低透投影 */
 .attachment-preview-item:hover {
-  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+  box-shadow: var(--shadow-sm);
 }
 
 .attachment-preview-item.image {
@@ -182,7 +188,9 @@ function typeLabel(type: string): string {
   width: 40px;
   height: 40px;
   border-radius: var(--border-radius-sm);
-  background: var(--bg-hover);
+  /* hairline 细边替代色块底，更利落 */
+  border: 1px solid var(--border-light);
+  background: transparent;
   color: var(--text-secondary);
 }
 
@@ -212,12 +220,13 @@ function typeLabel(type: string): string {
   position: absolute;
   top: -6px;
   right: -6px;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  background: var(--accent-danger);
-  color: white;
-  border: 2px solid var(--bg-primary);
+  /* 书房风：纸面小钮 + 朱砂细边，悬浮才落朱砂底，不做常驻色块 */
+  background: var(--surface-panel);
+  color: var(--accent-danger);
+  border: 1px solid color-mix(in srgb, var(--accent-danger) 45%, transparent);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -225,9 +234,11 @@ function typeLabel(type: string): string {
   padding: 0;
   line-height: 1;
   opacity: 0;
+  box-shadow: var(--shadow-sm);
   transition:
     opacity 0.2s,
-    transform 0.2s;
+    background-color 0.2s,
+    color 0.2s;
 }
 
 .attachment-preview-item:hover .remove-att-btn {
@@ -235,6 +246,9 @@ function typeLabel(type: string): string {
 }
 
 .remove-att-btn:hover {
-  transform: scale(1.1);
+  background: var(--accent-danger);
+  border-color: var(--accent-danger);
+  /* 强调色底上的字色走纸面底色令牌 */
+  color: var(--bg-primary);
 }
 </style>

@@ -2,7 +2,7 @@
   <div class="msg-actions" :class="{ 'user-actions': isUser, 'ai-actions': !isUser }">
     <div class="action-row">
       <span v-if="!isUser && tokensPerSecond > 0" class="token-speed">
-        ⚡ {{ tokensPerSecond }} t/s
+        {{ tokensPerSecond }} t/s
       </span>
       <button class="action-btn" title="复制" @click="$emit('copy')">
         <AppIcon name="copy" class="action-icon" :size="14" />
@@ -37,7 +37,7 @@
         <AppIcon name="regenerate" class="action-icon" :size="14" />
         <span class="action-label">重新生成</span>
       </button>
-      <!-- 编辑按钮：仅用户消息显示（C-4 新增），保存后截断重生成 -->
+      <!-- 编辑按钮：仅用户消息显示，保存后截断重生成 -->
       <button v-if="canEdit" class="action-btn" title="编辑" @click="$emit('edit')">
         <AppIcon name="edit" class="action-icon" :size="14" />
         <span class="action-label">编辑</span>
@@ -139,7 +139,7 @@ defineEmits<{
   background: var(--accent-tertiary);
 }
 
-/* TTS 后端徽标：朗读中显示，区分在线（绿）/本地（灰） */
+/* TTS 后端徽标：朗读中显示，区分在线（苔绿）/本地（灰），圆角走阶梯 */
 .tts-backend-badge {
   display: inline-flex;
   align-items: center;
@@ -147,15 +147,17 @@ defineEmits<{
   margin-left: 4px;
   font-size: 11px;
   line-height: 16px;
-  border-radius: 8px;
+  border-radius: var(--border-radius-sm);
   font-weight: 500;
   white-space: nowrap;
   vertical-align: middle;
 }
 
+/* 移除 hex fallback；语义别名 --success-color 在 tokens.css 中指向未定义变量而失效，
+ * 故直接使用真实令牌 --accent-success（竹青） */
 .tts-backend-badge.online {
-  color: var(--accent-success, #18a058);
-  background: color-mix(in srgb, var(--accent-success, #18a058) 12%, transparent);
+  color: var(--accent-success);
+  background: color-mix(in srgb, var(--accent-success) 12%, transparent);
 }
 
 .tts-backend-badge.local {

@@ -1,16 +1,13 @@
 <template>
   <Transition name="splash" @after-leave="$emit('complete')">
     <div v-if="visible" class="splash-screen" style="--wails-draggable: drag">
-      <!-- 背景氛围层：单一径向渐变，营造空间感（非装饰覆盖层，避免堆叠问题） -->
-      <div class="splash-ambient" aria-hidden="true"></div>
-
       <div class="splash-content">
-        <!-- LOGO 区域：appicon.png 作为唯一视觉锚点 -->
+        <!-- LOGO 区域：appicon.png 作为视觉锚点，外圈发丝环指示状态 -->
         <div
           class="splash-logo-wrap"
           :class="{ 'is-done': stage === 'done', 'is-failed': stage === 'failed' }"
         >
-          <!-- 外层发光环：加载中旋转弧线，完成时画圆 -->
+          <!-- 外圈发丝环：加载中旋转短弧，完成时画圆 -->
           <svg
             class="logo-ring"
             width="112"
@@ -21,7 +18,7 @@
             aria-hidden="true"
           >
             <!-- 底层静态淡圈（轨道） -->
-            <circle cx="56" cy="56" r="52" stroke="currentColor" stroke-width="1" opacity="0.1" />
+            <circle cx="56" cy="56" r="52" stroke="currentColor" stroke-width="1" opacity="0.12" />
             <!-- 旋转弧线（加载中） -->
             <circle
               v-if="stage !== 'done' && stage !== 'failed'"
@@ -29,7 +26,7 @@
               cy="56"
               r="52"
               stroke="currentColor"
-              stroke-width="2"
+              stroke-width="1.5"
               stroke-linecap="round"
               stroke-dasharray="80 246"
               class="logo-spinner"
@@ -41,7 +38,7 @@
               cy="56"
               r="52"
               stroke="currentColor"
-              stroke-width="2"
+              stroke-width="1.5"
               stroke-linecap="round"
               class="logo-complete"
             />
@@ -51,7 +48,7 @@
           <img class="logo-image" :src="appLogo" alt="豆芽" draggable="false" />
         </div>
 
-        <!-- 品牌标识：品牌名最响亮 -->
+        <!-- 品牌标识：宋体题签，安静落纸 -->
         <div class="splash-brand">
           <h1 class="splash-title">豆芽</h1>
           <p class="splash-subtitle">本地 AI 聊天助手</p>
@@ -143,9 +140,9 @@ const stageText = computed(() => {
 </script>
 
 <style scoped>
-/* ===== 启动屏容器 =====
+/* ===== 启动屏容器（v5 书斋）=====
  * 支持窗口拖动（--wails-draggable:drag 在 template 内联）
- * 单一背景层 + 单一氛围层，避免复杂堆叠
+ * 纸面即全部：无氛围光晕、无发光动画，状态交给细线与印章点
  */
 .splash-screen {
   position: fixed;
@@ -156,21 +153,6 @@ const stageText = computed(() => {
   justify-content: center;
   background: var(--bg-primary);
   overflow: hidden;
-}
-
-/* 背景氛围层：径向渐变营造空间感
- * 避免使用多层覆盖，单一层即可
- */
-.splash-ambient {
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at 50% 45%, rgba(9, 105, 218, 0.06) 0%, transparent 60%);
-  pointer-events: none;
-}
-
-/* 暗色主题下的氛围层调整 */
-:global(body.theme-dark) .splash-ambient {
-  background: radial-gradient(circle at 50% 45%, rgba(68, 147, 248, 0.08) 0%, transparent 60%);
 }
 
 /* ===== 内容区域 ===== */
@@ -185,8 +167,7 @@ const stageText = computed(() => {
 }
 
 /* ===== LOGO 区域 =====
- * LOGO 图像作为唯一视觉锚点，外层发光环指示状态
- * 不使用 filter:drop-shadow 在整个容器上，避免模糊图像
+ * 发丝环指示状态：加载中旋转短弧，完成画圆；不使用发光滤镜
  */
 .splash-logo-wrap {
   position: relative;
@@ -211,17 +192,15 @@ const stageText = computed(() => {
 @keyframes logo-enter {
   from {
     opacity: 0;
-    transform: scale(0.85);
-    filter: blur(8px);
+    transform: scale(0.92);
   }
   to {
     opacity: 1;
     transform: scale(1);
-    filter: blur(0);
   }
 }
 
-/* 发光环 SVG：绝对定位，环绕 LOGO */
+/* 发丝环 SVG：绝对定位，环绕 LOGO */
 .logo-ring {
   position: absolute;
   inset: 0;
@@ -232,7 +211,6 @@ const stageText = computed(() => {
 .logo-spinner {
   transform-origin: 56px 56px;
   animation: spin 1.6s linear infinite;
-  filter: drop-shadow(0 0 4px currentColor);
 }
 
 /* @keyframes spin 已在 style.css 全局定义，此处不再重复 */
@@ -242,7 +220,6 @@ const stageText = computed(() => {
   stroke-dasharray: 327;
   stroke-dashoffset: 327;
   animation: draw-circle 0.7s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-  filter: drop-shadow(0 0 6px currentColor);
 }
 
 @keyframes draw-circle {
@@ -251,34 +228,25 @@ const stageText = computed(() => {
   }
 }
 
-/* LOGO 图像：appicon.png
- * 圆角处理，尺寸略小于发光环，让环清晰可见
- */
+/* LOGO 图像：appicon.png 圆角方印，单一浅阴影走令牌（晨昏通用） */
 .logo-image {
   width: 72px;
   height: 72px;
-  border-radius: 16px;
+  border-radius: 10px;
   object-fit: cover;
-  /* 微妙的阴影增强立体感 */
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-sm);
   user-select: none;
   -webkit-user-drag: none;
 }
 
-/* 暗色主题下 LOGO 阴影调整 */
-:global(body.theme-dark) .logo-image {
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-}
-
 /* ===== 品牌标识 =====
- * 品牌名是最响亮的文字，字重重、字号大
- * 副标题安静地跟随
+ * 宋体题签是启动屏唯一的重文字；无辉光、无呼吸动画
  */
 .splash-brand {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   animation: brand-enter 0.7s cubic-bezier(0.4, 0, 0.2, 1) 0.2s both;
 }
 
@@ -295,58 +263,27 @@ const stageText = computed(() => {
 
 .splash-title {
   margin: 0;
+  font-family: var(--font-display);
   font-size: 36px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-primary);
-  letter-spacing: 8px;
-  padding-left: 8px;
+  letter-spacing: 10px;
+  padding-left: 10px;
   line-height: 1;
-  /* 用 rgba 替代 color-mix，兼容旧版 WebView2 */
-  text-shadow: 0 0 16px rgba(9, 105, 218, 0.25);
-  animation: title-glow 3s ease-in-out infinite;
-}
-
-/* 暗色主题下标题阴影 */
-:global(body.theme-dark) .splash-title {
-  text-shadow: 0 0 16px rgba(68, 147, 248, 0.35);
-}
-
-@keyframes title-glow {
-  0%,
-  100% {
-    text-shadow: 0 0 16px rgba(9, 105, 218, 0.25);
-  }
-  50% {
-    text-shadow: 0 0 24px rgba(9, 105, 218, 0.4);
-  }
-}
-
-:global(body.theme-dark) .splash-title {
-  animation: title-glow-dark 3s ease-in-out infinite;
-}
-
-@keyframes title-glow-dark {
-  0%,
-  100% {
-    text-shadow: 0 0 16px rgba(68, 147, 248, 0.35);
-  }
-  50% {
-    text-shadow: 0 0 24px rgba(68, 147, 248, 0.5);
-  }
 }
 
 .splash-subtitle {
   margin: 0;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 400;
   color: var(--text-secondary);
-  letter-spacing: 4px;
-  padding-left: 4px;
+  letter-spacing: 5px;
+  padding-left: 5px;
 }
 
 /* ===== 状态指示器 =====
- * 底部安静展示：圆点 + 状态文字 + 模型名
- * 圆点颜色跟随阶段变化
+ * 底部安静展示：印章点 + 状态文字 + 模型名
+ * 点色跟随阶段变化：加载中苔绿脉动 / 完成静置 / 失败朱砂闪烁
  */
 .splash-status {
   display: flex;
@@ -366,7 +303,6 @@ const stageText = computed(() => {
   }
 }
 
-/* 状态圆点：加载中脉动，完成静止，失败闪烁 */
 .status-dot {
   width: 6px;
   height: 6px;
@@ -436,7 +372,7 @@ const stageText = computed(() => {
 }
 
 /* ===== 下载进度条 =====
- * 仅在 downloading 阶段显示，安静地展示百分比进度
+ * 仅在 downloading 阶段显示；细杆素色填充，不加辉光
  */
 .splash-download {
   display: flex;
@@ -449,14 +385,10 @@ const stageText = computed(() => {
 
 .download-bar {
   width: 100%;
-  height: 4px;
-  background: var(--bg-tertiary, rgba(0, 0, 0, 0.08));
+  height: 3px;
+  background: var(--bg-hover);
   border-radius: 2px;
   overflow: hidden;
-}
-
-:global(body.theme-dark) .download-bar {
-  background: rgba(255, 255, 255, 0.1);
 }
 
 .download-bar-fill {
@@ -466,7 +398,6 @@ const stageText = computed(() => {
   border-radius: 2px;
   transform-origin: left;
   transition: transform 0.3s ease;
-  box-shadow: 0 0 6px var(--accent-primary);
 }
 
 .download-percent {
@@ -499,7 +430,6 @@ const stageText = computed(() => {
 /* ===== 尊重减少动画偏好 ===== */
 @media (prefers-reduced-motion: reduce) {
   .logo-spinner,
-  .splash-title,
   .status-dot {
     animation: none;
   }

@@ -2,7 +2,7 @@
   <div v-if="show" class="token-info">
     <!-- 生成中：显示速度和 token 数 -->
     <template v-if="isGenerating && tokensPerSecond > 0">
-      <span class="gen-speed">⚡ {{ speedDisplay }} t/s</span>
+      <span class="gen-speed">{{ speedDisplay }} t/s</span>
       <span class="gen-sep">·</span>
       <span class="gen-count">{{ predictedN.toLocaleString() }} tokens</span>
     </template>
@@ -27,9 +27,9 @@
       <div v-if="contextSize > 0" class="token-bar">
         <div class="token-bar-fill" :class="statusClass" :style="{ width: pct + '%' }"></div>
       </div>
-      <!-- P2-A2: 上下文使用率提示文案 -->
+      <!-- 上下文使用率提示文案 -->
       <span v-if="statusText" class="status-text" :class="statusClass">{{ statusText }}</span>
-      <!-- P2-A3: 手动压缩按钮（仅当使用率 >= 50% 且有会话时显示） -->
+      <!-- 手动压缩按钮（仅当使用率 >= 50% 且有会话时显示） -->
       <button
         v-if="pct >= 50 && conversationId"
         class="compress-btn"
@@ -89,7 +89,7 @@ const speedDisplay = computed(() => {
 })
 
 // Prompt 处理进度百分比与 ETA
-// 安全实践（基于 F-1.3+F-3.11）：抽取到 usePromptProgress composable，
+// 安全实践：抽取到 usePromptProgress composable，
 // 与 MessageList.vue 共享同一计算逻辑，避免一处改漏导致两处显示不一致
 const { percent: promptPercent, eta: promptEta } = usePromptProgress(() => promptProgress.value)
 
@@ -112,11 +112,11 @@ const statusClass = computed(() => {
   const r = totalTokens.value / props.contextSize
   if (r >= 0.95) return 'danger'
   if (r >= 0.8) return 'warn'
-  if (r >= 0.6) return 'notice' // P2-A2: 新增 60% 提示档
+  if (r >= 0.6) return 'notice' // 新增 60% 提示档
   return ''
 })
 
-// P2-A2: 状态提示文案
+// 状态提示文案
 // 60% 提示用户上下文紧张，80% 提示已自动压缩，95% 警告即将溢出
 const statusText = computed(() => {
   if (!props.contextSize || props.contextSize <= 0) return ''
@@ -151,7 +151,6 @@ let requestVersion = 0 // IPC 请求版本号，防止快速输入时旧结果�
 
 // 本地即时估算 token 数（轻量、无网络开销）
 // 规则：中文/全角按单字符估算，英文/数字按 4 字符≈1 token，标点按 1 字符≈0.5 token。
-// 生活类比：先"目测"大概多少人，再让吧台精确数一遍。
 function estimateTokens(text: string): number {
   if (!text) return 0
   let count = 0
@@ -233,7 +232,7 @@ watch(show, ready => {
   if (ready && props.text) scheduleCount(props.text)
 })
 
-// ---- P2-A3: 手动压缩逻辑 ----
+// ---- 手动压缩逻辑 ----
 const isCompressing = ref(false)
 const conversationId = computed(() => chatStore.currentConversationId)
 
@@ -276,8 +275,10 @@ onUnmounted(() => {
   font-variant-numeric: tabular-nums;
 }
 
-/* ---- 生成速度样式 ---- */
+/* ---- 生成速度样式 ----
+ * 数字类信息统一等宽字体，如页边小注 */
 .gen-speed {
+  font-family: var(--font-mono);
   font-weight: 600;
   color: var(--accent-success);
   letter-spacing: 0.02em;
@@ -288,6 +289,7 @@ onUnmounted(() => {
 }
 
 .gen-count {
+  font-family: var(--font-mono);
   opacity: 0.7;
 }
 
@@ -322,6 +324,7 @@ onUnmounted(() => {
 
 /* ---- 输入 token 计数样式 ---- */
 .token-label {
+  font-family: var(--font-mono);
   font-weight: 600;
   letter-spacing: 0.02em;
   transition: color 0.2s;
@@ -340,6 +343,7 @@ onUnmounted(() => {
 }
 
 .token-total {
+  font-family: var(--font-mono);
   opacity: 0.6;
 }
 
@@ -369,7 +373,7 @@ onUnmounted(() => {
   background: var(--accent-danger);
 }
 
-/* ---- P2-A2: 状态文案样式 ---- */
+/* ---- 状态文案样式 ---- */
 /* 60% 档 notice 用主色（蓝绿），80% 档 warn 用警告色（橙），95% 档 danger 用危险色（红） */
 .status-text {
   margin-left: 6px;
@@ -404,8 +408,8 @@ onUnmounted(() => {
   background: var(--accent-primary);
 }
 
-/* ---- P2-A3: 手动压缩按钮样式 ----
- * 统一风格：透明底色 + 字体颜色（与气泡操作按钮一致） */
+/* ---- 手动压缩按钮样式 ----
+ * 统一风格：透明底色 + hairline 描边小按钮，圆角走阶梯 */
 .compress-btn {
   margin-left: 8px;
   padding: 1px 8px;
@@ -414,7 +418,7 @@ onUnmounted(() => {
   color: var(--text-muted);
   background: transparent;
   border: 1px solid color-mix(in srgb, var(--text-muted) 30%, transparent);
-  border-radius: 8px;
+  border-radius: var(--border-radius-sm);
   cursor: pointer;
   transition:
     color 0.15s ease,

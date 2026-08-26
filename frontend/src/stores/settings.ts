@@ -12,7 +12,7 @@ import {
 } from '../services/wails'
 import { formatModelName } from '../utils/model'
 import { logError } from '../utils/logger'
-// 复用全局单例 discrete API，确保 message 跟随应用主题（任务 9）
+// 复用全局单例 discrete API，确保 message 跟随应用主题
 import { discreteMessage } from '../utils/discrete'
 import type { ModelSwitchState, BackendProgressStage, SwitchProgress } from '../types/settings'
 import { useSwitchStateMachine } from './settings/switchStateMachine'
@@ -37,7 +37,7 @@ export function matchModelRef<T>(modelName: string, refs: Record<string, T>): T 
 }
 
 export const useSettingsStore = defineStore('settings', () => {
-  // discreteMessage 来自全局单例（utils/discrete.ts），确保主题一致（任务 9）
+  // discreteMessage 来自全局单例（utils/discrete.ts），确保主题一致
 
   // ----- 基础配置 -----
   const config = ref<Config>({ ...DEFAULT_CONFIG })
@@ -318,7 +318,7 @@ export const useSettingsStore = defineStore('settings', () => {
     return await wails.generateServerAPIKey()
   }
 
-  // 配置写入串行化队列：所有配置写入操作排队执行，避免并发覆盖（任务 11 TOCTOU 防护）
+  // 配置写入串行化队列：所有配置写入操作排队执行，避免并发覆盖（TOCTOU 防护）
   let configWriteQueue: Promise<void> = Promise.resolve()
 
   function enqueueConfigWrite(task: () => Promise<void>): Promise<void> {
@@ -331,7 +331,7 @@ export const useSettingsStore = defineStore('settings', () => {
   /**
    * createCycleFn 创建一个三态循环切换函数。
    *
-   * 抽取原因（基于 F-1.11+F-3.7）：cycleSearchMode 和 cycleThinkingMode 结构完全一致，
+   * cycleSearchMode 和 cycleThinkingMode 结构完全一致，
    * 仅 getCurrent/setCurrent/nextMap/configField/errorLabel 不同，
    * 提取为高阶函数消除重复，新增循环切换只需配置参数。
    *
@@ -340,9 +340,6 @@ export const useSettingsStore = defineStore('settings', () => {
    *   2. 乐观更新 UI（setCurrent）
    *   3. 入队写入 config（getConfig → updateConfig）
    *   4. 失败时回滚（setCurrent(oldValue)）
-   *
-   * 生活类比：像一个"挡位切换器"——不管切换的是搜索模式还是思考模式，
-   * 都是"读当前挡位→推到下一挡→告诉引擎→引擎失败就退回原挡"的统一流程。
    */
   function createCycleFn<T extends string>(opts: {
     getCurrent: () => T // 获取当前值
@@ -447,10 +444,8 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  // F-1.12：事件监听统一为 registerXxxListener(): () => void 模式
+  // 事件监听统一为 registerXxxListener(): () => void 模式
   // 返回的 unsubscribe 函数用于取消监听并清理副作用，替代原来的 init/cleanup 配对调用
-  // 生活类比：像安装警报器——安装（register）后拿到一个"拆卸凭证"（unsubscribe 函数），
-  // 拆卸时会自动断开电源、清理相关配件，不用自己记住每一步。
   function registerStatusListener(): () => void {
     const unsubscribe = wails.subscribeServerStatus((status: ServerStatus) => {
       markStatusEventReceived()
@@ -497,9 +492,7 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  // ===== 进度事件订阅单例化（C-7：useModelSwitch 可重入化） =====
-  // 生活类比：以前每个调用者都各自装一个"门铃"，快递员来了每家门铃都响一遍；
-  // 现在整栋楼共用一个门铃——第一个住户装上，最后一个住户搬走才拆掉。
+  // ===== 进度事件订阅单例化（useModelSwitch 可重入化） =====
   // 引用计数归零才真正退订；released 标志保证同一 unsubscribe 重复调用不会错乱计数。
 
   let switchProgressRefCount = 0

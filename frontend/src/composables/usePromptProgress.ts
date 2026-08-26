@@ -15,7 +15,7 @@ export interface PromptProgressData {
 /**
  * usePromptProgress 提供 prompt 处理进度的派生计算（百分比 + ETA）。
  *
- * 抽取原因（基于 F-1.3+F-3.11）：MessageList.vue 和 TokenCounter.vue 中
+ * 抽取原因：MessageList.vue 和 TokenCounter.vue 中
  * promptPercent 和 promptEta 计算逻辑完全重复（各约 20 行），提取为 composable 统一维护，
  * 避免一处改漏导致两处显示不一致。
  *
@@ -24,9 +24,6 @@ export interface PromptProgressData {
  *   - actualProcessed = processed - cache（实际已处理的 token 数）
  *   - percent = actualProcessed / actualTotal * 100（向上取整，上限 100）
  *   - eta = elapsedSec * (actualTotal / actualProcessed - 1)（剩余秒数，<1 秒返回 null）
- *
- * 生活类比：像工厂的"进度看板"——原料总量（total）、已入库（cache）、已加工（processed）、
- * 加工耗时（timeMs）这些原始数据扔进来，看板自动算出"完成度 X%"和"预计剩余 Y 秒"。
  *
  * @param promptProgress prompt 进度的 getter 函数（返回 PromptProgressData | null）
  */

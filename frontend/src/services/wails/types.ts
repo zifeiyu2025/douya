@@ -214,12 +214,12 @@ export interface UpdateProgressEvent {
 /** 聊天消息（用于 token 计数和模板应用） */
 export interface ChatMessage {
   role: string
-  content: string // 移除 | any，避免类型擦除（任务 28.2）
+  content: string // 移除 | any，避免类型擦除
   reasoning_content?: string
   tool_call_id?: string
 }
 
-/** P2-A3: 手动压缩返回结果 */
+/** 手动压缩返回结果 */
 export interface CompressResult {
   shortSummary: string
   longSummary: string

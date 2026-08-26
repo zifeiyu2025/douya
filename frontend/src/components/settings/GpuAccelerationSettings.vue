@@ -1,6 +1,5 @@
 <!--
   GpuAccelerationSettings: GPU 加速设置
-  生活类比：像汽车的驱动方式设置——前驱/后驱/四驱（GPU层数）、涡轮增压（Flash Attention）
 
   从 PerformanceSettings.vue 拆分而来，负责：
     - GPU 状态检测展示
@@ -9,9 +8,10 @@
 -->
 <template>
   <!-- ==================== GPU 加速设置 ==================== -->
-  <n-divider style="margin: 24px 0 16px" />
+  <!-- 书房风：以自绘 1px 格线分隔章节，替代 NDivider -->
+  <div class="hairline" style="margin: 24px 0 16px" />
   <div class="section-header">
-    <span class="section-icon">🚀</span>
+    <AppIcon name="send" :size="16" class="section-icon" />
     <span class="section-title">GPU 加速</span>
   </div>
 
@@ -71,7 +71,7 @@
 
 <script setup lang="ts">
 import { inject, ref, computed, onMounted } from 'vue'
-import { NFormItem, NSelect, NInputNumber, NTag, NDivider } from 'naive-ui'
+import { NFormItem, NSelect, NInputNumber, NTag } from 'naive-ui'
 import { wails } from '../../services/wails'
 import HelpTip from '../ui/HelpTip.vue'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
@@ -80,7 +80,7 @@ defineOptions({ name: 'GpuAccelerationSettings' })
 
 // 从父级注入配置上下文（formConfig、autoSave 等共享状态）
 const ctx = inject<SettingsContext>(SETTINGS_CONTEXT_KEY)!
-// C-5 域切片：GPU 加速仅需核心表单与保存
+// 域切片：GPU 加速仅需核心表单与保存
 const { core } = ctx
 const { formConfig, autoSave } = core
 
@@ -157,13 +157,23 @@ onMounted(() => {
   margin-bottom: 16px;
 }
 
-.section-icon {
-  font-size: 18px;
+/* 自绘格线：替代 NDivider 的纸面分隔 */
+.hairline {
+  height: 1px;
+  background: var(--border-light);
 }
 
+/* 区块小标题：衬线体呼应书房目录 */
 .section-title {
-  font-size: 15px;
+  font-family: var(--font-display);
+  font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary);
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.section-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
 </style>

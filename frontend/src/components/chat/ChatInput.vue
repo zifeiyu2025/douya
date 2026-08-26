@@ -60,7 +60,7 @@
           <textarea
             ref="textareaRef"
             v-model="inputText"
-            placeholder="给DouYa发送消息....."
+            placeholder="向豆芽提问……"
             rows="1"
             class="chat-textarea"
             @keydown="handleKeydown"
@@ -158,14 +158,13 @@ const settingsStore = useSettingsStore()
 const message = useMessage()
 const inputText = ref('')
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
-// 使用 shallowRef：附件数组整体替换触发响应式，避免深度代理开销（任务 23）
+// 使用 shallowRef：附件数组整体替换触发响应式，避免深度代理开销
 const attachments = shallowRef<Attachment[]>([])
-// 附件处理逻辑抽取到 composable（基于 F-1.8+F-3.2）：
+// 附件处理逻辑抽取到 composable：
 // 包含 6 种文件类型的处理函数、文件大小校验、二进制检测、removeAttachment 等
 const { processFileByType, removeAttachment } = useAttachments(attachments, message)
 
 // 语音输入逻辑抽取到 useVoiceInput composable（基于架构优化）
-// 生活类比：就像雇了一个语音速记员，说话自动转成文字填进输入框
 const {
   isListening,
   voiceInterimText,
@@ -234,7 +233,6 @@ function handlePaste(e: ClipboardEvent) {
 }
 
 // 上下文菜单逻辑抽取到 useContextMenu composable（基于架构优化）
-// 生活类比：就像在文字上右键弹出的小工具箱——剪切/复制/粘贴/全选
 // 依赖注入：将 handlePaste 作为参数传入，让 composable 内部的"粘贴"操作能复用主组件的文件处理逻辑
 const {
   contextMenuVisible,
@@ -251,7 +249,7 @@ const {
 } = useContextMenu(textareaRef, inputText, handlePaste, message)
 
 // isLikelyBinaryContent / checkFileSize / readFileWithErrorHandling /
-// 6 个 process*File 函数 / removeAttachment 已抽取到 useAttachments composable（基于 F-1.8+F-3.2）
+// 6 个 process*File 函数 / removeAttachment 已抽取到 useAttachments composable
 
 function detectFileType(file: File): string | null {
   // 优先按 MIME type 判断
@@ -315,7 +313,7 @@ function checkCapability(type: string): boolean {
   return true
 }
 
-// processFileByType 已抽取到 useAttachments composable（基于 F-1.8+F-3.2）
+// processFileByType 已抽取到 useAttachments composable
 
 const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.gif,.webp,.bmp,.svg,.heic,.heif'
 const AUDIO_ACCEPT = '.wav,.mp3,.ogg,.flac,.aac,.m4a,.wma'
@@ -324,11 +322,11 @@ const TEXT_ACCEPT =
 const VIDEO_ACCEPT = '.mp4,.webm,.avi,.mov,.mkv,.wmv,.flv'
 
 // MAX_*_SIZE 常量 / checkFileSize / readFileWithErrorHandling
-// 已抽取到 useAttachments composable（基于 F-1.8+F-3.2）
+// 已抽取到 useAttachments composable
 
 // processImageFile / processAudioFile / processPdfFile / processDocxFile /
 // processVideoFile / processTextFile / removeAttachment
-// 已抽取到 useAttachments composable（基于 F-1.8+F-3.2）：
+// 已抽取到 useAttachments composable：
 //   - processImageFile 保留独立实现（异步流水线）
 //   - 其他 5 个通过 processFileCommon 高阶函数 + FILE_CONFIGS 表驱动统一处理
 //   - 原约 130 行重复代码缩减为 composable 中的 1 个通用函数 + 1 个配置表
@@ -385,22 +383,21 @@ onUnmounted(() => {
 
 <style scoped>
 .input-area {
-  padding: 10px 24px 10px;
-  border-top: 1px solid var(--border-color);
-  background: var(--bg-secondary);
+  /* 悬浮输入舱：舱体悬浮于消息流之上并与窗口边缘留缝，
+   * 不设 border-top 分隔线；设置背景图时可从舱体四周透出 */
+  padding: 6px 24px 16px;
   position: relative;
   z-index: 1;
 }
 
 .input-wrapper {
-  max-width: var(--msg-max-width);
-  margin: 0 auto;
+  /* 微信式铺满：不再居中限宽，直接吃满 .input-area 已有的 24px 水平内边距，
+   * 左右边缘与上方消息列（同样 24px）保持对齐 */
   width: 100%;
 }
 
 .input-footer-reminder {
-  max-width: var(--msg-max-width);
-  margin: 6px auto 0;
+  margin-top: 6px;
   text-align: center;
   font-size: 11px;
   line-height: 1.5;
@@ -416,8 +413,10 @@ onUnmounted(() => {
   height: 36px;
   padding: 0 14px;
   margin: 0 0 4px;
-  background: var(--bg-secondary);
-  border-radius: var(--border-radius-md);
+  /* 书房风：panel 纸面 + hairline 细线描边，禁用玻璃拟态 */
+  background: var(--surface-panel);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
   animation: chat-input-fade-in 0.2s ease;
 }
 
@@ -498,22 +497,27 @@ onUnmounted(() => {
   display: flex;
   align-items: flex-end;
   gap: 12px;
-  /* 容器与 textarea 同色，避免双层底色撕裂 */
-  background: var(--bg-input);
+  /* 书房风书写面：panel 纸面 + hairline 细线 + 单层低透明投影，
+   * 禁用玻璃拟态；圆角收锐为 md 阶梯，与全屋利落感一致 */
+  background: var(--surface-panel);
   border: 1px solid var(--border-color);
-  border-radius: var(--border-radius-lg);
+  border-radius: var(--border-radius-md);
   padding: 12px 14px;
   width: 100%;
   box-sizing: border-box;
+  box-shadow: var(--shadow-sm);
   transition:
     border-color 0.2s,
     box-shadow 0.2s;
   position: relative;
 }
 
+/* 聚焦：苔绿细线落笔 + 环形描边提示"正在输入"，不加重投影 */
 .chat-input-container:focus-within {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 20%, transparent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--accent-primary) 14%, transparent),
+    var(--shadow-sm);
 }
 
 .ctx-menu {
@@ -607,16 +611,18 @@ onUnmounted(() => {
   border-radius: var(--border-radius-md);
   border: none;
   background: var(--accent-primary);
-  color: white;
+  /* 书房风：强调色底上以纸面底色作字色（浅色下米纸白、夜读下深褐） */
+  color: var(--bg-primary);
   cursor: pointer;
   transition:
     transform 0.2s,
-    box-shadow 0.2s;
+    box-shadow 0.2s,
+    background-color 0.2s;
   flex-shrink: 0;
   position: relative;
   overflow: hidden;
-  /* 持续微发光，强化"可点击"感知 */
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent-primary) 25%, transparent);
+  /* 至多一层低透明投影，不做彩色发光 */
+  box-shadow: var(--shadow-sm);
 }
 
 .send-btn:disabled {
@@ -625,10 +631,10 @@ onUnmounted(() => {
   box-shadow: none;
 }
 
+/* 悬浮反馈走背景色阶，不放大、不加发光 */
 .send-btn:not(:disabled):hover {
   background: var(--accent-secondary);
-  transform: scale(1.05);
-  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent-primary) 40%, transparent);
+  box-shadow: var(--shadow-sm);
 }
 
 /* 点击涟漪效果（伪元素，不影响布局） */
@@ -662,28 +668,24 @@ onUnmounted(() => {
   height: 42px;
   border-radius: var(--border-radius-md);
   border: none;
-  background: var(--accent-r-primary);
-  color: white;
+  /* 原引用的 --accent-r-primary 为未定义死变量，背景整条失效；
+   * 现改用真实令牌 --accent-danger（朱砂） */
+  background: var(--accent-danger);
+  color: var(--bg-primary);
   cursor: pointer;
   transition:
     transform 0.2s,
-    box-shadow 0.2s;
+    box-shadow 0.2s,
+    background-color 0.2s;
   flex-shrink: 0;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent-r-primary) 25%, transparent);
+  box-shadow: var(--shadow-sm);
 }
 
 .stop-btn:hover {
-  background: var(--accent-r-strong);
-  transform: scale(1.05);
-  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent-r-primary) 40%, transparent);
-}
-</style>
-
-<style>
-.has-background .input-area {
-  background: transparent;
-  border-top-color: transparent;
+  /* 朱砂加深一档，用 color-mix 调制，明暗主题通用 */
+  background: color-mix(in srgb, var(--accent-danger) 86%, black);
+  box-shadow: var(--shadow-sm);
 }
 </style>

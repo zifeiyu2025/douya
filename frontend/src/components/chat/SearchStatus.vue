@@ -1,19 +1,21 @@
 <template>
+  <!-- 搜索中：印章方点脉冲 + 一行小注，收敛为 hairline 信息行 -->
   <div v-if="searching" class="search-status">
-    <n-spin size="small" />
-    <span>{{ query ? `正在搜索: ${query}` : '正在搜索...' }}</span>
+    <span class="search-pulse-dot" aria-hidden="true"></span>
+    <span class="search-status-text">{{ query ? `正在搜索: ${query}` : '正在搜索...' }}</span>
   </div>
   <div v-else-if="error" class="search-error-block">
-    <n-icon size="16" class="search-error-icon"><AlertCircleOutline /></n-icon>
+    <span class="search-error-dot" aria-hidden="true"></span>
     <span class="search-error-text">{{ error }}</span>
   </div>
   <div v-else-if="resultItems.length > 0" class="search-results-block">
+    <!-- 折叠头：§ 章节号 + 衬线体标签，如目录条目 -->
     <div class="search-results-header" @click="toggleExpand">
-      <n-icon size="18" :class="{ rotated: expanded }">
+      <n-icon size="14" :class="{ rotated: expanded }">
         <ChevronForwardOutline />
       </n-icon>
-      <n-icon size="16"><SearchOutline /></n-icon>
-      <span>参考来源</span>
+      <span class="search-results-mark" aria-hidden="true">§</span>
+      <span class="search-results-label">参考来源</span>
       <span class="search-results-count">{{ resultItems.length }} 条结果</span>
     </div>
     <div v-if="expanded" class="search-results-content">
@@ -37,10 +39,10 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { NIcon, NSpin } from 'naive-ui'
-import { ChevronForwardOutline, SearchOutline, AlertCircleOutline } from '@vicons/ionicons5'
+import { NIcon } from 'naive-ui'
+import { ChevronForwardOutline } from '@vicons/ionicons5'
 import { isSafeUrl } from '../../utils/lightSanitize'
-// F-1.13：openExternal 抽取到 utils/externalLink.ts，消除两处重复定义
+// openExternal 抽取到 utils/externalLink.ts，消除两处重复定义
 import { openExternal } from '../../utils/externalLink'
 import type { SearchResultItem } from '../../types/search'
 
@@ -134,31 +136,68 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* 书房风·信息行语汇：
+ * 参考来源块以上下两条 hairline 细线圈定范围，无卡片底色；
+ * 条目走左缘细线缩进列，hover 苔绿落点 */
 .search-results-block {
   margin-bottom: 12px;
-  border-radius: var(--border-radius-md);
-  border: 1px solid var(--border-color);
-  overflow: hidden;
-  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-light);
+  border-bottom: 1px solid var(--border-light);
 }
 
-/* 搜索错误提示块：红色调警告条，提示用户搜索功能出问题的具体原因 */
+/* 搜索中状态行：朱砂方点脉冲 + 小字注记 */
+.search-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 4px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.search-status-text {
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+}
+
+.search-pulse-dot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  background: var(--seal-color);
+  animation: search-dot-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes search-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* 搜索错误提示行：左缘朱砂细线 + 错误色文字，无色块底
+ * 注：语义别名 --error-color 在 tokens.css 中指向未定义变量而失效，
+ * 故此处直接使用真实令牌 --accent-danger（朱砂） */
 .search-error-block {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 12px;
-  padding: 8px 12px;
-  border-radius: var(--border-radius-sm);
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  padding: 6px 0 6px 12px;
+  border-left: 2px solid var(--accent-danger);
   font-size: 13px;
-  color: #ef4444;
+  color: var(--accent-danger);
 }
 
-.search-error-icon {
+.search-error-dot {
+  width: 5px;
+  height: 5px;
   flex-shrink: 0;
-  color: #ef4444;
+  background: var(--accent-danger);
 }
 
 .search-error-text {
@@ -193,24 +232,30 @@ onUnmounted(() => {
 /* .n-icon 和 .n-icon.rotated 已在 style.css 全局定义 */
 
 .search-results-content {
-  padding: 12px;
-  border-top: 1px solid var(--border-color);
+  padding: 0 0 8px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
 }
 
+/* 条目：左缘 hairline 缩进列，相邻条目以细分隔线区隔 */
 .search-result-item {
   display: block;
-  padding: 10px 12px;
-  border-radius: var(--border-radius-sm);
+  padding: 8px 4px 8px 14px;
+  border-left: 1px solid var(--border-light);
   text-decoration: none;
-  transition: all var(--transition-fast);
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast);
 }
 
+.search-result-item + .search-result-item {
+  border-top: 1px solid var(--border-light);
+}
+
+/* hover：淡背景阶 + 左缘线转苔绿，示意"落笔在此" */
 .search-result-item:hover {
-  background: var(--bg-hover);
-  transform: translateX(2px);
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  border-left-color: var(--accent-primary);
 }
 
 .search-result-item.unsafe-url {
@@ -241,6 +286,7 @@ onUnmounted(() => {
 }
 
 .search-result-url {
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-muted);
   margin-top: 4px;

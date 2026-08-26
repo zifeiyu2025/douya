@@ -119,7 +119,7 @@ const ctx = inject<SettingsContext>(SETTINGS_CONTEXT_KEY)
 if (!ctx) {
   throw new Error('APIServiceSettings 必须在 SettingsView 内使用（缺少 settingsContext provide）')
 }
-// C-5 域切片：core 提供表单/保存，apiService 提供服务端密钥与开关逻辑
+// 域切片：core 提供表单/保存，apiService 提供服务端密钥与开关逻辑
 const { core, apiService } = ctx
 const { formConfig, autoSave } = core
 const {

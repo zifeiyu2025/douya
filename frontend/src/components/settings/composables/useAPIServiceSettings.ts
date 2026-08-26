@@ -103,7 +103,6 @@ export function useAPIServiceSettings(core: SettingsCore, message: MessageApi) {
     message.destroyAll()
     if (formConfig.value.expose_server) {
       // 开启局域网访问前检查：必须已启用 API Key 并设置密钥
-      // 生活类比：开门营业前先检查门锁装好了没，没锁好就不让开门
       if (!formConfig.value.server_api_key_enabled || !hasServerApiKey.value) {
         formConfig.value.expose_server = false
         message.error(
@@ -141,7 +140,6 @@ export function useAPIServiceSettings(core: SettingsCore, message: MessageApi) {
   }
 
   // port 变化时自动同步 api_base 中的端口，保持两者一致
-  // 生活类比：改了门牌号，快递单上的地址也跟着自动更新
   watch(
     () => formConfig.value.port,
     (newPort, oldPort) => {

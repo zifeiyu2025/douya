@@ -1,6 +1,5 @@
 <!--
   ModelDownloader: 内置模型下载器（来源 ModelScope / HF 镜像）
-  生活类比：像"网购模型"——选平台、搜商品、挑款式、下单，然后等"快递"送到 models 目录。
   流程：
     1. 选择下载源（ModelScope 魔搭社区 / HF 国内镜像）
     2. 输入关键词搜索出候选模型仓库
@@ -304,9 +303,7 @@ const startingDownload = ref(false)
 const progressMap = ref<Record<string, ModelDownloadProgress>>({})
 
 // 最近一次发起的下载参数：下载中断/失败后，"重试下载"按钮据此原样重发，
-// 用户无需重新搜索、展开仓库、勾选文件。
-// 生活类比：快递单丢了没关系，我们留了底单，点一下就能让快递员重新发货，
-// 而且已送到的部分（断点）不用重送。
+// 用户无需重新搜索、展开仓库、勾选文件；已下载的部分（断点）不会重下。
 interface DownloadAttempt {
   provider: string
   repoId: string
@@ -483,7 +480,7 @@ async function startDownload() {
     mainFile: selectedFile.value,
     mmproj: selectedMmproj.value
   }
-  // 留底单：无论本次结果如何，失败后都可一键原样重试
+  // 保存本次下载参数：无论本次结果如何，失败后都可一键原样重试
   lastAttempt.value = attempt
   try {
     await beginDownload(attempt)
@@ -623,7 +620,7 @@ onUnmounted(() => {
 }
 
 .load-more-err {
-  color: var(--error-color, #e5484d);
+  color: var(--error-color);
   font-size: 12px;
 }
 
@@ -697,12 +694,12 @@ onUnmounted(() => {
 }
 
 .model-item__files--error .files-title {
-  color: var(--error-color, #d03050);
+  color: var(--error-color);
 }
 
 .files-err-msg {
   font-size: 12px;
-  color: var(--error-color, #d03050);
+  color: var(--error-color);
   word-break: break-all;
 }
 
@@ -806,7 +803,7 @@ onUnmounted(() => {
 
 .progress-item__error {
   font-size: 12px;
-  color: var(--error-color, #d03050);
+  color: var(--error-color);
   margin-top: 4px;
   word-break: break-all;
 }
@@ -819,9 +816,9 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 12px;
   padding: 14px 16px;
-  border: 1px solid var(--error-color, #e5484d);
+  border: 1px solid var(--error-color);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--error-color, #e5484d) 8%, transparent);
+  background: color-mix(in srgb, var(--error-color) 8%, transparent);
 }
 
 .download-failed__body {
@@ -829,7 +826,7 @@ onUnmounted(() => {
 }
 
 .download-failed__title {
-  color: var(--error-color, #e5484d);
+  color: var(--error-color);
   font-size: 13px;
   font-weight: 600;
 }
@@ -846,9 +843,9 @@ onUnmounted(() => {
   padding: 6px 22px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--error-color, #e5484d);
+  color: var(--error-color);
   background: transparent;
-  border: 1px solid var(--error-color, #e5484d);
+  border: 1px solid var(--error-color);
   border-radius: 8px;
   cursor: pointer;
   transition:
@@ -859,12 +856,12 @@ onUnmounted(() => {
 
 .download-failed__retry:hover:not(:disabled) {
   color: #fff;
-  background: var(--error-color, #e5484d);
-  border-color: var(--error-color, #e5484d);
+  background: var(--error-color);
+  border-color: var(--error-color);
 }
 
 .download-failed__retry:focus-visible {
-  outline: 2px solid var(--error-color, #e5484d);
+  outline: 2px solid var(--error-color);
   outline-offset: 2px;
 }
 

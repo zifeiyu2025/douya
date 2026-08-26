@@ -7,7 +7,7 @@ import { applyCodeTheme } from '../utils/markdown'
 let mql: MediaQueryList | null = null
 
 export const useThemeStore = defineStore('theme', () => {
-  // ===== SubTask 1.1 & 1.7: mode 状态 + 旧键迁移 =====
+  // ===== mode 状态 + 旧键迁移 =====
   // 读取 localStorage，优先使用新键 douya-theme-mode，兼容旧键 douya-theme
   let initialMode: 'light' | 'dark' | 'auto' = 'auto'
   if (typeof localStorage !== 'undefined') {
@@ -29,7 +29,7 @@ export const useThemeStore = defineStore('theme', () => {
 
   const mode = ref<'light' | 'dark' | 'auto'>(initialMode)
 
-  // ===== SubTask 1.2: systemDark（跟随系统偏好） =====
+  // ===== systemDark（跟随系统偏好） =====
   const systemDark = ref(false)
   if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
     if (!mql) {
@@ -42,15 +42,15 @@ export const useThemeStore = defineStore('theme', () => {
     systemDark.value = mql.matches
   }
 
-  // ===== SubTask 1.3: resolvedMode（实际生效的模式） =====
+  // ===== resolvedMode（实际生效的模式） =====
   const resolvedMode = computed<'light' | 'dark'>(() =>
     mode.value === 'auto' ? (systemDark.value ? 'dark' : 'light') : mode.value
   )
 
-  // ===== SubTask 1.4: isDark 向后兼容 =====
+  // ===== isDark 向后兼容 =====
   const isDark = computed(() => resolvedMode.value === 'dark')
 
-  // ===== SubTask 1.6: applyThemeClass（操作 DOM classList + 代码高亮主题） =====
+  // ===== applyThemeClass（操作 DOM classList + 代码高亮主题） =====
   function applyThemeClass(dark: boolean) {
     if (typeof document !== 'undefined') {
       if (dark) {
@@ -72,7 +72,7 @@ export const useThemeStore = defineStore('theme', () => {
     applyThemeClass(val === 'dark')
   })
 
-  // ===== SubTask 1.5: setMode 方法 + 自动持久化 =====
+  // ===== setMode 方法 + 自动持久化 =====
   function setMode(m: 'light' | 'dark' | 'auto') {
     mode.value = m
   }

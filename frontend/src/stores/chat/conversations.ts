@@ -12,10 +12,6 @@ import type { ConvStreamingState } from '../../types/chat'
  *
  * 拆分说明：原 store 内 8 个会话管理函数（load/select/create/rename/delete/search/export）
  * 相对独立，主要依赖 wails API 和几个 ref，适合提取为独立 composable。
- *
- * 生活类比：像文件柜管理——加载列表（loadConversations）、打开文件夹（selectConversation）、
- * 新建文件夹（createConversation）、重命名（renameConversation）、删除（deleteConversation）、
- * 搜索内容（searchMessages）、导出（exportConversation）。
  */
 
 /** 会话管理所需的共享状态依赖 */
@@ -29,7 +25,7 @@ export interface ConversationDeps {
   lastError: Ref<string>
   /** 消息请求版本号（TOCTOU 防护）：用 ref 包装以便跨 composable 共享 */
   messagesRequestVersion: Ref<number>
-  /** 清理定时器回调（M3: 删除会话时清理孤儿定时器，防止内存泄漏） */
+  /** 清理定时器回调（删除会话时清理孤儿定时器，防止内存泄漏） */
   clearFlushTimer: (convId: string) => void
 }
 
@@ -76,13 +72,13 @@ export function useConversations(deps: ConversationDeps) {
   async function selectConversation(id: string) {
     if (id === currentConversationId.value) return
 
-    // 递增版本号，使 handleTerminalAsync 中进行中的旧请求失效（M-前2 TOCTOU 防护）
+    // 递增版本号，使 handleTerminalAsync 中进行中的旧请求失效（TOCTOU 防护）
     messagesRequestVersion.value++
     const requestVersion = messagesRequestVersion.value
     currentConversationId.value = id
     try {
       const msgs = await wails.getMessages(id)
-      // P1 修复：await 返回后校验版本号，避免快速切换 A→B→C 时 B 的旧请求覆盖 C 的消息
+      // await 返回后校验版本号，避免快速切换 A→B→C 时 B 的旧请求覆盖 C 的消息
       if (requestVersion !== messagesRequestVersion.value) return
       messages.value = msgs
     } catch (e) {
@@ -91,8 +87,8 @@ export function useConversations(deps: ConversationDeps) {
       messages.value = []
     }
 
-    // P2 修复：只在切换到的会话正在生成时才更新 generatingConvId，
-    // 否则保留旧值（可能其他会话还在生成），避免破坏 M10 的"当前会话/生成会话"解耦设计。
+    // 只在切换到的会话正在生成时才更新 generatingConvId，
+    // 否则保留旧值（可能其他会话还在生成），避免破坏"当前会话/生成会话"解耦设计。
     // generatingConvId 的清空由 handleTerminalEvent 在生成结束时统一处理。
     const state = convStreamingStates.get(id)
     if (state && state.isGenerating) {
@@ -124,7 +120,7 @@ export function useConversations(deps: ConversationDeps) {
       await wails.deleteConversation(id)
       conversations.value = conversations.value.filter((c: Conversation) => c.id !== id)
       convStreamingStates.delete(id)
-      // M3: 清理可能残留的 flush 定时器，防止孤儿定时器内存泄漏
+      // 清理可能残留的 flush 定时器，防止孤儿定时器内存泄漏
       deps.clearFlushTimer(id)
       if (generatingConvId.value === id) generatingConvId.value = ''
       if (currentConversationId.value === id) {

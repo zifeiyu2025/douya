@@ -5,11 +5,6 @@
 //   原始 Markdown → marked 解析（GFM + 换行）
 //   → 自定义 renderer（代码高亮 + 代码头 + 外部链接新窗口）
 //   → DOMPurify 安全过滤
-//
-// 相比旧版（remark + rehype + morphdom + KaTeX + Mermaid）：
-// - 移除 remark/rehype 异步管道（10+ 插件链）
-// - 移除 KaTeX 数学公式、Mermaid 图表
-// - marked 默认同步，性能更好
 
 import { marked, type Tokens } from 'marked'
 import DOMPurify from 'dompurify'
@@ -50,9 +45,6 @@ const purify = (() => {
 })()
 
 // ===== 深色代码主题动态加载与切换 =====
-//
-// 生活类比：就像房间里有两盏灯（亮色灯、深色灯），白天只开亮色灯，
-// 晚上再开深色灯。不需要一开始就把两盏灯都开着浪费电。
 //
 // 实现原理：
 // - 亮色主题 github.css 在启动时静态导入（默认生效，无法卸载）
@@ -112,7 +104,7 @@ export function applyCodeTheme(isDark: boolean): void {
 //
 // marked 配置说明：
 // - gfm: true       启用 GitHub Flavored Markdown（表格、删除线、任务列表等）
-// - breaks: true    单个换行符转 <br>（对齐原 remark-breaks 行为）
+// - breaks: true    单个换行符转 <br>
 // - renderer.code   重写代码块渲染：语法高亮 + 代码头（语言标签 + 复制按钮）
 // - renderer.link   重写链接渲染：外部链接新窗口打开
 
@@ -121,10 +113,7 @@ const renderer = new marked.Renderer()
 /**
  * 重写代码块渲染
  *
- * 生活类比：就像给代码块装一个"标签牌"和"复制按钮"，
- * 标签牌写着语言名字（如 javascript），复制按钮点击后复制代码。
- *
- * 生成的 HTML 结构（与原 rehypeCodeBlocks 保持一致，复用现有 CSS 和 codeCopy.ts）：
+ * 生成的 HTML 结构（复用现有 CSS 和 codeCopy.ts）：
  * <pre class="hljs">
  *   <div class="code-header">
  *     <span class="code-lang">javascript</span>
@@ -148,10 +137,7 @@ renderer.code = function ({ text, lang }: Tokens.Code): string {
 }
 
 /**
- * 重写链接渲染：外部链接新窗口打开
- *
- * 生活类比：就像点击链接时，浏览器自动开一个新标签页，
- * 而不是在当前页面跳走（避免离开当前聊天界面）。
+ * 重写链接渲染：外部链接新窗口打开，避免离开当前聊天界面。
  *
  * marked v18 renderer.link 签名：link({ href, title, tokens }: Tokens.Link)
  * - href: 链接地址
@@ -161,7 +147,7 @@ renderer.code = function ({ text, lang }: Tokens.Code): string {
 renderer.link = function ({ href, title, tokens }: Tokens.Link): string {
   const text = this.parser.parseInline(tokens)
   const titleAttr = title ? ` title="${escapeHtml(title)}"` : ''
-  // 安全实践（#15）：校验协议白名单（http(s) / mailto / tel / #），
+  // 安全实践：校验协议白名单（http(s) / mailto / tel / #），
   // 不安全链接（如 javascript: / vbscript: / data:text/html）降级为 #
   const safeHref = isSafeUrl(href) ? href : '#'
   return `<a href="${escapeHtml(safeHref)}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`
@@ -180,8 +166,7 @@ marked.use({
  * 渲染完整 Markdown（异步）
  * 用于：历史消息、思考内容等已完成的文本
  *
- * 生活类比：就像把一段"格式化文本"翻译成"网页能显示的 HTML"，
- * 然后用 DOMPurify "消毒"一遍，确保没有恶意代码。
+ * 流程：marked 解析为 HTML，再经 DOMPurify 安全过滤后返回。
  */
 export async function renderMarkdown(content: string): Promise<string> {
   if (!content) return ''
@@ -200,14 +185,14 @@ export async function renderMarkdown(content: string): Promise<string> {
 /**
  * DOMPurify 安全过滤
  *
- * 修复（安全审查 #14）：显式硬化白名单与协议限制，作为纵深防御。
+ * 安全加固：显式硬化白名单与协议限制，作为纵深防御。
  * - 不设置 ALLOWED_TAGS/ALLOWED_ATTR：用 DOMPurify 默认白名单，避免破坏 markdown 渲染
  * - ALLOWED_URI_REGEXP：URI 协议白名单（http(s) / mailto / ftp / tel / data:image / #）
  * - FORBID_ATTR：禁用 style 与常见危险事件属性
  */
 export function sanitizeHtml(html: string): string {
   return purify.sanitize(html, {
-    // 安全实践（#14）：显式 URI 协议白名单 + 禁用危险事件属性
+    // 安全实践：显式 URI 协议白名单 + 禁用危险事件属性
     ALLOWED_URI_REGEXP: /^(?:https?|mailto|ftp|tel|data:image\/(?:png|jpeg|gif|webp|bmp)|#)/i,
     FORBID_ATTR: ['style', 'onerror', 'onload', 'onclick', 'onmouseover']
   })

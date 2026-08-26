@@ -1,5 +1,5 @@
 import type { InjectionKey } from 'vue'
-// C-5 设置域重建：45 字段平铺 context 重构为五个类型化域切片
+// 设置域重建：45 字段平铺 context 重构为五个类型化域切片
 // 各域 API 类型直接取自对应 composable 的返回值（ReturnType），新增成员自动同步，无需手写接口
 import type { useSettingsCore } from './composables/useSettingsCore'
 import type { useAppearanceSettings } from './composables/useAppearanceSettings'

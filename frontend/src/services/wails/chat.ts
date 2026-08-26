@@ -96,22 +96,20 @@ export const chatMethods = {
   deleteMessage: async (id: string): Promise<void> => {
     await DeleteMessage(id)
   },
-  // C-4：消息编辑——后端仅落库新内容（单一职责），
+  // 消息编辑——后端仅落库新内容（单一职责），
   // "截断后续 + 重新生成"的编排由前端驱动（复用 chatStore.regenerateMessage）
   editMessage: async (messageID: string, newContent: string): Promise<void> => {
     await EditMessage(messageID, newContent)
   },
-  // P2-A3: 手动触发对话压缩
+  // 手动触发对话压缩
   compressConversation: async (convID: string): Promise<CompressResult> => {
     return (await CompressConversation(convID)) as CompressResult
   },
   regenerateMessage: async (userMessageID: string, searchMode: string): Promise<void> => {
     await RegenerateMessage(userMessageID, searchMode)
   },
-  // F-1.10+F-3.5：事件订阅统一为 subscribeXxx(callback): () => void 模式
+  // 事件订阅统一为 subscribeXxx(callback): () => void 模式
   // 返回的 unsubscribe 函数用于取消订阅，替代原来的 onXxx/offXxx 配对调用
-  // 生活类比：像订报纸——订阅（subscribe）后拿到一个"退订凭证"（unsubscribe 函数），
-  // 想不看了就凭它退订，不用记住自己订的是哪份报纸（事件名）。
   subscribeChatStream: (callback: (event: StreamEvent) => void): (() => void) => {
     EventsOn(EventChatStream, callback)
     return () => EventsOff(EventChatStream)

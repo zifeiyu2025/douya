@@ -24,7 +24,7 @@ defineProps<{
 </script>
 
 <style scoped>
-/* 安全实践（基于 F-1.1/F-1.2）：统一 help-tip-icon 样式，消除三处重复定义 */
+/* 安全实践：统一 help-tip-icon 样式，消除三处重复定义 */
 .help-tip-icon {
   display: inline-flex;
   align-items: center;

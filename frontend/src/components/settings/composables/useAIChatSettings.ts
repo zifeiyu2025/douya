@@ -73,7 +73,6 @@ export function useAIChatSettings(
 
   // ===== 模型专属参数预设 =====
   // 每个模型保存各自的生成参数，切换模型时自动恢复用户习惯
-  // 生活类比：每个员工有各自的"办公偏好卡片"，换工位时自动按卡片调整
   const hasModelPreset = ref(false)
   const savingModelPreset = ref(false)
 

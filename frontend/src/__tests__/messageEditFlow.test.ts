@@ -175,6 +175,7 @@ describe('MessageItem 用户消息编辑流', () => {
       searchQuery: '',
       searchError: '',
       contextTrimmed: null,
+      outputTruncated: false,
       tokensPerSecond: 0,
       predictedN: 0,
       promptProgress: null

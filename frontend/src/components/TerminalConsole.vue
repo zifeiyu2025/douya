@@ -20,7 +20,7 @@ let fitAddon: FitAddon | null = null
 let paused = false
 let resizeTimer: ReturnType<typeof setTimeout> | null = null
 let resizeObserver: ResizeObserver | null = null
-// F-1.10：保存 subscribeTerminalData 返回的 unsubscribe 函数，替代原 offTerminalData 调用
+// 保存 subscribeTerminalData 返回的 unsubscribe 函数，替代原 offTerminalData 调用
 let unsubscribeTerminalData: (() => void) | null = null
 
 const themeStore = useThemeStore()
@@ -166,7 +166,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  // F-1.10：调用 unsubscribe 函数取消订阅，替代原 wails.offTerminalData()
+  // 调用 unsubscribe 函数取消订阅，替代原 wails.offTerminalData()
   if (unsubscribeTerminalData) {
     unsubscribeTerminalData()
     unsubscribeTerminalData = null

@@ -1,331 +1,289 @@
 /**
- * Naive UI 全局主题覆盖（themeOverrides）
+ * Naive UI 全局主题覆盖（themeOverrides）— 调色板派生版
  *
- * 生活类比：就像给一套精装修房子重新刷漆——Naive UI 自带一套"绿色"配色
- * （primaryColor=#18a058），但我们房子（项目）的设计稿是"GitHub 蓝"
- * （--accent-primary: #0969da）。这个 composable 就是把 Naive UI 的
- * 每一个颜色"开关"（token）都对接到我们项目的 CSS 变量值上，让所有
- * Naive UI 组件（Button/Input/Dialog/Message 等）显示项目配色而不是默认绿色。
+ * 架构说明：
+ *   - LIGHT_PALETTE / DARK_PALETTE：两套扁平调色板，唯一的手写颜色源；
+ *     导出供 themeTokens.test.ts 与 tokens.css 自动比对，漂移即测试红。
+ *   - buildOverrides(palette)：从调色板派生完整 GlobalThemeOverrides，
+ *     common / Input / Select(peers) / Card / Dialog ... 全部由此生成。
  *
- * 设计决策：硬编码两套 overrides（light/dark），通过 isDark 切换
- *  - 优点 1：性能最佳（无 DOM 读取，无 getComputedStyle 调用）
- *  - 优点 2：不依赖 DOM，SSR 安全，可在 pinia 任意上下文使用
- *  - 缺点：需要与 styles/tokens.css 的亮色/深色令牌块手动同步
+ * 表面色接入「三层表面体系」（见 styles/tokens.css 头注释）：
+ *   - 凡是「表面」类 key（inputColor/cardColor/modalColor/popoverColor 等）
+ *     直接传 CSS 变量引用 var(--surface-panel) / var(--surface-card)：
+ *       · 未设背景图：alpha=1 → color-mix 退化为实色，观感不变；
+ *       · 设了背景图：App.vue 注入 alpha 数值 → Naive UI 组件随全局一起通透，
+ *         无需逐组件补丁（这就是 VSCode 背景插件式体验的实现路径）。
+ *   - 「会被 Naive UI 内部做透明度/混色运算」的颜色（primary/error 等
+ *     状态色、hoverColor）必须保持实色 hex —— 喂 var() 会让其内部
+ *     color 解析器拿到无法计算的字符串，产生无效 CSS。
  *
- * ⚠️ 同步维护要求：修改本文件颜色值时，必须同步修改 styles/tokens.css 中
- *   亮色与深色两个令牌块的对应 CSS 变量值，反之亦然。
- *   themeTokens.test.ts 会校验 tokens.css 的令牌值，但不会校验本文件，
- *   所以改动时请手动核对两处一致。
+ * ⚠️ 同步维护要求：LIGHT_PALETTE / DARK_PALETTE 的每个值都必须与
+ *   styles/tokens.css 对应令牌块的 CSS 变量一致（含注释里的对照名）。
+ *   themeTokens.test.ts 同时校验两边，改动任一处都会被测试抓住。
  */
 import { computed, type ComputedRef } from 'vue'
 import type { GlobalThemeOverrides } from 'naive-ui'
 import { useThemeStore } from '../stores/theme'
 
-/**
- * 亮色模式 overrides
- * 与 styles/tokens.css 亮色令牌块保持同步
- */
-const lightOverrides: GlobalThemeOverrides = {
-  common: {
-    // ===== 主色调（与 --accent-* 同步）=====
-    primaryColor: '#0969da', // --accent-primary
-    primaryColorHover: '#218bff', // --accent-secondary
-    primaryColorPressed: '#0550ae', // 比 primary 深（Naive UI 按下态）
-    primaryColorSuppl: '#0969da', // 与 primaryColor 一致（补充态）
-    infoColor: '#0969da', // 复用 primary（项目无独立 info 色）
-    infoColorHover: '#218bff',
-    infoColorPressed: '#0550ae',
-    infoColorSuppl: '#0969da',
-    successColor: '#1f883d', // --accent-success
-    successColorHover: '#1a7f37',
-    successColorPressed: '#1a7f37',
-    successColorSuppl: '#1f883d',
-    warningColor: '#d4a72c', // --accent-warning
-    warningColorHover: '#bf8700',
-    warningColorPressed: '#9a6700',
-    warningColorSuppl: '#d4a72c',
-    errorColor: '#cf222e', // --accent-danger
-    errorColorHover: '#a40e26',
-    errorColorPressed: '#82071e',
-    errorColorSuppl: '#cf222e',
+/** 单主题调色板：全部手写颜色的唯一声明处（与 tokens.css 令牌一一对应） */
+export interface ThemePalette {
+  // ===== 主色系（--accent-primary / -secondary；pressed 为手工加深档）=====
+  primary: string
+  primaryHover: string
+  primaryPressed: string
+  // ===== 状态色（--accent-success/warning/danger 及其 hover/pressed 档）=====
+  success: string
+  successHover: string
+  successPressed: string
+  warning: string
+  warningHover: string
+  warningPressed: string
+  error: string
+  errorHover: string
+  errorPressed: string
+  // ===== 文字色系（--text-primary/secondary/muted + 禁用档）=====
+  textPrimary: string
+  textSecondary: string
+  textMuted: string
+  textDisabled: string
+  // ===== 背景色系（实色兜底档：--bg-primary/secondary/hover/active）=====
+  bgBase: string
+  bgSubtle: string
+  bgHover: string
+  bgActive: string
+  /** 禁用输入框/操作条底色（亮同 bgSubtle / 暗同 bgHover，保持中性微差） */
+  bgMuted: string
+  // ===== 边框（--border-color / --border-light）=====
+  border: string
+  borderLight: string
+}
 
-    // ===== 文字色系（与 --text-* 同步）=====
-    textColorBase: '#1f2328', // --text-primary
-    textColor1: '#1f2328', // --text-primary（主文字）
-    textColor2: '#656d76', // --text-secondary（次文字）
-    textColor3: '#848d97', // --text-muted（静默文字）
-    placeholderColor: '#848d97', // --text-muted（占位符）
-    placeholderColorDisabled: '#afb8c1',
-    iconColor: '#656d76',
-    iconColorHover: '#1f2328',
-    iconColorPressed: '#1f2328',
-    iconColorDisabled: '#afb8c1',
+/** 亮色调色板（与 tokens.css :root 块同步 —— 纸面：纯白底 × 石墨墨 × TRAE 亮蓝） */
+export const LIGHT_PALETTE: ThemePalette = {
+  primary: '#2f74ff',
+  primaryHover: '#5589ff',
+  primaryPressed: '#245fd9',
+  success: '#40b08b',
+  successHover: '#58bf9e',
+  successPressed: '#358f70',
+  warning: '#e28a00',
+  warningHover: '#ef9b1a',
+  warningPressed: '#c27400',
+  error: '#e8463a',
+  errorHover: '#ee6055',
+  errorPressed: '#cc362c',
+  textPrimary: '#31353a',
+  textSecondary: '#5b6066',
+  textMuted: '#8a9096',
+  textDisabled: '#aab0b8',
+  bgBase: '#ffffff',
+  bgSubtle: '#f8f8f9',
+  bgHover: '#eaedf1',
+  bgActive: '#e2e6ec',
+  bgMuted: '#f0f2f5',
+  border: '#dfe3ea',
+  borderLight: '#ebeef3'
+}
 
-    // ===== 边框 / 分隔线 =====
-    borderColor: '#d0d7de', // --border-color
-    dividerColor: '#eaeef2', // --border-light
-
-    // ===== 背景色系（与 --bg-* 同步）=====
-    bodyColor: '#fbfbfc', // --bg-primary
-    cardColor: '#f3f4f7', // --bg-secondary
-    modalColor: '#fbfbfc', // 模态用主背景
-    popoverColor: '#fbfbfc', // 弹出层用主背景
-    tableColor: '#fbfbfc',
-    inputColor: '#fbfbfc', // --bg-input
-    inputColorDisabled: '#f3f4f7',
-    actionColor: '#f3f4f7',
-    hoverColor: '#eceef2', // --bg-hover
-    tableColorHover: '#eceef2',
-    tableColorStriped: '#f3f4f7',
-
-    // ===== 圆角（与 style.css --border-radius-* 对齐）=====
-    borderRadius: '8px', // --border-radius-sm
-    borderRadiusSmall: '4px', // --border-radius-xs
-
-    // ===== 关闭按钮（Naive UI common 用 closeIconColor 系列）=====
-    closeIconColor: '#848d97', // 关闭图标颜色（--text-muted）
-    closeIconColorHover: '#1f2328', // hover 时图标颜色（--text-primary）
-    closeIconColorPressed: '#1f2328', // pressed 时图标颜色
-    closeColorHover: '#eceef2', // hover 时背景色（--bg-hover）
-    closeColorPressed: '#e0e3e9' // pressed 时背景色（--bg-active）
-  },
-
-  Button: {
-    // 主色按钮文字始终白色（保证对比度）
-    textColorPrimary: '#ffffff',
-    textColorHover: '#ffffff',
-    textColorPressed: '#ffffff',
-    textColorFocus: '#ffffff'
-  },
-
-  Input: {
-    color: '#fbfbfc', // --bg-input
-    colorFocus: '#fbfbfc',
-    border: '1px solid #d0d7de', // --border-color
-    borderHover: '1px solid #0969da', // 聚焦 hover 用 primary
-    borderFocus: '1px solid #0969da',
-    textColor: '#1f2328', // --text-primary
-    placeholderColor: '#848d97', // --text-muted
-    caretColor: '#0969da' // --accent-primary
-  },
-
-  Select: {
-    // Select 内部使用 InternalSelection（不是 Input），peers 同步配色
-    peers: {
-      InternalSelection: {
-        color: '#fbfbfc',
-        colorActive: '#fbfbfc',
-        border: '1px solid #d0d7de',
-        borderHover: '1px solid #0969da',
-        borderActive: '1px solid #0969da',
-        borderFocus: '1px solid #0969da',
-        textColor: '#1f2328',
-        placeholderColor: '#848d97',
-        caretColor: '#0969da',
-        arrowColor: '#656d76'
-      }
-    }
-  },
-
-  Card: {
-    color: '#f3f4f7', // --bg-secondary
-    colorModal: '#fbfbfc',
-    colorPopover: '#fbfbfc',
-    textColor: '#1f2328', // --text-primary
-    borderColor: '#d0d7de' // --border-color
-  },
-
-  Dialog: {
-    color: '#fbfbfc', // --bg-primary
-    textColor: '#1f2328', // --text-primary
-    borderColor: '#d0d7de' // --border-color
-  },
-
-  Message: {
-    // 注意：颜色这里仅作为兜底；style.css 的 .n-message 规则仍会覆盖
-    // 但移除 !important 后，Naive UI 内联样式优先级更高，所以这里必须正确
-    color: '#fbfbfc', // --bg-primary
-    textColor: '#1f2328', // --text-primary
-    borderRadius: '10px'
-  },
-
-  Drawer: {
-    color: '#fbfbfc', // --bg-primary
-    headerBorderBottom: '1px solid #d0d7de',
-    footerBorderTop: '1px solid #d0d7de'
-  },
-
-  Slider: {
-    fillColor: '#0969da', // --accent-primary
-    fillColorHover: '#218bff', // --accent-secondary
-    handleColor: '#0969da' // --accent-primary
-  },
-
-  Collapse: {
-    titleTextColor: '#1f2328', // --text-primary
-    titleFontWeight: '500',
-    arrowColor: '#656d76', // --text-secondary
-    dividerColor: '#eaeef2' // --border-light
-  },
-
-  Form: {
-    labelTextColor: '#1f2328', // --text-primary
-    labelFontWeight: '500',
-    feedbackTextColorError: '#cf222e', // --accent-danger
-    feedbackTextColorWarning: '#d4a72c' // --accent-warning
-  }
+/** 深色调色板（与 tokens.css html.dark 块同步 —— 石墨：深空灰黑 × 雾白 × TRAE 亮蓝） */
+export const DARK_PALETTE: ThemePalette = {
+  primary: '#387bff',
+  primaryHover: '#5b92ff',
+  primaryPressed: '#2f68d8',
+  success: '#00a56e',
+  successHover: '#1cb87f',
+  successPressed: '#008457',
+  warning: '#dc8730',
+  warningHover: '#e69a4d',
+  warningPressed: '#b06c22',
+  error: '#f65a5a',
+  errorHover: '#f77676',
+  errorPressed: '#cf4444',
+  textPrimary: '#d1d3db',
+  textSecondary: '#9599a6',
+  textMuted: '#666b75',
+  textDisabled: '#565b64',
+  bgBase: '#1a1b1d',
+  bgSubtle: '#222427',
+  bgHover: '#2b2e33',
+  bgActive: '#33373e',
+  bgMuted: '#222427',
+  border: '#303031',
+  borderLight: '#3a3d43'
 }
 
 /**
- * 深色模式 overrides
- * 与 styles/tokens.css 深色令牌块保持同步
+ * 从调色板派生完整主题覆盖。
+ *
+ * 表面色分层约定：
+ *   var(--surface-panel) → 阅读表面（输入框、内容卡片、表格）
+ *   var(--surface-card)  → 浮起表面（弹窗、下拉、消息提示、抽屉）
+ *   var(--bg-base) 不直接使用 —— bodyColor 用 bgBase 实色：
+ *   应用根底色由 .app-layout 的背景系统接管，避免双重绘制。
  */
-const darkOverrides: GlobalThemeOverrides = {
-  common: {
-    // ===== 主色调（GitHub dark_high_contrast 蓝）=====
-    primaryColor: '#4493f8', // --accent-primary
-    primaryColorHover: '#5b9eff', // --accent-secondary
-    primaryColorPressed: '#1f6feb', // 比 primary 深
-    primaryColorSuppl: '#4493f8',
-    infoColor: '#4493f8',
-    infoColorHover: '#5b9eff',
-    infoColorPressed: '#1f6feb',
-    infoColorSuppl: '#4493f8',
-    successColor: '#3fb950', // --accent-success
-    successColorHover: '#46c144',
-    successColorPressed: '#2da44e',
-    successColorSuppl: '#3fb950',
-    warningColor: '#d29922', // --accent-warning
-    warningColorHover: '#e3b341',
-    warningColorPressed: '#bb8009',
-    warningColorSuppl: '#d29922',
-    errorColor: '#f85149', // --accent-danger
-    errorColorHover: '#ff6b6b',
-    errorColorPressed: '#da3633',
-    errorColorSuppl: '#f85149',
+function buildOverrides(p: ThemePalette): GlobalThemeOverrides {
+  return {
+    common: {
+      // ===== 主色调（info 复用 primary，项目无独立 info 色）=====
+      primaryColor: p.primary,
+      primaryColorHover: p.primaryHover,
+      primaryColorPressed: p.primaryPressed,
+      primaryColorSuppl: p.primary,
+      infoColor: p.primary,
+      infoColorHover: p.primaryHover,
+      infoColorPressed: p.primaryPressed,
+      infoColorSuppl: p.primary,
+      successColor: p.success,
+      successColorHover: p.successHover,
+      successColorPressed: p.successPressed,
+      successColorSuppl: p.success,
+      warningColor: p.warning,
+      warningColorHover: p.warningHover,
+      warningColorPressed: p.warningPressed,
+      warningColorSuppl: p.warning,
+      errorColor: p.error,
+      errorColorHover: p.errorHover,
+      errorColorPressed: p.errorPressed,
+      errorColorSuppl: p.error,
 
-    // ===== 文字色系（GitHub dark_high_contrast 高对比度白）=====
-    textColorBase: '#f0f6fc', // --text-primary
-    textColor1: '#f0f6fc', // --text-primary
-    textColor2: '#c9d1d9', // --text-secondary
-    textColor3: '#8b949e', // --text-muted
-    placeholderColor: '#8b949e', // --text-muted
-    placeholderColorDisabled: '#6e7681',
-    iconColor: '#c9d1d9',
-    iconColorHover: '#f0f6fc',
-    iconColorPressed: '#f0f6fc',
-    iconColorDisabled: '#6e7681',
+      // ===== 文字色系 =====
+      textColorBase: p.textPrimary,
+      textColor1: p.textPrimary,
+      textColor2: p.textSecondary,
+      textColor3: p.textMuted,
+      placeholderColor: p.textMuted,
+      placeholderColorDisabled: p.textDisabled,
+      iconColor: p.textSecondary,
+      iconColorHover: p.textPrimary,
+      iconColorPressed: p.textPrimary,
+      iconColorDisabled: p.textDisabled,
 
-    // ===== 边框 / 分隔线 =====
-    borderColor: '#30363d', // --border-color
-    dividerColor: '#161b22', // --border-light
+      // ===== 边框 / 分隔线 =====
+      borderColor: p.border,
+      dividerColor: p.borderLight,
 
-    // ===== 背景色系（纯黑 + GitHub dark 层次）=====
-    bodyColor: '#000000', // --bg-primary
-    cardColor: '#0d1117', // --bg-secondary
-    modalColor: '#000000',
-    popoverColor: '#0d1117',
-    tableColor: '#0d1117',
-    inputColor: '#000000', // --bg-input
-    inputColorDisabled: '#161b22',
-    actionColor: '#161b22',
-    hoverColor: '#161b22', // --bg-hover
-    tableColorHover: '#161b22',
-    tableColorStriped: '#0d1117',
+      // ===== 背景色系（表面接三层令牌，反馈色保持实色）=====
+      bodyColor: p.bgBase,
+      // 内容卡片 = 阅读表面（设置页分组卡、知识库卡片等）
+      cardColor: 'var(--surface-panel)',
+      // 弹窗/弹出层/表格容器 = 浮起表面
+      modalColor: 'var(--surface-card)',
+      popoverColor: 'var(--surface-card)',
+      tableColor: 'var(--surface-panel)',
+      // 输入框 = 阅读表面（有背景时与气泡同步通透）
+      inputColor: 'var(--surface-panel)',
+      inputColorDisabled: p.bgMuted,
+      actionColor: p.bgMuted,
+      // hover 反馈必须清晰且会被 Naive UI 内部混色运算，保持实色
+      hoverColor: p.bgHover,
+      tableColorHover: p.bgHover,
+      tableColorStriped: p.bgSubtle,
 
-    // ===== 圆角 =====
-    borderRadius: '8px',
-    borderRadiusSmall: '4px',
+      // ===== 圆角（与 tokens.css --border-radius-sm/xs 对齐）=====
+      borderRadius: '10px',
+      borderRadiusSmall: '6px',
 
-    // ===== 关闭按钮 =====
-    closeIconColor: '#8b949e',
-    closeIconColorHover: '#f0f6fc',
-    closeIconColorPressed: '#f0f6fc',
-    closeColorHover: '#161b22',
-    closeColorPressed: '#21262d'
-  },
+      // ===== 关闭按钮 =====
+      closeIconColor: p.textMuted,
+      closeIconColorHover: p.textPrimary,
+      closeIconColorPressed: p.textPrimary,
+      closeColorHover: p.bgHover,
+      closeColorPressed: p.bgActive
+    },
 
-  Button: {
-    textColorPrimary: '#ffffff',
-    textColorHover: '#ffffff',
-    textColorPressed: '#ffffff',
-    textColorFocus: '#ffffff'
-  },
+    Button: {
+      // 主色按钮文字始终白色（保证任意主题下的对比度）
+      textColorPrimary: '#ffffff',
+      textColorHover: '#ffffff',
+      textColorPressed: '#ffffff',
+      textColorFocus: '#ffffff'
+    },
 
-  Input: {
-    color: '#000000', // --bg-input
-    colorFocus: '#000000',
-    border: '1px solid #30363d', // --border-color
-    borderHover: '1px solid #4493f8', // primary
-    borderFocus: '1px solid #4493f8',
-    textColor: '#f0f6fc', // --text-primary
-    placeholderColor: '#8b949e', // --text-muted
-    caretColor: '#4493f8' // --accent-primary
-  },
+    Input: {
+      // 阅读表面：跟随全局通透
+      color: 'var(--surface-panel)',
+      colorFocus: 'var(--surface-panel)',
+      border: `1px solid ${p.border}`,
+      borderHover: `1px solid ${p.primary}`,
+      borderFocus: `1px solid ${p.primary}`,
+      textColor: p.textPrimary,
+      placeholderColor: p.textMuted,
+      caretColor: p.primary
+    },
 
-  Select: {
-    peers: {
-      InternalSelection: {
-        color: '#000000',
-        colorActive: '#000000',
-        border: '1px solid #30363d',
-        borderHover: '1px solid #4493f8',
-        borderActive: '1px solid #4493f8',
-        borderFocus: '1px solid #4493f8',
-        textColor: '#f0f6fc',
-        placeholderColor: '#8b949e',
-        caretColor: '#4493f8',
-        arrowColor: '#c9d1d9'
+    Select: {
+      // Select 内部使用 InternalSelection（不是 Input），peers 同步配色
+      peers: {
+        InternalSelection: {
+          color: 'var(--surface-panel)',
+          colorActive: 'var(--surface-panel)',
+          border: `1px solid ${p.border}`,
+          borderHover: `1px solid ${p.primary}`,
+          borderActive: `1px solid ${p.primary}`,
+          borderFocus: `1px solid ${p.primary}`,
+          textColor: p.textPrimary,
+          placeholderColor: p.textMuted,
+          caretColor: p.primary,
+          arrowColor: p.textSecondary
+        }
       }
+    },
+
+    Card: {
+      color: 'var(--surface-panel)',
+      colorModal: 'var(--surface-card)',
+      colorPopover: 'var(--surface-card)',
+      textColor: p.textPrimary,
+      borderColor: p.border
+    },
+
+    Dialog: {
+      color: 'var(--surface-card)',
+      textColor: p.textPrimary,
+      borderColor: p.border
+    },
+
+    Message: {
+      // 浮动提示 = 浮起表面（注意：颜色这里仅作为兜底，
+      // style.css 的 .n-message 书房风规则在其上叠加）
+      color: 'var(--surface-card)',
+      textColor: p.textPrimary,
+      borderRadius: '4px'
+    },
+
+    Drawer: {
+      color: 'var(--surface-card)',
+      headerBorderBottom: `1px solid ${p.border}`,
+      footerBorderTop: `1px solid ${p.border}`
+    },
+
+    Slider: {
+      fillColor: p.primary,
+      fillColorHover: p.primaryHover,
+      handleColor: p.primary
+    },
+
+    Collapse: {
+      titleTextColor: p.textPrimary,
+      titleFontWeight: '500',
+      arrowColor: p.textSecondary,
+      dividerColor: p.borderLight
+    },
+
+    Form: {
+      labelTextColor: p.textPrimary,
+      labelFontWeight: '500',
+      feedbackTextColorError: p.error,
+      feedbackTextColorWarning: p.warning
     }
-  },
-
-  Card: {
-    color: '#0d1117', // --bg-secondary
-    colorModal: '#000000',
-    colorPopover: '#0d1117',
-    textColor: '#f0f6fc', // --text-primary
-    borderColor: '#30363d' // --border-color
-  },
-
-  Dialog: {
-    color: '#000000', // --bg-primary
-    textColor: '#f0f6fc', // --text-primary
-    borderColor: '#30363d' // --border-color
-  },
-
-  Message: {
-    color: '#0d1117', // --bg-secondary（深色用 secondary 提升层次）
-    textColor: '#f0f6fc', // --text-primary
-    borderRadius: '10px'
-  },
-
-  Drawer: {
-    color: '#000000', // --bg-primary
-    headerBorderBottom: '1px solid #30363d',
-    footerBorderTop: '1px solid #30363d'
-  },
-
-  Slider: {
-    fillColor: '#4493f8', // --accent-primary
-    fillColorHover: '#5b9eff', // --accent-secondary
-    handleColor: '#4493f8' // --accent-primary
-  },
-
-  Collapse: {
-    titleTextColor: '#f0f6fc', // --text-primary
-    titleFontWeight: '500',
-    arrowColor: '#c9d1d9', // --text-secondary
-    dividerColor: '#161b22' // --border-light
-  },
-
-  Form: {
-    labelTextColor: '#f0f6fc', // --text-primary
-    labelFontWeight: '500',
-    feedbackTextColorError: '#f85149', // --accent-danger
-    feedbackTextColorWarning: '#d29922' // --accent-warning
   }
 }
+
+/** 亮色 overrides（模块级构建一次，切主题零开销） */
+export const lightOverrides: GlobalThemeOverrides = buildOverrides(LIGHT_PALETTE)
+
+/** 深色 overrides（模块级构建一次，切主题零开销） */
+export const darkOverrides: GlobalThemeOverrides = buildOverrides(DARK_PALETTE)
 
 /**
  * 主题覆盖 composable

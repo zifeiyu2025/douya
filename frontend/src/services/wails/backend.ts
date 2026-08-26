@@ -2,7 +2,6 @@
  * Wails 服务门面 - 后端域
  * ============ 显卡后端管理 ============
  * 后端类型在 llama-server 启动时确定，切换后端需重启应用才能生效。
- * 生活类比：像选发动机型号——选好后要重新点火才能用新发动机跑。
  * （从原 wails.ts 迁移,方法体逐字搬移,逻辑零变化）
  */
 import { GetBackendStatus, SwitchBackend, DownloadBackend } from '../../../wailsjs/go/main/App'

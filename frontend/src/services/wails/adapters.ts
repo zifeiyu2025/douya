@@ -28,7 +28,7 @@ export function adaptConfig(raw: unknown): Config {
 /**
  * 将前端 SendMessageParams 转换为 wails SendMessage 期望的参数类型。
  * ChatModel.SendMessageParams.createFrom 已构造 wails 端 class 实例，
- * 此处仅做精确的字段映射与类型断言，避免调用点使用 as unknown as（任务 23）。
+ * 此处仅做精确的字段映射与类型断言，避免调用点使用 as unknown as。
  */
 export function toWailsSendMessageParams(
   params: ChatModel.SendMessageParams
@@ -53,7 +53,7 @@ export function toWailsConfig(cfg: Config): Parameters<typeof UpdateConfig>[0] {
 
 /**
  * 将前端 ChatMessage[] 转换为 CountTokens/ApplyTemplate 期望的参数类型。
- * 显式映射每个字段，避免 as any 导致的类型擦除（任务 23）。
+ * 显式映射每个字段，避免 as any 导致的类型擦除。
  */
 export function toWailsChatMessages(messages: ChatMessage[]): Parameters<typeof CountTokens>[0] {
   return messages.map(m => ({
@@ -66,7 +66,7 @@ export function toWailsChatMessages(messages: ChatMessage[]): Parameters<typeof 
 
 /**
  * 将前端 LoraAdapter[] 转换为 SetLoraAdapters 期望的参数类型。
- * 字段完全一致，映射后断言为 wails 参数类型（任务 23）。
+ * 字段完全一致，映射后断言为 wails 参数类型。
  */
 export function toWailsLoraAdapters(
   adapters: LoraAdapter[]

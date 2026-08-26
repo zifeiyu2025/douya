@@ -1,227 +1,240 @@
-/* ========================================
- * DOUYA 设计令牌（Design Tokens）— 单一事实来源
+/* ============================================================
+ * 豆芽 ·「晨昏书斋」设计令牌（单一事实来源）
+ * ------------------------------------------------------------
+ * 设计概念：木书桌上摊开的一本研究笔记 —— 纸是主角。
+ *   纸面（亮）：纯白纸底 × 石墨墨字 × TRAE 亮蓝印章
+ *   石墨（暗）：深空灰黑 × 雾白字 × TRAE 亮蓝辉光
  *
- * 本文件是全局视觉规格的唯一权威定义，包含：
- *   - 布局尺寸 / 主色调 / 语义色 / 背景层次 / 文字层次
- *   - 边框圆角 / 阴影 / 动效曲线 / 代码高亮配色
- *   - 亮色（默认）与深色（html.dark）两套完整规格
+ * 配色来源：与本机 TRAE Solo 编辑器主题同源（用户指定）。
+ *   亮色取自 light.json（编辑器 #FFFFFF / 页签带 #F8F8F9 / 结构层 #EDEFF2），
+ *   暗色取自 dark_vs.json（编辑器 #1A1B1D / 标题栏 #222427 / 菜单 #2A2D31）。
+ *   纯白/近白的中性基底，使半透明表面叠层不再给聊天背景图染色
+ *   （修复「亮色模式对背景图不友好」的根因）。
  *
- * 修改本文件时的同步契约：
- *   1. useThemeOverrides.ts 中 Naive UI 覆盖值必须手动同步
- *   2. themeTokens.test.ts 会自动解析本文件并校验关键令牌值
+ * 视觉母题：
+ *   - 横格细线（hairline ruled paper）
+ *   - § 章节编号（宋体数字编号）
+ *   - 印章点（seal dot，朱砂保留为点缀母题）
  *
- * 设计语言：GitHub Primer 蓝 + 简约现代科幻风
- * ======================================== */
+ * 禁用：玻璃拟态、渐变光晕、圆角卡片海、紫色调、堆叠阴影。
+ *   （原「禁蓝紫主色」中的蓝色一项已按用户指示解除：主色采用 TRAE 亮蓝。）
+ *
+ * 架构契约（被 themeTokens.test.ts / backgroundTheme.test.ts 钉死）：
+ *   1. 三层表面体系：veil(结构层最透) / panel(阅读层) / card(浮起层最实)
+ *      复合令牌公式必须为 color-mix(var(--bg-primary) + calc(alpha))；
+ *      无背景图时 alpha=1 → 退化为实色；有背景图时由
+ *      utils/backgroundStyle.ts 在挂载点覆盖 alpha 与复合令牌本身。
+ *   2. useThemeOverrides 的 LIGHT/DARK_PALETTE 与本文件一一对应，
+ *      测试自动比对，漂移即红。
+ *   3. html.dark 令牌必须是 :root 的子集（布局/动效等主题无关令牌只在亮色定义）。
+ * ============================================================ */
 
 :root {
-  --sidebar-width: 280px;
-  --sidebar-collapsed-width: 0px;
-  --header-height: 56px;
-  --input-area-min-height: 100px;
-  --msg-max-width: 1200px;
+  /* ===== 字体系统 ===== */
+  /* 标题/章节号：思源宋体（书卷气） */
+  --font-display: 'Noto Serif SC Variable', 'Noto Serif SC', 'STSong', serif;
+  /* 正文：Manrope 负责拉丁与数字，思源黑体负责中文 */
+  --font-body: 'Manrope Variable', 'Noto Sans SC Variable', 'Noto Sans SC', 'Microsoft YaHei',
+    sans-serif;
+  /* 代码与等宽数字 */
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', Consolas, monospace;
 
-  /* 主色调 - GitHub 蓝 */
-  --accent-primary: #0969da;
-  --accent-secondary: #218bff;
-  --accent-tertiary: #ddf4ff;
-  --accent-success: #1f883d;
-  --accent-warning: #d4a72c;
-  --accent-danger: #cf222e;
-  --accent-think: #16a34a;
-  --accent-think-glow: #22c55e;
+  /* ===== 纸感核心色板（纸面 · 与 TRAE Light 同源） ===== */
+  --bg-primary: #ffffff; /* 纯白纸底：整窗基底（中性白，不给背景图染色） */
+  --bg-secondary: #f8f8f9; /* 雾灰次面：次级表面（TRAE 非活动页签带） */
+  --bg-tertiary: #edeff2; /* 结构层面：三级表面（TRAE 标题栏/活动栏） */
+  --bg-hover: #eaedf1; /* 悬停反馈（实色，Naive UI 内部混色依赖实色） */
+  --bg-active: #e2e6ec; /* 按下反馈（实色） */
 
-  /* 语义色变量集（附件标签/状态色专用，每色系三档：primary/soft/strong） */
-  /* 红色语义色（danger/error/PDF 附件） */
-  --accent-r-primary: #cf222e;
-  --accent-r-soft: rgba(207, 34, 46, 0.12);
-  --accent-r-strong: #a40e26;
+  --accent-primary: #2f74ff; /* TRAE 亮蓝章：主交互色（徽标/进度条/选区同源） */
+  --accent-secondary: #5589ff; /* 亮蓝提亮：hover 档 */
+  --accent-tertiary: #e4edff; /* 亮蓝浅纸：选中底/软背景 */
 
-  /* 黄色语义色（warning/LoRA warning） */
-  --accent-y-primary: #d4a72c;
-  --accent-y-soft: rgba(212, 167, 44, 0.15);
-  --accent-y-strong: #9a6700;
+  --accent-success: #40b08b; /* 翠青 */
+  --accent-success-g-primary: #40b08b;
+  --accent-warning: #e28a00; /* 琥珀橙 */
+  --accent-warning-y-primary: #e28a00;
+  --accent-danger: #e8463a; /* 警示红 */
+  --accent-danger-r-primary: #e8463a;
+  --accent-r-soft: #fbe7e4; /* 警示红浅纸 */
 
-  /* 紫色语义色（audio 附件） */
-  --accent-p-primary: #8250df;
-  --accent-p-soft: rgba(130, 80, 223, 0.12);
-  --accent-p-strong: #6f42c1;
+  /* ===== 文字色（石墨系） ===== */
+  --text-primary: #31353a; /* 浓石墨 */
+  --text-secondary: #5b6066; /* 重墨淡写 */
+  --text-tertiary: #8a9096; /* 灰墨（批注） */
+  --text-muted: #8a9096;
+  --text-disabled: #aab0b8;
+  --text-user-msg: #31353a; /* 用户手记文字：与正文同墨，不做彩色 */
+  --text-ai-msg: #31353a;
 
-  /* 绿色语义色（success/video 附件，与 --accent-success 协调） */
-  --accent-g-primary: #1f883d;
-  --accent-g-soft: rgba(31, 136, 61, 0.12);
-  --accent-g-strong: #1a7f37;
+  /* ===== 边框与分隔（hairline 细线母题） ===== */
+  --border-color: #dfe3ea; /* 纸边细线 */
+  --border-light: #ebeef3; /* 更淡的格线 */
+  --paper-line: rgba(49, 53, 58, 0.05); /* 横格纸纹理线 */
+  --seal-color: #b0432e; /* 印章朱砂点 */
 
-  /* 灰色语义色（file 附件/中性） */
-  --accent-n-primary: #656d76;
-  --accent-n-soft: rgba(101, 109, 118, 0.12);
-  --accent-n-strong: #3b4147;
+  /* ===== 链接 ===== */
+  --link-light: #0066bf;
 
-  /* 语义色别名（供组件 var(--warning-color) 等引用，与上方语义色变量保持一致） */
-  --warning-color: var(--accent-y-primary);
-  --error-color: var(--accent-r-primary);
-  --success-color: var(--accent-g-primary);
+  /* ===== 三层表面体系（架构契约，公式形态不可改） ===== */
+  /* 默认 alpha=1：无背景图时退化为实色 */
+  --surface-veil-alpha: 1;
+  --surface-panel-alpha: 1;
+  --surface-card-alpha: 1;
+  --surface-veil: color-mix(in srgb, var(--bg-primary) calc(var(--surface-veil-alpha) * 100%), transparent);
+  --surface-panel: color-mix(in srgb, var(--bg-primary) calc(var(--surface-panel-alpha) * 100%), transparent);
+  --surface-card: color-mix(in srgb, var(--bg-primary) calc(var(--surface-card-alpha) * 100%), transparent);
 
-  /* 亮色 .has-background 模式专用（毛玻璃白底） */
-  --bg-glass-primary: rgba(255, 255, 255, 0.72);
-  --bg-glass-secondary: rgba(255, 255, 255, 0.55);
-  --bg-glass-tertiary: rgba(255, 255, 255, 0.4);
-  --bg-glass-hover: rgba(255, 255, 255, 0.65);
-  --bg-glass-active: rgba(255, 255, 255, 0.5);
+  /* ===== 中间层令牌（气泡/输入框/代码块基色 × 层级 alpha） ===== */
+  --bg-sidebar: color-mix(in srgb, #f8f8f9 calc(var(--surface-veil-alpha) * 100%), transparent);
+  --bg-user-msg-base: #eff2f6; /* 用户手记块：微深于纸底的便签冷灰 */
+  --bg-user-msg: color-mix(in srgb, var(--bg-user-msg-base) calc(var(--surface-panel-alpha) * 100%), transparent);
+  --bg-ai-msg-base: #ffffff; /* AI 直排纸上：与纸同色（去气泡化的视觉兜底） */
+  --bg-ai-msg: color-mix(in srgb, var(--bg-ai-msg-base) calc(var(--surface-panel-alpha) * 100%), transparent);
+  --bg-input-base: #f8f8f9; /* 书写面：微沉于纸底（雾灰书写条） */
+  --bg-input: color-mix(in srgb, var(--bg-input-base) calc(var(--surface-panel-alpha) * 100%), transparent);
+  --bg-code-base: #f4f5f7; /* 代码纸（中性冷灰，衬任意背景图） */
+  --bg-code: color-mix(in srgb, var(--bg-code-base) calc(var(--surface-card-alpha) * 100%), transparent);
 
-  /* 背景色系 - canvas/subtle/muted 三层（柔和米白调，降低刺眼感） */
-  --bg-primary: #fbfbfc;
-  --bg-secondary: #f3f4f7;
-  --bg-tertiary: #e8eaef;
-  --bg-sidebar: #f3f4f7;
-  --bg-hover: #eceef2;
-  --bg-active: #e0e3e9;
-  --bg-user-msg: #e3edf7;
-  --bg-ai-msg: #fbfbfc;
-  --bg-input: #fbfbfc;
-  --bg-code: #e8eaef;
+  /* ===== 语义别名（供组件 var(--warning-color) 等引用） ===== */
+  --warning-color: var(--accent-warning-y-primary);
+  --error-color: var(--accent-danger-r-primary);
+  --success-color: var(--accent-success-g-primary);
 
-  /* 文字色系 - default/muted/subtle 三层 */
-  --text-primary: #1f2328;
-  --text-secondary: #656d76;
-  --text-muted: #848d97;
-  --text-tertiary: #6e7681;
-  --text-user-msg: #0969da;
-  --text-ai-msg: #1f2328;
+  /* ===== 背景图系统（双层绘制模型，公式与变量名被测试钉死） ===== */
+  --chat-background: none;
+  --chat-background-opacity: 0;
+  --chat-background-blur: 0px;
+  --chat-background-mask: 0;
+  --chat-background-mask-alpha: 0;
+  --chat-background-mask-color: #ffffff;
 
-  /* 边框和阴影 */
-  --border-color: #d0d7de;
-  --border-light: #eaeef2;
-  --border-radius-xs: 4px;
-  --border-radius-sm: 8px;
-  --border-radius-md: 12px;
-  --border-radius-lg: 16px;
-  --border-radius-xl: 20px;
+  /* ===== 代码高亮（纸面：Light+ 冷纸适配） ===== */
+  --code-comment: #9a917c;
+  --code-keyword: #a1352c;
+  --code-tag: #8a2f24;
+  --code-string: #3e7d45;
+  --code-number: #9a5b21;
+  --code-function: #26618f;
+  --code-type: #2f7d6d;
+  --code-variable: #4a4438;
+  --code-attribute: #9a5b21;
+  --code-regexp: #3e7d45;
 
-  /* 次级表面（中性半透明灰，用于代码块 header/行内代码/hover/滚动条等次要表面） */
-  --surface-subtle: rgba(0, 0, 0, 0.04);
-  --surface-subtle-hover: rgba(0, 0, 0, 0.08);
-  --surface-border-subtle: rgba(0, 0, 0, 0.06);
-  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+  /* ===== 滚动条 ===== */
+  --scrollbar-thumb: #c8cdd6;
+  --scrollbar-thumb-hover: #aeb5c1;
+  --scrollbar-track: transparent;
 
-  --shadow-sm: 0 1px 0 rgba(31, 35, 40, 0.04);
-  --shadow-md: 0 3px 6px rgba(140, 149, 159, 0.15);
-  --shadow-lg: 0 8px 24px rgba(140, 149, 159, 0.2);
+  /* ===== 阴影（单层柔和环境影，禁堆叠） ===== */
+  --shadow-sm: 0 1px 2px rgba(21, 24, 29, 0.07);
+  --shadow-md: 0 2px 10px rgba(21, 24, 29, 0.1);
+  --shadow-lg: 0 14px 40px rgba(21, 24, 29, 0.18);
 
-  --transition-fast: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-normal: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  /* ===== 布局尺寸 ===== */
+  --header-height: 46px; /* 顶部书签式命令条高度 */
+  --sidebar-width: 250px; /* 常驻会话侧栏宽度 */
+  --sidebar-collapsed-width: 64px;
 
-  --link-light: #0969da;
-  --link-hover-light: #218bff;
+  /* ===== 圆角（书房利落感：整体收锐） ===== */
+  --border-radius-xs: 2px;
+  --border-radius-sm: 4px;
+  --border-radius-md: 8px;
+  --border-radius-lg: 12px;
+  --border-radius-xl: 18px;
 
-  /* VSCode Light+ 代码高亮配色（统一管理亮/暗两套主题） */
-  --code-comment: #008000;
-  --code-keyword: #0000ff;
-  --code-string: #a31515;
-  --code-number: #098658;
-  --code-function: #795e26;
-  --code-type: #267f99;
-  --code-variable: #001080;
-  --code-attribute: #0070c1;
-  --code-regexp: #811f3f;
-  --code-tag: #800000;
+  /* ===== 动效 ===== */
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 0.5s ease;
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* ===== 层级 ===== */
+  --z-drag: 10;
+  --z-command-bar: 100;
+  --z-drawer: 200;
+  --z-palette: 300;
+  --z-overlay: 400;
 }
 
+/* ============================================================
+ * 石墨主题（html.dark）：深空灰黑 × 雾白 × TRAE 亮蓝
+ * 必须保持 primary < secondary < tertiary 的明度递进（测试钉死）
+ * ============================================================ */
 html.dark {
-  /* 主色调 - GitHub dark_high_contrast 蓝（更亮以保证纯黑背景下的可读性） */
-  --accent-primary: #4493f8;
-  --accent-secondary: #5b9eff;
-  --accent-tertiary: #0c2d6b;
-  --accent-success: #3fb950;
-  --accent-warning: #d29922;
-  --accent-danger: #f85149;
-  --accent-think: #3fb950;
-  --accent-think-glow: #56d364;
+  --bg-primary: #1a1b1d; /* 深空灰黑基底（TRAE 编辑器底） */
+  --bg-secondary: #222427; /* 浮面灰（TRAE 标题栏） */
+  --bg-tertiary: #2a2d31; /* 高浮面（TRAE 菜单/通知面板） */
+  --bg-hover: #2b2e33;
+  --bg-active: #33373e;
 
-  /* 语义色变量集（附件标签/状态色专用，每色系三档：primary/soft/strong） */
-  /* 红色语义色 */
-  --accent-r-primary: #f85149;
-  --accent-r-soft: rgba(248, 81, 73, 0.15);
-  --accent-r-strong: #da3633;
+  --accent-primary: #387bff; /* TRAE 亮蓝（徽标/链接同源） */
+  --accent-secondary: #5b92ff;
+  --accent-tertiary: #223052; /* 深蓝夜底 */
 
-  /* 黄色语义色 */
-  --accent-y-primary: #d29922;
-  --accent-y-soft: rgba(210, 153, 34, 0.15);
-  --accent-y-strong: #e3b341;
+  --accent-success: #00a56e;
+  --accent-success-g-primary: #00a56e;
+  --accent-warning: #dc8730;
+  --accent-warning-y-primary: #dc8730;
+  --accent-danger: #f65a5a;
+  --accent-danger-r-primary: #f65a5a;
+  --accent-r-soft: #472b2e;
 
-  /* 紫色语义色 */
-  --accent-p-primary: #a371f7;
-  --accent-p-soft: rgba(163, 113, 247, 0.15);
-  --accent-p-strong: #bc8cff;
+  --text-primary: #d1d3db; /* 雾白 */
+  --text-secondary: #9599a6;
+  --text-tertiary: #666b75;
+  --text-muted: #666b75;
+  --text-disabled: #565b64;
+  --text-user-msg: #d1d3db;
+  --text-ai-msg: #d1d3db;
 
-  /* 绿色语义色 */
-  --accent-g-primary: #3fb950;
-  --accent-g-soft: rgba(63, 185, 80, 0.15);
-  --accent-g-strong: #46d369;
+  --border-color: #303031;
+  --border-light: #3a3d43;
+  --paper-line: rgba(209, 211, 219, 0.04);
+  --seal-color: #d16b55;
 
-  /* 灰色语义色 */
-  --accent-n-primary: #8b949e;
-  --accent-n-soft: rgba(139, 148, 158, 0.15);
-  --accent-n-strong: #c9d1d9;
+  --link-dark: #387bff;
 
-  /* 语义色别名（供组件 var(--warning-color) 等引用，与上方语义色变量保持一致） */
-  --warning-color: var(--accent-y-primary);
-  --error-color: var(--accent-r-primary);
-  --success-color: var(--accent-g-primary);
+  --surface-veil-alpha: 1;
+  --surface-panel-alpha: 1;
+  --surface-card-alpha: 1;
+  --surface-veil: color-mix(in srgb, var(--bg-primary) calc(var(--surface-veil-alpha) * 100%), transparent);
+  --surface-panel: color-mix(in srgb, var(--bg-primary) calc(var(--surface-panel-alpha) * 100%), transparent);
+  --surface-card: color-mix(in srgb, var(--bg-primary) calc(var(--surface-card-alpha) * 100%), transparent);
 
-  /* 深色 .has-background 模式专用（毛玻璃黑底） */
-  --bg-glass-primary: rgba(13, 17, 23, 0.72);
-  --bg-glass-secondary: rgba(13, 17, 23, 0.55);
-  --bg-glass-tertiary: rgba(13, 17, 23, 0.4);
-  --bg-glass-hover: rgba(22, 27, 34, 0.65);
-  --bg-glass-active: rgba(22, 27, 34, 0.5);
+  --bg-sidebar: color-mix(in srgb, #222427 calc(var(--surface-veil-alpha) * 100%), transparent);
+  --bg-user-msg-base: #2a2d31;
+  --bg-user-msg: color-mix(in srgb, var(--bg-user-msg-base) calc(var(--surface-panel-alpha) * 100%), transparent);
+  --bg-ai-msg-base: #1f2124;
+  --bg-ai-msg: color-mix(in srgb, var(--bg-ai-msg-base) calc(var(--surface-panel-alpha) * 100%), transparent);
+  --bg-input-base: #24262b;
+  --bg-input: color-mix(in srgb, var(--bg-input-base) calc(var(--surface-panel-alpha) * 100%), transparent);
+  --bg-code-base: #17191a;
+  --bg-code: color-mix(in srgb, var(--bg-code-base) calc(var(--surface-card-alpha) * 100%), transparent);
 
-  /* 背景色系 - GitHub dark_high_contrast canvas/subtle/muted（接近纯黑） */
-  /* 交互区域（聊天区、侧边栏、输入框）用纯黑 #000000，次级元素保持层次 */
-  --bg-primary: #000000;
-  --bg-secondary: #0d1117;
-  --bg-tertiary: #161b22;
-  --bg-sidebar: #000000;
-  --bg-hover: #161b22;
-  --bg-active: #21262d;
-  --bg-user-msg: #0c2d6b;
-  --bg-ai-msg: #0d1117;
-  --bg-input: #000000;
-  --bg-code: #0d1117;
+  --warning-color: var(--accent-warning-y-primary);
+  --error-color: var(--accent-danger-r-primary);
+  --success-color: var(--accent-success-g-primary);
 
-  /* 文字色系 - GitHub dark_high_contrast（高对比度白，便于纯黑下阅读） */
-  --text-primary: #f0f6fc;
-  --text-secondary: #c9d1d9;
-  --text-muted: #8b949e;
-  --text-tertiary: #6e7681;
-  --text-user-msg: #4493f8;
-  --text-ai-msg: #f0f6fc;
+  --chat-background-mask-color: #101113;
 
-  /* 边框和阴影 - 纯黑下加深阴影增强层次 */
-  --border-color: #30363d;
-  --border-light: #161b22;
+  /* 代码高亮（石墨：Dark+ 冷灰适配） */
+  --code-comment: #87795f;
+  --code-keyword: #dc8f7d;
+  --code-tag: #e0937f;
+  --code-string: #a3c493;
+  --code-number: #d9ab6b;
+  --code-function: #8fb5d4;
+  --code-type: #93c0ac;
+  --code-variable: #d8cfba;
+  --code-attribute: #d9ab6b;
+  --code-regexp: #a3c493;
 
-  /* 次级表面（深色版：白色半透明，用于代码块 header/行内代码/hover/滚动条等次要表面） */
-  --surface-subtle: rgba(255, 255, 255, 0.05);
-  --surface-subtle-hover: rgba(255, 255, 255, 0.1);
-  --surface-border-subtle: rgba(255, 255, 255, 0.08);
-  --scrollbar-thumb: rgba(255, 255, 255, 0.15);
+  --scrollbar-thumb: #3a3d44;
+  --scrollbar-thumb-hover: #4a4f58;
 
-  --shadow-sm: 0 0 transparent;
-  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.9);
-  --shadow-lg: 0 16px 32px rgba(0, 0, 0, 0.95);
-
-  --link-dark: #4493f8;
-  --link-hover-dark: #5b9eff;
-
-  /* VSCode Dark+ 代码高亮配色 */
-  --code-comment: #6a9955;
-  --code-keyword: #569cd6;
-  --code-string: #ce9178;
-  --code-number: #b5cea8;
-  --code-function: #dcdcaa;
-  --code-type: #4ec9b0;
-  --code-variable: #9cdcfe;
-  --code-attribute: #9cdcfe;
-  --code-regexp: #d16969;
-  --code-tag: #569cd6;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 14px 40px rgba(0, 0, 0, 0.55);
 }

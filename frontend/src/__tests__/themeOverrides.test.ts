@@ -7,9 +7,10 @@ import { useThemeOverrides } from '../composables/useThemeOverrides'
 /**
  * useThemeOverrides 测试
  *
- * 生活类比：useThemeOverrides 就像一个"配色清单"开关——
- * 亮色时给你一份清单（GitHub 浅蓝），深色时给你另一份清单（GitHub 深蓝）。
- * 这里的测试就是检查：清单结构完整（每个组件都有），并且开关切换时清单内容跟着变。
+ * useThemeOverrides 按当前主题返回对应的主题覆写配置：
+ * 亮色为"纸面"配色（纯白底 × 亮蓝主色 × 石墨文字），
+ * 深色为"石墨"配色（深空黑底 × 辉光蓝主色 × 雾白文字）。
+ * 本测试检查：返回值结构完整（每个组件都有对应项），且主题切换时内容随之变化。
  */
 describe('useThemeOverrides', () => {
   let storage: Record<string, string>
@@ -63,8 +64,8 @@ describe('useThemeOverrides', () => {
     setActivePinia(createPinia())
   })
 
-  // ===== SubTask 20.1: 验证 useThemeOverrides 返回值结构 =====
-  describe('SubTask 20.1: 返回值结构', () => {
+  // ===== 验证 useThemeOverrides 返回值结构 =====
+  describe('返回值结构', () => {
     it('returns a ComputedRef<GlobalThemeOverrides>', () => {
       const overrides = useThemeOverrides()
       // 是一个 ref
@@ -109,65 +110,65 @@ describe('useThemeOverrides', () => {
     })
   })
 
-  // ===== SubTask 20.2: 验证亮色与深色下 overrides 切换 =====
-  describe('SubTask 20.2: 亮色与深色切换', () => {
-    it('light mode: key tokens match GitHub light palette', async () => {
+  // ===== 验证亮色与深色下 overrides 切换 =====
+  describe('纸面与石墨切换', () => {
+    it('light mode: key tokens match trae-paper light palette', async () => {
       const store = useThemeStore()
       const overrides = useThemeOverrides()
       // 显式切到亮色
       store.setMode('light')
       await nextTick()
       const common = overrides.value.common!
-      // 亮色 accent-primary
-      expect(common.primaryColor).toBe('#0969da')
-      // 亮色 --bg-primary
-      expect(common.bodyColor).toBe('#fbfbfc')
-      // 亮色 --text-primary
-      expect(common.textColor1).toBe('#1f2328')
-      // 亮色 --border-color
-      expect(common.borderColor).toBe('#d0d7de')
+      // 亮色 accent-primary（TRAE 亮蓝章）
+      expect(common.primaryColor).toBe('#2f74ff')
+      // 亮色 --bg-primary（纯白基底，对背景图友好）
+      expect(common.bodyColor).toBe('#ffffff')
+      // 亮色 --text-primary（石墨墨）
+      expect(common.textColor1).toBe('#31353a')
+      // 亮色 --border-color（石灰细线）
+      expect(common.borderColor).toBe('#dfe3ea')
     })
 
-    it('dark mode: key tokens match GitHub dark palette', async () => {
+    it('dark mode: key tokens match trae-graphite dark palette', async () => {
       const store = useThemeStore()
       const overrides = useThemeOverrides()
       // 显式切到深色
       store.setMode('dark')
       await nextTick()
       const common = overrides.value.common!
-      // 深色 accent-primary
-      expect(common.primaryColor).toBe('#4493f8')
-      // 深色 --bg-primary（纯黑）
-      expect(common.bodyColor).toBe('#000000')
-      // 深色 --text-primary（高对比度白）
-      expect(common.textColor1).toBe('#f0f6fc')
-      // 深色 --border-color
-      expect(common.borderColor).toBe('#30363d')
+      // 深色 accent-primary（TRAE 亮蓝）
+      expect(common.primaryColor).toBe('#387bff')
+      // 深色 --bg-primary（深空灰黑，非纯黑）
+      expect(common.bodyColor).toBe('#1a1b1d')
+      // 深色 --text-primary（雾白）
+      expect(common.textColor1).toBe('#d1d3db')
+      // 深色 --border-color（石墨细边）
+      expect(common.borderColor).toBe('#303031')
     })
 
     it('reactively switches overrides when mode changes', async () => {
       const store = useThemeStore()
       const overrides = useThemeOverrides()
-      // 先亮色：primaryColor 为浅蓝
+      // 先亮色：primaryColor 为 TRAE 亮蓝章
       store.setMode('light')
       await nextTick()
       const commonLight = overrides.value.common!
-      expect(commonLight.primaryColor).toBe('#0969da')
-      expect(commonLight.bodyColor).toBe('#fbfbfc')
+      expect(commonLight.primaryColor).toBe('#2f74ff')
+      expect(commonLight.bodyColor).toBe('#ffffff')
 
-      // 切到深色：primaryColor 变为深蓝，bodyColor 变为纯黑
+      // 切到深色：primaryColor 变为 TRAE 亮蓝，bodyColor 变为深空灰黑
       store.setMode('dark')
       await nextTick()
       const commonDark = overrides.value.common!
-      expect(commonDark.primaryColor).toBe('#4493f8')
-      expect(commonDark.bodyColor).toBe('#000000')
+      expect(commonDark.primaryColor).toBe('#387bff')
+      expect(commonDark.bodyColor).toBe('#1a1b1d')
 
-      // 切回亮色：再次回到浅蓝
+      // 切回亮色：再次回到纯白亮蓝
       store.setMode('light')
       await nextTick()
       const commonLight2 = overrides.value.common!
-      expect(commonLight2.primaryColor).toBe('#0969da')
-      expect(commonLight2.bodyColor).toBe('#fbfbfc')
+      expect(commonLight2.primaryColor).toBe('#2f74ff')
+      expect(commonLight2.bodyColor).toBe('#ffffff')
     })
   })
 })

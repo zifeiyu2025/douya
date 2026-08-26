@@ -12,10 +12,6 @@
  *      · 本 composable 只负责启动/异常/退出
  *      · 模型切换（server:switchProgress、modelLoadProgress）由 useModelSwitch 负责
  *      · 窗口控制（resize、maximize）由 useWindowControls 负责
- *
- * 生活类比：就像一家店铺的"营业流程管家"——负责开门迎客（启动屏），
- * 处理突发状况（异常清理提示），到点打烊（退出动效）。
- * 而换菜谱（模型切换）和调窗户（窗口控制）由其他专人负责。
  */
 import { computed, onMounted, onUnmounted, readonly, ref, watch } from 'vue'
 import { useChatStore } from '../stores/chat'
@@ -30,7 +26,7 @@ import { discreteDialog, discreteMessage } from '../utils/discrete'
 import { logError } from '../utils/logger'
 import { classifyError } from '../utils/errorGuidance'
 import { formatModelName } from '../utils/model'
-// F-1.14：stageMap 抽取为常量，与 useModelSwitch.ts 共享
+// stageMap 抽取为常量，与 useModelSwitch.ts 共享
 import { STAGE_PERCENT_MAP } from './stageMap'
 import { useTTS } from './useTTS'
 
@@ -53,7 +49,6 @@ export function useAppLifecycle() {
   // ===== 启动期致命错误卡状态 =====
   // 后端遇到无法继续启动的错误时，通过 EventStartupError 推送 / GetStartupError 兜底查询，
   // 前端在启动屏上展示全屏错误卡，用户确认后调用 confirmStartupError 通知后端退出。
-  // 生活类比：店门口"暂停营业"红灯，顾客看清原因、按「退出」店家才落闸关门。
   const startupErrorVisible = ref(false)
   const startupErrorPayload = ref<StartupErrorPayload | null>(null)
 
@@ -85,7 +80,6 @@ export function useAppLifecycle() {
   // ===== "是否下载后端"确认框状态 =====
   // runtime 缺失需下载时，后端推送 EventBackendDownloadRequest，前端弹框询问；
   // 用户作答后调用 resolveBackendDownloadConfirm 写回 channel，解除后端阻塞等待。
-  // 生活类比：店家广播"要不要订购发动机"，顾客在漂亮界面上答复后才下单或关门。
   const backendDownloadVisible = ref(false)
   const backendDownloadPayload = ref<BackendDownloadRequestPayload | null>(null)
 
@@ -105,7 +99,7 @@ export function useAppLifecycle() {
     }
   }
 
-  // ===== SubTask 8.2: 启动屏与退出动效状态 =====
+  // ===== 启动屏与退出动效状态 =====
 
   /**
    * 退出动效是否显示（对应原 App.vue 中的 isExiting）
@@ -127,7 +121,6 @@ export function useAppLifecycle() {
   // ===== 启动阶段后端下载状态 =====
   // 当 runtime 缺失时，用户同意下载后后端会推送 downloadStart / downloadProgress / downloadComplete 事件，
   // 前端据此在启动动效中展示下载进度，而非无限转圈。
-  // 生活类比：启动屏原本只是"加载中"转圈，下载阶段改为显示"正在下载 xxx 45%"的进度条。
   const isDownloading = ref(false)
   const downloadInfo = ref({
     name: '',
@@ -208,14 +201,12 @@ export function useAppLifecycle() {
       return Math.max(5, Math.min(99, Math.round(modelLoadProgress.progress)))
     }
     // 无真实进度时使用粗略阶段映射（仅作为兜底）
-    // F-1.14：STAGE_PERCENT_MAP 抽取到 ./stageMap，与 useModelSwitch 共享
+    // STAGE_PERCENT_MAP 抽取到 ./stageMap，与 useModelSwitch 共享
     return STAGE_PERCENT_MAP[settingsStore.switchProgress.stage] ?? 0
   })
 
-  // ===== SubTask 8.1: 启动与异常清理事件监听 =====
-  // 生活类比：开店前先把对讲机（事件监听）全部打开，再开始营业（await），
-  // 这样开门瞬间的任何消息（后端事件）都不会漏接。
-  // F-1.12：所有 register 函数返回 unsubscribe，统一收集到 unsubscribers 数组，
+  // ===== 启动与异常清理事件监听 =====
+  // 所有 register 函数返回 unsubscribe，统一收集到 unsubscribers 数组，
   // onUnmounted 中批量调用，替代原来的 init/cleanup 配对调用。
   const unsubscribers: Array<() => void> = []
 
@@ -289,7 +280,6 @@ export function useAppLifecycle() {
     )
 
     // 启动期致命错误卡：后端无法继续启动时推送，前端展示错误卡，用户确认后退出。
-    // 生活类比：开店时设备出故障，不只挂"暂停营业"牌，还告诉顾客具体原因、怎么修。
     unsubscribers.push(
       wails.subscribeStartupError(err => {
         showStartupError(err)
@@ -304,7 +294,6 @@ export function useAppLifecycle() {
     )
 
     // 知识库（RAG）初始化失败：非阻塞提示，不打断启动流程。
-    // 生活类比：店铺的货架资料整理坏了，但收银和日常营业照常——提醒一句即可。
     unsubscribers.push(
       wails.subscribeRagDisabled(data => {
         discreteMessage.warning(data?.detail || '知识库已禁用，基本对话不受影响', {
@@ -342,7 +331,6 @@ export function useAppLifecycle() {
     )
 
     // 首次启动失败时弹出修复建议对话框（而非仅在状态栏显示文字）
-    // 生活类比：就像开店时设备出故障，不只挂个"暂停营业"牌子，还要告诉顾客具体出了什么问题、怎么修
     let hasShownStartupError = false
     let hasShownPermanentFailure = false
     watch(
@@ -391,8 +379,6 @@ export function useAppLifecycle() {
 
     // 启动错误的事后兜底查询：后端可能在前端 WebView 挂载前就已触发 EventStartupError，
     // 若事件恰好错过，这里主动查询一次并展示错误卡，避免信息丢失。
-    // 生活类比：顾客进店时告示可能已经贴了很久（事件错过了），店家要再口头确认一遍
-    // "您看到暂停营业的原因了吗"——保证每个顾客都不会错过。
     try {
       const pending = await wails.getStartupError()
       if (pending && !startupErrorVisible.value) {
@@ -412,7 +398,7 @@ export function useAppLifecycle() {
     })
 
     // 异常清理事件监听：后端检测到无有效消息的会话时主动推送
-    // M4 修复：用标志位记录是否已显示清理提示，避免事件 + getCleanupResult 轮询重复弹窗
+    // 用标志位记录是否已显示清理提示，避免事件 + getCleanupResult 轮询重复弹窗
     let abnormalCleanupShown = false
     unsubscribers.push(
       wails.subscribeAbnormalCleanup(data => {
@@ -426,7 +412,7 @@ export function useAppLifecycle() {
     )
 
     // 启动时检查是否有清理结果（后端在应用启动前可能已清理过异常会话）
-    // M4 修复：如果事件监听已显示过提示，跳过此处轮询，避免重复弹窗
+    // 如果事件监听已显示过提示，跳过此处轮询，避免重复弹窗
     try {
       const result = await wails.getCleanupResult()
       if (result && result.length > 0 && !abnormalCleanupShown) {
@@ -448,7 +434,7 @@ export function useAppLifecycle() {
       })
     )
 
-    // 服务器警告事件监听（M1 修复）：
+    // 服务器警告事件监听：
     // 后端在 preset 文件生成失败等非致命问题发生时推送 server:warning 事件，
     // 前端显示 warning 提示让用户知道模型加载可能使用默认参数。
     unsubscribers.push(
@@ -464,10 +450,8 @@ export function useAppLifecycle() {
     //   - window.addEventListener('resize', handleResize) 由 useWindowControls 负责
   })
 
-  // ===== SubTask 8.3: 组件卸载时统一取消监听与计时器 =====
-  // 生活类比：店铺打烊时，要把所有对讲机（事件监听）关掉，
-  // 避免关店后还有消息进来却没人处理（内存泄漏）。
-  // F-1.12：所有监听器在注册时已返回 unsubscribe，此处批量调用即可。
+  // ===== 组件卸载时统一取消监听与计时器 =====
+  // 所有监听器在注册时已返回 unsubscribe，此处批量调用即可。
   onUnmounted(() => {
     // 批量清理本 composable 注册的事件监听（含相关定时器）
     while (unsubscribers.length > 0) {

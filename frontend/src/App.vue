@@ -10,29 +10,46 @@
         <Transition name="main-fade">
           <div
             v-if="!showSplash"
-            class="app-layout"
-            :class="{ dark: isDark, 'has-background': !!settingsStore.config.chat_background }"
+            class="app-layout shell-column"
+            :class="{ dark: isDark }"
             :style="mainAreaStyle"
           >
-            <Sidebar :collapsed="sidebarCollapsed" @toggle="sidebarCollapsed = !sidebarCollapsed" />
-            <div class="main-area" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
-              <AppHeader
-                :switch-duration="switchDuration"
-                :switch-stage-text="switchStageText"
-                :is-maximized="isMaximized"
-                @toggle-sidebar="sidebarCollapsed = !sidebarCollapsed"
-                @toggle-console="toggleConsole"
-                @minimize="handleMinimize"
-                @toggle-maximize="handleToggleMaximize"
-                @close="handleClose"
-                @header-double-click="handleHeaderDoubleClick"
-              />
-              <router-view v-slot="{ Component }">
-                <Transition name="route-fade" mode="out-in">
-                  <component :is="Component" />
-                </Transition>
-              </router-view>
+            <!-- 应用壳层 · 三件套：
+                 书签式命令条（常驻顶栏 + 窗口拖拽区）
+                 会话侧栏（常驻左栏，可收起，见 .shell-body）
+                 命令面板（Ctrl+K 浮层） -->
+            <TopCommandBar
+              :switch-duration="switchDuration"
+              :switch-stage-text="switchStageText"
+              :is-maximized="isMaximized"
+              :sidebar-visible="!sidebarCollapsed"
+              @toggle-sidebar="toggleSidebar"
+              @toggle-console="toggleConsole"
+              @open-palette="paletteOpen = true"
+              @minimize="handleMinimize"
+              @toggle-maximize="handleToggleMaximize"
+              @close="handleClose"
+              @header-double-click="handleHeaderDoubleClick"
+            />
+
+            <!-- 壳层主体横排：常驻会话侧栏 + 主区 -->
+            <div class="shell-body">
+              <SessionSidebar :collapsed="sidebarCollapsed" @collapse="sidebarCollapsed = true" />
+
+              <div class="main-area">
+                <router-view v-slot="{ Component }">
+                  <Transition name="route-fade" mode="out-in">
+                    <component :is="Component" />
+                  </Transition>
+                </router-view>
+              </div>
             </div>
+
+            <CommandPalette
+              :open="paletteOpen"
+              @close="paletteOpen = false"
+              @toggle-console="toggleConsole"
+            />
           </div>
         </Transition>
         <ModelSwitchOverlay
@@ -67,53 +84,81 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { darkTheme, zhCN, dateZhCN } from 'naive-ui'
 import { NConfigProvider, NMessageProvider, NDialogProvider } from 'naive-ui'
-import Sidebar from './components/layout/Sidebar.vue'
+import TopCommandBar from './components/layout/TopCommandBar.vue'
+import SessionSidebar from './components/layout/SessionSidebar.vue'
+import CommandPalette from './components/layout/CommandPalette.vue'
 import SplashScreen from './components/layout/SplashScreen.vue'
-import AppHeader from './components/layout/AppHeader.vue'
 import ModelSwitchOverlay from './components/ModelSwitchOverlay.vue'
 import ExitOverlay from './components/ExitOverlay.vue'
 import StartupErrorCard from './components/StartupErrorCard.vue'
 import BackendDownloadDialog from './components/BackendDownloadDialog.vue'
-// Task 21：抽取 mainAreaStyle 背景图逻辑为纯函数，便于单元测试双主题支持
+// 背景双层绘制模型：同一张图按主题各存一套透明度/模糊/遮罩参数
 import { buildBackgroundStyle } from './utils/backgroundStyle'
 import { useSettingsStore } from './stores/settings'
 import { useThemeStore } from './stores/theme'
-// Naive UI 全局主题覆盖：让所有组件使用项目 GitHub 蓝配色而非默认绿色（Task 2）
 import { useThemeOverrides } from './composables/useThemeOverrides'
-// 任务 9：抽取模型切换/窗口控制/生命周期到 composable
+// 模型切换/窗口控制/生命周期统一在 App 层调用一次，
+// 子组件通过 props/emit 消费，避免 Wails 监听重复注册
 import { useModelSwitch } from './composables/useModelSwitch'
 import { useWindowControls } from './composables/useWindowControls'
 import { useAppLifecycle } from './composables/useAppLifecycle'
-// C-8 性能强化：ServerConsole 连带 xterm 全家桶（约 447 kB 分块）延迟到首次打开抽屉才加载，
-// 移出首屏依赖图；consoleRef.value?.toggle() 可选链调用天然兼容异步挂载时机
+// 性能强化：ServerConsole 连带 xterm 全家桶延迟到首次打开才加载，
+// consoleRef.value?.toggle() 可选链调用天然兼容异步挂载时机
 const ServerConsole = defineAsyncComponent(() => import('./components/ServerConsole.vue'))
 
 // ----- Store / 主题 -----
 const settingsStore = useSettingsStore()
 const themeStore = useThemeStore()
-// themeOverrides 是 ComputedRef<GlobalThemeOverrides>，会随 isDark 自动切换
-// n-config-provider 接受 ref，会自动 unwrap，模板里直接传 ref 即可
 const themeOverrides = useThemeOverrides()
 
 const isDark = computed(() => themeStore.isDark)
-const sidebarCollapsed = defineModel<boolean>('sidebarCollapsed', { default: false })
 
 const mainAreaStyle = computed(() => {
-  // 双主题都支持背景图：逻辑抽取到 utils/backgroundStyle.ts（Task 21）
-  // isDark 不再作为限制条件，亮色与深色都会注入 --chat-background 变量
-  return buildBackgroundStyle(
-    settingsStore.config.chat_background ?? '',
-    settingsStore.config.chat_background_opacity
-  )
+  // 每主题独立背景参数：同一张图，亮/暗主题各存一套透明度、模糊与遮罩强度
+  const params = isDark.value
+    ? settingsStore.config.background_dark
+    : settingsStore.config.background_light
+  return buildBackgroundStyle(settingsStore.config.chat_background ?? '', params)
 })
 
-// ----- 调用三个 composable（任务 9：抽取模型切换/窗口控制/生命周期）-----
-// 说明：useModelSwitch / useWindowControls / useAppLifecycle 均非单例，
-//       在 App.vue 调用一次后，将子组件需要的数据通过 props 传入、事件通过 emit 传出，
-//       避免子组件重复调用导致 wails 事件监听重复注册。
+// ----- 壳层开关 -----
+const paletteOpen = ref(false)
+
+// ----- 会话侧栏收起状态（localStorage 记忆，重启后保持上次选择） -----
+const SIDEBAR_COLLAPSED_KEY = 'douya.sidebar.collapsed'
+const sidebarCollapsed = ref(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1')
+
+watch(sidebarCollapsed, collapsed => {
+  if (collapsed) {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, '1')
+  } else {
+    localStorage.removeItem(SIDEBAR_COLLAPSED_KEY)
+  }
+})
+
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+}
+
+// ----- 全局快捷键：Ctrl+K 唤起命令面板；Esc 收起面板 -----
+function handleGlobalKeydown(e: KeyboardEvent) {
+  if (e.ctrlKey && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault()
+    paletteOpen.value = !paletteOpen.value
+    return
+  }
+  if (e.key === 'Escape' && paletteOpen.value) {
+    paletteOpen.value = false
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', handleGlobalKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', handleGlobalKeydown))
+
+// ----- 调用三个 composable -----
 const {
   switchDuration,
   switchStageText,
@@ -149,6 +194,28 @@ const toggleConsole = () => {
 </script>
 
 <style scoped>
+/* ===== 壳层纵向骨架：命令条在上、主区吃满剩余高度 =====
+ * .app-layout 的定位/尺寸/底色/isolation 由 style.css 全局层负责 */
+.shell-column {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 壳层主体横排：侧栏定宽、主区吃满剩余宽度 */
+.shell-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.main-area {
+  position: relative;
+  flex: 1;
+  min-width: 0; /* 横排上下文必需：防止长内容把主区撑破 */
+  min-height: 0;
+  overflow: hidden;
+}
+
 .main-fade-enter-active {
   transition:
     opacity 0.5s ease 0.3s,

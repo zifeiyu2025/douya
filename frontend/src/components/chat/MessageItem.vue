@@ -26,7 +26,7 @@
         <AppIcon name="copy" :size="12" />
         <span>复制</span>
       </button>
-      <!-- C-4 三件套分解：气泡为纯展示子组件，mouseup 经属性透传落到其根元素；
+      <!-- 三件套分解：气泡为纯展示子组件，mouseup 经属性透传落到其根元素；
            气泡 DOM 通过组件实例的 $el 访问（选区定位 / 富文本复制依赖它） -->
       <MessageBubble
         ref="bubbleComp"
@@ -95,7 +95,7 @@ const tokensPerSecond = computed(() => {
   return Math.round(tps * 10) / 10
 })
 
-// —— 动作条可视状态（C-4 分解后由控制器统一计算，动作条保持纯展示）——
+// —— 动作条可视状态（分解后由控制器统一计算，动作条保持纯展示）——
 const showTts = computed(
   () => !isUser.value && tts.isSupported.value && settingsStore.config.tts_enabled
 )
@@ -105,10 +105,10 @@ const ttsBackend = computed(() => tts.currentBackend.value ?? null)
 const canRegenerate = computed(
   () => !isUser.value && !chatStore.isAnyGenerating && isLastAIMessage.value
 )
-// 编辑入口：仅用户消息且当前无任何会话在生成时可用（C-4 新增）
+// 编辑入口：仅用户消息且当前无任何会话在生成时可用
 const canEdit = computed(() => isUser.value && !chatStore.isAnyGenerating)
 
-// —— 编辑态编排（C-4 新增）：保存落库 → 本地同步 → 截断重生成 ——
+// —— 编辑态编排：保存落库 → 本地同步 → 截断重生成 ——
 const isEditing = ref(false)
 
 function startEdit() {
@@ -180,7 +180,6 @@ onMounted(() => {
 
 /**
  * 切换朗读状态：未朗读→开始朗读，正在朗读→停止
- * 生活类比：按收音机电源键——开着就关，关着就开。
  * 如果用户在消息气泡内选中了文字，只朗读选中部分；否则朗读整条消息。
  */
 function toggleSpeak() {
@@ -379,11 +378,15 @@ function regenerate() {
 .message-item {
   display: flex;
   gap: 14px;
-  margin-bottom: 26px;
+  /* 行距节奏：22px 在信息密度与呼吸感之间取平衡（原 26px 偏松散） */
+  margin-bottom: 22px;
   position: relative;
   width: 100%;
+  /* 行宽撑满聊天区：AI 头像贴左缘、用户气泡贴右缘；
+   * 水平留白统一由 MessageList.vue 滚动容器 24px 内边距提供，
+   * 与底部输入舱左右边缘依然精确对齐；气泡宽度由内部 bubble-wrapper 控制 */
   align-items: flex-start;
-  /* M-前3 渐进式性能优化：contain: content 等同于 contain: layout style paint，
+  /* 渐进式性能优化：contain: content 等同于 contain: layout style paint，
      让浏览器跳过离屏 MessageItem 的布局计算和绘制工作，长会话下减少渲染开销。
      注意：不用 content-visibility: auto（项目记忆中该属性在流式场景导致高度跳转）。
      完整虚拟滚动（DynamicScroller）需单独迭代，因与 useScrollToBottom 的
@@ -435,6 +438,12 @@ function regenerate() {
   display: block;
 }
 
+/* AI 头像品牌微光环：科幻感的点睛细节，与欢迎页 LOGO 色环呼应；
+ * 用户头像保持素净，形成"机器有光、人无光"的微妙身份差异 */
+.message-item:not(.user) .message-avatar img {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 18%, transparent);
+}
+
 .message-bubble-wrapper {
   flex: 1;
   min-width: 0;
@@ -448,7 +457,9 @@ function regenerate() {
 }
 
 .message-item:not(.user) .message-bubble-wrapper {
-  max-width: 100%;
+  /* 微信式：AI 气泡贴左侧头像、限宽留白——不再通栏拉满，
+   * 与用户侧 75% 上限形成左右镜像的对话感 */
+  max-width: 72%;
   align-items: flex-start;
 }
 
@@ -469,7 +480,8 @@ function regenerate() {
 }
 
 :deep(.citation-link:hover) {
-  color: var(--link-hover-light);
+  /* 晨读：基于链接本色（苔绿）加深一档，替代失效的 --link-hover-light */
+  color: color-mix(in srgb, var(--link-light) 78%, black);
   text-decoration: underline;
 }
 
@@ -478,7 +490,8 @@ function regenerate() {
 }
 
 :global(.dark) :deep(.citation-link:hover) {
-  color: var(--link-hover-dark);
+  /* 夜读：基于链接本色（浅苔绿）提亮一档，替代失效的 --link-hover-dark */
+  color: color-mix(in srgb, var(--link-dark) 75%, white);
 }
 
 .selection-copy-btn {

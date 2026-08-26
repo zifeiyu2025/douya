@@ -1,5 +1,5 @@
 <!--
-  ParamsPanel: 聊天页采样参数快捷抽屉（改进计划 C-4 第④项）
+  ParamsPanel: 聊天页采样参数快捷抽屉
   六滑块 + 官方推荐角标 + 一键回推荐；与设置页共享同一份 config
   （写入管线见 useSamplingSettings.ts），改动自动保存。
 -->
@@ -92,13 +92,14 @@ watch(lastError, msg => {
 </script>
 
 <style scoped>
+/* 来源说明：左缘苔绿细线的信息行，无色块底 */
 .params-source-line {
   margin-bottom: 16px;
-  padding: 8px 12px;
+  padding: 6px 0 6px 12px;
   font-size: 12px;
   color: var(--text-secondary);
-  background: var(--bg-tertiary);
-  border-radius: var(--border-radius-sm);
+  background: transparent;
+  border-left: 2px solid color-mix(in srgb, var(--accent-primary) 40%, transparent);
 }
 
 .param-row {
@@ -112,9 +113,11 @@ watch(lastError, msg => {
   margin-bottom: 8px;
 }
 
+/* 参数名：衬线体如词条标题 */
 .param-name {
+  font-family: var(--font-display);
   font-size: 13px;
-  font-weight: 500;
+  letter-spacing: 0.02em;
   color: var(--text-primary);
 }
 
@@ -122,27 +125,32 @@ watch(lastError, msg => {
   min-width: 44px;
   margin-left: auto;
   text-align: right;
-  font-size: 13px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
 
-/* 推荐角标：小号描边胶囊，点击回官方推荐值 */
+/* 推荐角标：小号方角印章（hairline 苔绿描边），点击回官方推荐值 */
 .ref-chip {
   padding: 1px 7px;
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--accent-primary);
-  border: 1px solid var(--accent-primary);
-  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 55%, transparent);
+  border-radius: var(--border-radius-sm);
   cursor: pointer;
   transition:
-    background 0.15s ease,
-    color 0.15s ease;
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
 }
 
+/* hover 落实苔绿底：强调色底上的字色统一走纸面底色令牌 */
 .ref-chip:hover {
   background: var(--accent-primary);
-  color: #fff;
+  border-color: var(--accent-primary);
+  color: var(--bg-primary);
 }
 
 .apply-all-btn {

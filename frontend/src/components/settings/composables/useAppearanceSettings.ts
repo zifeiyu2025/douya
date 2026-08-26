@@ -1,7 +1,7 @@
 import { computed } from 'vue'
 import type { MessageApi, UploadCustomRequestOptions } from 'naive-ui'
 import { wails } from '../../../services/wails'
-// F-1.17：readFileAsDataURL 抽取到 imageProcess.ts 统一导出，消除两处重复定义
+// readFileAsDataURL 抽取到 imageProcess.ts 统一导出，消除两处重复定义
 import { readFileAsDataURL } from '../../../utils/imageProcess'
 import defaultUserAvatar from '../../../assets/images/user-avatar.svg'
 import defaultAiAvatar from '../../../assets/images/appicon.png'
@@ -43,7 +43,7 @@ export function useAppearanceSettings(core: SettingsCore, message: MessageApi) {
 
   /**
    * 处理头像上传（用户头像和 AI 头像共用）。
-   * 生活类比：像照相机拍照，无论拍用户还是拍 AI 形象，相机操作都一样，只是存到不同相册。
+   * 上传与压缩流程对两种头像完全一致，仅写入的字段不同。
    * @param data n-upload custom-request 回调传入的数据
    * @param fieldName 要写入 formConfig 的字段名（'user_avatar' 或 'ai_avatar'）
    */

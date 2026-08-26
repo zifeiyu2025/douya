@@ -1,6 +1,5 @@
 <!--
   SpeculativeDecodingSettings: 推测解码（加速推理）设置
-  生活类比：像汽车的涡轮增压器——用小引擎（草稿模型/ngram）预猜测，大引擎验证，加速推理
 
   从 PerformanceSettings.vue 拆分而来，负责：
     - 默认推测配置 (spec_default)
@@ -483,7 +482,7 @@ defineOptions({ name: 'SpeculativeDecodingSettings' })
 
 // 从父级注入配置上下文（formConfig、autoSave、specTypeOptions 等共享状态）
 const ctx = inject<SettingsContext>(SETTINGS_CONTEXT_KEY)!
-// 从父级注入配置上下文（C-5 域切片：specTypeOptions 归入 performance 域）
+// 从父级注入配置上下文（specTypeOptions 归入 performance 域）
 const { core, performance } = ctx
 const { formConfig, autoSave, settingsStore } = core
 const { specTypeOptions } = performance
@@ -517,7 +516,8 @@ const expanded = ref(false)
 }
 
 .advanced-icon {
-  font-size: 16px;
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
 
 .advanced-title {

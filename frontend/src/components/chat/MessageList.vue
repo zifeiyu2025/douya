@@ -7,21 +7,28 @@
     <!-- 模型切换 overlay 已移至 App.vue 统一管理，避免重复 -->
     <div v-if="(!messages || messages.length === 0) && !isGenerating" class="message-list-empty">
       <div class="welcome-container">
-        <!-- 产品 LOGO：唯一视觉锚点，静态居中显示 -->
+        <!-- 扉页小印：LOGO 收敛为圆角方印，品牌宋体字成为唯一大字 -->
         <div class="welcome-logo">
           <img :src="defaultAiAvatar" alt="豆芽 LOGO" />
         </div>
 
-        <!-- 品牌主体：第二视觉锚点（中文字号略小，配合 LOGO 形成图文识别） -->
+        <!-- 品牌题签：思源宋体，墨色为主、苔绿点睛 -->
         <div class="welcome-brand">
           <span class="welcome-dou">豆</span>
           <span class="welcome-ya">芽</span>
         </div>
 
-        <!-- 副标题：一句话说明 -->
+        <!-- 副标题：一句话说明，疏排小字 -->
         <div class="welcome-subtitle">本地运行的 AI 助手</div>
 
-        <!-- 快捷操作 chips：点击即发送（沿用现有 store 机制） -->
+        <!-- 扉页分隔：§ 记号居中，双侧发丝线（横格纸母题的克制表达） -->
+        <div class="welcome-rule" aria-hidden="true">
+          <span class="rule-line"></span>
+          <span class="rule-no">§</span>
+          <span class="rule-line"></span>
+        </div>
+
+        <!-- 快捷操作纸片条：点击即发送（沿用现有 store 机制） -->
         <div class="quick-actions">
           <button
             v-for="action in quickActions"
@@ -33,7 +40,7 @@
           </button>
         </div>
 
-        <!-- 当前模型大卡：真实 GGUF 元数据，给用户"本地已就绪"的确定感（C-4 新增） -->
+        <!-- 当前模型大卡：真实 GGUF 元数据，给用户"本地已就绪"的确定感 -->
         <div v-if="activeCardModel" class="welcome-model-card">
           <ModelDetailCard :model="activeCardModel" />
         </div>
@@ -45,7 +52,7 @@
       </div>
     </div>
     <template v-else>
-      <!-- C-4 虚拟滚动转正：按消息数滞回自动启停（进入 50 / 退出 40），可经 localStorage 整体关闭 -->
+      <!-- 虚拟滚动转正：按消息数滞回自动启停（进入 50 / 退出 40），可经 localStorage 整体关闭 -->
       <div v-if="shouldUseVirtualScroll" class="virtual-scroller-wrap">
         <DynamicScroller
           ref="scrollerRef"
@@ -162,6 +169,7 @@
               :default-expanded="true"
             />
             <ContextTrimmed :data="contextTrimmed" />
+            <OutputTruncated :visible="outputTruncated" />
           </div>
         </div>
       </div>
@@ -196,6 +204,7 @@ import MessageItem from './MessageItem.vue'
 import ThinkBlock from './ThinkBlock.vue'
 import SearchStatus from './SearchStatus.vue'
 import ContextTrimmed from './ContextTrimmed.vue'
+import OutputTruncated from './OutputTruncated.vue'
 import ModelDetailCard from '../models/ModelDetailCard.vue'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
@@ -204,7 +213,7 @@ import type { ModelOption } from '../../services/wails'
 import { renderMarkdown, escapeHtml } from '../../utils/markdown'
 import { useMorphRender } from '../../composables/useMorphRender'
 import { useScrollToBottom } from '../../composables/useScrollToBottom'
-// 虚拟滚动：转正后按消息数滞回自动启停（C-4）
+// 虚拟滚动：转正后按消息数滞回自动启停
 import { useVirtualScroll } from '../../composables/useVirtualScroll'
 import { usePromptProgress } from '../../composables/usePromptProgress'
 import { setupCodeCopyDelegation } from '../../utils/codeCopy'
@@ -214,14 +223,14 @@ import { classifyError } from '../../utils/errorGuidance'
 import { discreteDialog } from '../../utils/discrete'
 import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime'
 import defaultAiAvatar from '../../assets/images/appicon.png'
-// 任务 38：虚拟滚动组件（局部导入便于 vue-tsc 类型解析；插件已在 main.ts 全局注册）
+// 虚拟滚动组件（局部导入便于 vue-tsc 类型解析；插件已在 main.ts 全局注册）
 import { DynamicScroller, DynamicScrollerItem } from 'vue-virtual-scroller'
 
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
 const message = useMessage()
 
-// L-20：定义 QuickAction 接口替代 any，提供编译期类型保护
+// 定义 QuickAction 接口替代 any，提供编译期类型保护
 interface QuickAction {
   id: number
   icon: string
@@ -240,7 +249,7 @@ function handleQuickAction(action: QuickAction) {
   chatStore.sendMessage(action.prompt, settingsStore.searchMode)
 }
 
-// ===== 空状态模型大卡（C-4 新增）=====
+// ===== 空状态模型大卡 =====
 // 拉取本机可用模型列表，匹配当前选中模型后复用设置页的 ModelDetailCard，
 // 让用户在开始对话前就能看到真实 GGUF 元数据（参数量/量化/体积），建立"已就绪"的确定感
 const router = useRouter()
@@ -284,11 +293,12 @@ const thinkingDuration = computed(() => chatStore.thinkingDuration)
 const searchQuery = computed(() => chatStore.searchQuery)
 const searchError = computed(() => chatStore.searchError)
 const contextTrimmed = computed(() => chatStore.contextTrimmed)
+const outputTruncated = computed(() => chatStore.outputTruncated)
 const generationSpeed = computed(() => chatStore.generationSpeed)
 // Prompt 处理进度：搜索完成后到首 token 之间，向用户展示"正在处理提示词 X%"，
-// 避免用户误以为卡死。生活类比：像电梯里的楼层显示屏，看到数字在动心里就不慌。
+// 避免用户误以为卡死。
 const promptProgress = computed(() => chatStore.promptProgress)
-// 安全实践（基于 F-1.3+F-3.11）：promptPercent/promptEta 抽取到 usePromptProgress composable，
+// 安全实践：promptPercent/promptEta 抽取到 usePromptProgress composable，
 // 与 TokenCounter.vue 共享同一计算逻辑，避免一处改漏导致两处显示不一致
 const { percent: promptPercent, eta: promptEta } = usePromptProgress(() => promptProgress.value)
 
@@ -300,8 +310,7 @@ const thinkingAsContent = computed(() => {
 // 渲染思考内容为 HTML（仅在思考结束且无正文时触发，此时思考已完成，直接全量渲染）。
 // renderMarkdown 是 async 函数返回 Promise<string>，不能用 computed（v-html 会渲染成 [object Promise]），
 // 改用 ref + watch 异步模式，与 MessageItem.vue 的 renderedContent 写法一致。
-// M20 修复：使用 onCleanup 取消前一次渲染，避免快速变化时旧 Promise 覆盖新结果
-// 生活类比：厨师接到新订单时取消上一份未完成的菜，避免上错菜
+// 使用 onCleanup 取消前一次渲染，避免快速变化时旧 Promise 覆盖新结果
 const renderedThinkingAsContent = ref('')
 watch(
   [thinkingAsContent, thinkingContent],
@@ -386,7 +395,7 @@ const {
   startObserver
 } = useScrollToBottom()
 
-// C-4 虚拟滚动转正：传入消息数启用滞回自动启停（进入线 50 / 退出线 40），
+// 虚拟滚动转正：传入消息数启用滞回自动启停（进入线 50 / 退出线 40），
 // 用户显式写入 localStorage douya-enable-virtual-scroll=false 时整体关闭
 const { shouldUseVirtualScroll } = useVirtualScroll(computed(() => messages.value?.length ?? 0))
 
@@ -429,7 +438,7 @@ const handleLinkClick = (e: MouseEvent) => {
   }
 }
 
-// P6 修复：保存 setupCodeCopyDelegation 的 cleanup 函数，避免潜在的事件监听器泄漏
+// 保存 setupCodeCopyDelegation 的 cleanup 函数，避免潜在的事件监听器泄漏
 let cleanupCodeCopyDelegation: (() => void) | null = null
 
 onMounted(() => {
@@ -449,7 +458,7 @@ onUnmounted(() => {
   if (el) {
     el.removeEventListener('click', handleLinkClick)
   }
-  // P6 修复：清理代码复制的事件委托监听器
+  // 清理代码复制的事件委托监听器
   if (cleanupCodeCopyDelegation) {
     cleanupCodeCopyDelegation()
     cleanupCodeCopyDelegation = null
@@ -517,6 +526,20 @@ watch(
 </script>
 
 <style scoped>
+/* 根容器：撑满 wrapper 并作为非虚拟模式的滚动容器；
+   纵向弹性列供 .message-list-empty(flex:1) 与 sticky 回底按钮工作 */
+.message-list {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  /* 呼吸留白：上下 18px 防首末消息顶边；左右 24px 是微信式铺满后的统一水平内边距
+   * （行级限宽已解除，此处的 24px 同时是 AI 头像贴左缘、用户气泡贴右缘的基准，
+   * 与底部输入舱 .input-area 的 24px 对齐） */
+  padding: 18px 24px;
+}
+
 .message-avatar {
   width: 44px;
   height: 44px;
@@ -543,25 +566,23 @@ watch(
   display: flex;
   gap: 14px;
   width: 100%;
-  margin: 0 auto;
+  /* 微信式铺满：流式占位与 MessageItem.vue 落库消息同口径——
+   * 行宽撑满聊天区，水平留白由 .message-list 的 24px 内边距统一提供 */
   align-items: flex-start;
-}
-
-/* AI、用户消息都撑满宽度；气泡宽度由内部 bubble-wrapper 控制 */
-.message-item.user {
-  max-width: none;
 }
 
 .message-bubble-wrapper {
   flex: 1;
   min-width: 0;
-  max-width: 100%;
+  /* 流式占位与 MessageItem.vue 落库消息同口径限宽 72%：
+   * 避免流式期间气泡铺满、落库后骤然变窄的宽度跳变 */
+  max-width: 72%;
   align-items: flex-start;
 }
 
 .message-bubble {
   padding: 14px 20px;
-  /* 与 MessageItem.vue .ai-bubble 一致：左上角小圆角（贴近左侧 AI 头像）
+  /* 与 MessageBubble.vue .ai-bubble 一致：左上角小圆角贴近左侧 AI 头像
    * border-radius 顺序：左上、右上、右下、左下 */
   border-radius: 4px var(--border-radius-lg) var(--border-radius-lg) var(--border-radius-lg);
   box-shadow: none;
@@ -570,16 +591,16 @@ watch(
 }
 
 .ai-bubble {
-  /* Q10: 自适应宽度：与 MessageItem.vue 的 .ai-bubble 有意不同
-   * MessageItem.vue 的 .ai-bubble 是 width:100%（消息已落库，撑满气泡）
-   * 此处是 width:auto（流式期间气泡随内容增长由窄变宽，视觉更自然）
-   * 不要强行合并，避免流式气泡变成 100% 宽度出现空白天窗 */
+  /* 自适应宽度（有意区别于落库消息的 width:100%）：
+   * 流式期间气泡随内容由窄变宽，视觉更自然，
+   * 也让 thinking-dots 等窄指示器不撑满整行出现空白天窗 */
   width: auto;
   max-width: 100%;
   min-width: 0;
   background: var(--bg-ai-msg);
   color: var(--text-ai-msg);
-  border: none;
+  /* --surface-border-subtle 为未定义死变量（border 整条失效），等价替换为 hairline 令牌 */
+  border: 1px solid var(--border-light);
 }
 
 /* 流式内容容器：仅用 contain: style 隔离样式重算
@@ -607,32 +628,35 @@ watch(
   justify-content: flex-start;
 }
 
-/* "直接回答"按钮：与 ThinkBlock 风格统一，pill 形状，绿色思考色调 */
+/* "直接回答"按钮：与 ThinkBlock 同语汇——hairline 细边文字钮，苔绿落印 */
 .stop-thinking-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 5px 14px;
-  border: 1px solid var(--accent-think);
-  border-radius: 20px;
+  /* 原引用的 --accent-think 为未定义死变量，边框与字色整条失效；映射到苔绿真实令牌 */
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 40%, transparent);
+  border-radius: var(--border-radius-sm);
   background: transparent;
-  color: var(--accent-think);
+  color: var(--accent-primary);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast);
   line-height: 1;
   white-space: nowrap;
 }
 
 .stop-thinking-btn:hover:not(:disabled) {
-  background: var(--accent-think);
-  color: var(--bg-primary);
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent-think-glow) 35%, transparent);
+  /* 悬浮反馈：淡苔绿底色阶，不做投影 */
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
 }
 
 .stop-thinking-btn:active:not(:disabled) {
-  transform: scale(0.96);
+  /* 按压反馈：底色加深一档，不做缩放 */
+  background: color-mix(in srgb, var(--accent-primary) 20%, transparent);
 }
 
 .stop-thinking-btn:disabled {
@@ -661,38 +685,40 @@ watch(
   }
 }
 
+/* 空状态外壳：自身负责滚动（flex:1 定界），不做 justify 居中——
+ * 避免"flex 居中溢出"导致内容上端不可达；居中交由子元素 margin:auto */
 .message-list-empty {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   color: var(--text-muted);
   overflow-y: auto;
   padding: 40px 20px;
 }
 
+/* 扉页主体：margin:auto 实现"安全居中"——
+ * 空间充裕时垂直居中，空间不足时自动归零从头完整展示并可滚动 */
 .welcome-container {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 24px;
+  gap: 20px;
+  margin: auto 0;
 }
 
-/* 产品 LOGO：唯一视觉锚点，静态居中
- * 120px 大尺寸圆形，背景透明，仅保留品牌色环 + 柔和外阴影
- * 双主题自适应，背景图模式下 LOGO 直接穿透显示 */
+/* 扉页小印：LOGO 收敛为 64px 圆角方印，发丝描边 + 单一浅阴影
+ * 双主题自适应，背景图模式下以卡面底色承托 */
 .welcome-logo {
-  width: 120px;
-  height: 120px;
-  border-radius: 50%;
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
   overflow: hidden;
-  background: transparent;
-  box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--accent-primary) 18%, transparent),
-    0 12px 32px rgba(0, 0, 0, 0.1);
+  background: var(--surface-card);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-sm);
 }
 
 .welcome-logo img {
@@ -704,16 +730,17 @@ watch(
   -webkit-user-drag: none;
 }
 
-/* 品牌主体：第二视觉锚点（中文字号略小，配合 LOGO 形成图文识别） */
+/* 品牌题签：欢迎页唯一大字，思源宋体；墨色为主、苔绿点睛 */
 .welcome-brand {
   position: relative;
   z-index: 1;
-  font-size: 42px;
-  font-weight: 700;
-  letter-spacing: 4px;
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: 12px;
   line-height: 1;
   user-select: none;
-  padding-left: 4px;
+  padding-left: 12px;
 }
 
 .welcome-dou {
@@ -724,14 +751,38 @@ watch(
   color: var(--accent-primary);
 }
 
-/* 副标题：一句话说明，次要文字色 */
+/* 副标题：疏排小字，安静跟随题签 */
 .welcome-subtitle {
   position: relative;
   z-index: 1;
-  font-size: 17px;
+  font-size: 13px;
   color: var(--text-secondary);
-  letter-spacing: 0.2px;
-  margin-top: -10px;
+  letter-spacing: 4px;
+  margin-top: -8px;
+}
+
+/* 扉页分隔：§ 记号居中，双侧发丝线——横格纸母题的克制表达 */
+.welcome-rule {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: min(320px, 70%);
+}
+
+.rule-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border-light);
+  opacity: 0.75;
+}
+
+.rule-no {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--accent-primary);
 }
 
 .quick-actions {
@@ -741,35 +792,45 @@ watch(
   gap: 10px;
   flex-wrap: wrap;
   justify-content: center;
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
+/* 纸片条：微圆角 + 发丝边，前置苔绿印章点；hover 只染底描边、不位移不投影 */
 .action-chip {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 24px;
+  gap: 9px;
+  padding: 9px 16px;
+  /* panel 阅读层：与气泡同层，背景图模式下保持通透 */
+  background: var(--surface-panel);
+  border: 1px solid var(--border-light);
+  border-radius: 3px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-primary);
-  transition: all 0.2s ease;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
   font-family: inherit;
   line-height: 1;
+}
+
+.action-chip::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  background: var(--accent-primary);
+  opacity: 0.85;
 }
 
 .action-chip:hover {
   border-color: var(--accent-primary);
   background: var(--accent-tertiary);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
 }
 
 .action-chip:active {
-  transform: translateY(0);
+  border-color: var(--accent-secondary);
 }
 
 .chip-text {
@@ -782,14 +843,14 @@ watch(
   color: var(--text-secondary);
 }
 
-/* C-4 空状态重建：当前模型大卡（真实 GGUF 元数据），层级与 quick-actions 对齐避免被背景图压住 */
+/* 空状态重建：当前模型大卡（真实 GGUF 元数据），层级与 quick-actions 对齐避免被背景图压住 */
 .welcome-model-card {
   position: relative;
   z-index: 1;
   width: min(560px, 100%);
 }
 
-/* 无模型引导：虚线胶囊条 + 描边按钮，形态呼应 action-chip 族 */
+/* 无模型引导：虚线胶囊条 + 描边按钮，形态呼应 action-chip 族（阅读层半透明底） */
 .no-model-guide {
   position: relative;
   z-index: 1;
@@ -797,8 +858,8 @@ watch(
   align-items: center;
   gap: 14px;
   padding: 12px 18px;
-  background: var(--bg-primary);
-  border: 1px dashed var(--border-color);
+  background: var(--surface-panel);
+  border: 1px dashed var(--border-light);
   border-radius: var(--border-radius-md);
 }
 
@@ -822,7 +883,8 @@ watch(
 
 .no-model-btn:hover {
   background: var(--accent-primary);
-  color: #fff;
+  /* 强调色底上的字色统一走纸面底色令牌（浅色下米纸白、夜读下深褐） */
+  color: var(--bg-primary);
 }
 
 /* 模型切换 overlay 样式已移至 App.vue 统一管理 */
@@ -838,8 +900,9 @@ watch(
   flex-shrink: 0;
   /* 正圆包裹箭头：固定 50% 而非 --border-radius-md 变量（变量是圆角方形） */
   border-radius: 50%;
-  border: 1px solid var(--border-color);
-  background: var(--bg-primary);
+  /* 阅读层半透明底：背景图模式下不遮挡背景，无背景图时退化为近实色 */
+  border: 1px solid var(--border-light);
+  background: var(--surface-panel);
   color: var(--text-secondary);
   cursor: pointer;
   display: flex;
@@ -862,7 +925,7 @@ watch(
   opacity: 1;
   background: var(--accent-primary);
   border-color: var(--accent-primary);
-  color: #ffffff;
+  color: var(--bg-primary);
   transform: translateY(-2px);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
 }
@@ -925,7 +988,8 @@ watch(
 .thinking-progress-text {
   margin-left: 6px;
   font-size: 12px;
-  color: var(--text-secondary, #888);
+  /* 移除 hex fallback：--text-secondary 为全屋必有令牌，无需兜底硬编码 */
+  color: var(--text-secondary);
   white-space: nowrap;
   user-select: none;
 }
@@ -948,12 +1012,10 @@ watch(
   }
 }
 
-/* ===== 任务 38：虚拟滚动布局 =====
+/* ===== 虚拟滚动布局 =====
  * 虚拟模式下，.message-list 不再作为滚动容器（DynamicScroller 内部自带
  * overflow:auto 的 .vue-recycle-scroller 作为滚动根）。此处覆盖全局
  * .message-list 的 overflow，让外层仅作弹性外壳，由内部 scroller 滚动。
- * 生活类比：原来整个房间都是跑道，现在把跑道收进一台跑步机，房间只负责把
- * 跑步机固定住并留出空间。
  */
 .message-list--virtual {
   /* 关闭外层滚动，避免与 DynamicScroller 内部滚动产生双重滚动条 */
@@ -977,7 +1039,7 @@ watch(
   /* 复用全局滚动条样式（webkit 细滚动条由全局 ::-webkit-scrollbar 提供） */
 }
 
-/* C-4 流式占位钉底修复：虚拟模式下 wrap 独占剩余高度并允许收缩，
+/* 流式占位钉底修复：虚拟模式下 wrap 独占剩余高度并允许收缩，
    占位气泡是它的兄弟元素，保持自然高度（flex-shrink:0），
    始终钉在视口内可见——修复生成指示器被推出口视口的问题 */
 .message-list--virtual > .message-item {
@@ -1000,29 +1062,5 @@ watch(
 
 .message-list--virtual .scroll-to-bottom-btn:active {
   transform: translateX(-50%) scale(0.95);
-}
-</style>
-
-<style>
-/* ===== 欢迎界面：暗色模式基础适配 ===== */
-
-.dark .action-chip {
-  background: var(--bg-tertiary);
-  border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
-}
-
-.dark .action-chip:hover {
-  border-color: var(--accent-primary);
-  background: var(--accent-tertiary);
-}
-
-.dark .no-model-guide {
-  background: var(--bg-tertiary);
-  border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
-}
-
-/* 背景图模式：流式气泡半透明，与 MessageItem.vue 的气泡层 80% 一致 */
-.has-background .message-bubble.ai-bubble {
-  background: color-mix(in srgb, var(--bg-ai-msg) 80%, transparent);
 }
 </style>

@@ -1,13 +1,11 @@
 /**
  * Wails 服务门面 - 模型域
- * 模型列表/切换/删除/下载/LoRA/专属参数/模型市场（ModelScope / HF 镜像）
- * （从原 wails.ts 迁移,方法体逐字搬移,逻辑零变化）
+ * 模型列表/切换/下载/LoRA/专属参数/模型市场（ModelScope / HF 镜像）
  */
 import {
   GetAvailableModels,
   SwitchModel,
   ReloadModels,
-  DeleteModel,
   DownloadModel,
   RerankEnabled,
   GetLoraAdapters,
@@ -51,9 +49,6 @@ export const modelMethods = {
   },
   reloadModels: async (): Promise<void> => {
     await ReloadModels()
-  },
-  deleteModel: async (modelName: string): Promise<void> => {
-    await DeleteModel(modelName)
   },
   downloadModel: async (modelName: string): Promise<void> => {
     await DownloadModel(modelName)
@@ -104,7 +99,7 @@ export const modelMethods = {
     return () => EventsOff(EventStartupModelNotice)
   },
   // ============ 模型下载（内置下载器，来源 ModelScope / HF 镜像） ============
-  // 生活类比：像"网购模型"——在下载源上搜索（第 page 页，从 1 起）、挑仓库、选文件，然后快递到家（models 目录）。
+  // 流程：在模型仓库按页搜索（page 从 1 起）、选定仓库与文件后，下载到本地 models 目录。
   searchHubModels: async (provider: string, query: string, page = 1): Promise<HubModel[]> => {
     return (await SearchHubModels(provider, query, page)) as HubModel[]
   },

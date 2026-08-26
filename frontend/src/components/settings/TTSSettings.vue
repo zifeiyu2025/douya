@@ -1,11 +1,5 @@
 <!--
   TTSSettings: TTS 朗读设置组件
-  生活类比：像"播音员调度台"的控制面板——
-    - 选哪个播音员念（发音人下拉）
-    - 念多快（语速滑块）
-    - 声音多高（音调滑块）
-    - 多大声（音量滑块）
-    - 试听效果（试听按钮）
 
   设计要点：
     - 发音人列表从浏览器 SpeechSynthesis API 实时获取
@@ -151,7 +145,7 @@ const ctx = inject<SettingsContext>(SETTINGS_CONTEXT_KEY)
 if (!ctx) {
   throw new Error('TTSSettings 必须在 SettingsView 内使用（缺少 settingsContext provide）')
 }
-// C-5 域切片：TTS 仅需核心表单与保存
+// 域切片：TTS 仅需核心表单与保存
 const { core } = ctx
 const { formConfig, autoSave } = core
 
@@ -246,7 +240,7 @@ interface VoiceOption extends SelectOption {
 
 /**
  * 构建发音人下拉选项
- * 生活类比：把系统里所有"播音员"列成菜单，中文的排前面，按知名度排序。
+ * 列出系统全部发音人，中文语音排在前面，其余按优先级排序。
  */
 const voiceOptions = computed<VoiceOption[]>(() => {
   if (!tts.isSupported.value) return []
@@ -311,7 +305,6 @@ const voiceOptions = computed<VoiceOption[]>(() => {
 
 /**
  * 把 formConfig 中的 TTS 配置同步到 useTTS
- * 生活类比：把"设置面板"上的旋钮值告诉"调度台"。
  */
 function syncConfigToTTS() {
   tts.updateConfig({

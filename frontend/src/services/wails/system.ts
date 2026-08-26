@@ -86,8 +86,6 @@ export const systemMethods = {
   },
   // ============ 启动期前端化对话框（区别于 OS 级弹窗） ============
   // 让"启动期必要的弹窗"都改由前端呈现：后端推事件 → 前端弹界面组件 → 用户作答 → RPC 回传。
-  // 生活类比：店家把问题写进"意见本"交给前台（事件），等回执（channel），
-  // 顾客（前端）在漂亮的界面上作答后把回执（RPC）交回来。
   // 启动致命错误：后端无法继续启动时推送，前端展示错误卡
   subscribeStartupError: (callback: (err: StartupErrorPayload) => void): (() => void) => {
     EventsOn(EventStartupError, callback)

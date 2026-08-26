@@ -119,6 +119,14 @@ export interface ContextTrimmedEvent extends StreamEventBase {
   }
 }
 
+/** 输出截断通知：回复因达到 max_tokens 上限而中途停止（content 为截断原因） */
+export interface OutputTruncatedEvent extends StreamEventBase {
+  type: 'output_truncated'
+  content: {
+    reason: string
+  }
+}
+
 /** 生成完成（无 content） */
 export interface DoneEvent extends StreamEventBase {
   type: 'done'
@@ -174,7 +182,7 @@ export interface MessageDeletedEvent extends StreamEventBase {
 }
 
 /**
- * 流式事件判别联合类型（任务 31，L-18 + 前端-15）
+ * 流式事件判别联合类型
  *
  * 以 Go 后端 internal/chat/service_stream.go 的 emitForConv 调用为准，
  * 为每类事件定义具体的 content 类型，替代原先的 { type: string; content: any }。
@@ -197,6 +205,7 @@ export type StreamEvent =
   | TokenSpeedEvent
   | PromptProgressEvent
   | ContextTrimmedEvent
+  | OutputTruncatedEvent
   | DoneEvent
   | StoppedEvent
   | ErrorEvent
@@ -239,6 +248,19 @@ export interface SearchAPIKeys {
  * DEFAULT_CONFIG 三处字段是否一致，CI 也会在每次提交时自动运行此检查。
  * 新增字段时务必同步三处，否则 CI 会报错。
  */
+/**
+ * 单个主题的背景视觉参数（与 Go 端 config.ThemeBackgroundParams 对齐）。
+ * - opacity：表面透明度系数（0-1），越小表面越通透、背景图越清晰；
+ *   无背景图时前端强制按 1 处理（完全实色，观感与旧版一致）。
+ * - blur：背景图模糊半径 px（0=不模糊），类似 VSCode 背景插件的模糊选项。
+ * - mask_alpha：遮罩强度（0-1），亮色叠白纱、深色叠黑纱，保证文字可读性。
+ */
+export interface ThemeBackgroundParams {
+  opacity: number
+  blur: number
+  mask_alpha: number
+}
+
 export interface Config {
   // 配置 schema 版本号（与 Go Config.Version 对齐）
   version: number
@@ -250,12 +272,10 @@ export interface Config {
   mmproj_device: string
   llama_server_path: string
   // 计算后端类型：auto(自动检测)/cuda/hip/sycl/vulkan/openvino/cpu
-  // 生活类比：像选发动机型号——auto 是"让系统帮你选"，其他是明确指定用哪种发动机
   backend_type: string
   // 上一次成功启动的后端类型（非空表示切换过但新后端未通过启动验证，启动成功后清空）
   last_successful_backend: string
   // ===== TTS 文本转语音配置 =====
-  // 生活类比：播音员调度台的设置——挑人、调快慢、调音调、调音量
   tts_enabled: boolean // 是否启用朗读按钮
   tts_voice: string // 发音人名称（空=自动按优先级挑选）
   tts_rate: number // 语速 0.5-2.0，1.0 = 正常
@@ -287,6 +307,12 @@ export interface Config {
   programming_mode: 'auto' | 'on' | 'off'
   chat_background: string
   chat_background_opacity: number
+  /**
+   * 每主题独立背景参数（v3）：同一张背景图，亮/暗主题各存一套参数。
+   * 解决旧方案"一套透明度通吃两主题"导致的亮色雾面、深色泛白问题。
+   */
+  background_light: ThemeBackgroundParams
+  background_dark: ThemeBackgroundParams
   user_avatar: string
   ai_avatar: string
   search_mode: string
@@ -407,7 +433,7 @@ export interface Config {
   ignore_eos: boolean // 忽略 EOS 继续生成
   adaptive_target: number // 请求级自适应采样目标
   adaptive_decay: number // 请求级自适应采样衰减
-  // ===== 以下字段对齐 Go Config（任务 29 补齐） =====
+  // ===== 以下字段对齐 Go Config =====
   // Draft 模型推测解码参数
   spec_draft_p_split: number // 推测解码 split 概率（0=默认 0.10）
   spec_draft_p_min: number // 最小推测解码概率（0=默认 0.00）
@@ -487,7 +513,7 @@ export const DEFAULT_CONFIG: Config = {
   port: 8080,
   // P4.1: 默认 0 = 未设置，由 llama.cpp 原生 auto 按 GPU 显存自动计算（与 Go DefaultConfig 对齐）
   context_size: 0,
-  proactive_compress_threshold: 0.8, // P1-A1: 80% 时主动压缩，为后续对话留出 20% 空间
+  proactive_compress_threshold: 0.8, // 80% 时主动压缩，为后续对话留出 20% 空间
   temperature: 0.8, // 与 Go DefaultConfig 对齐（llama.cpp 默认值）
   top_p: 0.95,
   top_k: 40, // 与 Go DefaultConfig 对齐（llama.cpp 默认值）
@@ -505,6 +531,9 @@ export const DEFAULT_CONFIG: Config = {
   programming_mode: 'auto', // 默认自动检测（coder 模型启用编程版提示词，与 Go DefaultConfig 对齐）
   chat_background: '',
   chat_background_opacity: 0.9, // 与 Go DefaultConfig 对齐（默认背景不透明度 0.9）
+  // 每主题背景参数默认值（与 Go DefaultConfig 对齐，仅在设置背景图后生效）
+  background_light: { opacity: 0.85, blur: 0, mask_alpha: 0.15 },
+  background_dark: { opacity: 0.75, blur: 0, mask_alpha: 0.4 },
   user_avatar: '',
   ai_avatar: '',
   search_mode: 'off',
@@ -612,7 +641,7 @@ export const DEFAULT_CONFIG: Config = {
   ignore_eos: false,
   adaptive_target: 0, // 0=禁用
   adaptive_decay: 0, // 0=禁用
-  // ===== 以下默认值对齐 Go DefaultConfig（任务 29 补齐） =====
+  // ===== 以下默认值对齐 Go DefaultConfig =====
   spec_draft_p_split: 0, // 0=默认 0.10
   spec_draft_p_min: 0, // 0=默认 0.00
   spec_draft_backend_sampling: null, // null=默认（对应 Go *bool nil）
@@ -693,7 +722,7 @@ export interface SwitchResult {
 export interface ConvStreamingState {
   isGenerating: boolean
   streamingContent: string
-  streamingChunks: string[] // 流式内容分块累积（M-前5：避免 += 的 O(N²) 字符串拼接）
+  streamingChunks: string[] // 流式内容分块累积（避免 += 的 O(N²) 字符串拼接）
   thinkingContent: string
   thinkingChunks: string[] // 思考内容分块累积（与 streamingChunks 同理，避免 += 的 O(N²) 拼接）
   searchResults: string
@@ -709,6 +738,8 @@ export interface ConvStreamingState {
     contextSize?: number
     messagesAfter?: number
   } | null
+  /** 输出截断标记：回复因达到 max_tokens 上限被截断（finish_reason=length） */
+  outputTruncated: boolean
   tokensPerSecond: number // 实时生成速度（tokens/s），0 表示未获取
   predictedN: number // 已生成的 token 数
   promptProgress: { total: number; cache: number; processed: number; timeMs: number } | null
@@ -716,9 +747,6 @@ export interface ConvStreamingState {
 
 /**
  * 显卡后端状态信息（对齐 Go 后端 main.BackendStatus）
- *
- * 生活类比：就像车辆仪表盘上的"发动机状态"显示区——
- * 当前用什么发动机、用户选了什么模式、车上装了什么发动机、手头有哪些可用。
  */
 export interface BackendStatus {
   /** 当前后端类型："cuda"/"vulkan"/"cpu" 等（已解析，不含 auto），为空表示尚未启动 */

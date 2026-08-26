@@ -16,12 +16,9 @@ interface ErrorPattern {
 }
 
 /**
- * F-2.5：共享 ErrorGuidance 常量
+ * 共享 ErrorGuidance 常量
  * errCodeGuidanceMap（错误码精确匹配）和 errorPatterns（字符串模式匹配）
  * 原各自维护一份相同的 guidance 对象，抽取为独立常量确保两处一致。
- *
- * 生活类比：像同一份产品说明书——不管顾客是通过条形码（错误码）
- * 还是通过外观描述（字符串匹配）查找商品，拿到的说明书都是同一份。
  */
 const GUIDANCE_DLL_MISSING: ErrorGuidance = {
   category: 'DLL缺失',
@@ -109,9 +106,6 @@ const GUIDANCE_TIMEOUT: ErrorGuidance = {
  * 与后端 internal/chat/errorcodes.go 中的常量保持一致。
  * 后端 enhanceErrorWithHint 会在提示信息前加 "[ERR_CODE]" 前缀，
  * 前端优先通过该前缀精确匹配，避免字符串匹配的不一致问题。
- *
- * 生活类比：像快递单号查询，凭单号（错误码）能直接定位到对应的处理流程，
- * 不需要再根据包裹外观（错误文本）猜测分类。
  */
 const errCodeGuidanceMap: Record<string, ErrorGuidance> = {
   // 上下文长度超限

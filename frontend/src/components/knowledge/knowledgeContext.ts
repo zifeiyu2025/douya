@@ -1,5 +1,5 @@
 /*
- * knowledgeContext: 知识库域上下文类型与注入令牌（C-6）
+ * knowledgeContext: 知识库域上下文类型与注入令牌
  * 类型直接从 useKnowledge 返回值推导，新增成员自动同步。
  */
 import type { InjectionKey } from 'vue'

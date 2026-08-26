@@ -1,6 +1,5 @@
 <!--
   KvCacheSettings: KV 缓存与高级运行参数设置
-  生活类比：像汽车的变速箱调校——控制内存映射、缓存精度、多GPU分割等"底层机械"参数
 
   从 PerformanceSettings.vue 拆分而来，负责：
     - 内存映射 (mmap)
@@ -364,7 +363,7 @@ defineOptions({ name: 'KvCacheSettings' })
 
 // 从父级注入配置上下文（formConfig、autoSave 等共享状态）
 const ctx = inject<SettingsContext>(SETTINGS_CONTEXT_KEY)!
-// C-5 域切片：KV 缓存类型选项归入 performance 域
+// 域切片：KV 缓存类型选项归入 performance 域
 const { core, performance } = ctx
 const { formConfig, autoSave } = core
 const { cacheTypeKOptions, cacheTypeVOptions } = performance
@@ -406,7 +405,8 @@ const splitModeOptions = [
 }
 
 .advanced-icon {
-  font-size: 16px;
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
 
 .advanced-title {

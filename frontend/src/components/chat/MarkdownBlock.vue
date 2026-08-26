@@ -10,7 +10,7 @@ const props = defineProps<{ content: string }>()
 
 // remark 是异步的，使用 ref + watch 模式
 const renderedContent = ref('')
-// L-7：渲染版本号防止异步竞态——若 content 在短时间内多次变化，
+// 渲染版本号防止异步竞态——若 content 在短时间内多次变化，
 // 先发起的渲染任务可能后完成并覆盖最新内容。版本号校验确保只采用最新结果。
 let renderVersion = 0
 
@@ -38,57 +38,8 @@ watch(
 </script>
 
 <style scoped>
-/* 以下样式自原 MessageItem 的 ".message-bubble :deep(.markdown-body)" 系列逐字迁移，
-   分解后 .markdown-body 由本组件直接持有，无需再穿透 */
-.markdown-body blockquote {
-  border-left: 4px solid var(--accent-primary);
-  padding-left: 18px;
-  margin: 16px 0;
-  color: var(--text-secondary);
-  background: color-mix(in srgb, var(--accent-primary) 5%, transparent);
-  padding-top: 12px;
-  padding-bottom: 12px;
-  padding-right: 16px;
-  border-radius: 0 var(--border-radius-md) var(--border-radius-md) 0;
-}
-
-.markdown-body table {
-  border-collapse: collapse;
-  width: 100%;
-  margin: 16px 0;
-  font-size: 14.5px;
-  border-radius: var(--border-radius-md);
-  overflow: hidden;
-  box-shadow: var(--shadow-sm);
-}
-
-.markdown-body th,
-.markdown-body td {
-  border: 1px solid var(--border-color);
-  padding: 14px 18px;
-  text-align: left;
-}
-
-.markdown-body th {
-  background: var(--bg-hover);
-  font-weight: 600;
-}
-
-.markdown-body ul,
-.markdown-body ol {
-  padding-left: 28px;
-  margin: 14px 0;
-}
-
-.markdown-body li {
-  margin: 10px 0;
-  line-height: 1.7;
-}
-
-.markdown-body img {
-  max-width: 100%;
-  border-radius: var(--border-radius-md);
-  margin: 14px 0;
-  box-shadow: var(--shadow-sm);
-}
+/* 排版说明：本组件 v-html 注入的内容不带 scoped 属性标记，
+ * 组件内 scoped 样式对它无效，因此 .markdown-body 的元素排版规则
+ * 全部放在全局 style.css 的 ".markdown-body" 命名空间下
+ * （与流式占位符共用同一套，避免生成结束瞬间样式跳变） */
 </style>

@@ -59,7 +59,10 @@
 
     <!-- 更新检查 -->
     <div class="update-section">
-      <n-divider>版本更新</n-divider>
+      <!-- 书房风：双侧格线夹衬线小节标题，替代 NDivider -->
+      <div class="update-divider">
+        <span class="update-divider-title">版本更新</span>
+      </div>
 
       <!-- Store 版：更新由 Microsoft Store 接管，隐藏应用内更新入口 -->
       <div v-if="isStoreMode" class="update-row">
@@ -143,7 +146,6 @@ import {
   NIcon,
   NSpin,
   NProgress,
-  NDivider,
   NCollapse,
   NCollapseItem,
   useMessage
@@ -248,7 +250,7 @@ function onUpdateProgress(data: any) {
   }
 }
 
-// F-1.10：保存 subscribeUpdateProgress 返回的 unsubscribe 函数，替代原 onUpdateProgress/offUpdateProgress 配对
+// 保存 subscribeUpdateProgress 返回的 unsubscribe 函数，替代原 onUpdateProgress/offUpdateProgress 配对
 let unsubscribeUpdateProgress: (() => void) | null = null
 
 onMounted(() => {
@@ -385,6 +387,28 @@ onUnmounted(() => {
   margin-top: 4px;
 }
 
+/* 双侧格线夹衬线标题：替代带文字的 NDivider */
+.update-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0 16px;
+}
+.update-divider::before,
+.update-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-light);
+}
+.update-divider-title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
 .update-row {
   display: flex;
   align-items: center;
@@ -421,7 +445,7 @@ onUnmounted(() => {
 }
 
 .version-highlight {
-  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-weight: 600;
   color: var(--accent-primary);
 }

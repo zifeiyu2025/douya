@@ -9,15 +9,12 @@
  *  - 纯搬迁，不优化不重构，逻辑与原 App.vue 完全一致
  *  - 依赖注入：通过 useSettingsStore 获取底层状态，不在 composable 内部维护副本
  *  - 事件监听在 onMounted 注册、onUnmounted 清理，避免内存泄漏
- *
- * 生活类比：就像把厨房里散放的调料（状态、计时器、事件监听）收进一个统一的
- * 调料盒（composable）里，原来菜谱（App.vue）的步骤不变，只是取用更方便。
  */
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useSettingsStore } from '../stores/settings'
 import { formatModelName } from '../utils/model'
 import type { SwitchProgressStage } from '../types/settings'
-// F-1.14：stageMap 抽取为常量，与 useAppLifecycle.ts 共享
+// stageMap 抽取为常量，与 useAppLifecycle.ts 共享
 import { STAGE_PERCENT_MAP } from './stageMap'
 import { logError } from '../utils/logger'
 
@@ -55,8 +52,7 @@ export function useModelSwitch() {
 
   /**
    * 正在切换的模型原始 ID（路径/名称，未格式化）
-   * 注：原 App.vue 中无此独立变量，这里按 SubTask 6.3 返回值要求补充派生，
-   * 数据完全来自 store.switchState.targetModel，不引入新逻辑。
+   * 由 store 状态派生（switchState.targetModel / serverStatus.switching_to），不引入新逻辑。
    */
   const switchingModelId = computed(() => {
     const s = settingsStore.switchState
@@ -158,7 +154,7 @@ export function useModelSwitch() {
       return Math.max(5, Math.min(99, Math.round(modelLoadProgress.progress)))
     }
     // 无真实进度时使用粗略阶段映射（仅作为兜底）
-    // F-1.14：STAGE_PERCENT_MAP 抽取到 ./stageMap，与 useAppLifecycle 共享
+    // STAGE_PERCENT_MAP 抽取到 ./stageMap，与 useAppLifecycle 共享
     return STAGE_PERCENT_MAP[settingsStore.switchProgress.stage] ?? 0
   })
 
@@ -196,7 +192,7 @@ export function useModelSwitch() {
 
   // ----- 事件监听（onMounted 注册，onUnmounted 清理）-----
   // 监听 server:switchProgress 事件（切换进度）与 modelLoadProgress 事件（模型加载进度）
-  // F-1.12：register 函数返回 unsubscribe，收集到 unsubscribers 数组批量清理
+  // register 函数返回 unsubscribe，收集到 unsubscribers 数组批量清理
   const unsubscribers: Array<() => void> = []
   onMounted(() => {
     unsubscribers.push(settingsStore.registerSwitchProgressListener())

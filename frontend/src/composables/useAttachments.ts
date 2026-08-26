@@ -16,11 +16,8 @@ const MAX_DOCX_SIZE = 50
 const MAX_TEXT_SIZE = 10
 
 // 文件类型配置：定义每种附件类型的处理规则
-// 抽取原因（基于 F-1.8+F-3.2）：ChatInput.vue 中 6 个 process*File 函数结构高度相似，
+// 从 ChatInput.vue 抽取：6 个 process*File 函数结构高度相似，
 // 通过配置表 + processFileCommon 高阶函数统一处理，新增类型只需添加配置项。
-//
-// 生活类比：像快递分拣中心的"包裹规则表"——每个包裹类型都有自己的大小限制、包装方式、
-// 特殊处理（如冷冻品需温度检查），分拣员只需查表执行，无需记住每种类型的特殊规则。
 interface FileProcessConfig {
   maxSize: number
   label: string
@@ -101,21 +98,17 @@ function isLikelyBinaryContent(text: string): boolean {
 /**
  * useAttachments 提供附件文件的统一处理能力。
  *
- * 抽取原因（基于 F-1.8+F-3.2）：ChatInput.vue 中 6 个 process*File 函数结构高度相似，
+ * 从 ChatInput.vue 抽取：6 个 process*File 函数结构高度相似，
  * 提取为 composable 后：
  *   1. 通过 FILE_CONFIGS 表驱动 + processFileCommon 高阶函数消除 5 处重复（audio/pdf/docx/video/text）
  *   2. processImageFile 因异步流水线差异保留独立实现
  *   3. ChatInput.vue 减少约 130 行代码，附件处理逻辑集中维护
- *
- * 生活类比：像一个"文件处理车间"——车间外部（组件）只管把文件丢进来和拿走结果，
- * 车间内部按照"分拣规则表"（FILE_CONFIGS）自动选择对应的处理流水线。
  *
  * @param attachments 附件数组的 shallowRef（外部持有，确保响应式由调用方控制）
  * @param message naive-ui 的 message API（用于错误/警告提示）
  */
 export function useAttachments(attachments: ShallowRef<Attachment[]>, message: MessageApi) {
   // checkFileSize 校验文件大小是否超过限制。
-  // 生活类比：像快递员称重——超重的包裹直接拒收并告知原因。
   function checkFileSize(file: File, maxSizeMB: number, label: string): boolean {
     const sizeMB = file.size / (1024 * 1024)
     if (sizeMB > maxSizeMB) {
@@ -147,10 +140,6 @@ export function useAttachments(attachments: ShallowRef<Attachment[]>, message: M
 
   // processFileCommon 通用文件处理高阶函数。
   // 根据配置表的 readMode 选择读取方式，postProcess 进行后处理，最后构造 attachment 追加到数组。
-  //
-  // 生活类比：像流水线工人按"作业指导书"（config）操作——
-  // 先称重（checkFileSize），再按指定方式拆包（readFn），可能还要质检（postProcess），
-  // 最后贴标签入库（构造 attachment 并 append）。
   function processFileCommon(file: File, type: string) {
     const cfg = FILE_CONFIGS[type]
     if (!cfg || !checkFileSize(file, cfg.maxSize, cfg.label)) return
@@ -183,7 +172,7 @@ export function useAttachments(attachments: ShallowRef<Attachment[]>, message: M
           data = processed
         }
 
-        // shallowRef 需替换整个数组才能触发响应式（任务 23）
+        // shallowRef 需替换整个数组才能触发响应式
         const attachment: Attachment = {
           type,
           name: file.name,
@@ -214,7 +203,7 @@ export function useAttachments(attachments: ShallowRef<Attachment[]>, message: M
     try {
       // 图片预处理流水线：格式归一化（SVG/WebP→PNG）+ EXIF 方向修正 + 兆像素限制
       const { dataUrl, mimeType } = await processImagePipeline(file)
-      // shallowRef 需替换整个数组才能触发响应式（任务 23）
+      // shallowRef 需替换整个数组才能触发响应式
       attachments.value = [
         ...attachments.value,
         {
@@ -242,7 +231,7 @@ export function useAttachments(attachments: ShallowRef<Attachment[]>, message: M
 
   // removeAttachment 从附件列表中移除指定索引的附件。
   function removeAttachment(idx: number) {
-    // shallowRef 需替换整个数组才能触发响应式（任务 23）
+    // shallowRef 需替换整个数组才能触发响应式
     attachments.value = attachments.value.filter((_, i) => i !== idx)
   }
 

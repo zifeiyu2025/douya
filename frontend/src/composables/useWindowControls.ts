@@ -10,10 +10,6 @@
  *  - 事件监听在 onMounted 注册、onUnmounted 清理，避免内存泄漏
  *  - resize 防抖定时器随组件卸载一并清理
  *
- * 生活类比：就像把一扇窗户的三个按钮（最小化、最大化、关闭）的"操作面板"
- * 从客厅（App.vue）拆出来装进一个独立遥控器（composable）里，
- * 按钮的功能和操作顺序完全不变，只是收纳更整洁。
- *
  * 关闭行为三态逻辑（与原 App.vue handleClose 完全一致）：
  *  - exit 模式：直接调用 wails.gracefulExit() 退出应用
  *  - tray 模式：调用 WindowHide() 隐藏到系统托盘
@@ -35,10 +31,10 @@ export function useWindowControls() {
   // ----- 窗口状态 -----
   const isMaximized = ref(false)
 
-  // ----- resize 防抖定时器（任务 24）-----
+  // ----- resize 防抖定时器 -----
   let resizeTimer: ReturnType<typeof setTimeout> | null = null
 
-  // 关闭询问对话框防重入标志（M5 修复）
+  // 关闭询问对话框防重入标志
   // 避免 ALT+F4 和前端关闭按钮同时触发导致弹出两个对话框
   let isCloseDialogShowing = false
 
@@ -52,8 +48,7 @@ export function useWindowControls() {
   }
 
   // 双击标题栏切换最大化/还原。
-  // 生活类比：双击桌面空白处会打开"显示设置"，但双击桌面上的图标不会——
-  // 所以只检查 target 是否落在真正的交互元素上，不命中才触发最大化。
+  // 只检查 target 是否落在真正的交互元素上，不命中才触发最大化。
   // 这样双击菜单按钮/模型选择器/窗口控制按钮不会误触发，双击标题文字或元素间空隙会触发。
   function handleHeaderDoubleClick(e: MouseEvent) {
     const target = e.target as HTMLElement | null
@@ -66,7 +61,7 @@ export function useWindowControls() {
     handleToggleMaximize()
   }
 
-  // showCloseDialog 弹出关闭询问对话框（M5 修复：抽取为独立函数，供前端按钮和 ALT+F4 共用）
+  // showCloseDialog 弹出关闭询问对话框（抽取为独立函数，供前端按钮和 ALT+F4 共用）
   function showCloseDialog() {
     if (isCloseDialogShowing) return
     isCloseDialogShowing = true
@@ -119,7 +114,7 @@ export function useWindowControls() {
     resizeTimer = setTimeout(updateMaximizedState, 200)
   }
 
-  // 事件监听取消器集合（M5 修复：新增 window:closeRequest 监听）
+  // 事件监听取消器集合（含 window:closeRequest 监听）
   const unsubscribers: Array<() => void> = []
 
   onMounted(() => {
@@ -127,7 +122,7 @@ export function useWindowControls() {
     updateMaximizedState()
     window.addEventListener('resize', handleResize)
 
-    // M5 修复：监听 ALT+F4 / 系统关闭按钮事件，与前端关闭按钮行为一致
+    // 监听 ALT+F4 / 系统关闭按钮事件，与前端关闭按钮行为一致
     // 后端 beforeClose 在 'ask' 模式下不再直接隐藏窗口，而是发送事件让前端弹出询问对话框
     unsubscribers.push(
       wails.subscribeCloseRequest(() => {
@@ -138,7 +133,7 @@ export function useWindowControls() {
 
   onUnmounted(() => {
     window.removeEventListener('resize', handleResize)
-    // 清理 resize 防抖定时器（任务 24）
+    // 清理 resize 防抖定时器
     if (resizeTimer) {
       clearTimeout(resizeTimer)
       resizeTimer = null

@@ -19,9 +19,9 @@
       <MCPSettings />
 
       <!-- 服务器配置 -->
-      <n-divider style="margin: 24px 0 16px" />
+      <div class="hairline" style="margin: 24px 0 16px" />
       <div class="section-header">
-        <span class="section-icon">⚙️</span>
+        <AppIcon name="settings" :size="16" class="section-icon" />
         <span class="section-title">服务器配置</span>
       </div>
 
@@ -293,9 +293,9 @@
       </n-form-item>
 
       <!-- KV 缓存持久化 -->
-      <n-divider style="margin: 24px 0 16px" />
+      <div class="hairline" style="margin: 24px 0 16px" />
       <div class="section-header">
-        <span class="section-icon">💾</span>
+        <AppIcon name="file" :size="16" class="section-icon" />
         <span class="section-title">KV 缓存持久化</span>
       </div>
 
@@ -337,9 +337,9 @@
 import { defineAsyncComponent, inject } from 'vue'
 import { NFormItem, NSwitch, NInput, NInputNumber, NSelect } from 'naive-ui'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
-// C-8 性能项：MCP 设置含终端交互逻辑，异步加载减小高级面板首包
+// 性能项：MCP 设置含终端交互逻辑，异步加载减小高级面板首包
 const MCPSettings = defineAsyncComponent(() => import('./MCPSettings.vue'))
-// C-8 性能项：LoRA 管理器为低频重组件，与 MCPSettings 同策略异步加载
+// 性能项：LoRA 管理器为低频重组件，与 MCPSettings 同策略异步加载
 const LoraManager = defineAsyncComponent(() => import('../LoraManager.vue'))
 import HelpTip from '../ui/HelpTip.vue'
 
@@ -351,7 +351,7 @@ if (!ctx) {
     'AdvancedExperimentalSettings 必须在 SettingsView 内使用（缺少 settingsContext provide）'
   )
 }
-// C-5 域切片：高级面板自包含（Agent/后端采样互斥逻辑在面板内部），仅需核心表单与保存
+// 域切片：高级面板自包含（Agent/后端采样互斥逻辑在面板内部），仅需核心表单与保存
 const { core } = ctx
 const { formConfig, autoSave } = core
 
@@ -384,30 +384,6 @@ const opOffloadOptions = [
   margin-bottom: 32px;
 }
 
-.group-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 0;
-}
-
-.group-icon {
-  font-size: 28px;
-}
-
-.group-text h3 {
-  font-size: 18px;
-  font-weight: 600;
-  margin: 0;
-  color: var(--n-text-color);
-}
-
-.group-text p {
-  font-size: 13px;
-  color: var(--n-text-color-3);
-  margin: 2px 0 0;
-}
-
 .settings-form {
   max-width: 720px;
   margin: 0 auto;
@@ -420,13 +396,23 @@ const opOffloadOptions = [
   margin-bottom: 16px;
 }
 
-.section-icon {
-  font-size: 18px;
+/* 自绘格线：替代 NDivider 的纸面分隔 */
+.hairline {
+  height: 1px;
+  background: var(--border-light);
 }
 
+.section-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* 区块小标题：衬线体呼应书房目录 */
 .section-title {
-  font-size: 15px;
+  font-family: var(--font-display);
+  font-size: 14px;
   font-weight: 600;
-  color: var(--n-text-color);
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
 }
 </style>

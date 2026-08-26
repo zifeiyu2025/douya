@@ -147,24 +147,31 @@ watch(
   max-width: 100%;
   min-width: 0;
   padding: 12px 18px;
+  /* 用户消息保留气泡形态——与 AI 回复形成"人说话/机器著文"的形态对比；
+   * 冷灰便签底 × 石墨字即当前品牌语言，alpha 驱动自动适配背景图模式 */
   background: var(--bg-user-msg);
-  color: var(--text-ai-msg);
+  color: var(--text-user-msg);
   /* 用户头像在右侧（row-reverse），右上角小贴近头像侧，暗示来源 */
   border-radius: var(--border-radius-lg) 4px var(--border-radius-lg) var(--border-radius-lg);
-  border: none;
+  /* 发丝描边：气泡半透明浮于背景图上时提供玻璃边缘感，无背景图时几乎不可见 */
+  border: 1px solid var(--border-light);
+  /* 我方手记：描边掺入一缕亮蓝印章色，与 AI 回复形成「对话双方」辨识度 */
+  border-color: color-mix(in srgb, var(--accent-primary) 22%, var(--border-light));
   box-shadow: none;
 }
 
 .ai-bubble {
-  width: 100%;
+  width: auto;
   max-width: 100%;
   min-width: 0;
+  /* 自适应宽度（与用户气泡同规则）：短回复收成小气泡贴住头像，
+   * 长段落撑到容器上限（外层 wrapper 限宽 72%）后换行；
+   * panel 阅读层底 + 发丝描边，左上角小圆角贴近左侧 AI 头像 */
   padding: 14px 20px;
   background: var(--bg-ai-msg);
   color: var(--text-ai-msg);
-  /* AI 头像在左侧（默认 row），左上角小贴近头像侧，暗示来源 */
   border-radius: 4px var(--border-radius-lg) var(--border-radius-lg) var(--border-radius-lg);
-  border: none;
+  border: 1px solid var(--border-light);
   box-shadow: none;
 }
 
@@ -173,15 +180,6 @@ watch(
   line-height: 1.7;
   font-size: 15px;
   font-weight: 400;
-}
-
-/* 背景图模式：气泡半透明浮于背景图之上（三层透明度体系 - 气泡层 80%） */
-.has-background .ai-bubble {
-  background: color-mix(in srgb, var(--bg-ai-msg) 80%, transparent);
-}
-
-.has-background .user-bubble {
-  background: color-mix(in srgb, var(--bg-user-msg) 80%, transparent);
 }
 
 .message-images {
@@ -204,42 +202,24 @@ watch(
   gap: 8px;
   padding: 10px 16px;
   border-radius: var(--border-radius-md);
-  /* 默认灰色系（file 附件）—— 语义色变量自动适配亮/暗主题 */
-  background: var(--accent-n-soft);
-  color: var(--accent-n-strong);
+  /* 书房风：附件标签统一为纸面信息件——panel 表面 + hairline 边，
+   * 类型差异由图标与文件名表达，不再使用彩色分类底 */
+  background: var(--surface-panel);
+  color: var(--text-secondary);
   font-size: 13px;
   font-weight: 500;
   line-height: 1;
   max-width: 240px;
   overflow: hidden;
-  transition: all 0.2s ease;
-  border: 1px solid color-mix(in srgb, var(--accent-n-primary) 25%, transparent);
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+  border: 1px solid var(--border-light);
 }
 
 .attachment-tag:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
-}
-
-/* audio 附件 → 紫色系（与 style.css --accent-p-* 设计意图一致） */
-.attachment-tag.att-audio {
-  background: var(--accent-p-soft);
-  color: var(--accent-p-strong);
-  border-color: color-mix(in srgb, var(--accent-p-primary) 25%, transparent);
-}
-
-/* video 附件 → 绿色系（与 style.css --accent-g-* 设计意图一致） */
-.attachment-tag.att-video {
-  background: var(--accent-g-soft);
-  color: var(--accent-g-strong);
-  border-color: color-mix(in srgb, var(--accent-g-primary) 25%, transparent);
-}
-
-/* pdf 附件 → 红色系（与 style.css --accent-r-* 设计意图一致） */
-.attachment-tag.att-pdf {
-  background: var(--accent-r-soft);
-  color: var(--accent-r-strong);
-  border-color: color-mix(in srgb, var(--accent-r-primary) 25%, transparent);
+  /* 悬浮反馈：亮蓝细边落印，不做位移与投影 */
+  border-color: var(--accent-primary);
 }
 
 .att-icon {
@@ -260,17 +240,16 @@ watch(
   border-radius: var(--border-radius-lg);
   cursor: zoom-in;
   object-fit: cover;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  border: 1px solid var(--border-color);
-  box-shadow: var(--shadow-md);
+  transition: border-color 0.2s ease;
+  border: 1px solid var(--border-light);
 }
 
 .message-image:hover {
-  transform: scale(1.03);
-  box-shadow: var(--shadow-lg);
+  /* 书房风：悬浮仅细边落亮蓝，不做缩放与投影叠加 */
+  border-color: var(--accent-primary);
 }
 
-/* —— 编辑态样式（C-4 新增）—— */
+/* —— 编辑态样式 —— */
 .edit-area {
   width: 100%;
   min-width: 280px;

@@ -1,5 +1,5 @@
 /*
- * useKnowledge: 知识库域单一状态源（C-6 自 KnowledgeView.vue 逐字搬移）
+ * useKnowledge: 知识库域单一状态源（自 KnowledgeView.vue 抽取）
  * 三个子组件（KBSelector / DocumentManager / RagSettings）经 provide/inject 共享此上下文。
  */
 import { ref, computed } from 'vue'
@@ -284,43 +284,6 @@ export function useKnowledge() {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
   }
 
-  function getFileIcon(fileName: string): string {
-    const ext = fileName.split('.').pop()?.toLowerCase() || ''
-    const iconMap: Record<string, string> = {
-      pdf: '📕',
-      doc: '📘',
-      docx: '📘',
-      md: '📝',
-      txt: '📃',
-      csv: '📊',
-      json: '⚙️',
-      xml: '📋',
-      html: '🌐',
-      yaml: '📑',
-      yml: '📑',
-      toml: '📑',
-      go: '🔷',
-      py: '🐍',
-      js: '💛',
-      ts: '💙',
-      java: '☕',
-      c: '🔧',
-      cpp: '🔧',
-      h: '📌',
-      rs: '🦀',
-      sh: '💻',
-      rb: '💎',
-      php: '🐘',
-      swift: '🍎',
-      kt: '🟣',
-      sql: '🗄️',
-      log: '📜',
-      ini: '📑',
-      cfg: '📑'
-    }
-    return iconMap[ext] || '📄'
-  }
-
   function formatTime(ts: string): string {
     if (!ts) return ''
     try {
@@ -368,7 +331,6 @@ export function useKnowledge() {
     onManualEmbeddingModelInput,
     selectRecommendedModel,
     formatFileSize,
-    getFileIcon,
     formatTime,
     init
   }

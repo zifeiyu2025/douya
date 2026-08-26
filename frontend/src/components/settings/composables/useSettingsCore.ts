@@ -38,6 +38,11 @@ const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'programming_mode',
   'chat_background',
   'chat_background_opacity',
+  // B5 每主题背景参数（v3）：同一张图，亮/暗主题各一套 opacity/blur/mask_alpha
+  // 注意：这两个是嵌套对象字段，UI 层必须整体替换对象才能被下方引用比较的
+  // 脏检测与 diff 合并感知（就地修改内部属性会静默丢保存）
+  'background_light',
+  'background_dark',
   'user_avatar',
   'ai_avatar',
   'search_mode',
@@ -163,11 +168,11 @@ export function useSettingsCore(message: MessageApi) {
   const genParamsDirty = ref(false)
   let genParamsSaveTimer: ReturnType<typeof setTimeout> | null = null
 
-  // 初始值复用 DEFAULT_CONFIG，避免 80+ 字段硬编码（任务 21）
+  // 初始值复用 DEFAULT_CONFIG，避免 80+ 字段硬编码
   // init() 时会从 settingsStore 加载实际配置覆盖此默认值
   const formConfig = ref<Config>({ ...DEFAULT_CONFIG })
 
-  let savingPromise: Promise<void> | null = null // 进行中的保存 Promise，防止重入（任务 13）
+  let savingPromise: Promise<void> | null = null // 进行中的保存 Promise，防止重入
 
   async function doAutoSave() {
     if (genParamsSaveTimer) {
@@ -188,7 +193,7 @@ export function useSettingsCore(message: MessageApi) {
         }
       }
       await settingsStore.updateConfig(merged)
-      // 浅拷贝替代 JSON.parse(JSON.stringify)，Config 字段均为原始类型（任务 13）
+      // 浅拷贝替代 JSON.parse(JSON.stringify)，Config 字段均为原始类型
       formConfig.value = { ...settingsStore.config }
       genParamsDirty.value = false
     } catch (e) {
@@ -201,7 +206,7 @@ export function useSettingsCore(message: MessageApi) {
   }
 
   async function autoSave() {
-    // 重入保护：进行中的保存复用同一 Promise，避免并发覆盖（任务 13）
+    // 重入保护：进行中的保存复用同一 Promise，避免并发覆盖
     if (savingPromise) return savingPromise
     savingPromise = doAutoSave()
     try {
@@ -224,7 +229,7 @@ export function useSettingsCore(message: MessageApi) {
       const inCleanBlock = !genParamsDirty.value
       if (inCleanBlock) {
         await settingsStore.loadConfig()
-        // 浅拷贝替代 JSON.parse(JSON.stringify)，Config 字段均为原始类型（任务 22）
+        // 浅拷贝替代 JSON.parse(JSON.stringify)，Config 字段均为原始类型
         formConfig.value = { ...settingsStore.config }
       }
       for (const hook of modelSwitchHooks) {
@@ -273,7 +278,7 @@ export function useSettingsCore(message: MessageApi) {
   /** 初始化：加载实际配置并刷新表单（原 onMounted 前半部分） */
   async function init() {
     await settingsStore.loadConfig()
-    // 浅拷贝替代 JSON.parse(JSON.stringify)，Config 字段均为原始类型（任务 22）
+    // 浅拷贝替代 JSON.parse(JSON.stringify)，Config 字段均为原始类型
     formConfig.value = { ...settingsStore.config }
     genParamsDirty.value = false
   }

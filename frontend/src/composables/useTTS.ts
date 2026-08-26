@@ -1,11 +1,6 @@
 /**
  * useTTS.ts — 文本转语音（TTS）composable
  *
- * 生活类比：这个文件就像豆芽的"播音员调度员"——
- *   - 它知道系统里有哪些"本地播音员"（voices，Web Speech API）
- *   - 它还会在有网时请"微软在线播音员"（Edge TTS / 晓晓）帮忙
- *   - 它负责安排播音员什么时候开始、暂停、停止
- *
  * 朗读策略（按用户需求）：
  *   - 开启「在线 TTS」且有网：优先调用微软在线 TTS（Edge TTS），
  *     按设置页选的本地发音人映射到对应在线 Neural 音色（如晓晓→XiaoxiaoNeural），未选则用晓晓
@@ -89,7 +84,6 @@ interface Window {
 }
 
 // ===== 模块级单例状态 =====
-// 生活类比：整个应用共用一个"播音员调度台"，而不是每条消息自己起一个。
 // 这样切会话时能统一停止上一条朗读，避免多个声音叠加。
 
 /** 浏览器 TTS 引擎实例（全局唯一） */
@@ -128,7 +122,6 @@ let localSpeechToken = 0
 
 /**
  * 加载系统可用的语音列表。
- * 生活类比：开机时先盘点"今天有哪些播音员上班"。
  *
  * 注意：部分浏览器（含 WebView2）的 getVoices() 是异步的，
  * 首次调用可能返回空数组，需要监听 voiceschanged 事件再取一次。
@@ -156,8 +149,6 @@ if (synth) {
 
 /**
  * 中文语音偏好表（按优先级排序）
- * 生活类比：像医院分诊，按病情严重程度排序——
- *   最自然的晓晓排第一，实在没有再用机械感强的兜底声。
  */
 const CN_VOICE_PREFERENCES = [
   'Microsoft Xiaoxiao', // Win11 晓晓（最自然女声，首选）
@@ -171,7 +162,6 @@ const CN_VOICE_PREFERENCES = [
 
 /**
  * 从所有语音中挑出最合适的中文语音。
- * 生活类比：人事部按优先级名单挑人——先看首选在不在，不在就依次往下找。
  */
 function pickBestChineseVoice(): SpeechSynthesisVoice | null {
   if (voices.value.length === 0) return null
@@ -194,7 +184,6 @@ function pickBestChineseVoice(): SpeechSynthesisVoice | null {
 const currentVoice = computed<SpeechSynthesisVoice | null>(() => pickBestChineseVoice())
 
 // ===== 用户配置（由外部注入，响应式） =====
-// 生活类比：播音员调度台的"设置面板"——用户在设置页调整，这里读取执行。
 // 默认值与后端 DefaultConfig 对齐，未注入配置时也能正常工作。
 
 /** 用户配置的发音人名称（空=自动按优先级挑选），仅本地回退时使用 */
@@ -214,8 +203,6 @@ const configOnline = ref<boolean>(true)
 
 /**
  * 实际生效的语音（综合用户配置和系统可用语音）
- * 生活类比：用户在设置页点了"晓晓"，就用晓晓；
- *          用户没选（空），就按优先级自动挑。
  */
 const effectiveVoice = computed<SpeechSynthesisVoice | null>(() => {
   // 1. 用户明确指定了发音人 → 按名字精确匹配
@@ -232,7 +219,6 @@ const effectiveVoice = computed<SpeechSynthesisVoice | null>(() => {
 
 /**
  * 更新 TTS 配置（供设置页调用）
- * 生活类比：用户在设置面板调整旋钮，调度台立即记下新设置。
  *
  * @param opts 配置项（全部可选，未传的字段保持原值）
  */
@@ -254,7 +240,6 @@ function updateConfig(opts: {
 
 /**
  * 清理当前朗读状态（内部辅助函数）
- * 生活类比：播音员下班前把话筒、稿子归位。
  */
 function resetState(): void {
   speakingText.value = ''
@@ -338,7 +323,6 @@ function splitIntoChunks(text: string): string[] {
 
 /**
  * 本地播放（浏览器 Web Speech API）——逐句顺序朗读，播完自动停止。
- * 生活类比：请本地的播音员念稿，一段一段念，全部念完就下班，不会从头重播。
  *
  * 关键点：用 localSpeechToken 串联各句；某句 onend 时若令牌已被新朗读/停止取代，
  * 则不再播下一句，从而彻底避免"循环播放"。
@@ -405,7 +389,7 @@ function playLocal(cleanText: string, text: string, messageId?: string): void {
 
 /**
  * 在线播放（微软 Edge TTS 返回的 MP3，用 <audio> 元素播放）
- * 生活类比：把云端播音员录好的音频放出来。播放失败则回退本地播音员。
+ * 播放失败则自动回退本地播放。
  */
 function playOnlineAudio(b64: string, text: string, messageId?: string): void {
   // 回退标志：audio.onerror 与 audio.play().catch 可能同时触发，
@@ -474,7 +458,7 @@ function playOnlineAudio(b64: string, text: string, messageId?: string): void {
       }
       URL.revokeObjectURL(url)
       if (currentAudio === audio) currentAudio = null
-      // 在线音频播放失败，回退本地播音员（仅一次）
+      // 在线音频播放失败，回退本地播放（仅一次）
       fallbackToLocal('onerror')
     }
 
@@ -485,7 +469,7 @@ function playOnlineAudio(b64: string, text: string, messageId?: string): void {
       }
       URL.revokeObjectURL(url)
       if (currentAudio === audio) currentAudio = null
-      // 在线音频播放失败，回退本地播音员（仅一次，避免与 onerror 重复）
+      // 在线音频播放失败，回退本地播放（仅一次，避免与 onerror 重复）
       fallbackToLocal((err as Error)?.message || 'play rejected')
     })
   } catch (e) {
@@ -499,8 +483,6 @@ function playOnlineAudio(b64: string, text: string, messageId?: string): void {
  * @param text 要朗读的纯文本（会自动去除 markdown 标记）
  * @param messageId 关联的消息 ID（用于 UI 高亮，可选）
  *
- * 生活类比：把稿子交给调度员，调度员先问"在线播音员（晓晓）在不在"——
- *   在（有网）就请她念；不在（无网）就请本地播音员念。
  * 如果之前有朗读在进行，会先停掉再开始新的。
  */
 async function speak(text: string, messageId?: string): Promise<void> {
@@ -565,7 +547,7 @@ async function speak(text: string, messageId?: string): Promise<void> {
     }
   }
 
-  // 离线回退 / 在线关闭 / 在线失败：用本地播音员
+  // 离线回退 / 在线关闭 / 在线失败：用本地 Web Speech 朗读
   if (speakingText.value === text) {
     logWarn('[TTS] 使用本地播放', {
       reason: configOnline.value ? '在线失败或超时' : '在线未开启',
@@ -577,7 +559,6 @@ async function speak(text: string, messageId?: string): Promise<void> {
 
 /**
  * 停止朗读
- * 生活类比：让播音员立刻闭嘴。
  */
 function stop(): void {
   stopAllInternal()
@@ -621,8 +602,6 @@ function resume(): void {
 
 /**
  * 去除 Markdown 格式标记，提取纯文本用于朗读。
- * 生活类比：把带格式的"剧本"转成"念稿"——
- *   去掉舞台指示（代码块、图片），只留对白（正文）。
  *
  * 处理规则：
  *   - 代码块 ```...``` → 移除（代码念出来没意义）

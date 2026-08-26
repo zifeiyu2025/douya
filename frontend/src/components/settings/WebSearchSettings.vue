@@ -109,7 +109,7 @@ const ctx = inject<SettingsContext>(SETTINGS_CONTEXT_KEY)
 if (!ctx) {
   throw new Error('WebSearchSettings 必须在 SettingsView 内使用（缺少 settingsContext provide）')
 }
-// C-5 域切片：core 提供表单/保存，apiService 提供搜索密钥逻辑
+// 域切片：core 提供表单/保存，apiService 提供搜索密钥逻辑
 const { core, apiService } = ctx
 const { formConfig, autoSave } = core
 const { searchKeys, newOllamaApiKey, newTavilyApiKey, savingSearchKeys, saveSearchKeys } =
@@ -134,13 +134,19 @@ watch(
 </script>
 
 <style scoped>
+/* 章节小标题：衬线体呼应书房目录 */
 .section-label {
-  font-size: 12px;
+  font-family: var(--font-display);
+  font-size: 14px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
   margin-bottom: 8px;
+}
+/* 自绘格线：替代 NDivider 的纸面分隔 */
+.hairline {
+  height: 1px;
+  background: var(--border-light);
 }
 .alert-content {
   font-size: 13px;

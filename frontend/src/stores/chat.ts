@@ -14,7 +14,7 @@ import { useConversations } from './chat/conversations'
 import type { ConvStreamingState, StreamEventType } from '../types/chat'
 
 /** 流式状态创建
- *  使用 shallowReactive 包裹（任务 22）：
+ *  使用 shallowReactive 包裹：
  *  - Map 本身改为 shallowReactive，不再深度代理值对象
  *  - 此处返回 shallowReactive 保证值对象的顶层属性修改仍触发响应式
  *    （如 state.streamingContent = ... / state.isSearching = ...）
@@ -36,13 +36,14 @@ function createEmptyStreamingState(): ConvStreamingState {
     searchQuery: '',
     searchError: '',
     contextTrimmed: null,
+    outputTruncated: false,
     tokensPerSecond: 0,
     predictedN: 0,
     promptProgress: null
   })
 }
 
-// P4 修复：模块级空状态单例，避免 currentConvState/generatingConvState 每次重算都新建 shallowReactive 对象。
+// 模块级空状态单例，避免 currentConvState/generatingConvState 每次重算都新建 shallowReactive 对象。
 // 安全前提：空状态是只读的"无状态"表示，不会被修改（clearConvState 只作用于 Map 中的实际 state 对象）。
 const EMPTY_STREAMING_STATE = createEmptyStreamingState()
 
@@ -68,7 +69,7 @@ export const useChatStore = defineStore('chat', () => {
   const messages = ref<Message[]>([])
   const lastError = ref('')
   const generatingConvId = ref('')
-  // 任务 22：使用 shallowReactive 替代 reactive
+  // 使用 shallowReactive 替代 reactive
   // - Map 的 set/delete/clear 仍触发响应式（streamHandlers 各处依赖 Map.get 的 computed 能正常更新）
   // - 值对象不深度代理，避免流式场景下对 ConvStreamingState 内部字段的深层响应式开销
   // - 值对象顶层属性响应式由 createEmptyStreamingState 中的 shallowReactive 保证
@@ -79,7 +80,7 @@ export const useChatStore = defineStore('chat', () => {
   const generationSpeed = ref(0)
   // 最近一次请求的 prompt_tokens（来自 llama-server usage），持久化显示总上下文已用 token 数
   const lastPromptTokens = ref(0)
-  // 消息请求版本号（M-前2）：防止 handleTerminalAsync 的 await 期间用户切换会话，
+  // 消息请求版本号：防止 handleTerminalAsync 的 await 期间用户切换会话，
   // 旧请求返回后覆盖新会话的消息列表（TOCTOU 竞态）。每次发起新请求递增，响应返回后校验。
   // 用 ref 包装以便跨 composable 共享（useConversations 也需要递增此值）。
   const messagesRequestVersion = ref(0)
@@ -117,7 +118,7 @@ export const useChatStore = defineStore('chat', () => {
     return state
   }
 
-  // ----- 流式内容刷新（M-前5：避免 += 的 O(N²) 字符串拼接）-----
+  // ----- 流式内容刷新（避免 += 的 O(N²) 字符串拼接）-----
   // handleToken 将分块 push 到 streamingChunks 数组（O(1)），由定时器
   // 合并到 streamingContent。FLUSH_INTERVAL = 0 表示下一个宏任务即 flush
   //（setTimeout 0 实际约 4ms，比原 20ms 快 5 倍），让 token 尽快到达 UI。
@@ -157,9 +158,7 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  // M10: 解耦"当前查看会话状态"与"正在生成会话状态"，避免切会话时 UI 状态串台
-  // 生活类比：客厅电视（currentConvState）显示你正在看的频道，厨房摄像头（generatingConvState）显示正在炒的菜。
-  // 切换客厅频道不会让厨房的菜跑到客厅屏幕上。
+  // 解耦"当前查看会话状态"与"正在生成会话状态"，避免切会话时 UI 状态串台
   // currentConvState：当前查看会话的状态，消息流相关 UI（占位气泡、流式内容、速度显示）使用
   const currentConvState = computed<ConvStreamingState>(() => {
     const id = currentConversationId.value
@@ -195,6 +194,7 @@ export const useChatStore = defineStore('chat', () => {
   const searchQuery = computed(() => currentConvState.value.searchQuery)
   const searchError = computed(() => currentConvState.value.searchError)
   const contextTrimmed = computed(() => currentConvState.value.contextTrimmed)
+  const outputTruncated = computed(() => currentConvState.value.outputTruncated)
   const tokensPerSecond = computed(() => currentConvState.value.tokensPerSecond)
   const predictedN = computed(() => currentConvState.value.predictedN)
   const promptProgress = computed(() => currentConvState.value.promptProgress)
@@ -311,7 +311,7 @@ export const useChatStore = defineStore('chat', () => {
       wails
         .getLastPromptTokens()
         .then(n => {
-          // P3 修复：校验当前会话是否仍是生成结束时的会话，
+          // 校验当前会话是否仍是生成结束时的会话，
           // 避免 A 生成结束→用户切到 B→A 的 promise 返回→B 的 TokenCounter 显示 A 的 token 数
           if (currentConversationId.value === convId) {
             lastPromptTokens.value = n || 0
@@ -323,7 +323,6 @@ export const useChatStore = defineStore('chat', () => {
 
   // ----- 流式事件 reducer（独立小函数,易单测） -----
 
-  // 已迁移：content 类型对齐 TokenEvent['content']（任务 31.3）
   function handleToken(convId: string, content: string) {
     startGeneratingTimeout()
     clearFirstTokenOnResponse()
@@ -335,7 +334,7 @@ export const useChatStore = defineStore('chat', () => {
     } else if (!state.isThinking && state.thinkingContent && state.thinkingDuration === 0) {
       state.thinkingDuration = (Date.now() - state.thinkingStartTime) / 1000
     }
-    // 修复（M-前5）：用数组累积替代字符串 +=，避免长文本输出时的 O(N²) 拼接开销。
+    // 用数组累积替代字符串 +=，避免长文本输出时的 O(N²) 拼接开销。
     // 分块 push 是 O(1)，由 scheduleStreamingFlush 节流（50ms）合并到 streamingContent。
     state.streamingChunks.push(content)
     // 首个 token 或思考结束：立即 flush，消除首字延迟和 streamingContent="" 空窗口
@@ -348,7 +347,6 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  // 已迁移：content 类型对齐 ThinkingEvent['content']（任务 31.3）
   function handleThinking(convId: string, content: string) {
     startGeneratingTimeout()
     clearFirstTokenOnResponse()
@@ -368,8 +366,7 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  // 已迁移：content 类型对齐 ToolCallStartEvent['content']（任务 24）
-  // P1-2 修复：content 现包含 tool_call_id，用于并发 tool call 关联
+  // content 包含 tool_call_id，用于并发 tool call 关联
   function handleToolCallStart(
     convId: string,
     content: Extract<StreamEvent, { type: 'tool_call_start' }>['content']
@@ -382,7 +379,6 @@ export const useChatStore = defineStore('chat', () => {
     // tool_call_id 用于未来细粒度状态跟踪（当前保持单值兼容，多 tool call 时最后一个覆盖）
   }
 
-  // 已迁移：content 类型对齐 SearchStartEvent['content']（任务 24）
   // 后端在 tool call 场景发送 JSON 字符串（紧跟 tool_call_start 事件会覆盖 searchQuery），
   // 预搜索场景发送普通字符串，统一按 string 直接使用即可。
   function handleSearchStart(
@@ -398,9 +394,7 @@ export const useChatStore = defineStore('chat', () => {
     state.searchError = ''
   }
 
-  // 已迁移：content 类型对齐 SearchResultEvent['content']（任务 24）
-  // C-7 协议唯一事实化：后端预搜索与 tool call 路径统一发射 { tool_call_id, results } 结构，
-  // 历史的 string / 裸数组两种兼容分支已随协议收敛删除。
+  // 协议唯一事实化：后端预搜索与 tool call 路径统一发射 { tool_call_id, results } 结构，
   // 存储保持 JSON 字符串形态（与消息持久化格式一致，SearchStatus 直接解析渲染）
   function handleSearchResult(
     convId: string,
@@ -427,8 +421,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /** 处理 token_speed 事件：实时更新生成速度（会话级 + 全局）
-   *  合并了原 generation_speed 事件的功能，后端每 500ms 降频发射一次
-   *  已迁移：content 类型对齐 TokenSpeedEvent['content']（任务 24） */
+   *  合并了原 generation_speed 事件的功能，后端每 500ms 降频发射一次 */
   function handleTokenSpeed(
     convId: string,
     content: Extract<StreamEvent, { type: 'token_speed' }>['content']
@@ -438,15 +431,14 @@ export const useChatStore = defineStore('chat', () => {
       state.tokensPerSecond = content.tokensPerSecond
       state.predictedN = content.predictedN || 0
       // 同时更新全局生成速度（原 generation_speed 事件功能，仅当前生成会话）
-      // C-7 协议唯一事实化：后端已移除 tokens_per_second 重复字段，仅读驼峰命名
+      // 协议唯一事实化：后端仅提供驼峰命名的 tokens_per_second 字段，此处只读驼峰命名
       if (convId === generatingConvId.value || convId === '') {
         generationSpeed.value = content.tokensPerSecond
       }
     }
   }
 
-  /** 处理 prompt_progress 事件：实时更新提示词处理进度
-   *  已迁移：content 类型对齐 PromptProgressEvent['content']（任务 24） */
+  /** 处理 prompt_progress 事件：实时更新提示词处理进度 */
   function handlePromptProgress(
     convId: string,
     content: Extract<StreamEvent, { type: 'prompt_progress' }>['content']
@@ -462,7 +454,7 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  /** 局部更新消息列表（M-前6）：避免全量替换导致所有 MessageItem 组件重渲染。
+  /** 局部更新消息列表：避免全量替换导致所有 MessageItem 组件重渲染。
    *  流式生成结束时通常只有最后一条消息内容变化，用 splice 原地替换仅触发该组件更新。 */
   function updateMessagesIncremental(newMsgs: Message[]) {
     const oldMsgs = messages.value
@@ -521,7 +513,7 @@ export const useChatStore = defineStore('chat', () => {
   async function handleTerminalAsync(convId: string) {
     const targetConvId = convId || generatingConvId.value
     if (targetConvId) {
-      // 记录请求版本号，await 返回后校验，防止旧请求覆盖新会话消息（M-前2 TOCTOU 防护）
+      // 记录请求版本号，await 返回后校验，防止旧请求覆盖新会话消息
       const requestVersion = ++messagesRequestVersion.value
       try {
         const msgs = (await wails.getMessages(targetConvId)) as Message[]
@@ -531,7 +523,7 @@ export const useChatStore = defineStore('chat', () => {
           targetConvId === currentConversationId.value ||
           targetConvId === generatingConvId.value
         ) {
-          // 修复（M-前6）：原实现 messages.value = msgs || [] 全量替换，
+          // 原实现 messages.value = msgs || [] 全量替换，
           // 导致所有 MessageItem 组件重新渲染。改为局部更新：仅替换变化的最后一条。
           updateMessagesIncremental(msgs || [])
         }
@@ -547,7 +539,7 @@ export const useChatStore = defineStore('chat', () => {
     // 无需在此全量刷新 loadConversations()，避免不必要的数据库查询。
   }
 
-  // 已迁移：content 类型对齐 ErrorEvent['content']（任务 31.3）
+  // content 类型对齐 ErrorEvent['content']
   function handleError(convId: string, content: string, isCurrentConv: boolean) {
     handleTerminalEvent(convId)
     if (isCurrentConv || !convId) {
@@ -558,7 +550,7 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  // 已迁移：content 类型对齐 ContextTrimmedEvent['content']（任务 24）
+  // content 类型对齐 ContextTrimmedEvent['content']
   function handleContextTrimmed(
     convId: string,
     content: Extract<StreamEvent, { type: 'context_trimmed' }>['content']
@@ -572,7 +564,16 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  // 已迁移：content 类型对齐 ConversationCreatedEvent['content']（任务 24）
+  /** 输出截断通知：标记当前轮回复因达到 max_tokens 上限被截断 */
+  function handleOutputTruncated(
+    convId: string,
+    content: Extract<StreamEvent, { type: 'output_truncated' }>['content']
+  ) {
+    const state = getConvState(convId)
+    state.outputTruncated = content?.reason === 'length'
+  }
+
+  // content 类型对齐 ConversationCreatedEvent['content']
   function handleConvCreated(
     content: Extract<StreamEvent, { type: 'conversation_created' }>['content']
   ) {
@@ -591,7 +592,7 @@ export const useChatStore = defineStore('chat', () => {
     conversations.value.unshift({ ...content, title: fixUtf8(content.title) })
   }
 
-  // 已迁移：content 类型对齐 AssistantMessageEvent['content']（任务 24）
+  // content 类型对齐 AssistantMessageEvent['content']
   function handleAssistantMsg(
     content: Extract<StreamEvent, { type: 'assistant_message' }>['content'],
     isCurrentConv: boolean
@@ -605,7 +606,7 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  // 已迁移：content 类型对齐 UserMessageEvent['content']（任务 24）
+  // content 类型对齐 UserMessageEvent['content']
   function handleUserMsg(
     content: Extract<StreamEvent, { type: 'user_message' }>['content'],
     isCurrentConv: boolean
@@ -631,7 +632,7 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  // 已迁移：content 类型对齐 ConversationUpdatedEvent['content']（任务 24）
+  // content 类型对齐 ConversationUpdatedEvent['content']
   function handleConvUpdated(
     content: Extract<StreamEvent, { type: 'conversation_updated' }>['content']
   ) {
@@ -648,8 +649,8 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  // 已迁移：content 类型对齐 ConversationDeletedEvent['content']（任务 24）
-  // C-7 协议唯一事实化：后端三处发射点均为裸 string ID，{ id } 对象兼容分支已删除
+  // content 类型对齐 ConversationDeletedEvent['content']
+  // 协议唯一事实化：后端三处发射点均为裸 string ID，无需 { id } 对象兼容分支
   function handleConvDeleted(
     content: Extract<StreamEvent, { type: 'conversation_deleted' }>['content']
   ) {
@@ -663,7 +664,7 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  // 已迁移：content 类型对齐 MessageDeletedEvent['content']（任务 24）
+  // content 类型对齐 MessageDeletedEvent['content']
   function handleMsgDeleted(
     content: Extract<StreamEvent, { type: 'message_deleted' }>['content'],
     isCurrentConv: boolean
@@ -674,7 +675,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   // ----- 事件分发表（reducer map） -----
-  // 任务 24：所有 handler 已迁移到具体事件 content 类型，使用映射类型替代原先的 any 签名。
+  // 所有 handler 均使用具体事件 content 类型与映射类型签名（替代原先的 any）。
   // 每个键对应的 handler content 类型由 Extract<StreamEvent, { type: K }>['content'] 推导，
   // 新增/重命名事件类型时编译器会即时校验。
   type StreamHandlerMap = {
@@ -702,6 +703,7 @@ export const useChatStore = defineStore('chat', () => {
     },
     error: (id, c, current) => handleError(id, c, current),
     context_trimmed: (id, c) => handleContextTrimmed(id, c),
+    output_truncated: (id, c) => handleOutputTruncated(id, c),
     conversation_created: (_, c) => handleConvCreated(c),
     assistant_message: (_, c, current) => handleAssistantMsg(c, current),
     user_message: (_, c, current) => handleUserMsg(c, current),
@@ -753,8 +755,7 @@ export const useChatStore = defineStore('chat', () => {
         }
       }
 
-      // C-3 修复：保存原始消息用于回滚，避免后端删除失败时 UI 与 DB 不一致
-      // 生活类比：仓库销毁货品前先拍照存档，销毁失败时凭照片恢复记录
+      // 保存原始消息用于回滚，避免后端删除失败时 UI 与 DB 不一致
       const originalMessages = messages.value
       messages.value = messages.value.filter((m: Message) => !idsToRemove.has(m.id))
       try {
@@ -770,14 +771,13 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function regenerateMessage(userMessageID: string, searchMode: string) {
-    // M10: 用 isAnyGenerating 防止 A 生成中切到 B 时误判可发消息导致并发生成
+    // 用 isAnyGenerating 防止 A 生成中切到 B 时误判可发消息导致并发生成
     if (isAnyGenerating.value) return
 
     const convId = currentConversationId.value
     if (!convId) return
 
-    // C-3 修复：保存原始消息用于回滚，避免后端调用失败时 UI 与 DB 不一致
-    // 生活类比：重新做菜前先备份原菜品，做砸了还能上原菜
+    // 保存原始消息用于回滚，避免后端调用失败时 UI 与 DB 不一致
     const originalMessages = messages.value
     // 删除用户消息之后的所有回复，保留到用户消息为止
     const userMsgIdx = messages.value.findIndex((m: Message) => m.id === userMessageID)
@@ -823,6 +823,7 @@ export const useChatStore = defineStore('chat', () => {
     const state = getConvState(convId || '')
     clearConvState(state)
     state.contextTrimmed = null
+    state.outputTruncated = false
     state.isGenerating = true
     // 生成开始时重置速度显示
     generationSpeed.value = 0
@@ -902,7 +903,7 @@ export const useChatStore = defineStore('chat', () => {
     return () => {
       unsubscribe()
       clearTimers()
-      // P7 修复：清理所有 pending 的 flush 定时器，避免应用退出时残留回调
+      // 清理所有 pending 的 flush 定时器，避免应用退出时残留回调
       flushTimers.forEach((t, k) => {
         clearTimeout(t)
         flushTimers.delete(k)
@@ -926,6 +927,7 @@ export const useChatStore = defineStore('chat', () => {
     searchQuery,
     searchError,
     contextTrimmed,
+    outputTruncated,
     tokensPerSecond,
     predictedN,
     promptProgress,

@@ -168,7 +168,8 @@
   </div>
 
   <!-- ===== 核心生成参数 ===== -->
-  <n-divider style="margin: 20px 0 12px" />
+  <!-- 书房风：以自绘 1px 格线分隔章节，替代 NDivider -->
+  <div class="hairline" style="margin: 20px 0 12px" />
   <div class="section-label">生成参数</div>
 
   <n-form-item>
@@ -412,12 +413,11 @@ import {
   NText,
   NCollapseTransition,
   NIcon,
-  NButton,
-  NDivider
+  NButton
 } from 'naive-ui'
 import { ChevronDown, ChevronUp } from '@vicons/ionicons5'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
-// C-5：上下文长度档位/格式化改为纯工具直连（不再经 context 传递）
+// 上下文长度档位/格式化改为纯工具直连（不再经 context 传递）
 import { contextSizeSteps, contextSizeMarks, formatContextSize } from './composables/contextSize'
 import HelpTip from '../ui/HelpTip.vue'
 import TTSSettings from './TTSSettings.vue'
@@ -428,7 +428,7 @@ const ctx = inject<SettingsContext>(SETTINGS_CONTEXT_KEY)
 if (!ctx) {
   throw new Error('AIChatSettings 必须在 SettingsView 内使用（缺少 settingsContext provide）')
 }
-// C-5 域切片：core 提供表单/保存/store，aiChat 提供参考参数与预设，performance 提供上下文滑块
+// 域切片：core 提供表单/保存/store，aiChat 提供参考参数与预设，performance 提供上下文滑块
 const { core, aiChat, performance } = ctx
 const { formConfig, autoSave, settingsStore } = core
 const {
@@ -592,7 +592,8 @@ const reasoningEffortOptions = [
   background: var(--bg-hover);
 }
 .advanced-icon {
-  font-size: 16px;
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
 .advanced-title {
   font-size: 13px;

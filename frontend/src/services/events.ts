@@ -1,8 +1,8 @@
 /**
  * 前后端事件名常量
  * 与 Go 端 app_events.go 中的常量一一对应，修改时必须两端同步。
- * 生活类比：事件名是前后端之间的"电报频道号"——双方约定好频道号才能互相收发消息。
- * 集中定义避免硬编码字符串散落各处，防止"频道号写错"导致的通信故障。
+ * 事件名是前后端约定的通信标识，双方保持一致才能正常收发消息；
+ * 集中定义避免硬编码字符串散落各处，防止拼写不一致导致的通信故障。
  */
 export const EventChatStream = 'chat:stream'
 export const EventChatAbnormalCleanup = 'chat:abnormal_cleanup'

@@ -118,7 +118,7 @@ describe('useThemeStore', () => {
     expect(classListAdd).not.toHaveBeenCalledWith('dark')
   })
 
-  // ===== SubTask 18.1: mode='auto' 跟随系统偏好 =====
+  // ===== mode='auto' 跟随系统偏好 =====
   it('auto mode resolves to dark when system prefers dark', () => {
     systemDarkState = true
     storage['douya-theme-mode'] = 'auto'
@@ -141,7 +141,7 @@ describe('useThemeStore', () => {
     expect(classListAdd).not.toHaveBeenCalledWith('dark')
   })
 
-  // ===== SubTask 18.2: resolvedMode 在三种 mode 下的返回值 =====
+  // ===== resolvedMode 在三种 mode 下的返回值 =====
   it('resolvedMode is light when mode is light, regardless of systemDark', () => {
     // 系统为深色，但 mode 显式 light 应忽略系统偏好
     systemDarkState = true
@@ -174,7 +174,7 @@ describe('useThemeStore', () => {
     expect(store.resolvedMode).toBe('light')
   })
 
-  // ===== SubTask 18.3: setMode 持久化到 localStorage =====
+  // ===== setMode 持久化到 localStorage =====
   it('setMode persists "dark" to localStorage under douya-theme-mode', async () => {
     const store = useThemeStore()
     store.setMode('dark')
@@ -199,7 +199,7 @@ describe('useThemeStore', () => {
     expect(localStorage.getItem('douya-theme-mode')).toBe('auto')
   })
 
-  // ===== SubTask 18.4: 旧键 douya-theme 迁移 =====
+  // ===== 旧键 douya-theme 迁移 =====
   it('migrates old key douya-theme=dark to douya-theme-mode', () => {
     storage['douya-theme'] = 'dark'
     const store = useThemeStore()

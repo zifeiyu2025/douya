@@ -4,7 +4,7 @@
  * 从 SettingsView.vue 抽取，供设置页面显示模型推荐参数。
  * 包含各模型的官方推荐采样参数（温度、Top P、Top K 等）。
  *
- * C-7：70 个模型的参数数据本体已迁移至 modelRefs.data.json（约 90KB 纯数据），
+ * 70 个模型的参数数据本体已迁移至 modelRefs.data.json（约 90KB 纯数据），
  * 此文件仅保留类型契约与统一导出，消费方导入路径与 API 完全不变；
  * 构建时 JSON 由 vite.config.ts codeSplitting.groups 拆为独立 model-refs 分块。
  */

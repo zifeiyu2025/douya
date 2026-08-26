@@ -6,9 +6,9 @@
       @click="expanded = !expanded"
     >
       <div class="trimmed-header">
-        <span class="trimmed-icon">✂️</span>
+        <span class="trimmed-dot" aria-hidden="true"></span>
         <span class="trimmed-text">上下文已自动裁剪</span>
-        <n-icon size="16" :class="{ rotated: expanded }">
+        <n-icon size="14" :class="{ rotated: expanded }">
           <ChevronForwardOutline />
         </n-icon>
       </div>
@@ -42,12 +42,13 @@ const expanded = ref(false)
 </script>
 
 <style scoped>
+/* 书房风·信息行：左缘赭石细线 + 印章方点，无色块底
+ * 注：语义别名 --warning-color 在 tokens.css 中指向未定义变量而失效，
+ * 且原 fallback 为硬编码 hex，故直接使用真实令牌 --accent-warning（赭石） */
 .context-trimmed-notice {
   margin-bottom: 10px;
-  border-radius: var(--border-radius-sm);
-  border: 1px solid color-mix(in srgb, var(--warning-color, #f0a020) 30%, transparent);
-  overflow: hidden;
-  background: color-mix(in srgb, var(--warning-color, #f0a020) 8%, var(--bg-secondary, #f5f5f5));
+  border-left: 2px solid color-mix(in srgb, var(--accent-warning) 55%, transparent);
+  background: transparent;
   cursor: pointer;
   user-select: none;
 }
@@ -56,20 +57,22 @@ const expanded = ref(false)
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 12px;
+  padding: 4px 8px 4px 10px;
   font-size: 12.5px;
   color: var(--text-secondary);
-  font-weight: 500;
   transition: background 0.2s;
 }
 
+/* 悬浮反馈走背景色阶 */
 .trimmed-header:hover {
-  background: color-mix(in srgb, var(--warning-color, #f0a020) 12%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
 }
 
-.trimmed-icon {
-  font-size: 13px;
+.trimmed-dot {
+  width: 5px;
+  height: 5px;
   flex-shrink: 0;
+  background: var(--accent-warning);
 }
 
 .trimmed-text {
@@ -78,9 +81,11 @@ const expanded = ref(false)
 
 /* .n-icon 和 .n-icon.rotated 已在 style.css 全局定义 */
 
+/* 展开详情：与标题文字左缘对齐，上缘 hairline 分隔 */
 .trimmed-detail {
-  padding: 8px 12px 10px;
-  border-top: 1px solid color-mix(in srgb, var(--warning-color, #f0a020) 20%, transparent);
+  padding: 6px 8px 8px 21px;
+  margin-left: 10px;
+  border-top: 1px solid var(--border-light);
   font-size: 12px;
   color: var(--text-muted);
   line-height: 1.6;

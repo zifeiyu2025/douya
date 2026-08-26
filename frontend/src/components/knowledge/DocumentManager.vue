@@ -1,73 +1,80 @@
 <!--
-  DocumentManager: 文档管理区（C-6 自 KnowledgeView 拆分）
-  展示当前知识库的文档列表，支持多文件上传与删除。
+  DocumentManager: 文档列表区（自 KnowledgeView 拆分）
+  版式隐喻：账本式目录 —— 行间 hairline 分隔，每行前置 § 序号，
+  解析状态以 5×5px 印章方点表达（解析中=朱砂呼吸 / 已就绪=苔绿 / 解析失败=暗红）。
+  对外契约保持不变：无 props、无 emits，依赖 KnowledgeView 的 provide 上下文。
 -->
 <template>
-  <div class="kb-section">
-    <div class="kb-section-header">
-      <span class="section-icon">📄</span>
-      <span class="section-title">文档列表</span>
-      <span v-if="documents.length > 0" class="kb-count">{{ documents.length }} 个文档</span>
-    </div>
-
-    <div v-if="documents.length > 0" class="doc-list">
-      <div v-for="doc in documents" :key="doc.id" class="doc-item">
-        <div class="doc-icon-box">
-          <span class="doc-icon-text">{{ getFileIcon(doc.file_name) }}</span>
-        </div>
-        <div class="doc-info">
-          <div class="doc-details">
-            <span class="doc-name">{{ doc.file_name }}</span>
-            <span class="doc-meta">
-              <span class="meta-tag">{{ formatFileSize(doc.file_size) }}</span>
-              <span class="meta-sep">·</span>
-              <span class="meta-tag">{{ doc.chunk_count }} 分块</span>
-              <span class="meta-sep">·</span>
-              <span class="meta-tag">{{ formatTime(doc.ingested_at) }}</span>
-            </span>
-          </div>
-        </div>
-        <n-button
-          quaternary
-          type="error"
-          size="tiny"
-          class="doc-delete-btn"
-          @click="handleDeleteDoc(doc.id)"
-        >
-          <template #icon>
-            <n-icon size="15"><CloseOutline /></n-icon>
-          </template>
-        </n-button>
-      </div>
-    </div>
-    <div v-else class="doc-empty">
-      <div class="empty-icon">📁</div>
-      <p class="empty-text">暂无文档</p>
-      <p class="empty-hint">上传文档以构建知识库索引</p>
-    </div>
-
-    <div class="doc-upload-row">
+  <section class="doc-section">
+    <!-- 节头细工具栏：§ 编号 + 标题 + 计数 + 上传入口 -->
+    <header class="section-bar">
+      <span class="section-num bar-no">§ 一</span>
+      <h2 class="bar-title">档案目录</h2>
+      <span v-if="documents.length > 0" class="bar-count">{{ documents.length }} 卷</span>
+      <span class="bar-space" />
       <n-upload
         :show-file-list="false"
         :custom-request="handleFileUpload"
         :multiple="true"
         accept=".txt,.md,.csv,.json,.xml,.html,.pdf,.docx,.yaml,.yml,.toml,.go,.py,.js,.ts,.java,.c,.cpp,.h,.rs,.sh,.rb,.php,.swift,.kt,.sql,.log,.ini,.cfg"
       >
-        <n-button type="primary" size="small" :loading="uploading" ghost>
+        <n-button text size="small" class="upload-btn" :loading="uploading">
           <template #icon>
-            <n-icon size="16"><CloudUploadOutline /></n-icon>
+            <AppIcon name="attach" :size="14" />
           </template>
           上传文档
         </n-button>
       </n-upload>
+    </header>
+
+    <!-- 目录正文：账本式行列表 -->
+    <ol v-if="documents.length > 0" class="doc-ledger">
+      <li v-for="(doc, idx) in documents" :key="doc.id" class="doc-row">
+        <span class="row-no">{{ rowNo(idx) }}</span>
+        <span
+          class="row-status"
+          :class="'is-' + statusOf(doc)"
+          :title="statusText(statusOf(doc))"
+        />
+        <span class="row-name" :title="doc.file_name">{{ doc.file_name }}</span>
+        <span class="row-meta">{{ metaOf(doc) }}</span>
+        <button
+          class="row-del"
+          type="button"
+          aria-label="删除文档"
+          @click="handleDeleteDoc(doc.id)"
+        >
+          <AppIcon name="close" :size="13" />
+        </button>
+      </li>
+    </ol>
+
+    <!-- 空状态：衬线引言 + 一个克制入口，不放插画 -->
+    <div v-else class="doc-empty">
+      <p class="empty-lead">书斋尚空。</p>
+      <p class="empty-sub">上传第一批文档，为这座档案柜建立可检索的索引。</p>
+      <n-upload
+        :show-file-list="false"
+        :custom-request="handleFileUpload"
+        :multiple="true"
+        accept=".txt,.md,.csv,.json,.xml,.html,.pdf,.docx,.yaml,.yml,.toml,.go,.py,.js,.ts,.java,.c,.cpp,.h,.rs,.sh,.rb,.php,.swift,.kt,.sql,.log,.ini,.cfg"
+      >
+        <n-button quaternary size="small" class="empty-action">
+          <template #icon>
+            <AppIcon name="plus" :size="14" />
+          </template>
+          归入第一批档案
+        </n-button>
+      </n-upload>
     </div>
-  </div>
+  </section>
 </template>
 
 <script setup lang="ts">
 import { inject } from 'vue'
-import { NButton, NIcon, NUpload } from 'naive-ui'
-import { CloseOutline, CloudUploadOutline } from '@vicons/ionicons5'
+import { NButton, NUpload } from 'naive-ui'
+import AppIcon from '../ui/AppIcon.vue'
+import type { DocumentMeta } from '../../types/search'
 import { KNOWLEDGE_CONTEXT_KEY, type KnowledgeContext } from './knowledgeContext'
 
 defineOptions({ name: 'DocumentManager' })
@@ -76,133 +83,217 @@ const ctx = inject<KnowledgeContext>(KNOWLEDGE_CONTEXT_KEY)
 if (!ctx) {
   throw new Error('DocumentManager 必须在 KnowledgeView 内使用（缺少 knowledgeContext provide）')
 }
-// 本组件仅负责：文档列表展示 / 上传 / 删除（上传删除依赖当前活跃知识库 activeKB）
+// 本组件仅负责：文档目录展示 / 上传 / 删除（依赖当前活跃知识库 activeKB）
+// 注：不再使用 ctx.getFileIcon（emoji 映射与整体风格不符），元信息仍复用 ctx 的格式化方法
 const { documents, uploading, handleDeleteDoc, handleFileUpload } = ctx
-const { getFileIcon, formatFileSize, formatTime } = ctx
+const { formatFileSize, formatTime } = ctx
+
+/** 目录行序号：§ + 两位零填充（mono 弱化色由样式负责） */
+function rowNo(idx: number): string {
+  return '§' + String(idx + 1).padStart(2, '0')
+}
+
+type DocStatus = 'processing' | 'ready' | 'failed'
+
+/**
+ * 从既有字段派生解析状态（后端未提供显式 status 字段）：
+ * 优先采信 tags.status（若后端将来写入 failed/error），否则按分块数推断。
+ */
+function statusOf(doc: DocumentMeta): DocStatus {
+  const tag = doc.tags?.['status']?.toLowerCase()
+  if (tag === 'failed' || tag === 'error') return 'failed'
+  return doc.chunk_count > 0 ? 'ready' : 'processing'
+}
+
+/** 印章方点的悬浮提示文案 */
+function statusText(status: DocStatus): string {
+  if (status === 'ready') return '已就绪'
+  if (status === 'failed') return '解析失败'
+  return '解析中'
+}
+
+/** 元信息串：过滤空段后以间隔点连接 */
+function metaOf(doc: DocumentMeta): string {
+  return [formatFileSize(doc.file_size), `${doc.chunk_count} 分块`, formatTime(doc.ingested_at)]
+    .filter(Boolean)
+    .join(' · ')
+}
 </script>
 
 <style scoped>
-.doc-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 14px;
+.doc-section {
+  max-width: 880px;
+  margin: 0 auto;
 }
 
-.doc-item {
+/* ===== 节头细工具栏 ===== */
+.section-bar {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border-radius: var(--border-radius-md);
-  transition: background var(--transition-fast);
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 10px;
+  /* 节界 hairline，作章节界 */
+  border-bottom: 1px solid var(--border-light);
 }
 
-/* 文档列表项 hover → --bg-hover */
-.doc-item:hover {
-  background: var(--bg-hover);
+.bar-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
 }
 
-/* 文档图标背景 → --accent-p-soft（紫色系，与附件标签色协调） */
-.doc-icon-box {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--border-radius-md);
-  background: var(--accent-p-soft);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.bar-count {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.bar-space {
+  flex: 1;
+}
+
+.upload-btn {
+  align-self: center;
   flex-shrink: 0;
 }
 
-.doc-icon-text {
-  font-size: 18px;
-  line-height: 1;
+/* ===== 目录行：hairline 分隔的账本 ===== */
+.doc-ledger {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
-.doc-info {
+.doc-row {
   display: flex;
   align-items: center;
-  flex: 1;
-  min-width: 0;
+  gap: 12px;
+  padding: 11px 6px 11px 2px;
+  border-bottom: 1px solid var(--border-light);
+  transition: background var(--transition-fast);
 }
 
-.doc-details {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
+/* 行悬浮：纸底一阶色阶变化 */
+.doc-row:hover {
+  background: var(--bg-hover);
 }
 
-.doc-name {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
+/* § 序号：等宽弱化色，定宽对齐 */
+.row-no {
+  min-width: 34px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+/* 5×5px 印章方点 */
+.row-status {
+  width: 5px;
+  height: 5px;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+
+.row-status.is-ready {
+  background: var(--accent-primary);
+}
+
+/* 解析中：朱砂 + 轻微呼吸（动效降级由全局 reduced-motion 兜底） */
+.row-status.is-processing {
+  background: var(--seal-color);
+  animation: seal-breathe 1.6s ease-in-out infinite;
+}
+
+/* 解析失败：暗红（朱砂压深一档） */
+.row-status.is-failed {
+  background: color-mix(in srgb, var(--accent-danger) 72%, #000000);
+}
+
+@keyframes seal-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.row-name {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 13.5px;
+  color: var(--text-primary);
 }
 
-.doc-meta {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
-.meta-tag {
-  font-size: 11px;
-  color: var(--text-muted);
+.row-meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.meta-sep {
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-tertiary);
 }
 
-.doc-delete-btn {
+/* 删除钮：悬浮行时才显影 */
+.row-del {
   opacity: 0;
-  transition: opacity var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  border-radius: var(--border-radius-xs);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
   flex-shrink: 0;
+  transition:
+    opacity var(--transition-fast),
+    color var(--transition-fast),
+    background var(--transition-fast);
 }
 
-.doc-item:hover .doc-delete-btn {
+.doc-row:hover .row-del,
+.row-del:focus-visible {
   opacity: 1;
 }
 
-/* 上传区域（空状态）边框 → --border-color */
+.row-del:hover {
+  color: var(--accent-danger);
+  background: var(--accent-r-soft);
+}
+
+/* ===== 空状态：引言式引导 ===== */
 .doc-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 36px 20px;
-  border: 2px dashed var(--border-color);
-  border-radius: var(--border-radius-lg);
-  margin-bottom: 14px;
+  padding: 46px 20px 42px;
+  text-align: center;
 }
 
-.empty-icon {
-  font-size: 32px;
-  margin-bottom: 8px;
-  opacity: 0.5;
-}
-
-.empty-text {
-  font-size: 14px;
+.empty-lead {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-size: 16px;
+  letter-spacing: 0.1em;
   color: var(--text-secondary);
-  margin: 0 0 4px 0;
 }
 
-.empty-hint {
-  font-size: 12px;
+.empty-sub {
+  margin: 0 0 18px;
+  font-size: 12.5px;
   color: var(--text-muted);
-  margin: 0;
 }
 
-.doc-upload-row {
-  display: flex;
-  justify-content: center;
+.empty-action {
+  color: var(--accent-primary);
 }
 </style>
