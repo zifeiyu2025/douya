@@ -64,7 +64,7 @@ export default defineConfig({
             { name: 'lib-vendor', test: /node_modules[\\/]/ }
           ]
         },
-        banner: '/*!\n * 豆芽 - AI 聊天助手\n * Copyright © 2025 zifeiyu. All rights reserved.\n */'
+        banner: '/*!\n * 豆芽 - 本地AI 助手\n * Copyright © 2025 zifeiyu. All rights reserved.\n */'
       }
     }
   },

@@ -11,10 +11,10 @@
     !define INFO_COMPANYNAME "zifeiyu2025"
 !endif
 !ifndef INFO_PRODUCTNAME
-    !define INFO_PRODUCTNAME "豆芽 - AI 聊天助手"
+    !define INFO_PRODUCTNAME "豆芽 - 本地AI 助手"
 !endif
 !ifndef INFO_PRODUCTVERSION
-    !define INFO_PRODUCTVERSION "0.10.8"
+    !define INFO_PRODUCTVERSION "0.12.6.0"
 !endif
 !ifndef INFO_COPYRIGHT
     !define INFO_COPYRIGHT "Copyright © 2025 zifeiyu2025. All rights reserved."

@@ -95,3 +95,13 @@ build/windows/msix/
 build/store/
 build/**/*.msix
 build/**/*.msixbundle
+
+# 签名证书含私钥，严禁提交到仓库
+build/certs/
+*.pfx
+*.cer
+
+# 本地调试与诊断代码、模型沙箱备份不入仓库
+diag_conpty/
+diag_store/
+build/sandbox-models-backup/

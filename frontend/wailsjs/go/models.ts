@@ -1029,6 +1029,7 @@ export namespace main {
 	    gpu_vendor: string;
 	    gpu_name: string;
 	    gpu_vram_mb: number;
+	    gpu_driver_version: string;
 	    installed_backends: string[];
 	    available_backends: string[];
 	
@@ -1043,6 +1044,7 @@ export namespace main {
 	        this.gpu_vendor = source["gpu_vendor"];
 	        this.gpu_name = source["gpu_name"];
 	        this.gpu_vram_mb = source["gpu_vram_mb"];
+	        this.gpu_driver_version = source["gpu_driver_version"];
 	        this.installed_backends = source["installed_backends"];
 	        this.available_backends = source["available_backends"];
 	    }
