@@ -15,12 +15,13 @@ import (
 )
 
 type HardwareInfo struct {
-	CPUCores        int
-	GPUVRAMMB       int64
-	GPUName         string
-	HasGPU          bool   // 检测到独立显卡（discrete GPU），可用于 GPU 加速推理
-	HasCUDABackend  bool   // 系统有 NVIDIA CUDA 驱动（nvcuda.dll），但可能无法获取 VRAM
-	GPUArchitecture string // GPU 微架构代号（如 "Blackwell"/"Ada"/"Ampere"/"Unknown"），用于架构感知优化
+	CPUCores         int
+	GPUVRAMMB        int64
+	GPUName          string
+	GPUDriverVersion string // NVIDIA 驱动版本（如 "585.00"），仅 NVIDIA 显卡非空；用于 CUDA 后端能力预检
+	HasGPU           bool   // 检测到独立显卡（discrete GPU），可用于 GPU 加速推理
+	HasCUDABackend   bool   // 系统有 NVIDIA CUDA 驱动（nvcuda.dll），但可能无法获取 VRAM
+	GPUArchitecture  string // GPU 微架构代号（如 "Blackwell"/"Ada"/"Ampere"/"Unknown"），用于架构感知优化
 	// 多厂商 GPU 支持字段（Task 1 扩展）
 	// 生活类比：就像一辆车可能装的是宝马、奔驰或奥迪的发动机，
 	// GPUVendor 记录这辆"AI 推理车"装的是哪家厂商的"显卡发动机"，
@@ -78,6 +79,7 @@ func DetectHardware() *HardwareInfo {
 			Str("gpu", hw.GPUName).
 			Str("gpu_type", hw.GPUType).
 			Int64("vram_mb", hw.GPUVRAMMB).
+			Str("driver_version", hw.GPUDriverVersion).
 			Bool("cuda_backend", hw.HasCUDABackend).
 			Bool("amd", hw.HasAMDGPU).
 			Bool("intel", hw.HasIntelGPU).
@@ -193,6 +195,18 @@ func detectGPU(hw *HardwareInfo) {
 	hw.GPUArchitecture = parseGPUArchitecture(hw.GPUName)
 	if hw.GPUArchitecture != "Unknown" {
 		log.Info().Str("gpu", hw.GPUName).Str("arch", hw.GPUArchitecture).Msg("[system] GPU architecture detected")
+	}
+
+	// P3.7 增强：顺带查询驱动版本，供 CUDA 后端能力预检使用。
+	// 驱动版本是判断 CUDA 能否启动的关键证据：NVIDIA 驱动 ≥531 才支持 CUDA 12，
+	// Blackwell 架构（RTX 50 系）还需 ≥580。查询失败不阻断（版本未知时按保守可用处理）。
+	// 生活类比：仪表盘能跑了，顺手再记一下"发动机软件版本"，
+	// 版本不对后面选发动机时就有据可依，不至于选完才发现打不着火。
+	if ver, err := NvidiaDriverVersion(); err == nil && ver != "" {
+		hw.GPUDriverVersion = ver
+		log.Info().Str("gpu", hw.GPUName).Str("driver", ver).Msg("[system] NVIDIA driver version detected")
+	} else if err != nil {
+		log.Warn().Err(err).Msg("[system] query NVIDIA driver version failed (CUDA capability precheck will be conservative)")
 	}
 }
 

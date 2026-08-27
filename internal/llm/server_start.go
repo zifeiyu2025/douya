@@ -49,6 +49,7 @@ func (s *Server) Start() error {
 	}
 
 	args := s.buildStartArgs()
+	log.Info().Str("server_path", s.config.ServerPath).Strs("args", args).Msg("[server] DIAG full command line")
 	// 安全：API Key 通过环境变量传递，而非命令行参数
 	// 基于 GO-CONFIG-001 安全实践：避免命令行参数被同权限进程通过 tasklist/WMI 读取
 	// 安全加固：仅当项目配置显式开启 ServerAPIKeyEnabled 时才注入 LLAMA_API_KEY

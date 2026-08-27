@@ -759,6 +759,8 @@ export interface BackendStatus {
   gpu_name: string
   /** GPU 显存（MB），无 GPU 或检测失败时为 0 */
   gpu_vram_mb: number
+  /** NVIDIA 驱动版本（如 "585.00"），仅 N 卡非空；用于界面展示与诊断 */
+  gpu_driver_version: string
   /** 已安装的后端列表（runtime 目录中已有 llama-server.exe 的后端，不含 auto） */
   installed_backends: string[]
   /** 所有可选后端列表（含 auto），供下拉框展示 */

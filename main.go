@@ -261,17 +261,23 @@ var (
 	pFindWindow          = user32.NewProc("FindWindowW")
 	pSetForegroundWindow = user32.NewProc("SetForegroundWindow")
 	pShowWindow          = user32.NewProc("ShowWindow")
+	pMessageBoxW         = user32.NewProc("MessageBoxW")
 )
 
 const mutexName = "Global\\DouyaAI_SingleInstance"
 
-func tryAcquireMutex() (uintptr, bool) {
+// tryAcquireMutex 尝试获取单实例互斥体。
+// 返回 (句柄, 是否首个实例, 错误)。
+// 关键语义修正：handle==0 且 err!=nil 表示"创建失败"（权限不足/系统异常），
+// 与"已有实例占用"（ERROR_ALREADY_EXISTS）是两回事。二者都曾被当作
+// "isFirst=false 静默退出"，是商店版无声闪退的根因之一。
+func tryAcquireMutex() (uintptr, bool, error) {
 	// L-4：unsafe.Pointer 用于 Windows API (CreateMutexW) 调用，无内存安全替代方案。
 	// 参数类型已校验：mutexNamePtr 是 *uint16（UTF16 字符串），符合 CreateMutexW 签名。
 	mutexNamePtr, _ := syscall.UTF16PtrFromString(mutexName)
 	handle, _, err := pCreateMutex.Call(0, 1, uintptr(unsafe.Pointer(mutexNamePtr)))
 	if handle == 0 {
-		return 0, false
+		return 0, false, err
 	}
 	isFirst := true
 	if err != nil {
@@ -279,17 +285,35 @@ func tryAcquireMutex() (uintptr, bool) {
 			isFirst = false
 		}
 	}
-	return handle, isFirst
+	return handle, isFirst, nil
 }
 
-func activateExistingWindow() {
+// activateExistingWindow 查找并激活已有实例的窗口。
+// 返回是否找到并激活成功。标题采用回退列表：
+// 中文全称 → 前端 <title> → 短名，兜底前端页面标题差异导致的查找失败
+// （前端 index.html 的 <title> 为 "Douya - AI Assistant"，与 Wails 窗口标题不同）。
+func activateExistingWindow() bool {
 	// L-4：unsafe.Pointer 用于 Windows API (FindWindowW) 调用，激活已有窗口实例。
-	titlePtr, _ := syscall.UTF16PtrFromString("豆芽 - AI 聊天助手")
-	hwnd, _, _ := pFindWindow.Call(0, uintptr(unsafe.Pointer(titlePtr)))
-	if hwnd != 0 {
-		_, _, _ = pShowWindow.Call(hwnd, 9)
-		_, _, _ = pSetForegroundWindow.Call(hwnd)
+	for _, title := range []string{"豆芽 - 本地AI 助手", "Douya - AI Assistant", "豆芽"} {
+		titlePtr, _ := syscall.UTF16PtrFromString(title)
+		hwnd, _, _ := pFindWindow.Call(0, uintptr(unsafe.Pointer(titlePtr)))
+		if hwnd != 0 {
+			_, _, _ = pShowWindow.Call(hwnd, 9)
+			_, _, _ = pSetForegroundWindow.Call(hwnd)
+			return true
+		}
 	}
+	return false
+}
+
+// showStartupError 显示一个系统级错误提示框（MB_ICONERROR）。
+// GUI 程序没有控制台，启动期致命错误如果不弹框，用户只会看到"闪退"。
+// 生活类比：店里停电时要在门口贴告示，不能让顾客以为店莫名其妙关门了。
+func showStartupError(title, text string) {
+	// L-4：unsafe.Pointer 用于 Windows API (MessageBoxW) 调用。
+	titlePtr, _ := syscall.UTF16PtrFromString(title)
+	textPtr, _ := syscall.UTF16PtrFromString(text)
+	_, _, _ = pMessageBoxW.Call(0, uintptr(unsafe.Pointer(textPtr)), uintptr(unsafe.Pointer(titlePtr)), 0x10 /* MB_ICONERROR */)
 }
 
 func main() {
@@ -313,12 +337,26 @@ func main() {
 	var mutexHandle uintptr
 	isFirst := true
 	if !isBindingsProcess {
-		mutexHandle, isFirst = tryAcquireMutex()
+		var mutexErr error
+		mutexHandle, isFirst, mutexErr = tryAcquireMutex()
+		if mutexHandle == 0 && mutexErr != nil {
+			// 创建失败 ≠ 已有实例：不是"正常的单实例撞车"，而是环境异常。
+			// 必须给出可见提示，绝不能无声退出（商店版闪退根因之一）。
+			log.Error().Err(mutexErr).Msg("[main] 创建单实例互斥体失败")
+			showStartupError("豆芽启动失败",
+				"无法创建单实例互斥体，应用需要退出。\n\n"+
+					"可能原因：\n"+
+					"• 系统资源不足\n"+
+					"• 应用环境权限异常\n\n"+
+					"建议：关闭其他程序后重试，或重启电脑。")
+			return
+		}
 	}
 	if !isFirst {
-		// 重启场景（DOUYA_RESTART=1）：旧实例正在退出，此处等待其释放互斥后再重试，
-		// 避免新进程因"检测到已有实例"被直接退出，导致"重启变退出"。
+		// 此时已知"已有实例占用互斥体"（ERROR_ALREADY_EXISTS），分两种场景：
 		if os.Getenv("DOUYA_RESTART") == "1" {
+			// 重启场景：旧实例正在退出，此处等待其释放互斥后再重试，
+			// 避免新进程因"检测到已有实例"被直接退出，导致"重启变退出"。
 			// 关闭首次失败获得的句柄（避免泄漏），进入轮询等待
 			if mutexHandle != 0 {
 				_ = syscall.CloseHandle(syscall.Handle(mutexHandle))
@@ -328,8 +366,8 @@ func main() {
 			deadline := time.Now().Add(20 * time.Second)
 			for !isFirst && time.Now().Before(deadline) {
 				time.Sleep(200 * time.Millisecond)
-				h2, ok2 := tryAcquireMutex()
-				if ok2 {
+				h2, isFirst2, _ := tryAcquireMutex()
+				if isFirst2 {
 					mutexHandle = h2
 					isFirst = true
 					break
@@ -340,8 +378,24 @@ func main() {
 			}
 		}
 		if !isFirst {
-			activateExistingWindow()
-			log.Info().Msg("检测到已有实例运行，激活已有窗口")
+			// 普通单实例撞车：尝试激活已有窗口。
+			// 激活成功 → 静默让位（正常行为）；激活失败 → 必须给出可见提示，
+			// 否则用户看到的就是"点图标毫无反应 = 闪退"。
+			if activateExistingWindow() {
+				log.Info().Msg("检测到已有实例运行，激活已有窗口")
+			} else {
+				log.Warn().Msg("[main] 检测到已有实例但找不到其窗口，给出可见提示")
+				showStartupError("豆芽已在运行",
+					"检测到另一个豆芽实例正在运行，但未找到它的窗口。\n\n"+
+						"可能原因：\n"+
+						"• 正在运行的旧实例窗口标题不匹配\n"+
+						"• 旧实例最小化在系统托盘\n"+
+						"• 上次异常退出遗留的互斥体\n\n"+
+						"建议：\n"+
+						"1. 查看系统托盘是否已有豆芽图标\n"+
+						"2. 打开任务管理器，结束 Douya.exe 与 llama-server.exe 进程\n"+
+						"3. 重新启动豆芽")
+			}
 			return
 		}
 	}
@@ -370,7 +424,7 @@ func main() {
 	}
 
 	err := wails.Run(&options.App{
-		Title:     "豆芽 - AI 聊天助手",
+		Title:     "豆芽 - 本地AI 助手",
 		Width:     1200,
 		Height:    800,
 		MinWidth:  800,
@@ -400,5 +454,16 @@ func main() {
 
 	if err != nil {
 		log.Error().Err(err).Msg("Wails 运行失败")
+		// GUI 程序没有控制台，Wails 启动失败（如商店环境缺少 WebView2 运行时）
+		// 若不弹框，用户只会看到"闪退"。此处给出可见提示后再退出。
+		if !isBindingsProcess {
+			showStartupError("豆芽启动失败",
+				"界面初始化失败，应用需要退出。\n\n"+
+					"错误信息：\n"+err.Error()+"\n\n"+
+					"可能原因：\n"+
+					"• 缺少 Microsoft Edge WebView2 运行时（常见于未装商店依赖的 Win10 精简版）\n"+
+					"• 系统资源不足\n\n"+
+					"建议：安装/更新 Microsoft Edge WebView2 Runtime 后重试。")
+		}
 	}
 }

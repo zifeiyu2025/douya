@@ -213,7 +213,15 @@ const stageText = computed(() => {
   animation: spin 1.6s linear infinite;
 }
 
-/* @keyframes spin 已在 style.css 全局定义，此处不再重复 */
+/* 旋转关键帧：就地定义，不依赖其他组件的 scoped 样式 */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 /* 完成圆环：画圆动画 */
 .logo-complete {

@@ -48,6 +48,16 @@ var intelDriverDLLs = []string{
 // 因此仅作为"实在不知道是什么显卡"时的最后兜底。
 var vulkanDLLPath = `C:\Windows\System32\vulkan-1.dll`
 
+// HasVulkanRuntime 检查系统是否具备 Vulkan 运行时（vulkan-1.dll）。
+// 设计为可替换的变量，便于测试时注入 mock。
+// 该能力是所有厂商通用 GPU 后端的"地基"：
+// AMD/Intel 在 Windows 上选 Vulkan 时，必须确认系统驱动携带了 Vulkan 运行时，
+// 否则 llama.cpp 的 ggml-vulkan.dll 加载后创建 Vulkan 设备会失败。
+// 生活类比：换 Vulkan"万能变速箱"前，先确认车库里有对应的"配套油管"（vulkan-1.dll）。
+var HasVulkanRuntime = func() bool {
+	return fileExists(vulkanDLLPath)
+}
+
 // fileExists 检查文件是否存在。
 // 设计为可替换的变量（而非函数），便于测试时注入 mock，模拟 DLL 存在/缺失场景。
 // 生活类比：就像派人去车库看一眼车在不在，回来报告
@@ -287,6 +297,97 @@ var NvidiaTotalVRAMMB = func() (int64, error) {
 		return 0, apperror.Wrapf(apperror.KindInternal, "parse VRAM value %q", err, lines[0])
 	}
 	return vramMB, nil
+}
+
+// NvidiaDriverVersion 查询第一块 NVIDIA GPU 的驱动版本号（如 "585.00"）。
+//
+// 生活类比：查"仪表盘软件版本"——nvidia-smi 既能报显存也能报驱动版本，
+// 版本号是判断 CUDA 后端能否启动的关键证据（驱动太旧，CUDA 运行时加载必失败）。
+//
+// 与 NvidiaTotalVRAMMB 共用相同的 nvidia-smi 查找逻辑（PATH → 常见安装路径）。
+// 设计为可替换的变量，便于测试时注入 mock。
+var NvidiaDriverVersion = func() (string, error) {
+	path, err := execLookPath("nvidia-smi")
+	if err != nil {
+		path = ""
+		for _, p := range nvidiaSMIPaths {
+			if _, statErr := os.Stat(p); statErr == nil {
+				path = p
+				break
+			}
+		}
+		if path == "" {
+			return "", apperror.New(apperror.KindNotFound, "nvidia-smi not found in PATH or common locations")
+		}
+	}
+	cmd := exec.Command(path, "--query-gpu=driver_version", "--format=csv,noheader,nounits")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) == 0 {
+		return "", apperror.New(apperror.KindInternal, "nvidia-smi returned empty output")
+	}
+	return strings.TrimSpace(lines[0]), nil
+}
+
+// nvidiaDriverMinimums 各 CUDA 大版本对 NVIDIA Windows 驱动的最低要求（业界共识）：
+//   - CUDA 12.x：驱动 ≥ 531（Ollama 官方文档明确"531 or newer"，对应 CUDA 12.1）
+//   - CUDA 13.x（Blackwell）：驱动 ≥ 580（Blackwell 架构要求驱动 580+ 才能原生加载）
+//
+// 生活类比：就像不同型号的发动机要求不同的汽油标号——CUDA 12 要 531 号油，
+// CUDA 13 要 580 号油。油号不够，发动机（CUDA 后端）打不着火。
+//
+// key 为驱动版本号形如 "585.00"。查找规则：
+//   - key（如 "580"）与驱动主版本精确匹配，且驱动 ≥ 表中该 key 的最低值 → 可用
+//   - 驱动主版本大于表中最大 key → 必定可用（更高版本向后兼容）
+//   - 驱动主版本小于表中最小 key → 不可用
+func driverVersionSufficient(driverVersion string) bool {
+	// 解析驱动版本为主版本号（"585.00" → 585）
+	major, _, ok := parseDriverVersion(driverVersion)
+	if !ok {
+		// 版本号无法解析：保守认为可用（不因解析失败误判不可用导致回退）
+		return true
+	}
+
+	const cuda13Min = 580 // CUDA 13.x（Blackwell RTX 50 系）最低驱动
+	const cuda12Min = 531 // CUDA 12.x 最低驱动（Ollama 官方门槛）
+
+	// 主版本 > CUDA 13 的最低线 → 任何 CUDA 版本都可用
+	if major >= cuda13Min {
+		return true
+	}
+	// 主版本 ≥ CUDA 12 的最低线但 < 580 → 只支持 CUDA 12.x（app 会回退到 cudart_12 包）
+	if major >= cuda12Min {
+		return true
+	}
+	// 低于所有门槛 → CUDA 后端不可用
+	return false
+}
+
+// parseDriverVersion 解析 NVIDIA 驱动版本号 "585.00"、"531.41" 等为 (major, minor)。
+// 版本号格式为 "<主版本>.<次版本>"，主版本决定驱动世代（如 570/580）。
+// 返回 ok=false 表示格式无法解析。
+func parseDriverVersion(version string) (major, minor int, ok bool) {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return 0, 0, false
+	}
+	// 取第一段作为主版本（如 "585"），次版本可缺省（如 "585" 单独出现）
+	parts := strings.SplitN(version, ".", 2)
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, false
+	}
+	if len(parts) == 2 {
+		minor, err = strconv.Atoi(parts[1])
+		if err != nil {
+			return major, 0, true // 次版本无法解析时仅用主版本
+		}
+	}
+	return major, minor, true
 }
 
 // queryWMI 通过 Windows WMI 查询显卡信息。

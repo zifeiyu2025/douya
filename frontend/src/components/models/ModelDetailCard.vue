@@ -80,7 +80,13 @@ const statusClass = computed(() => {
  */
 .model-detail-card {
   width: 300px;
-  padding: 4px 2px;
+  /* 实底表面：naive popover 使用了 raw 关掉了默认浮层壳，
+     卡片自身必须提供不透明背景，否则内容直接叠在页面背景上不可读 */
+  background: var(--surface-panel);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md);
+  box-shadow: var(--shadow-md);
+  padding: 12px 14px;
   user-select: none;
 }
 

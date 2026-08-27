@@ -39,6 +39,10 @@ export function matchModelRef<T>(modelName: string, refs: Record<string, T>): T 
 export const useSettingsStore = defineStore('settings', () => {
   // discreteMessage 来自全局单例（utils/discrete.ts），确保主题一致
 
+  // 空模型错误文案关键词：后端在 models 目录为空时推送的 status.error。
+  // 作为 missingModels 的兜底识别信号（事件可能因 WebView 时序丢失，用文案匹配兜底）
+  const EMPTY_MODEL_ERROR_RE = /模型目录为空|没有可用的模型/
+
   // ----- 基础配置 -----
   const config = ref<Config>({ ...DEFAULT_CONFIG })
   const searchMode = ref<'off' | 'auto' | 'on'>('off')
@@ -72,6 +76,9 @@ export const useSettingsStore = defineStore('settings', () => {
   const currentModel = ref('')
   const modelLoadError = ref('')
   const hasEverBeenReady = ref(false)
+  // 标记"无可用模型"：空模型是正常的首次使用状态（引导下载），
+  // 不是加载失败，不应进入 first_load_failed 死局而卡死在启动屏。
+  const missingModels = ref(false)
 
   // ----- 模型加载进度（后端 modelLoadProgress 事件） -----
   const modelLoadProgress = ref<ModelLoadProgressEvent | null>(null)
@@ -259,6 +266,11 @@ export const useSettingsStore = defineStore('settings', () => {
     try {
       const status = await wails.getServerStatus()
       serverStatus.value = status
+      // 空模型兜底识别（轮询通道）：同 subscribeServerStatus 里的识别逻辑，
+      // 双保险确保即使事件丢失，也能通过轮询放行引导流程。
+      if (status.error && EMPTY_MODEL_ERROR_RE.test(status.error)) {
+        markMissingModels(true)
+      }
       if (status.model_ready) {
         hasEverBeenReady.value = true
         onServerReady()
@@ -450,8 +462,16 @@ export const useSettingsStore = defineStore('settings', () => {
     const unsubscribe = wails.subscribeServerStatus((status: ServerStatus) => {
       markStatusEventReceived()
       serverStatus.value = status
+      // 空模型兜底识别：即使 startup:modelNotice 事件因 WebView 时序丢失，
+      // 只要 status.error 里带"模型目录为空"等文案，也能据此放行引导流程，
+      // 而不误判为"加载失败"卡死在启动屏。
+      if (status.error && EMPTY_MODEL_ERROR_RE.test(status.error)) {
+        markMissingModels(true)
+      }
       // 后端错误事件触发 failed 状态（仅在 first_load/switching 阶段，避免 idle 时误标记失败）
-      if (status.running === false && status.error) {
+      // 空模型（missingModels）属正常首次使用状态，仅当缺少模型时才让它走引导下载，
+      // 不误判为"加载失败"死局。
+      if (!missingModels.value && status.running === false && status.error) {
         const phase = switchState.value.phase
         if (phase === 'first_load') {
           // 首次启动加载失败进入终态，不自动恢复，避免无限"初始化中"
@@ -492,6 +512,19 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
+  // 标记"无可用模型"：后端推送"如何下载模型"引导时置 true，
+  // 前端据此放行进入主界面展示引导卡片，而非误判为加载失败卡死在启动屏。
+  function markMissingModels(v: boolean) {
+    missingModels.value = v
+    // 空模型是"待引导下载"状态，不应进入任何模型加载/切换流程。
+    // 置位时把状态机重置回 idle，避免后端仍推送的 preparing/loading
+    // 进度把 switchState 推进到 first_load，从而触发模型切换遮罩挡在主界面之上。
+    if (v) {
+      clearAllTimers()
+      reset()
+    }
+  }
+
   // ===== 进度事件订阅单例化（useModelSwitch 可重入化） =====
   // 引用计数归零才真正退订；released 标志保证同一 unsubscribe 重复调用不会错乱计数。
 
@@ -502,6 +535,10 @@ export const useSettingsStore = defineStore('settings', () => {
     switchProgressRefCount++
     if (!switchProgressReleaseShared) {
       const unsubscribe = wails.subscribeSwitchProgress(progress => {
+        // 空模型守卫：models 目录为空时后端仍可能推送 preparing/loading 进度，
+        // 但此时没有真实模型可加载，不应进入 first_load 流程（否则模型切换遮罩
+        // 会挡在主界面之上且永不消失）。直接忽略，保持 idle。
+        if (missingModels.value) return
         // 仅在 idle 接受进度事件,首次加载时记录 first_load
         if (switchState.value.phase === 'idle') {
           beginFirstLoad(progress.targetModel || currentModel.value)
@@ -593,6 +630,7 @@ export const useSettingsStore = defineStore('settings', () => {
     currentModel,
     modelLoadError,
     hasEverBeenReady,
+    missingModels,
     modelLoadProgress,
     // 兼容旧 API
     modelLoadFailed,
@@ -605,6 +643,7 @@ export const useSettingsStore = defineStore('settings', () => {
     // 业务
     loadConfig,
     updateConfig,
+    markMissingModels,
     loadSearchAPIKeys,
     saveSearchAPIKeys,
     hasServerAPIKey,

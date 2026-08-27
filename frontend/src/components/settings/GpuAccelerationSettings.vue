@@ -90,7 +90,8 @@ const gpuInfo = ref({
   has_cuda_backend: false,
   gpu_name: '',
   vram_gb: 0,
-  gpu_vendor: ''
+  gpu_vendor: '',
+  gpu_driver_version: ''
 })
 
 /** 是否为 Vulkan 兜底检测（vendor=vulkan 且无真实显存） */
@@ -129,7 +130,8 @@ async function loadGpuInfo() {
       has_cuda_backend: status.gpu_vendor === 'nvidia',
       gpu_name: status.gpu_name,
       vram_gb: Math.round(status.gpu_vram_mb / 1024),
-      gpu_vendor: status.gpu_vendor
+      gpu_vendor: status.gpu_vendor,
+      gpu_driver_version: status.gpu_driver_version
     }
   } catch {
     // 获取失败时保持默认值（无 GPU），不阻塞设置页渲染

@@ -8,7 +8,7 @@
   <section class="doc-section">
     <!-- 节头细工具栏：§ 编号 + 标题 + 计数 + 上传入口 -->
     <header class="section-bar">
-      <span class="section-num bar-no">§ 一</span>
+      <span class="section-num bar-no"><span class="sec-mark">§</span> 一</span>
       <h2 class="bar-title">档案目录</h2>
       <span v-if="documents.length > 0" class="bar-count">{{ documents.length }} 卷</span>
       <span class="bar-space" />
@@ -143,6 +143,8 @@ function metaOf(doc: DocumentMeta): string {
   font-weight: 600;
   letter-spacing: 0.05em;
   color: var(--text-primary);
+  /* 标题是短词，非必要不折行：窄窗挤压时保持单行，过长才由调用方兜底 */
+  white-space: nowrap;
 }
 
 .bar-count {

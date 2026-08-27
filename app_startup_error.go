@@ -99,7 +99,10 @@ func (a *App) emitFatalError(ctx context.Context, title, brief, detail string) {
 	case <-ch:
 		zlog.Info().Str("title", title).Msg("[startup] 用户已确认启动错误，退出")
 	case <-time.After(startupErrorAckTimeout):
-		zlog.Warn().Str("title", title).Msg("[startup] 等待启动错误确认超时，强制退出")
+		zlog.Warn().Str("title", title).Msg("[startup] 等待启动错误确认超时，弹出系统提示框兜底")
+		// 前端可能未挂载（错误卡没显示出来）：此时若直接退出，用户只会看到"闪退"。
+		// 兜底弹系统提示框，把错误原因展示给用户后再退出。
+		showStartupError(title, brief+"\n\n"+detail+"\n\n（等待界面确认超时，已自动退出）")
 	case <-ctx.Done():
 		zlog.Info().Str("title", title).Msg("[startup] 应用关闭，取消等待启动错误确认")
 	}

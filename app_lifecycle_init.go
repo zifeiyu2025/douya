@@ -24,8 +24,13 @@ import (
 // cleanupOrphanProcesses 清理上次进程残留的孤儿 llama-server。
 // 生活类比：开店前先清理前一天遗留的垃圾，避免影响今天的运营。
 // P2.5 修复：只清理本应用 runtime 目录下的 llama-server，避免误杀用户手动启动的同名进程。
+// Store 适配：引擎可能运行在内置目录（WindowsApps）下，该目录的孤儿进程同样要清理，
+// 否则商店版崩溃后重启时无法回收旧引擎进程（占用显存/内存）。
 func (a *App) cleanupOrphanProcesses() {
 	llm.KillOrphanLlamaServers(filepath.Join(appDir(), "runtime"))
+	if br := bundledRuntimeDir(); br != "" {
+		llm.KillOrphanLlamaServers(br)
+	}
 }
 
 // initHardware 检测硬件信息（CPU/GPU/内存等），供后续选择推理后端使用。
@@ -52,7 +57,7 @@ func (a *App) loadAndValidateConfig(ctx context.Context) (string, error) {
 				"2. 检查磁盘空间和写入权限\n"+
 				"3. 备份后删除配置文件：%s\n"+
 				"   （下次启动会自动创建默认配置）",
-			err, cfgPath))
+				err, cfgPath))
 		return "", err
 	}
 	a.setConfig(loadedCfg)
@@ -84,7 +89,7 @@ func (a *App) ensureDirectories(ctx context.Context) (runtimeDir, modelsDir stri
 					"1. 检查磁盘空间是否充足\n"+
 					"2. 确认应用目录有写入权限\n"+
 					"3. 尝试以管理员身份运行应用",
-				mkErr, dir))
+					mkErr, dir))
 			return "", "", mkErr
 		}
 	}
@@ -111,30 +116,110 @@ func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
 	// 生活类比：车检员不再犹豫反问"这是哪款车"，而是直接按车况自动选好驾驶模式，
 	// 遇到装不上的发动机也悄悄换成稳妥的 CPU 模式，全程不问话。
 
-	// P3 改进：使用带运行时预校验的解析函数，auto 模式下优先选择已安装的后端，
-	// 避免推断出未下载的后端（如 Vulkan）后走下载流程（原实现会失败再回退 CPU）
-	resolvedBackend := llm.ResolveBackendTypeWithRuntime(a.hwInfo, cfg.BackendType, runtimeDir)
-	serverPath, err := llm.EnsureBackendInstalled(resolvedBackend, runtimeDir, nil)
-	if err != nil {
+	// P3 改进：使用多目录运行时预校验的解析函数。候选目录为
+	// [内置 runtime（商店版只读、随包分发）, 数据 runtime（可写、运行期下载）]，
+	// 内置目录优先保证"开箱即用"；便携版两目录合一，行为与原单目录版本完全一致。
+	runtimeDirs := runtimeDirCandidates()
+	resolvedBackend := llm.ResolveBackendTypeWithRuntimeDirs(a.hwInfo, cfg.BackendType, runtimeDirs)
+	isAuto := cfg.BackendType == "" || cfg.BackendType == string(llm.BackendAuto)
+
+	// P3.7 增强：能力级预检提示。
+	// auto 模式已在 ResolveBackendTypeWithRuntimeDirs 内部完成剔除与回退；
+	// 此处补两次面向用户的原因提示（业界 LM Studio 的 Settings→Runtime 会在
+	// 用户选引擎时就提示"此引擎与显卡不匹配"，而不是静默失败再回退）：
+	//   - 手动指定后端：用户手动选了 CUDA 但机器是 A 卡，或选了 Vulkan 但系统
+	//     缺 vulkan-1.dll 时，提前告知，不至于装上去打不着火才回头换。
+	//   - auto 模式：理论首选（纯按厂商推断）被能力预检剔除时，把"为什么没用上
+	//     原生后端"告诉用户，例如"N 卡但驱动过旧 → 先用 Vulkan，升级驱动后重启
+	//     即可自动回到 CUDA"。
+	// 生活类比：车检员不只默默换挡，还会告诉司机"这台车油品不达标，先换通用
+	// 变速箱，把油加到标号后下次启动自动换回原装发动机"。
+	if !isAuto {
+		if reason := llm.CheckBackendCapabilityMatch(a.hwInfo, llm.BackendType(cfg.BackendType)); reason != "" {
+			zlog.Warn().Str("backend", cfg.BackendType).Str("reason", reason).
+				Msg("[startup] 手动指定后端与显卡能力不匹配")
+			runtime.EventsEmit(ctx, EventServerWarning, map[string]any{
+				"type":    "backend_capability_mismatch",
+				"message": "后端与显卡能力不匹配：" + reason + "。启动后若引擎运行失败，可切换到自动检测（auto）模式。",
+			})
+		}
+	} else {
+		preferred := llm.ResolveBackendType(a.hwInfo, cfg.BackendType)
+		if reason := llm.CheckBackendCapabilityMatch(a.hwInfo, preferred); reason != "" {
+			zlog.Warn().Str("preferred", preferred.String()).
+				Str("resolved", resolvedBackend.String()).Str("reason", reason).
+				Msg("[startup] auto 模式：理论首选后端能力不匹配，已自动切换")
+			runtime.EventsEmit(ctx, EventServerWarning, map[string]any{
+				"type":    "backend_capability_mismatch_auto",
+				"message": "显卡能力预检：" + reason + "。已自动切换为 " + llm.GetBackendInfo(resolvedBackend).DisplayName + "。恢复对应条件（如升级显卡驱动）后重启，即可自动回到原生后端。",
+			})
+		}
+	}
+
+	// 幂等查找已安装后端：内置目录或数据目录任一命中即直接复用，不进入下载分支。
+	// 这是商店版跳过首启"下载确认弹窗"的关键（微软认证 10.1.2.10 失败的根因正是该弹窗：
+	// 测试员点「确定」前应用按设计退出，被判定为崩溃）。
+	//
+	// 【P3.7 商店版崩溃修复】搜索范围在商店版必须收敛到"包内内置目录"。
+	// 诊断实验（diag_store）已确认：MSIX 容器内从"可写数据目录"启动引擎会触发
+	// "Unknown Hard Error"（退出码 0xC0000267 = STATUS_DLL_INIT_FAILED）——
+	// 该路径被文件虚拟化重定向到 LocalCache\Local，DLL 加载器无法从中加载引擎依赖；
+	// 而从包内内置目录（WindowsApps，只读、非虚拟化）启动则完全正常。
+	// 因此商店版绝不能使用数据目录的引擎副本，只能跑随包分发的内置引擎。
+	searchDirs := runtimeDirs
+	if isStoreMode() {
+		if br := bundledRuntimeDir(); br != "" {
+			searchDirs = []string{br}
+		} else {
+			searchDirs = nil
+		}
+	}
+	serverPath := llm.FindInstalledBackend(resolvedBackend, searchDirs)
+
+	// Store 特例：商店版已把 cuda/vulkan/cpu 三套引擎全部内置（见 make-msix.ps1），
+	// N 卡 auto 模式上方即可直接命中包内 CUDA，无需再走此分支。
+	// 此分支仅作安全网：万一某次发布包内缺了目标后端（如 CUDA 体积大被精简），
+	// 仍从包内已内置的其他引擎兜底：优先 Vulkan（跨 N/A/I 厂商通用），其次 CPU。
+	// 注意商店版绝不能回退到数据目录下载的引擎（会触发 Unknown Hard Error），
+	// 因此这里的兜底只查 searchDirs（商店版已收敛为仅包内目录）。
+	if isStoreMode() && serverPath == "" {
+		if vkPath := llm.FindInstalledBackend(llm.BackendVulkan, searchDirs); vkPath != "" {
+			zlog.Warn().Str("wanted", resolvedBackend.String()).
+				Msg("[startup] 商店版：目标后端不在包内，改用包内内置 Vulkan")
+			resolvedBackend = llm.BackendVulkan
+			serverPath = vkPath
+		} else if cpuPath := llm.FindInstalledBackend(llm.BackendCPU, searchDirs); cpuPath != "" {
+			zlog.Warn().Str("wanted", resolvedBackend.String()).
+				Msg("[startup] 商店版：目标后端不在包内，改用包内内置 CPU")
+			resolvedBackend = llm.BackendCPU
+			serverPath = cpuPath
+		}
+	}
+
+	if serverPath == "" {
+		// 两个目录都没有现成引擎：走原有"解压本地 zip / 提示下载"流程。
 		// 统一的静默回退逻辑：auto 模式 + 非 CPU 后端安装失败时，自动降级到 CPU。
 		// 同时记录错误供日志诊断。手动模式或无需回退的情况走下方原逻辑。
 		// 生活类比：车检员选了驾驶模式但发动机装不上，不再回头问车主，
 		// 而是安静地换装稳妥的 CPU 发动机，全程不打扰。
-		isAuto := cfg.BackendType == "" || cfg.BackendType == string(llm.BackendAuto)
-		zlog.Warn().Err(err).Str("backend", resolvedBackend.String()).Bool("auto", isAuto).
-			Msg("[startup] 后端安装失败")
-		// 自动模式 + NVIDIA 独显 + 原生 CUDA：优先下载对应 CUDA 版本，
-		// 不要静默降级到已装的 CPU 兜底（否则用户删除 cuda 目录后无法重新拉取 CUDA）。
-		skipSilentCPUFallback := isAuto &&
-			resolvedBackend == llm.BackendCUDA &&
-			a.hwInfo != nil && a.hwInfo.GPUVendor == "nvidia"
-		if isAuto && resolvedBackend != llm.BackendCPU && !skipSilentCPUFallback {
-			fallbackPath, cpuErr := llm.EnsureBackendInstalled(llm.BackendCPU, runtimeDir, nil)
-			if cpuErr != nil {
-				zlog.Error().Err(cpuErr).Msg("[startup] CPU 后端也安装失败，validatePaths 将报告缺失文件")
-			} else {
-				serverPath = fallbackPath
-				resolvedBackend = llm.BackendCPU
+		var err error
+		serverPath, err = llm.EnsureBackendInstalled(resolvedBackend, runtimeDir, nil)
+		if err != nil {
+			zlog.Warn().Err(err).Str("backend", resolvedBackend.String()).Bool("auto", isAuto).
+				Msg("[startup] 后端安装失败")
+			// 自动模式 + NVIDIA 独显 + 原生 CUDA：优先下载对应 CUDA 版本，
+			// 不要静默降级到已装的 CPU 兜底（否则用户删除 cuda 目录后无法重新拉取 CUDA）。
+			skipSilentCPUFallback := isAuto &&
+				resolvedBackend == llm.BackendCUDA &&
+				a.hwInfo != nil && a.hwInfo.GPUVendor == "nvidia"
+			if isAuto && resolvedBackend != llm.BackendCPU && !skipSilentCPUFallback {
+				fallbackPath, cpuErr := llm.EnsureBackendInstalled(llm.BackendCPU, runtimeDir, nil)
+				if cpuErr != nil {
+					zlog.Error().Err(cpuErr).Msg("[startup] CPU 后端也安装失败，validatePaths 将报告缺失文件")
+				} else {
+					serverPath = fallbackPath
+					resolvedBackend = llm.BackendCPU
+				}
 			}
 		}
 	}
@@ -181,18 +266,24 @@ func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
 		missingMsg.WriteString("  ❌ 推理引擎（llama-server.exe）及依赖文件缺失\n")
 	}
 
-	// P2.6（前端化）：不再使用 OS 级 MessageDialog，改为事件+channel 模式，
-	// 让前端以"前端风格"对话框询问用户；前端答复后解除阻塞。
-	// 生活类比：店家把"要不要订购发动机"写进意见本交给前台（前端），
-	// 在柜台等回执——顾客（前端）在漂亮的界面上作答后才下单或关门。
-	proceed := a.waitForBackendDownloadConfirm(ctx, BackendDownloadRequestPayload{
-		GPUName:        gpuName,
-		BackendName:    info.DisplayName,
-		BackendType:    resolvedBackend.String(),
-		MissingFiles:   missingMsg.String(),
-		TimeoutSeconds: int(backendChoiceTimeout / time.Second),
-		SourceURL:      "https://github.com/ggml-org/llama.cpp/releases",
-	})
+	// P2.6（前端化）：便携版使用"前端风格"对话框询问是否下载后端，前端答复后解除阻塞。
+	// 商店版（MSIX）例外：不弹确认框——微软商店审核 10.1.2.10 曾把
+	// "测试员在下载确认框未确认前应用退出"判定为崩溃（闪退）。
+	// 商店版一旦缺少引擎，直接进入后台静默下载，保证开箱即用、永不因等待确认而退出。
+	// 生活类比：便携版像订餐时问顾客"要不要加辣"，商店版像连锁店按标准配方直接出品。
+	proceed := true
+	if !isStoreMode() {
+		proceed = a.waitForBackendDownloadConfirm(ctx, BackendDownloadRequestPayload{
+			GPUName:        gpuName,
+			BackendName:    info.DisplayName,
+			BackendType:    resolvedBackend.String(),
+			MissingFiles:   missingMsg.String(),
+			TimeoutSeconds: int(backendChoiceTimeout / time.Second),
+			SourceURL:      "https://github.com/ggml-org/llama.cpp/releases",
+		})
+	} else {
+		zlog.Info().Msg("[startup] 商店版：引擎缺失时静默后台下载，不弹确认框（避免审核判定闪退）")
+	}
 
 	if !proceed {
 		zlog.Info().Msg("[startup] 用户取消下载，退出应用")
@@ -282,6 +373,9 @@ func (a *App) handleMissingModels(ctx context.Context) {
 		Bool("dir_missing", checkResult.ModelsDirMissing).
 		Bool("empty", checkResult.ModelsEmpty).
 		Msg("[startup] models directory empty, continuing startup")
+	// 持久化"空模型"标志：让后续 GetServerStatus（含前端轮询兜底）稳定返回
+	// "模型目录为空"错误，前端据此放行引导流程，不依赖一次性事件是否被收到。
+	a.modelsEmpty.Store(true)
 	// 前端化：不再用 OS 级弹窗阻塞，改为推送非阻塞事件，
 	// 由前端以轻量提示展示"如何下载模型"的引导文案；用户看完可正常进入界面。
 	if ctx != nil {

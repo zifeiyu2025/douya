@@ -1020,7 +1020,9 @@ func TestDetectIntelGPUDiscrete(t *testing.T) {
 // TestDetectIntelGPUVRAMRegistryPreferred 测试 Intel Arc 显存"注册表优先"修复
 //
 // 场景：Intel Arc A770 16GB 独显，WMI 因 uint32 4GB 回绕返回错误的小值（4096），
-//       注册表 qwMemorySize 返回精确值（16384）
+//
+//	注册表 qwMemorySize 返回精确值（16384）
+//
 // 期望：GPUVRAMMB=16384（注册表优先），GPUName 来自注册表，判定为独显
 //
 // 回归背景：此前 Intel 检测链只有 WMI 一条路，Arc 独显显存会被读成回绕后的
@@ -1056,5 +1058,93 @@ func TestDetectIntelGPUVRAMRegistryPreferred(t *testing.T) {
 	}
 	if !hw.HasGPU || hw.GPUType != GPUTypeDiscrete {
 		t.Errorf("期望独显判定 HasGPU=true/discrete，实际 HasGPU=%v/type=%q", hw.HasGPU, hw.GPUType)
+	}
+}
+
+// ============================================================================
+// P3.7 显卡驱动版本预检测试
+//
+// 生活类比：这套测试像"质检员核验燃料标号"——不真去加油站（不执行 nvidia-smi），
+// 而是用"假油样"（mock 版本号）验证解析和门槛判定逻辑是否正确。
+// ============================================================================
+
+// TestParseDriverVersion 测试 NVIDIA 驱动版本号解析。
+// 版本号形如 "585.00"、"531.41"、"580"，主版本决定驱动世代。
+func TestParseDriverVersion(t *testing.T) {
+	tests := []struct {
+		name      string
+		version   string
+		wantMajor int
+		wantMinor int
+		wantOK    bool
+	}{
+		{"标准双段版本", "585.00", 585, 0, true},
+		{"Ollama 门槛版本", "531.41", 531, 41, true},
+		{"Blackwell 门槛版本", "580.88", 580, 88, true},
+		{"无次版本", "580", 580, 0, true},
+		{"带前后空格", "  585.00  ", 585, 0, true},
+		{"非法字符", "abc", 0, 0, false},
+		{"空字符串", "", 0, 0, false},
+		{"空次版本段", "585.", 585, 0, true}, // 仅主版本可用
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			major, minor, ok := parseDriverVersion(tt.version)
+			if ok != tt.wantOK {
+				t.Errorf("parseDriverVersion(%q) ok=%v, 期望 %v", tt.version, ok, tt.wantOK)
+				return
+			}
+			if ok && (major != tt.wantMajor || minor != tt.wantMinor) {
+				t.Errorf("parseDriverVersion(%q) = (%d, %d), 期望 (%d, %d)", tt.version, major, minor, tt.wantMajor, tt.wantMinor)
+			}
+		})
+	}
+}
+
+// TestDriverVersionSufficient 测试驱动版本是否达到 CUDA 最低门槛（业界共识）：
+//   - ≥580：CUDA 12.x / 13.x 均可用（Blackwell）
+//   - 531-579：CUDA 12.x 可用（Ollama 官方门槛）
+//   - <531：任何 CUDA 均不可用
+func TestDriverVersionSufficient(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		want    bool
+	}{
+		{"585 新驱动", "585.00", true},    // Blackwell 时代
+		{"580 门槛精确命中", "580.88", true}, // CUDA 13.x 最低线
+		{"566 中间档", "566.03", true},    // ≥531，支持 CUDA 12.x
+		{"531 门槛精确命中", "531.41", true}, // CUDA 12.x 最低线
+		{"530 略低", "530.86", false},    // <531，CUDA 不可用
+		{"470 老驱动", "470.00", false},   // 远低于门槛
+		{"无版本信息（保守可用）", "", true},      // 解析失败按可处理
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := driverVersionSufficient(tt.version)
+			if got != tt.want {
+				t.Errorf("driverVersionSufficient(%q) = %v, 期望 %v", tt.version, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestNvidiaDriverVersionQuery 测试驱动版本查询函数注入。
+// 验证查询成功时返回版本号、失败时返回错误（供上层按保守可用处理）。
+func TestNvidiaDriverVersionQuery(t *testing.T) {
+	orig := NvidiaDriverVersion
+	defer func() { NvidiaDriverVersion = orig }()
+
+	// 成功场景
+	NvidiaDriverVersion = func() (string, error) { return "585.00", nil }
+	if ver, err := NvidiaDriverVersion(); err != nil || ver != "585.00" {
+		t.Errorf("驱动版本查询成功场景 = (%q, %v), 期望 (\"585.00\", nil)", ver, err)
+	}
+
+	// 失败场景
+	mockErr := errors.New("nvidia-smi not found")
+	NvidiaDriverVersion = func() (string, error) { return "", mockErr }
+	if _, err := NvidiaDriverVersion(); err == nil {
+		t.Error("驱动版本查询失败场景应返回 error")
 	}
 }

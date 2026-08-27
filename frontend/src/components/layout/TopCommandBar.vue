@@ -49,7 +49,9 @@
             <span v-if="switchProgressStage !== 'idle'" class="state-row switching">
               <span class="loading-spinner"></span>
               <span class="state-text">
-                {{ switchingModelName }} · {{ switchStageText }}{{ switchDuration }}
+                <span class="state-model" :title="switchingModelName">{{ switchingModelName }}</span>
+                <span class="state-sep">·</span>
+                <span class="state-status">{{ switchStageText }}{{ switchDuration }}</span>
               </span>
             </span>
             <span
@@ -59,7 +61,9 @@
               <span class="loading-spinner"></span>
               <span class="progress-col">
                 <span class="state-text">
-                  {{ loadProgressModelName }} · 加载 {{ modelLoadProgress.progress }}%
+                  <span class="state-model" :title="loadProgressModelName">{{ loadProgressModelName }}</span>
+                  <span class="state-sep">·</span>
+                  <span class="state-status">加载 {{ modelLoadProgress.progress }}%</span>
                 </span>
                 <span class="progress-track">
                   <span
@@ -71,7 +75,11 @@
             </span>
             <span v-else-if="modelLoadFailed" class="state-row failed">
               <span class="status-dot stopped"></span>
-              <span class="state-text error-text">{{ errorModelName }} · 加载失败</span>
+              <span class="state-text error-text">
+                <span class="state-model" :title="errorModelName">{{ errorModelName }}</span>
+                <span class="state-sep">·</span>
+                <span class="state-status">加载失败</span>
+              </span>
             </span>
             <span
               v-else-if="isServerLoading && switchProgressStage === 'idle' && !isFirstLoad"
@@ -82,12 +90,12 @@
             </span>
             <span v-else class="state-row idle">
               <span class="status-dot" :class="serverStatus.running ? 'running' : 'stopped'"></span>
-              <span
-                class="state-text"
-                :class="{ 'error-text': !serverStatus.running && serverStatus.error }"
-              >
-                {{ modelName }} ·
-                {{ serverStatus.running ? '已就绪' : serverStatus.error || '未运行' }}
+              <span class="state-text" :class="{ 'error-text': !serverStatus.running && serverStatus.error }">
+                <span class="state-model" :title="modelName">{{ modelName }}</span>
+                <span class="state-sep">·</span>
+                <span class="state-status">
+                  {{ serverStatus.running ? '已就绪' : serverStatus.error || '未运行' }}
+                </span>
               </span>
             </span>
           </button>
@@ -418,9 +426,30 @@ function renderModelLabel(option: ModelOptionView) {
   min-width: 0;
 }
 
+/* 状态文本：flex 双段，型号名段可省略、状态词段固定不缩，
+   实现"头尾完整、中间省略"——避免窄窗硬切裁断可读性变差 */
 .state-text {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* 型号名段：可收缩 + 尾部省略（保留开头与分隔符前主体） */
+.state-model {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 分隔符与状态词段：固定不缩，保证状态语义始终完整可见 */
+.state-sep,
+.state-status {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .state-row.switching {

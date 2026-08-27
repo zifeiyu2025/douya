@@ -106,6 +106,11 @@ type App struct {
 	exiting          atomic.Bool
 	serverLoadFailed atomic.Bool // 模型加载彻底失败后锁定状态，防止监控循环覆盖错误状态
 	lastServerError  string      // 最后一次服务器/模型加载错误信息
+	// modelsEmpty 标记 models 目录为空（无 .gguf 文件）的首次使用状态。
+	// 与 serverLoadFailed 独立：这是"待引导下载"的正常状态，而非加载失败，
+	// 不触发监控循环的失败锁定/回退逻辑，仅用于让 GetServerStatus 稳定返回
+	// "模型目录为空"错误，供前端据此放行引导流程。
+	modelsEmpty atomic.Bool
 	// downloadMu 保护 downloadingBackends 的并发访问，防止同一后端重复下载。
 	// 生活类比：正在装修的房间门上挂个"施工中"牌子，避免两队施工队同时开干。
 	downloadMu          sync.Mutex
@@ -448,6 +453,34 @@ func storeAppDir(exePath string) string {
 // 供前端据此隐藏"检查更新"等应用内自更新入口（商店政策 10.1.5）。
 func (a *App) IsStoreMode() bool {
 	return isStoreMode()
+}
+
+// bundledRuntimeDir 返回随安装包内置的 runtime 目录（含推理引擎与依赖）。
+//
+// 仅商店版存在独立的内置目录：MSIX 安装目录（WindowsApps 下）只读，
+// 引擎随包分发、开箱即用；便携版返回空串——它的"安装目录"就是数据目录本身，
+// 不存在第二个候选，调用方据此自然退化为单目录查找。
+func bundledRuntimeDir() string {
+	if !isStoreMode() {
+		return ""
+	}
+	exePath, err := os.Executable()
+	if err != nil {
+		zlog.Error().Err(err).Msg("[appDir] 获取可执行文件路径失败，无法定位内置 runtime")
+		return ""
+	}
+	return filepath.Join(filepath.Dir(exePath), "runtime")
+}
+
+// runtimeDirCandidates 返回按优先级排列的候选 runtime 目录列表：
+// 商店版为 [内置目录（只读）, 数据目录（可写）]，便携版为 [数据目录]。
+// 顺序即优先级：内置引擎保证商店版首启即用，不被数据目录的旧文件干扰。
+func runtimeDirCandidates() []string {
+	dirs := make([]string, 0, 2)
+	if br := bundledRuntimeDir(); br != "" {
+		dirs = append(dirs, br)
+	}
+	return append(dirs, filepath.Join(appDir(), "runtime"))
 }
 
 func resolvePath(p string) string {

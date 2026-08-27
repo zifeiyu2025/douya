@@ -141,7 +141,7 @@
 </template>
 
 <script setup lang="ts">
-import { defineAsyncComponent, nextTick, onMounted, onUnmounted, provide, ref } from 'vue'
+import { defineAsyncComponent, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { NForm, useMessage } from 'naive-ui'
 import AppearanceSettings from '../components/settings/AppearanceSettings.vue'
@@ -205,11 +205,19 @@ function getSectionEl(id: string): HTMLElement | null {
   return contentRef.value?.querySelector(`[data-section="${id}"]`) ?? null
 }
 
-/** 目录点击：平滑滚动到对应章节顶部（留一点呼吸空隙） */
+/**
+ * 目录点击：平滑滚动到对应章节顶部（留一点呼吸空隙）。
+ * 用 getBoundingClientRect 差分计算滚动距离，不依赖 offsetTop 的
+ * offsetParent 定位链（该基准会随嵌套容器/定位祖先变化而错位），
+ * 保证无论布局怎样都能算到准确目标位置。
+ */
 function scrollToSection(id: string) {
   const el = getSectionEl(id)
-  if (!el || !contentRef.value) return
-  contentRef.value.scrollTo({ top: Math.max(el.offsetTop - 8, 0), behavior: 'smooth' })
+  const container = contentRef.value
+  if (!el || !container) return
+  const delta =
+    el.getBoundingClientRect().top - container.getBoundingClientRect().top
+  container.scrollTo({ top: Math.max(container.scrollTop + delta - 8, 0), behavior: 'smooth' })
 }
 
 /**
@@ -248,19 +256,34 @@ onMounted(async () => {
   contentRef.value?.addEventListener('scroll', handleContentScroll, { passive: true })
   syncActiveSection()
 
-  // 接受路由参数定位到指定章节（如欢迎页"前往模型下载"带 open=model-download），
-  // 平滑滚动到对应分节，避免无模型首启用户找不到下载入口（"死路"修复的目录页等价实现）
-  const openName = route.query.open
-  if (openName && typeof openName === 'string' && SECTIONS.some(s => s.id === openName)) {
-    await nextTick()
-    scrollToSection(openName)
-  }
-
   await core.init()
   await performance.init()
   await apiService.init()
   await aiChat.init()
+
+  // 首轮定位：等所有 init 与异步区块（ModelDownloader）渲染稳定后再滚动。
+  // 双 rAF 缓冲 + 二次校准，避免 smooth 动画被中途布局变化打断停半路
+  // （否则会落在紧邻的"高级"等章节顶部）。
+  locateFromRoute()
+  watch(() => route.query.open, locateFromRoute)
 })
+
+/**
+ * 根据路由 query.open 定位到指定章节（如欢迎页"前往模型下载"带 open=model-download）。
+ * 既服务首轮挂载，也服务组件复用后再跳转（onMounted 不会二次触发的场景）。
+ * 双 rAF：先等当前帧布局稳定，再发起滚动；滚动结束后再校准一次兜底偏差。
+ */
+function locateFromRoute() {
+  const openName = route.query.open
+  if (!openName || typeof openName !== 'string') return
+  if (!SECTIONS.some(s => s.id === openName)) return
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      scrollToSection(openName)
+      requestAnimationFrame(() => scrollToSection(openName))
+    })
+  })
+}
 
 onUnmounted(() => {
   contentRef.value?.removeEventListener('scroll', handleContentScroll)
@@ -459,6 +482,8 @@ onUnmounted(() => {
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: 2px;
+  /* 章节标题为短词，非必要不折行 */
+  white-space: nowrap;
 }
 
 .section-desc {

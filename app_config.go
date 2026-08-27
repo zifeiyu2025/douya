@@ -302,42 +302,53 @@ func (a *App) validatePaths() PathCheckResult {
 	}
 
 	runtimeDir := filepath.Join(baseDir, "runtime")
-	if info, err := os.Stat(runtimeDir); err != nil || !info.IsDir() {
-		result.RuntimeMissing = append(result.RuntimeMissing, fmt.Sprintf("运行时目录: %s", runtimeDir))
-	} else {
-		// 根据后端类型校验 DLL
-		// 生活类比：不同型号的发动机需要的零件不同，按型号清单逐一检查
-		backendInfo := llm.GetBackendInfo(resolvedBackend)
 
-		// DLL 检查目录：runtime/{subdir}/（每个后端都在自己的子目录下）
-		// 生活类比：每种发动机都有自己的专属车位，去对应车位检查零件即可
-		dllDir := runtimeDir
-		if backendInfo.Subdir != "" {
-			dllDir = filepath.Join(runtimeDir, backendInfo.Subdir)
-		}
+	// 根据后端类型校验 DLL
+	// 生活类比：不同型号的发动机需要的零件不同，按型号清单逐一检查
+	backendInfo := llm.GetBackendInfo(resolvedBackend)
 
-		// 校验 RequiredDLLs（核心 DLL + 后端专属 DLL）—— 阻断级检查
-		// 注意：coreDLLs 中含 glob 模式条目（如 ggml-cpu*.dll），用于同时适配
-		// 自编译版（ggml-cpu.dll）和官方预编译包（ggml-cpu-haswell.dll 等架构特定 DLL）。
-		// 含 "*" 的条目用 checkDLLFound 检查至少匹配一个文件，缺失则加入 RuntimeMissing 阻断启动。
-		for _, dll := range backendInfo.RequiredDLLs {
-			if !checkDLLFound(dllDir, dll) {
-				result.RuntimeMissing = append(result.RuntimeMissing, fmt.Sprintf("后端DLL: %s", filepath.Join(dllDir, dll)))
+	// DLL 检查目录候选：商店版内置 runtime 目录优先（只读、随包分发），
+	// 数据 runtime 目录兜底（存放运行期下载的后端）；便携版两者合一只剩一个。
+	// 任一候选目录中找到 DLL 即视为通过——否则商店版即使内置了完整引擎，
+	// 数据目录里没有 DLL 也会被误报"文件缺失"，触发不必要的下载弹窗。
+	// 注意：filepath.Join 对空 Subdir 返回原目录，天然兼容无子目录的后端。
+	var dllDirs []string
+	if br := bundledRuntimeDir(); br != "" {
+		dllDirs = append(dllDirs, filepath.Join(br, backendInfo.Subdir))
+	}
+	dataDLLDir := filepath.Join(runtimeDir, backendInfo.Subdir)
+	dllDirs = append(dllDirs, dataDLLDir)
+
+	// 校验一组 DLL 清单：在所有候选目录中逐一查找，任一目录命中即通过；
+	// 全部未命中才计入 RuntimeMissing（阻断级）。缺失路径以数据目录为准展示
+	//（用户可在该目录手动补齐）。
+	checkDLLList := func(dlls []string, label string) {
+		for _, dll := range dlls {
+			found := false
+			for _, d := range dllDirs {
+				if checkDLLFound(d, dll) {
+					found = true
+					break
+				}
 			}
-		}
-
-		// 校验 VendorDLLs（厂商运行时 DLL，如 CUDA 的 cudart/cublas）—— 阻断级检查
-		// 这些 DLL 来自官方预编译包附带（zip 包内含完整运行时），缺失说明后端包不完整。
-		// 生活类比：快递箱里没附电池，说明包裹不完整，直接重新下单（下载），
-		// 不去隔壁仓库（系统 PATH）翻找，逻辑简单直接。
-		// VendorDLLs 同样支持 glob 模式（如 cudart64_*.dll 兼容 CUDA 12/13）。
-		for _, dll := range backendInfo.VendorDLLs {
-			if !checkDLLFound(dllDir, dll) {
-				result.RuntimeMissing = append(result.RuntimeMissing,
-					fmt.Sprintf("厂商DLL: %s", filepath.Join(dllDir, dll)))
+			if !found {
+				result.RuntimeMissing = append(result.RuntimeMissing, fmt.Sprintf("%s: %s", label, filepath.Join(dataDLLDir, dll)))
 			}
 		}
 	}
+
+	// 校验 RequiredDLLs（核心 DLL + 后端专属 DLL）—— 阻断级检查
+	// 注意：coreDLLs 中含 glob 模式条目（如 ggml-cpu*.dll），用于同时适配
+	// 自编译版（ggml-cpu.dll）和官方预编译包（ggml-cpu-haswell.dll 等架构特定 DLL）。
+	// 含 "*" 的条目用 checkDLLFound 检查至少匹配一个文件，缺失则加入 RuntimeMissing 阻断启动。
+	checkDLLList(backendInfo.RequiredDLLs, "后端DLL")
+
+	// 校验 VendorDLLs（厂商运行时 DLL，如 CUDA 的 cudart/cublas）—— 阻断级检查
+	// 这些 DLL 来自官方预编译包附带（zip 包内含完整运行时），缺失说明后端包不完整。
+	// 生活类比：快递箱里没附电池，说明包裹不完整，直接重新下单（下载），
+	// 不去隔壁仓库（系统 PATH）翻找，逻辑简单直接。
+	// VendorDLLs 同样支持 glob 模式（如 cudart64_*.dll 兼容 CUDA 12/13）。
+	checkDLLList(backendInfo.VendorDLLs, "厂商DLL")
 
 	// ===== 2. 检查 models 目录 =====
 	result.ModelsDir = filepath.Join(baseDir, "models")

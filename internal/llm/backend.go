@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/rs/zerolog/log"
 
@@ -297,71 +299,106 @@ func ResolveBackendType(hw *system.HardwareInfo, cfgBackend string) BackendType 
 	}
 }
 
-// ResolveBackendTypeWithRuntime 在 ResolveBackendType 基础上增加运行时文件预校验。
+// ResolveBackendTypeWithRuntime 单目录便捷版，委托给多目录版本
+// ResolveBackendTypeWithRuntimeDirs（回退策略与参数说明详见该函数文档）。
+// 保留旧签名以兼容既有调用方与测试。
+func ResolveBackendTypeWithRuntime(hw *system.HardwareInfo, cfgBackend string, runtimeDir string) BackendType {
+	return ResolveBackendTypeWithRuntimeDirs(hw, cfgBackend, []string{runtimeDir})
+}
+
+// ResolveBackendTypeWithRuntimeDirs 是 ResolveBackendType 的多目录运行时预校验版本。
 //
-// 回退策略（auto 模式下，原生后端未安装时）：
+// 与单目录版的回退策略完全一致（auto 模式下，原生后端未安装时）：
 //  1. 先尝试 Vulkan（跨厂商 GPU 后端，仍有 GPU 加速）
 //  2. 再尝试 CPU（纯 CPU，兜底方案）
 //  3. 都没安装则返回原推断后端，交给 installBackend 触发下载流程
 //
-// 生活类比：想用原厂发动机（SYCL/HIP），但没装；先看看有没有通用发动机（Vulkan），
-// 有的话先用着，至少还能跑；通用发动机也没有，才用纯 CPU 发动机。
-// 这样保证非 N 卡用户也能优先享受 GPU 加速，而不是无脑退到 CPU。
+// 区别仅在于"是否已安装"的检查覆盖所有候选目录（如商店版内置目录 + 数据目录），
+// 使包内自带的引擎能被识别，从而跳过下载流程（微软商店政策 10.1.2.10 要求开箱即用）。
 //
 // 参数：
 //   - hw: 硬件信息（可为 nil，nil 时按 CPU 处理）
 //   - cfgBackend: 用户配置的后端字符串（"auto" 或具体后端名）
-//   - runtimeDir: runtime 目录的绝对路径（用于检查后端是否已安装）
-//
-// 返回：解析后的后端类型（保证运行时文件存在，或回退到 CPU）
-func ResolveBackendTypeWithRuntime(hw *system.HardwareInfo, cfgBackend string, runtimeDir string) BackendType {
+//   - runtimeDirs: 候选 runtime 目录列表，顺序即查找优先级
+func ResolveBackendTypeWithRuntimeDirs(hw *system.HardwareInfo, cfgBackend string, runtimeDirs []string) BackendType {
 	resolved := ResolveBackendType(hw, cfgBackend)
 
-	// 手动指定的后端：不主动回退（尊重用户选择，下载失败由 installBackend 处理）
+	// 手动指定的后端：不主动回退（尊重用户选择，下载失败由 installBackend 处理），
+	// 但能力预检结果仍会暴露给调用方（见返回信息），用于启动阶段警告提示。
 	isAuto := cfgBackend == "" || cfgBackend == string(BackendAuto)
 	if !isAuto {
 		return resolved
 	}
 
-	// auto 模式：检查推断的后端是否已安装
-	if resolved == BackendCPU {
-		return resolved // CPU 本身就是兜底
+	// auto 模式：第一步先做「能力级匹配预检」。
+	// 业界（Ollama/LM Studio）选引擎时不会只看"装了哪个后端包"，而是先确认
+	// 显卡真的能让它跑起来：
+	//   - 驱动版本不足 → CUDA 直接剔除（避免启动后崩溃再回退的难看体验）
+	//   - 缺 vulkan-1.dll → Vulkan 剔除（AMD/Intel 的通用方案失去地基）
+	// 这一步在"是否已安装"之前，确保匹配的是能力而非安装清单。
+	// 生活类比：先测油品合不合格（能力预检），再看发动机装没装（安装检查）——
+	// 油品不合格的发动机，装了也是白装。
+	if reason := CheckBackendCapabilityMatch(hw, resolved); reason != "" {
+		log.Warn().
+			Str("preferred", resolved.String()).
+			Str("reason", reason).
+			Msg("[backend] auto 模式：首选后端能力不匹配，剔除")
+		// 能力不匹配时，直接把首选标记为"不可用"，交由下方回退链降级
+		resolved = BackendUnknown // 哨兵值：表示"首选已被能力预检剔除"
 	}
 
-	// NVIDIA 独显 + auto：优先下载原生 CUDA，而非被已装的 Vulkan/CPU 兜底顶替。
-	// auto 的语义是"为我的显卡选最优后端"，对 N 卡用户 Vulkan/CPU 只是运行时崩溃兜底
-	// （ensureVulkanFallback）的替补，不应在启动选择阶段抢占原生 CUDA。
-	// 否则用户删除 runtime/cuda/ 想重新拉取 CUDA 时，会被预装的 Vulkan 接管。
-	// AMD/Intel 现已统一走 Vulkan（auto 即解析为 Vulkan），其回退行为同样不受影响。
+	// CPU 本身就是兜底，恒可用（也有已安装检查兜底）
+	if resolved == BackendCPU {
+		return BackendCPU
+	}
+
+	// NVIDIA 独显 + auto 的原生 CUDA 优先逻辑（保留，避免行为回归）：
+	// 只要能力预检通过（驱动达标），auto 就解析回 CUDA，即使 CUDA 尚未安装。
+	// 这样删除 runtime/cuda/ 后重启会自动重新拉取 CUDA，而不会被预装的 Vulkan 抢占。
+	// 能力预检不通过（驱动太旧/非 N 卡）时，resolved 已是 BackendUnknown，不会走到这里。
+	// 生活类比：油品合格时，即使油箱里没装好发动机，也优先订这台原装发动机，
+	// 而不是拿备用的通用变速箱顶替。
 	if resolved == BackendCUDA && hw != nil && hw.GPUVendor == "nvidia" {
 		return resolved
 	}
 
-	if isBackendInstalled(resolved, runtimeDir) {
+	// 首选已安装（且能力匹配，因为上面已剔除不匹配项）→ 直接用
+	if resolved != BackendUnknown && IsBackendInstalledIn(resolved, runtimeDirs) {
 		return resolved
 	}
 
-	// 原生后端未安装，先尝试 Vulkan（跨厂商 GPU 加速）
-	if resolved != BackendVulkan && isBackendInstalled(BackendVulkan, runtimeDir) {
-		log.Warn().
-			Str("preferred", resolved.String()).
-			Str("fallback", string(BackendVulkan)).
-			Msg("[backend] 原生后端未安装但 Vulkan 已安装，回退到 Vulkan（auto 模式）")
-		return BackendVulkan
+	// 回退链：Vulkan（跨厂商 GPU 加速，需有 Vulkan 运行时）→ CPU
+	// 仅当首选能力不匹配（BackendUnknown）或未安装时才进入此链。
+	if reason := CheckBackendCapabilityMatch(hw, BackendVulkan); reason == "" {
+		if IsBackendInstalledIn(BackendVulkan, runtimeDirs) {
+			log.Warn().
+				Str("preferred", resolved.String()).
+				Str("fallback", string(BackendVulkan)).
+				Msg("[backend] 首选后端不可用，回退到 Vulkan（auto 模式）")
+			return BackendVulkan
+		}
 	}
 
-	// Vulkan 也没安装，检查 CPU 是否已安装
-	if isBackendInstalled(BackendCPU, runtimeDir) {
+	// Vulkan 也没安装（或缺少运行时），检查 CPU 是否已安装
+	if IsBackendInstalledIn(BackendCPU, runtimeDirs) {
 		log.Warn().
 			Str("preferred", resolved.String()).
 			Str("fallback", string(BackendCPU)).
-			Msg("[backend] 原生后端和 Vulkan 均未安装，回退到 CPU（auto 模式）")
+			Msg("[backend] 首选后端和 Vulkan 均不可用，回退到 CPU（auto 模式）")
 		return BackendCPU
 	}
 
-	// 都没安装：返回原推断，交给 installBackend 触发下载流程
+	// 什么都没装：返回首选（若已被能力预检剔除则返回 CPU），交给 installBackend 触发下载流程
+	if resolved == BackendUnknown {
+		return BackendCPU
+	}
 	return resolved
 }
+
+// BackendUnknown 是一个内部哨兵值，仅在 ResolveBackendTypeWithRuntimeDirs 中用于标记
+// "auto 模式首选后端被能力预检剔除"。它不会出现在任何配置或前端值里，
+// IsValidBackendType 会拒绝它，因此不会泄露到外部。
+const BackendUnknown BackendType = "unknown_sentinel"
 
 // isBackendInstalled 检查指定后端是否已安装到 runtime 目录（llama-server.exe 存在）。
 //
@@ -389,6 +426,122 @@ var backendRuntimeDeps = map[BackendType][]string{
 
 // lookupPath 可测试性钩子：生产指向 exec.LookPath，测试中可替换
 var lookupPath = exec.LookPath
+
+// CheckBackendCapabilityMatch 校验所选后端与当前硬件的"能力级匹配"。
+//
+// 与 ResolveBackendType（只看厂商做推断）不同，本函数回答更硬的问题：
+// "这个显卡真的能让这个后端跑起来吗？"——业界（Ollama/LM Studio）在选引擎时
+// 都会做这一步能力预检：
+//   - CUDA：必须有 NVIDIA GPU，且驱动版本 ≥ CUDA 最低门槛
+//     （Ollama 官方：CUDA 12 需驱动 ≥531；Blackwell 需 ≥580）
+//   - Vulkan：系统必须存在 vulkan-1.dll（AMD/Intel 在 Windows 的通用方案）
+//   - HIP/SYCL/OpenVINO：需对应厂商 GPU（AMD/Intel），且运行时 DLL 就绪
+//   - CPU：任何机器恒可用（终极兜底）
+//
+// 生活类比：选发动机不只看出身（厂商推断），还要实测油品（驱动版本）和
+// 供油管（vulkan-1.dll）——缺任何一样，发动机装上就打不着火。
+//
+// 返回值：匹配时返回空字符串；不匹配时返回面向用户的中文原因说明。
+// hw 为 nil 时不做能力校验（视为通过——无法检测时不误导决策）；手动指定的后端
+// 也允许通过（尊重用户选择，最终由启动回退链兜底），只在 auto 模式下用它剔除候选。
+func CheckBackendCapabilityMatch(hw *system.HardwareInfo, bt BackendType) string {
+	if hw == nil {
+		return ""
+	}
+
+	switch bt {
+	case BackendCUDA:
+		// 必须检测到 NVIDIA GPU（或至少 CUDA 驱动核心组件）
+		if hw.GPUVendor != "nvidia" && !hw.HasCUDABackend {
+			return "CUDA 后端需要 NVIDIA 显卡（当前为 " + vendorDisplay(hw) + "）"
+		}
+		// 驱动版本门槛：过低时 CUDA 运行时加载必失败，提前告知而非启动后崩溃
+		if hw.GPUDriverVersion != "" {
+			if major, _, ok := parseNvidiaDriverVersion(hw.GPUDriverVersion); ok && major < 531 {
+				return "NVIDIA 驱动版本过旧（" + hw.GPUDriverVersion + "），不支持 CUDA。请升级驱动至 531 或更新（建议 580+）"
+			}
+			// Blackwell（RTX 50 系）需要 ≥580
+			if hw.GPUArchitecture == "Blackwell" {
+				if major, _, ok := parseNvidiaDriverVersion(hw.GPUDriverVersion); ok && major < 580 {
+					return "Blackwell 显卡需要 NVIDIA 驱动 ≥580（当前 " + hw.GPUDriverVersion + "），否则 CUDA 无法使用"
+				}
+			}
+		}
+		return ""
+	case BackendVulkan:
+		// Vulkan 是跨厂商通用后端，只需系统带 Vulkan 运行时。
+		// 注意区分两个概念（业界共识，见 llama.cpp/Vesper 社区资料）：
+		//   - 后端库 ggml-vulkan.dll：豆芽自带、可随 llama.cpp 官方预编译包下载；
+		//     缺失时走 installBackend 的下载流程即可解决。
+		//   - 加载器 vulkan-1.dll：由显卡驱动提供（AMD/Intel/NVIDIA 驱动均随附），
+		//     llama.cpp 官方预编译包内不含它。缺失说明驱动未提供 Vulkan 运行时，
+		//     下载任何官方包都无法补齐，正确动作是更新显卡驱动。
+		// 因此这里只校验 loader，不校验后端库（后端库缺失由「已安装」检查负责）。
+		if !system.HasVulkanRuntime() {
+			return "系统缺少 Vulkan 运行时加载器（vulkan-1.dll，由显卡驱动提供，下载 llama.cpp 包无法补齐）。请更新显卡驱动，或改用 CPU 后端"
+		}
+		return ""
+	case BackendHIP:
+		if hw.GPUVendor != "amd" {
+			return "HIP/ROCm 后端需要 AMD 显卡（当前为 " + vendorDisplay(hw) + "）"
+		}
+		return ""
+	case BackendSYCL:
+		if hw.GPUVendor != "intel" {
+			return "SYCL 后端需要 Intel 显卡（当前为 " + vendorDisplay(hw) + "）"
+		}
+		return ""
+	case BackendOpenVINO:
+		if hw.GPUVendor != "intel" {
+			return "OpenVINO 后端需要 Intel 显卡（当前为 " + vendorDisplay(hw) + "）"
+		}
+		return ""
+	case BackendCPU, BackendAuto:
+		// CPU 恒可用；auto 等待解析后再校验
+		return ""
+	default:
+		return ""
+	}
+}
+
+// parseNvidiaDriverVersion 在 system 包外解析 NVIDIA 驱动版本主号。
+// 仅取主版本用于门槛比较；格式异常时返回 ok=false（调用方按保守通过处理）。
+func parseNvidiaDriverVersion(version string) (major, minor int, ok bool) {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return 0, 0, false
+	}
+	parts := strings.SplitN(version, ".", 2)
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, false
+	}
+	if len(parts) == 2 {
+		if minor, err = strconv.Atoi(parts[1]); err != nil {
+			return major, 0, true
+		}
+	}
+	return major, minor, true
+}
+
+// vendorDisplay 生成面向用户的厂商描述，用于能力预检提示。
+func vendorDisplay(hw *system.HardwareInfo) string {
+	switch hw.GPUVendor {
+	case "nvidia":
+		return "NVIDIA"
+	case "amd":
+		return "AMD"
+	case "intel":
+		return "Intel"
+	case "vulkan":
+		return "Vulkan 通用显卡"
+	default:
+		if hw.HasCUDABackend {
+			return "CUDA 驱动"
+		}
+		return "未检测到显卡"
+	}
+}
 
 // CheckBackendRuntimeReady 预检后端运行时依赖是否可见。
 //

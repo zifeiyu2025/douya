@@ -139,6 +139,9 @@ export function useAppLifecycle() {
    * - 已就绪后：无论是否超时都不显示 splash
    */
   const showSplash = computed(() => {
+    // 无可用模型：正常的首次使用状态（引导下载），直接放行进入主界面，
+    // 由聊天区的 no-model-guide 卡片引导用户前往模型下载，而非卡死启动屏。
+    if (settingsStore.missingModels) return false
     // 下载阶段强制显示启动屏
     if (isDownloading.value) return true
     // 首次启动已彻底失败，仍显示启动屏展示错误（但不转圈）
@@ -303,8 +306,10 @@ export function useAppLifecycle() {
     )
 
     // 无可用模型：非阻塞提示"如何下载模型"的引导文案，看完可正常进界面。
+    // 同时标记 missingModels，前端放行进入主界面展示引导卡片（而非误判为加载失败）。
     unsubscribers.push(
       wails.subscribeModelNotice(data => {
+        settingsStore.markMissingModels(true)
         discreteMessage.info(data?.message || '没有可用的模型，请先下载模型', {
           duration: 12000
         })

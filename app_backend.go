@@ -34,6 +34,8 @@ type BackendStatus struct {
 	GPUName string `json:"gpu_name"`
 	// GPUVRAMMB GPU 显存（MB），无 GPU 或检测失败时为 0
 	GPUVRAMMB int64 `json:"gpu_vram_mb"`
+	// GPUDriverVersion NVIDIA 驱动版本（如 "585.00"），仅 N 卡非空；用于 UI 展示与诊断
+	GPUDriverVersion string `json:"gpu_driver_version"`
 	// InstalledBackends 已安装的后端列表（runtime 目录中已有 llama-server.exe 的后端）
 	InstalledBackends []string `json:"installed_backends"`
 	// AvailableBackends 所有可选后端列表（含 auto），供前端下拉框展示
@@ -68,6 +70,7 @@ func (a *App) GetBackendStatus() BackendStatus {
 		status.GPUVendor = a.hwInfo.GPUVendor
 		status.GPUName = a.hwInfo.GPUName
 		status.GPUVRAMMB = a.hwInfo.GPUVRAMMB
+		status.GPUDriverVersion = a.hwInfo.GPUDriverVersion
 	}
 
 	// 计算已安装后端列表：遍历所有后端类型（排除 auto），调用 IsBackendInstalled 检查

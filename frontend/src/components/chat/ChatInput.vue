@@ -60,7 +60,8 @@
           <textarea
             ref="textareaRef"
             v-model="inputText"
-            placeholder="向豆芽提问……"
+            :placeholder="inputPlaceholder"
+            :disabled="chatUnavailable"
             rows="1"
             class="chat-textarea"
             @keydown="handleKeydown"
@@ -177,8 +178,34 @@ const {
 
 const capabilities = computed(() => settingsStore.modelCapabilities)
 const isSwitching = computed(() => settingsStore.isModelSwitching)
+// chatUnavailable：主界面进入对话的前提条件不满足时禁用输入框——
+//   1. 模型目录为空（missingModels）：没有模型可加载，引导用户先去设置下载
+//   2. 正在加载/切换模型（isSwitching）：模型未就绪，不可对话
+//   3. 服务器未运行或模型未加载完成（serverStatus.running/model_ready）：未达到对话条件
+// 生活类比：聊天舱的"话筒"在引擎没着车、或者还没挂上挡位之前是锁死的，
+// 只有发动机运转（running）且挡位挂好（model_ready）时才能踩油门说话。
+const chatUnavailable = computed(() => {
+  if (settingsStore.missingModels) return true
+  if (isSwitching.value) return true
+  const s = settingsStore.serverStatus
+  return !(s.running && s.model_ready)
+})
+
+// inputPlaceholder：输入框禁用时给出明确的中文原因提示，引导用户如何恢复对话。
+const inputPlaceholder = computed(() => {
+  if (settingsStore.missingModels) return '尚未安装模型，请先到「设置」中下载模型'
+  if (isSwitching.value) return '模型加载中，请稍候…'
+  const s = settingsStore.serverStatus
+  if (s.error) return '引擎异常，请查看顶部状态提示'
+  if (!s.running) return '引擎启动中，请稍候…'
+  if (!s.model_ready) return '模型加载中，请稍候…'
+  return '向豆芽提问……'
+})
+
 const canSend = computed(
-  () => !isSwitching.value && (inputText.value.trim() || attachments.value.length > 0)
+  () =>
+    !chatUnavailable.value &&
+    (inputText.value.trim() || attachments.value.length > 0)
 )
 
 function adjustHeight() {
@@ -344,6 +371,7 @@ function handleSend() {
   if (!text && attachments.value.length === 0) return
   if (chatStore.isAnyGenerating) return
   if (isSwitching.value) return
+  if (chatUnavailable.value) return
 
   if (isListening.value) {
     stopListening()
@@ -596,6 +624,12 @@ onUnmounted(() => {
 
 .chat-textarea::placeholder {
   color: var(--text-muted);
+}
+
+/* 未达到对话条件时的禁用态：输入框变淡并禁止交互，静默提示用户"还不能说话" */
+.chat-textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .right-buttons {

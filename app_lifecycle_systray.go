@@ -16,7 +16,7 @@ import (
 
 func (a *App) onSystrayReady() {
 	systray.SetTitle("豆芽")
-	systray.SetTooltip("豆芽 - AI 聊天助手")
+	systray.SetTooltip("豆芽 - 本地AI 助手")
 	systray.SetIcon(iconData)
 
 	systray.SetOnTapped(func() {

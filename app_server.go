@@ -159,6 +159,15 @@ func (a *App) watchServerHealth(ctx context.Context, watchCtx context.Context) {
 }
 
 func (a *App) GetServerStatus() llm.ServerStatus {
+	// 空模型（models 目录为空）属正常首次使用状态：稳定返回"模型目录为空"，
+	// 供前端轮询/事件兜底识别后放行引导流程，而非误报为加载失败。
+	if a.modelsEmpty.Load() {
+		return llm.ServerStatus{
+			Running:    false,
+			ModelReady: false,
+			Error:      "模型目录为空，请下载 .gguf 模型文件后放入 models 目录",
+		}
+	}
 	// 若已记录启动/加载失败，优先返回持久化错误状态，避免监控循环覆盖
 	if a.serverLoadFailed.Load() {
 		a.lastServerErrMu.RLock()

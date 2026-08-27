@@ -179,6 +179,17 @@ defineProps<{
   }
 }
 
+/* 旋转关键帧：外层弧、中层弧、头像旁进度环弧线共用。
+   固定在组件内定义，不依赖其他组件的 scoped 样式，确保动画生效。 */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* ===== 圆形进度环（与 MessageList 一致） ===== */
 .switch-ring-wrapper {
   position: relative;

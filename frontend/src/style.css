@@ -186,12 +186,23 @@ html.dark .app-layout::after {
   border-bottom: 1px solid var(--border-light);
 }
 
-/* § 章节编号：宋体 + 朱砂微印 */
+/* § 章节编号：宋体 + 朱砂微印。
+   §(U+00A7) 在衬线中文字体里字形基线偏高、与中文数字并非一条线，
+   故 § 单独用 span 包裹，inline-flex 垂直居中 + 略缩尺寸压平，
+   使「§ 一」「§ 二」成为匀称的一行编号，不与下面节标题错位。 */
 .section-num {
+  display: inline-flex;
+  align-items: center;
   font-family: var(--font-display);
   font-weight: 600;
   color: var(--seal-color);
   letter-spacing: 0.02em;
+}
+
+.section-num .sec-mark {
+  font-size: 0.84em;
+  line-height: 1;
+  transform: translateY(0.045em);
 }
 
 /* 印章点：列表/导航的当前态标记 */

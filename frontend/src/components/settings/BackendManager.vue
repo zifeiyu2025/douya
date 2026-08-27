@@ -33,6 +33,16 @@
 
     <n-card class="gpu-info-card" hoverable>
       <div class="gpu-info-content">
+        <n-icon size="20" class="gpu-info-icon"><ShieldCheckmarkOutline /></n-icon>
+        <div class="gpu-info-text">
+          <span class="gpu-info-label">显卡驱动</span>
+          <span class="gpu-info-value">{{ gpuDriverLabel }}</span>
+        </div>
+      </div>
+    </n-card>
+
+    <n-card class="gpu-info-card" hoverable>
+      <div class="gpu-info-content">
         <n-icon size="20" class="gpu-info-icon"><ServerOutline /></n-icon>
         <div class="gpu-info-text">
           <span class="gpu-info-label">显存大小</span>
@@ -46,7 +56,9 @@
   <n-form-item>
     <template #label>
       当前后端
-      <HelpTip content="当前正在使用的计算后端（由启动时配置解析）。切换后端后需重启应用才能生效" />
+      <HelpTip
+        content="当前正在使用的计算后端（由启动时配置解析 + 能力预检自动匹配显卡）。auto 模式下会按能力预检结果选择：N 卡且驱动达标用 CUDA，驱动不达标或 A/I 卡用 Vulkan，无独显或缺少 Vulkan 运行时用 CPU。切换后端后需重启应用才能生效"
+      />
     </template>
     <div class="backend-status-row">
       <n-tag :type="currentBackendTagType" size="small">{{ currentBackendLabel }}</n-tag>
@@ -210,7 +222,12 @@ import {
   useMessage,
   type SelectOption
 } from 'naive-ui'
-import { HardwareChipOutline, SpeedometerOutline, ServerOutline } from '@vicons/ionicons5'
+import {
+  HardwareChipOutline,
+  SpeedometerOutline,
+  ServerOutline,
+  ShieldCheckmarkOutline
+} from '@vicons/ionicons5'
 import {
   wails,
   type BackendStatus,
@@ -232,6 +249,7 @@ const backendStatus = ref<BackendStatus>({
   gpu_vendor: '',
   gpu_name: '',
   gpu_vram_mb: 0,
+  gpu_driver_version: '',
   installed_backends: [],
   available_backends: []
 })
@@ -343,6 +361,13 @@ const vramLabel = computed(() => {
     return `${(vram / 1024).toFixed(1)} GB`
   }
   return `${vram} MB`
+})
+
+/** 显卡驱动版本显示（仅 N 卡有值；驱动是 CUDA 能力预检的关键依据） */
+const gpuDriverLabel = computed(() => {
+  if (backendStatus.value.gpu_driver_version) return backendStatus.value.gpu_driver_version
+  if (backendStatus.value.gpu_vendor === 'nvidia') return '未知（驱动检测失败）'
+  return '—'
 })
 
 /** 当前后端显示标签 */

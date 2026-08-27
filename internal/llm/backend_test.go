@@ -466,3 +466,166 @@ func contains(slice []string, target string) bool {
 	}
 	return false
 }
+
+// ============================================================================
+// P3.7 后端×显卡能力匹配预检测试
+//
+// 生活类比：这套测试像"4S 店选装审核"——在动手装发动机（后端）之前，
+// 先用"选装清单审核表"（CheckBackendCapabilityMatch）验证车型（显卡）与
+// 发动机是否匹配，避免装上去打不着火（启动即失败）再返工。
+// ============================================================================
+
+// TestCheckBackendCapabilityMatch_CUDA 验证 CUDA 后端的能力匹配判定。
+// 核心规则（业界 Ollama/LM Studio 共识）：
+//   - 必须有 NVIDIA GPU（或 CUDA 驱动核心组件）
+//   - 驱动版本 ≥531（CUDA 12 门槛）；Blackwell 还需 ≥580
+func TestCheckBackendCapabilityMatch_CUDA(t *testing.T) {
+	tests := []struct {
+		name string
+		hw   *system.HardwareInfo
+		want string // 空=匹配；非空=不匹配（含原因说明）
+	}{
+		{"N 卡且驱动达标", &system.HardwareInfo{GPUVendor: "nvidia", GPUDriverVersion: "585.00"}, ""},
+		{"N 卡且驱动 531 门槛", &system.HardwareInfo{GPUVendor: "nvidia", GPUDriverVersion: "531.41"}, ""},
+		{"N 卡但驱动过旧", &system.HardwareInfo{GPUVendor: "nvidia", GPUDriverVersion: "470.00"}, "NVIDIA 驱动版本过旧"},
+		{"Blackwell 但驱动不足 580", &system.HardwareInfo{GPUVendor: "nvidia", GPUDriverVersion: "566.03", GPUArchitecture: "Blackwell"}, "Blackwell 显卡需要 NVIDIA 驱动 ≥580"},
+		{"Blackwell 且驱动 580+", &system.HardwareInfo{GPUVendor: "nvidia", GPUDriverVersion: "580.88", GPUArchitecture: "Blackwell"}, ""},
+		{"驱动版本未知（保守通过）", &system.HardwareInfo{GPUVendor: "nvidia"}, ""},
+		{"A 卡选 CUDA", &system.HardwareInfo{GPUVendor: "amd"}, "CUDA 后端需要 NVIDIA 显卡"},
+		{"仅在 CUDA 驱动（无 nvidia-smi）", &system.HardwareInfo{HasCUDABackend: true}, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := llm.CheckBackendCapabilityMatch(tt.hw, llm.BackendCUDA)
+			if tt.want == "" {
+				if got != "" {
+					t.Errorf("期望匹配（空提示），实际不匹配：%q", got)
+				}
+				return
+			}
+			if !strings.Contains(got, tt.want) {
+				t.Errorf("期望提示包含 %q，实际 %q", tt.want, got)
+			}
+		})
+	}
+
+	// hw 为 nil：不做能力校验（视为通过，避免误导决策）
+	if got := llm.CheckBackendCapabilityMatch(nil, llm.BackendCUDA); got != "" {
+		t.Errorf("hw 为 nil 时应视为匹配，实际 %q", got)
+	}
+}
+
+// TestCheckBackendCapabilityMatch_Vulkan 验证 Vulkan 后端能力匹配。
+// Vulkan 是跨厂商通用后端，只需系统带 vulkan-1.dll 运行时。
+func TestCheckBackendCapabilityMatch_Vulkan(t *testing.T) {
+	orig := system.HasVulkanRuntime
+	defer func() { system.HasVulkanRuntime = orig }()
+
+	// 有运行时 → 匹配
+	system.HasVulkanRuntime = func() bool { return true }
+	if got := llm.CheckBackendCapabilityMatch(&system.HardwareInfo{GPUVendor: "amd"}, llm.BackendVulkan); got != "" {
+		t.Errorf("AMD + 有 Vulkan 运行时应匹配，实际 %q", got)
+	}
+
+	// 无运行时 → 不匹配（提示缺失运行时）
+	system.HasVulkanRuntime = func() bool { return false }
+	got := llm.CheckBackendCapabilityMatch(&system.HardwareInfo{GPUVendor: "amd"}, llm.BackendVulkan)
+	if !strings.Contains(got, "vulkan-1.dll") {
+		t.Errorf("缺少 Vulkan 运行时应给出提示（含 vulkan-1.dll），实际 %q", got)
+	}
+}
+
+// TestCheckBackendCapabilityMatch_HipSyclOpenvino 验证厂商专属后端的匹配规则：
+//   - HIP/ROCm 需要 AMD；SYCL/OpenVINO 需要 Intel
+//   - 厂商不符时返回明确原因
+func TestCheckBackendCapabilityMatch_HipSyclOpenvino(t *testing.T) {
+	tests := []struct {
+		bt   llm.BackendType
+		hw   *system.HardwareInfo
+		want string // 空=匹配
+	}{
+		{llm.BackendHIP, &system.HardwareInfo{GPUVendor: "amd"}, ""},
+		{llm.BackendHIP, &system.HardwareInfo{GPUVendor: "nvidia"}, "HIP/ROCm 后端需要 AMD 显卡"},
+		{llm.BackendSYCL, &system.HardwareInfo{GPUVendor: "intel"}, ""},
+		{llm.BackendSYCL, &system.HardwareInfo{GPUVendor: "amd"}, "SYCL 后端需要 Intel 显卡"},
+		{llm.BackendOpenVINO, &system.HardwareInfo{GPUVendor: "intel"}, ""},
+		{llm.BackendOpenVINO, &system.HardwareInfo{GPUVendor: "nvidia"}, "OpenVINO 后端需要 Intel 显卡"},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.bt)+"@"+tt.hw.GPUVendor, func(t *testing.T) {
+			got := llm.CheckBackendCapabilityMatch(tt.hw, tt.bt)
+			if tt.want == "" {
+				if got != "" {
+					t.Errorf("期望匹配（空提示），实际不匹配：%q", got)
+				}
+				return
+			}
+			if !strings.Contains(got, tt.want) {
+				t.Errorf("期望提示包含 %q，实际 %q", tt.want, got)
+			}
+		})
+	}
+}
+
+// TestCheckBackendCapabilityMatch_CPU 验证 CPU 后端恒可用。
+func TestCheckBackendCapabilityMatch_CPU(t *testing.T) {
+	hws := []*system.HardwareInfo{
+		nil,
+		{GPUVendor: ""},
+		{GPUVendor: "nvidia"},
+		{GPUVendor: "amd"},
+	}
+	for _, hw := range hws {
+		if got := llm.CheckBackendCapabilityMatch(hw, llm.BackendCPU); got != "" {
+			t.Errorf("CPU 后端应恒匹配（hw=%+v），实际 %q", hw, got)
+		}
+	}
+	if got := llm.CheckBackendCapabilityMatch(nil, llm.BackendAuto); got != "" {
+		t.Errorf("auto 后端应恒匹配，实际 %q", got)
+	}
+}
+
+// TestResolveBackendTypeWithRuntimeDirs_CapabilityFallback 验证能力预检集成到解析链路：
+//   - N 卡 + 驱动过旧 + CUDA 未装 → 不选 CUDA（能力剔除）
+//   - N 卡 + 驱动过旧 + Vulkan 已装 → 回退 Vulkan
+//   - N 卡 + 驱动达标 → 保持 CUDA 原生优先（即使未安装，也交给下载流程）
+func TestResolveBackendTypeWithRuntimeDirs_CapabilityFallback(t *testing.T) {
+	origHasVulkan := system.HasVulkanRuntime
+	defer func() { system.HasVulkanRuntime = origHasVulkan }()
+	system.HasVulkanRuntime = func() bool { return true }
+
+	dirs := []string{t.TempDir(), t.TempDir()}
+
+	// 场景 1：N 卡 + 老驱动。不应解析回 CUDA；无任何已装后端时回退 CPU。
+	oldNv := &system.HardwareInfo{GPUVendor: "nvidia", GPUDriverVersion: "470.00"}
+	if got := llm.ResolveBackendTypeWithRuntimeDirs(oldNv, "auto", dirs); got != llm.BackendCPU {
+		t.Errorf("N 卡+老驱动+无已装后端：期望回退 CPU，实际 %v", got)
+	}
+
+	// 场景 2：N 卡 + 老驱动 + Vulkan 已装 → 回退 Vulkan
+	installFakeBackend(t, dirs[0], "vulkan")
+	if got := llm.ResolveBackendTypeWithRuntimeDirs(oldNv, "auto", dirs); got != llm.BackendVulkan {
+		t.Errorf("N 卡+老驱动+Vulkan 已装：期望回退 Vulkan，实际 %v", got)
+	}
+
+	// 场景 3：N 卡 + 驱动达标（585）→ 保持 CUDA 原生优先（即使未安装，也返回 CUDA 交给下载）
+	newNv := &system.HardwareInfo{GPUVendor: "nvidia", GPUDriverVersion: "585.00", GPUArchitecture: "Blackwell"}
+	if got := llm.ResolveBackendTypeWithRuntimeDirs(newNv, "auto", dirs); got != llm.BackendCUDA {
+		t.Errorf("N 卡+驱动达标：期望保持 CUDA（原生优先），实际 %v", got)
+	}
+}
+
+// installFakeBackend 在指定 runtime 目录下创建一个假后端（只放 llama-server.exe）。
+// 生活类比：往"假车库"里停一辆"假车"（空壳 exe），让"已安装"检查能命中。
+func installFakeBackend(t *testing.T, runtimeDir, subdir string) {
+	t.Helper()
+	dir := filepath.Join(runtimeDir, subdir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("创建后端目录失败: %v", err)
+	}
+	exePath := filepath.Join(dir, "llama-server.exe")
+	if err := os.WriteFile(exePath, []byte("fake exe"), 0o644); err != nil {
+		t.Fatalf("创建假 llama-server 失败: %v", err)
+	}
+}
