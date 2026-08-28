@@ -29,6 +29,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -40,8 +41,15 @@ import (
 // 测试配置
 // ============================================================
 
-// llamaServerRelPath llama-server 可执行文件相对路径（相对 internal/chat/）
-const llamaServerRelPath = "../../runtime/llama-server.exe"
+// llamaServerCandidates llama-server 可执行文件候选路径（相对 internal/chat/）。
+// 引擎现按 backend 分目录部署（runtime/{cuda,vulkan,cpu}/llama-server.exe），
+// 评测时按此顺序取第一个存在的：cuda 性能最好，vulkan 兼容 A/I 卡，cpu 兜底。
+var llamaServerCandidates = []string{
+	"../../runtime/cuda/llama-server.exe",
+	"../../runtime/vulkan/llama-server.exe",
+	"../../runtime/cpu/llama-server.exe",
+	"../../runtime/llama-server.exe",
+}
 
 // modelsRelPath 模型目录相对路径
 const modelsRelPath = "../../models"
@@ -49,13 +57,12 @@ const modelsRelPath = "../../models"
 // testPort 测试用端口（避免与豆芽应用 8080 冲突）
 const testPort = 8088
 
-// testModels 本地可用模型列表
+// testModels 本地可用模型列表（与 models/ 目录实际文件名保持一致；
+// 体量过大的模型如 35B 不纳入，避免评测耗时失控）
 var testModels = []string{
-	"Qwen3.5-4B-Uncensored-HauhauCS-Aggressive-Q6_K.gguf",
 	"Qwen3.5U-9B-Q4_K_M.gguf",
-	"Qwythos-9B-Claude-Mythos-5-1M-Q4_K_M.gguf",
-	"ornith-1.0-9b-Q5_K_M.gguf",
-	"Gemma-4-E4B-U-Q4_K_M.gguf",
+	"Qwen3.5-4B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
+	"Gemma-4-E4B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
 }
 
 // ============================================================
@@ -132,12 +139,15 @@ var testCases = []TestCase{
 		ID:       "KC-03",
 		Category: "知识截止日期",
 		Question: "今天是几月几号？",
-		Expect:   "从系统时间参照读取，回答 2026-07-21",
+		Expect:   "从系统时间参照读取，回答当前日期",
 		Check: func(answer string) (EvalStatus, string) {
-			if strings.Contains(answer, "2026") && (strings.Contains(answer, "7") || strings.Contains(answer, "07")) {
-				if strings.Contains(answer, "21") {
-					return StatusPass, "正确读取系统时间"
-				}
+			// 动态取当前日期判定（原实现把编写当天 2026-07-21 写死，跨天运行永远 WARN）
+			now := time.Now()
+			y, m, d := strconv.Itoa(now.Year()), strconv.Itoa(int(now.Month())), strconv.Itoa(now.Day())
+			monthOK := strings.Contains(answer, m) || strings.Contains(answer, fmt.Sprintf("%02d", now.Month()))
+			dayOK := strings.Contains(answer, d) || strings.Contains(answer, fmt.Sprintf("%02d", now.Day()))
+			if strings.Contains(answer, y) && monthOK && dayOK {
+				return StatusPass, "正确读取系统时间"
 			}
 			return StatusWarn, "未正确读取系统时间"
 		},
@@ -347,13 +357,20 @@ func containsYear(s, year string) bool {
 
 // startLlamaServer 启动 llama-server 加载指定模型
 func startLlamaServer(modelFile string) (*exec.Cmd, error) {
-	serverPath, _ := filepath.Abs(llamaServerRelPath)
+	var serverPath string
+	for _, candidate := range llamaServerCandidates {
+		p, _ := filepath.Abs(candidate)
+		if _, err := os.Stat(p); err == nil {
+			serverPath = p
+			break
+		}
+	}
+	if serverPath == "" {
+		return nil, fmt.Errorf("llama-server 不存在（候选路径均未命中: %v）", llamaServerCandidates)
+	}
 	modelPath, _ := filepath.Abs(filepath.Join(modelsRelPath, modelFile))
 
 	// 检查文件存在
-	if _, err := os.Stat(serverPath); err != nil {
-		return nil, fmt.Errorf("llama-server 不存在: %s", serverPath)
-	}
 	if _, err := os.Stat(modelPath); err != nil {
 		return nil, fmt.Errorf("模型不存在: %s", modelPath)
 	}

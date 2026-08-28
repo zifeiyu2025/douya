@@ -105,3 +105,6 @@ build/certs/
 diag_conpty/
 diag_store/
 build/sandbox-models-backup/
+
+# 提示词真模型评测报告（生成产物）
+/prompt_eval_report.md
