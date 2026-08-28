@@ -116,15 +116,16 @@
 
 ## 🚀 Quick Start
 
-### Option 1: Download a release (recommended)
+### Option 1: Install from Microsoft Store (recommended)
 
-Download `Douya-vX.X.X-windows.zip` from [Releases](https://github.com/zifeiyu2025/douya/releases), unzip, and run — **no installation required**.
+Douya is distributed exclusively through the Microsoft Store (MSIX): search for "豆芽" in the Store and install — updates are handled automatically by the Store (there is no in-app updater).
 
 **First run:**
-1. Unzip to any directory
-2. Put your GGUF model files into the `models/` directory
-3. Double-click `bin/Douya.exe`
-4. The program creates the database and configuration automatically in `data/`
+1. Put your GGUF model files into `%LOCALAPPDATA%\Douya\models\`
+2. Launch Douya from the Start menu
+3. The program creates the database and configuration automatically under `%LOCALAPPDATA%\Douya\data\`
+
+> The CUDA / Vulkan / CPU inference engines are bundled inside the MSIX package for an out-of-the-box experience; if an engine is missing, Douya downloads it silently in the background without blocking startup.
 
 ### Option 2: Build from source
 
@@ -140,8 +141,9 @@ wails dev
 ```
 
 ```powershell
-# Production build (generates the release/ package)
+# Production build (produces build/bin/Douya.exe for MSIX packaging)
 .\build.ps1
+# Store packaging: build/windows/msix/make-msix.ps1 produces build/bin/Douya.msix
 ```
 
 > `build.ps1` prefers `D:\Program Files\GoTools\bin\wails.exe` and falls back to `$GOPATH/bin/wails.exe`. The script includes a UTF-8 BOM for PowerShell 5.1 compatibility.
@@ -184,7 +186,7 @@ douya/
 ├── main.go                     # App entry: Wails init, single instance, system tray
 ├── app.go                      # Core logic: model switching, service management, Wails bindings
 ├── app_*.go                    # App layer modules (chat/config/lifecycle/rag/search/server)
-├── build.ps1                   # Windows build script (generates the release/ package)
+├── build.ps1                   # Windows build script (produces build/bin/Douya.exe)
 ├── internal/
 │   ├── chat/                   # Chat service: message building, streaming, search integration, RAG
 │   ├── config/                 # Configuration: JSON persistence, parameter validation
@@ -197,7 +199,7 @@ douya/
 │   ├── pdfutil/                # PDF text extraction (with regex fallback)
 │   ├── httputil/               # HTTP utilities
 │   ├── pathutil/               # Path utilities
-│   ├── distinfo/               # Distribution channel detection (portable / Microsoft Store) & old-install data migration
+│   ├── appdata/                # App data directory (%LOCALAPPDATA%\Douya) & old-install data migration
 │   ├── apperror/               # Error handling
 │   ├── logger/                 # Logging configuration
 │   └── version/                # Version info
@@ -218,16 +220,14 @@ douya/
 └── scripts/                    # Helper scripts (version consistency check, pre-commit)
 ```
 
-### Distribution Channels: Portable vs Microsoft Store
+### Distribution: Microsoft Store Only
 
-Douya ships through two distribution channels, identified uniformly by `internal/distinfo` (based on whether the exe path resides under `\WindowsApps\`):
+Douya ships as a single Microsoft Store (MSIX) edition; the former portable/release build has been retired.
 
-| Capability | Release (portable) | Microsoft Store |
-|------|--------------|-----------|
-| Full features | ✅ Complete | ✅ Provided |
-| Data directory | exe-adjacent `data/` | `%LOCALAPPDATA%\Douya` (the WindowsApps install directory is read-only) |
-| In-app self-update | ✅ Supported | ❌ Soft-blocked (Store policy 10.1.5; updates go through the Store) |
-| Legacy data migration | N/A | On first launch, `config.json` and `data/` from the previous install directory are migrated automatically |
+- **Data directory**: all configuration, chat data and models live under `%LOCALAPPDATA%\Douya` (managed by `internal/appdata`), since the MSIX install directory under `WindowsApps` is read-only.
+- **Updates**: handled entirely by Microsoft Store. There is no in-app updater (Store policy 10.1.5 forbids apps from updating themselves).
+- **Out-of-box experience**: the CUDA/Vulkan/CPU inference engines are bundled in the MSIX package (`build/windows/msix/make-msix.ps1`); a missing engine downloads silently in the background instead of showing a blocking dialog (Store policy 10.1.2.10).
+- **Legacy data migration**: on first launch, `config.json` and `data/` left beside the previous install are migrated automatically so chat history survives upgrades.
 
 > Before releasing, run `scripts\check_version_consistency.ps1` to verify version consistency: the main version (version.go, package.json) must be three-segment and strictly equal across sources; the exe file properties (wails.json ProductVersion) and the MSIX manifest (AppxManifest.xml Identity Version) are four-segment x.y.z.n whose first three segments must equal the main version.
 

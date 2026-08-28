@@ -18,10 +18,6 @@ export function BuiltInTools(arg1) {
   return window['go']['main']['App']['BuiltInTools'](arg1);
 }
 
-export function CheckUpdate() {
-  return window['go']['main']['App']['CheckUpdate']();
-}
-
 export function ClearModelParams(arg1) {
   return window['go']['main']['App']['ClearModelParams'](arg1);
 }
@@ -222,10 +218,6 @@ export function IsRAGEnabled() {
   return window['go']['main']['App']['IsRAGEnabled']();
 }
 
-export function IsStoreMode() {
-  return window['go']['main']['App']['IsStoreMode']();
-}
-
 export function ListDocuments(arg1) {
   return window['go']['main']['App']['ListDocuments'](arg1);
 }
@@ -240,10 +232,6 @@ export function ListKnowledgeBases() {
 
 export function ListMCPTools() {
   return window['go']['main']['App']['ListMCPTools']();
-}
-
-export function PerformUpdate(arg1, arg2) {
-  return window['go']['main']['App']['PerformUpdate'](arg1, arg2);
 }
 
 export function PrepareShutdown() {
@@ -272,10 +260,6 @@ export function RerankEnabled() {
 
 export function ResizeTerminal(arg1, arg2) {
   return window['go']['main']['App']['ResizeTerminal'](arg1, arg2);
-}
-
-export function ResolveBackendDownloadConfirm(arg1) {
-  return window['go']['main']['App']['ResolveBackendDownloadConfirm'](arg1);
 }
 
 export function RestartApp() {

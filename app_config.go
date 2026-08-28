@@ -307,10 +307,10 @@ func (a *App) validatePaths() PathCheckResult {
 	// 生活类比：不同型号的发动机需要的零件不同，按型号清单逐一检查
 	backendInfo := llm.GetBackendInfo(resolvedBackend)
 
-	// DLL 检查目录候选：商店版内置 runtime 目录优先（只读、随包分发），
-	// 数据 runtime 目录兜底（存放运行期下载的后端）；便携版两者合一只剩一个。
-	// 任一候选目录中找到 DLL 即视为通过——否则商店版即使内置了完整引擎，
-	// 数据目录里没有 DLL 也会被误报"文件缺失"，触发不必要的下载弹窗。
+	// DLL 检查目录候选：包内内置 runtime 目录优先（只读、随包分发），
+	// 数据 runtime 目录兜底（存放运行期下载的后端）。
+	// 任一候选目录中找到 DLL 即视为通过——否则即使内置了完整引擎，
+	// 数据目录里没有 DLL 也会被误报"文件缺失"，触发不必要的下载。
 	// 注意：filepath.Join 对空 Subdir 返回原目录，天然兼容无子目录的后端。
 	var dllDirs []string
 	if br := bundledRuntimeDir(); br != "" {
@@ -321,7 +321,7 @@ func (a *App) validatePaths() PathCheckResult {
 
 	// 校验一组 DLL 清单：在所有候选目录中逐一查找，任一目录命中即通过；
 	// 全部未命中才计入 RuntimeMissing（阻断级）。缺失路径以数据目录为准展示
-	//（用户可在该目录手动补齐）。
+	// （用户可在该目录手动补齐）。
 	checkDLLList := func(dlls []string, label string) {
 		for _, dll := range dlls {
 			found := false

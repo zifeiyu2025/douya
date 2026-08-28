@@ -1652,3 +1652,49 @@ func TestAppendLoraArgs_LoraWithEmptySegments(t *testing.T) {
 		t.Errorf("期望 trim 后 2 个非空 --lora，实际 %d 个，args: %v", count, args)
 	}
 }
+
+// ===== 上游 b10675 新增参数接线测试 =====
+
+// TestAppendKVCacheArgs_KVUnifiedPerSlot 验证 KVUnifiedPerSlot>0 时传递 --kv-unified-per-slot
+func TestAppendKVCacheArgs_KVUnifiedPerSlot(t *testing.T) {
+	s := newTestServer()
+	s.config.KVUnifiedPerSlot = 8192
+
+	args := s.appendKVCacheArgs(nil)
+	if got := argValue(args, "--kv-unified-per-slot"); got != "8192" {
+		t.Errorf("期望 --kv-unified-per-slot=8192，实际: %q", got)
+	}
+}
+
+// TestAppendKVCacheArgs_KVUnifiedPerSlotZero 验证 KVUnifiedPerSlot=0 时不传递（跟随上游默认行为）
+func TestAppendKVCacheArgs_KVUnifiedPerSlotZero(t *testing.T) {
+	s := newTestServer()
+	s.config.KVUnifiedPerSlot = 0
+
+	args := s.appendKVCacheArgs(nil)
+	if containsArg(args, "--kv-unified-per-slot") {
+		t.Errorf("期望 0 时不传递 --kv-unified-per-slot，实际 args: %v", args)
+	}
+}
+
+// TestAppendCPUMoeArgs_NCpuFfn 验证 NCpuFfn>0 时传递 --n-cpu-ffn（上游 b10675 新增）
+func TestAppendCPUMoeArgs_NCpuFfn(t *testing.T) {
+	s := newTestServer()
+	s.config.NCpuFfn = 8
+
+	args := s.appendCPUMoeArgs(nil)
+	if got := argValue(args, "--n-cpu-ffn"); got != "8" {
+		t.Errorf("期望 --n-cpu-ffn=8，实际: %q", got)
+	}
+}
+
+// TestAppendCPUMoeArgs_NCpuFfnZero 验证 NCpuFfn=0 时不传递
+func TestAppendCPUMoeArgs_NCpuFfnZero(t *testing.T) {
+	s := newTestServer()
+	s.config.NCpuFfn = 0
+
+	args := s.appendCPUMoeArgs(nil)
+	if containsArg(args, "--n-cpu-ffn") {
+		t.Errorf("期望 0 时不传递 --n-cpu-ffn，实际 args: %v", args)
+	}
+}

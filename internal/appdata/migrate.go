@@ -1,4 +1,4 @@
-package distinfo
+package appdata
 
 import (
 	"io"
@@ -24,8 +24,8 @@ type MigrationResult struct {
 	FailedFiles int
 }
 
-// MigrateLegacyStoreData 将商店版旧版本遗留在安装目录旁的数据一次性迁移到
-// 新数据目录（%LOCALAPPDATA%\Douya）。见 docs/code-audit-report.md §4.1：
+// MigrateLegacyData 将旧版本遗留在安装目录旁的数据一次性迁移到
+// 应用数据目录（%LOCALAPPDATA%\Douya）。见 docs/code-audit-report.md §4.1：
 // 数据目录迁移需提供一次性迁移逻辑，否则老用户升级后聊天记录"凭空消失"。
 //
 // 迁移规则：
@@ -35,14 +35,14 @@ type MigrationResult struct {
 //   - 依次检查 candidates（通常为 exe 同目录、exe 上级目录），取第一个含
 //     config.json 或 data/ 的目录作为旧数据源；
 //   - 只迁移轻量个人数据：config.json 与 data/ 目录（聊天记录、数据库、密钥、RAG 等）；
-//     models/、runtime/ 体积巨大且商店版按需下载，不迁移；
+//     models/、runtime/ 体积巨大且按需下载，不迁移；
 //   - 单个文件失败不中断整体迁移，仅计数并记日志（失败降级，保证启动不受阻）。
 //
 // 该函数为纯路径驱动的独立函数，便于单元测试注入临时目录。
-func MigrateLegacyStoreData(dst string, candidates []string) MigrationResult {
+func MigrateLegacyData(dst string, candidates []string) MigrationResult {
 	cfgPath := filepath.Join(dst, "config.json")
 	if _, err := os.Stat(cfgPath); err == nil {
-		zlog.Info().Str("dst", dst).Msg("[distinfo] 目标目录已有配置，跳过旧数据迁移")
+		zlog.Info().Str("dst", dst).Msg("[appdata] 目标目录已有配置，跳过旧数据迁移")
 		return MigrationResult{Skipped: true}
 	}
 	markerPath := filepath.Join(dst, markerFileName)
@@ -56,7 +56,7 @@ func MigrateLegacyStoreData(dst string, candidates []string) MigrationResult {
 		_ = writeMarker(markerPath)
 		return MigrationResult{Skipped: true}
 	}
-	zlog.Info().Str("src", src).Str("dst", dst).Msg("[distinfo] 发现旧版遗留数据，开始一次性迁移")
+	zlog.Info().Str("src", src).Str("dst", dst).Msg("[appdata] 发现旧版遗留数据，开始一次性迁移")
 
 	var result MigrationResult
 
@@ -65,7 +65,7 @@ func MigrateLegacyStoreData(dst string, candidates []string) MigrationResult {
 		result.MigratedConfig = true
 	} else if !os.IsNotExist(err) {
 		result.FailedFiles++
-		zlog.Warn().Err(err).Msg("[distinfo] 迁移 config.json 失败")
+		zlog.Warn().Err(err).Msg("[appdata] 迁移 config.json 失败")
 	}
 
 	// 2. 迁移 data/ 目录（逐文件复制，单文件失败继续）
@@ -75,13 +75,13 @@ func MigrateLegacyStoreData(dst string, candidates []string) MigrationResult {
 	)
 
 	if err := writeMarker(markerPath); err != nil {
-		zlog.Warn().Err(err).Msg("[distinfo] 写入迁移标记失败（下次启动将重新扫描）")
+		zlog.Warn().Err(err).Msg("[appdata] 写入迁移标记失败（下次启动将重新扫描）")
 	}
 	zlog.Info().
 		Int("files", result.MigratedFiles).
 		Int("failed", result.FailedFiles).
 		Bool("config", result.MigratedConfig).
-		Msg("[distinfo] 旧数据迁移完成")
+		Msg("[appdata] 旧数据迁移完成")
 	return result
 }
 
@@ -108,7 +108,7 @@ func copyDir(src, dst string, copied, failed int) (int, int) {
 		return copied, failed
 	}
 	if err := os.MkdirAll(dst, 0o755); err != nil {
-		zlog.Warn().Err(err).Str("dir", dst).Msg("[distinfo] 创建目标子目录失败")
+		zlog.Warn().Err(err).Str("dir", dst).Msg("[appdata] 创建目标子目录失败")
 		return copied, failed + len(entries)
 	}
 	for _, entry := range entries {
@@ -120,7 +120,7 @@ func copyDir(src, dst string, copied, failed int) (int, int) {
 		}
 		if err := copyFile(s, d); err != nil {
 			failed++
-			zlog.Warn().Err(err).Str("file", s).Msg("[distinfo] 迁移文件失败")
+			zlog.Warn().Err(err).Str("file", s).Msg("[appdata] 迁移文件失败")
 			continue
 		}
 		copied++

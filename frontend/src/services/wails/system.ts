@@ -1,6 +1,6 @@
 /**
  * Wails 服务门面 - 系统域
- * 配置读写/关闭流程/更新/TTS 语音/启动期前端化对话框
+ * 配置读写/关闭流程/版本信息/TTS 语音/启动期前端化对话框
  * （从原 wails.ts 迁移,方法体逐字搬移,逻辑零变化）
  */
 import {
@@ -13,29 +13,14 @@ import {
   RestartApp,
   SelectImageFile,
   GetAppVersion,
-  IsStoreMode,
-  CheckUpdate,
-  PerformUpdate,
   ConfirmStartupError,
   GetStartupError,
-  ResolveBackendDownloadConfirm,
   SynthesizeSpeech
 } from '../../../wailsjs/go/main/App'
 import { EventsOn, EventsOff } from '../../../wailsjs/runtime/runtime'
-import {
-  EventWindowCloseRequest,
-  EventUpdateProgress,
-  EventStartupError,
-  EventBackendDownloadRequest
-} from '../events'
+import { EventWindowCloseRequest, EventStartupError } from '../events'
 import type { Config } from '../../types/chat'
-import type {
-  CleanupResult,
-  StartupErrorPayload,
-  BackendDownloadRequestPayload,
-  UpdateInfo,
-  UpdateProgressEvent
-} from './types'
+import type { CleanupResult, StartupErrorPayload } from './types'
 import { adaptConfig, toWailsConfig } from './adapters'
 
 export const systemMethods = {
@@ -62,23 +47,9 @@ export const systemMethods = {
   selectImageFile: async (): Promise<string> => {
     return (await SelectImageFile()) as string
   },
-  // 更新相关方法：通过 wailsjs 绑定调用 Go 端
+  // 版本信息：更新统一由 Microsoft Store 接管，前端仅展示当前版本号
   getAppVersion: async (): Promise<string> => {
     return await GetAppVersion()
-  },
-  // 是否为 Microsoft Store (MSIX) 版：Store 版隐藏"检查更新"入口，由商店自动更新
-  isStoreMode: async (): Promise<boolean> => {
-    return await IsStoreMode()
-  },
-  checkUpdate: async (): Promise<UpdateInfo> => {
-    return (await CheckUpdate()) as UpdateInfo
-  },
-  performUpdate: async (downloadURL: string, latestVersion: string): Promise<void> => {
-    await PerformUpdate(downloadURL, latestVersion)
-  },
-  subscribeUpdateProgress: (callback: (progress: UpdateProgressEvent) => void): (() => void) => {
-    EventsOn(EventUpdateProgress, callback)
-    return () => EventsOff(EventUpdateProgress)
   },
   subscribeCloseRequest: (callback: () => void): (() => void) => {
     EventsOn(EventWindowCloseRequest, callback)
@@ -98,17 +69,6 @@ export const systemMethods = {
   // 用户在错误卡上点"退出"后调用，通知后端可以退出了
   confirmStartupError: async (): Promise<void> => {
     await ConfirmStartupError()
-  },
-  // "是否下载后端"确认对话框请求
-  subscribeBackendDownloadRequest: (
-    callback: (payload: BackendDownloadRequestPayload) => void
-  ): (() => void) => {
-    EventsOn(EventBackendDownloadRequest, callback)
-    return () => EventsOff(EventBackendDownloadRequest)
-  },
-  // 用户对"是否下载后端"作答后调用（true=下载，false=退出）
-  resolveBackendDownloadConfirm: async (proceed: boolean): Promise<void> => {
-    await ResolveBackendDownloadConfirm(proceed)
   },
   // ============ TTS 在线合成（Edge TTS / 微软在线神经语音） ============
   // 有网时优先调用，返回 MP3 的 base64 字符串；无网/失败由前端 useTTS 回退本地 Web Speech API。

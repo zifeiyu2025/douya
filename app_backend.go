@@ -73,8 +73,11 @@ func (a *App) GetBackendStatus() BackendStatus {
 		status.GPUDriverVersion = a.hwInfo.GPUDriverVersion
 	}
 
-	// 计算已安装后端列表：遍历所有后端类型（排除 auto），调用 IsBackendInstalled 检查
-	runtimeDir := filepath.Join(appDir(), "runtime")
+	// 计算已安装后端列表：遍历所有后端类型（排除 auto）检查是否已安装。
+	// 查找范围与启动期 FindInstalledBackend 对齐（包内内置目录 + 数据目录）：
+	// 此前只查数据目录，包内自带的引擎会被显示为"未安装"，
+	// 与"当前后端"（可能正来自包内目录）自相矛盾，误导用户重复下载。
+	runtimeDirs := runtimeDirCandidates()
 	allBackends := llm.AllBackendTypes()
 	status.AvailableBackends = make([]string, 0, len(allBackends))
 	status.InstalledBackends = make([]string, 0, len(allBackends))
@@ -86,7 +89,7 @@ func (a *App) GetBackendStatus() BackendStatus {
 		if bt == llm.BackendAuto {
 			continue
 		}
-		if llm.IsBackendInstalled(bt, runtimeDir) {
+		if llm.IsBackendInstalledIn(bt, runtimeDirs) {
 			status.InstalledBackends = append(status.InstalledBackends, string(bt))
 		}
 	}

@@ -83,23 +83,26 @@ func IsStackOverflowExit(errStr string) bool {
 }
 
 type ServerConfig struct {
-	ModelsDir       string
-	MmprojAuto      bool
-	MmprojOffload   bool
-	MmprojDevice    string // 视觉投影专用 GPU 设备名（多显卡分卡）；空=不传递，none=关闭卸载
-	ServerPath      string
+	ModelsDir     string
+	MmprojAuto    bool
+	MmprojOffload bool
+	MmprojDevice  string // 视觉投影专用 GPU 设备名（多显卡分卡）；空=不传递，none=关闭卸载
+	ServerPath    string
 	// BackendType 当前使用的计算后端类型（cuda/hip/sycl/vulkan/openvino/cpu），不含 auto。
 	// 由启动流程根据硬件和配置解析后传入，供后续逻辑（如参数调优、日志记录）使用。
 	// 生活类比：记录当前车装的是什么型号的发动机，供后续保养（参数调优）参考。
-	BackendType            BackendType
-	Port                   int
-	GPULayers              string
-	Threads                int
-	FlashAttn              string // "on"/"off"/"auto"，对应 llama.cpp --flash-attn 参数
-	CacheTypeK             string
-	CacheTypeV             string
-	Mlock                  bool
-	KVUnified              bool
+	BackendType BackendType
+	Port        int
+	GPULayers   string
+	Threads     int
+	FlashAttn   string // "on"/"off"/"auto"，对应 llama.cpp --flash-attn 参数
+	CacheTypeK  string
+	CacheTypeV  string
+	Mlock       bool
+	KVUnified   bool
+	// KVUnifiedPerSlot 统一 KV 池下每个并行 slot 的独立上下文上限（0=不传，跟随上游默认）。
+	// 上游 b10675 新增（--kv-unified-per-slot），见 config.KVUnifiedPerSlot。
+	KVUnifiedPerSlot       int
 	CacheIdleSlots         bool
 	CacheRAM               int
 	ImageMinTokens         int
@@ -237,6 +240,9 @@ type ServerConfig struct {
 	CPUMoe bool
 	// 前 N 层 MoE 权重 CPU 卸载（0=不启用）
 	NCpuMoe int
+	// 前 N 层 FFN 权重 CPU 卸载（0=不启用）。上游 b10675 新增（--n-cpu-ffn），
+	// 覆盖面比 --n-cpu-moe 广（非 MoE 模型也可用），见 config.NCpuFfn。
+	NCpuFfn int
 	// 算子卸载开关（nil=使用默认值，true=--op-offload，false=--no-op-offload）
 	OpOffload *bool
 }

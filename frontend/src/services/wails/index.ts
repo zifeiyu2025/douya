@@ -11,7 +11,7 @@
  * - knowledge.ts  知识库/RAG/搜索 API Keys
  * - mcp.ts        MCP 服务器管理
  * - backend.ts    显卡后端管理
- * - system.ts     配置/更新/TTS/启动期对话框
+ * - system.ts     配置/版本/TTS/启动期对话框
  */
 import { chatMethods } from './chat'
 import { modelMethods } from './models'

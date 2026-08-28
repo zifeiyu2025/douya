@@ -32,9 +32,9 @@ func writeTestGGUF(t *testing.T, dir, name string, kvs []testKV) string {
 
 	w := binary.LittleEndian
 	_ = binary.Write(f, w, testGGUFMagic)
-	_ = binary.Write(f, w, uint32(3))           // version
-	_ = binary.Write(f, w, uint64(0))           // tensor count
-	_ = binary.Write(f, w, uint64(len(kvs)))    // kv count
+	_ = binary.Write(f, w, uint32(3))        // version
+	_ = binary.Write(f, w, uint64(0))        // tensor count
+	_ = binary.Write(f, w, uint64(len(kvs))) // kv count
 	for _, kv := range kvs {
 		keyBytes := []byte(kv.key)
 		_ = binary.Write(f, w, uint64(len(keyBytes)))

@@ -215,8 +215,7 @@ function scrollToSection(id: string) {
   const el = getSectionEl(id)
   const container = contentRef.value
   if (!el || !container) return
-  const delta =
-    el.getBoundingClientRect().top - container.getBoundingClientRect().top
+  const delta = el.getBoundingClientRect().top - container.getBoundingClientRect().top
   container.scrollTo({ top: Math.max(container.scrollTop + delta - 8, 0), behavior: 'smooth' })
 }
 

@@ -236,13 +236,11 @@ const stageText = computed(() => {
   }
 }
 
-/* LOGO 图像：appicon.png 圆角方印，单一浅阴影走令牌（晨昏通用） */
+/* LOGO 图像：appicon.png 透明原图直接呈现——无边框、无圆角、无阴影 */
 .logo-image {
   width: 72px;
   height: 72px;
-  border-radius: 10px;
-  object-fit: cover;
-  box-shadow: var(--shadow-sm);
+  object-fit: contain;
   user-select: none;
   -webkit-user-drag: none;
 }

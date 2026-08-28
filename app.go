@@ -6,17 +6,16 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"douya/internal/appdata"
 	"douya/internal/apperror"
 	"douya/internal/chat"
 	"douya/internal/config"
-	"douya/internal/distinfo"
 	"douya/internal/llm"
 	"douya/internal/modelruntime"
 	"douya/internal/pathutil"
@@ -125,13 +124,6 @@ type App struct {
 	lastServerErrMu sync.RWMutex
 	// fileLoader 是本地文件服务的引用，托盘最小化时调用 ClearCache 释放内存
 	fileLoader *LocalFileLoader
-
-	// backendDownloadChan 用于"后端下载确认"：runtime 缺失需下载时，
-	// installBackend 发送 EventBackendDownloadRequest 后在此 channel 上阻塞等待，
-	// 前端用户点「是/否」后调用 ResolveBackendDownloadConfirm 写入结果。
-	// 生活类比：店家广播"要不要订购发动机"后等在订购单（channel）旁，
-	// 顾客答复（写 channel）店家才决定下单还是关门。nil 表示无需等待。
-	backendDownloadChan chan bool
 
 	// startupError 保存最近一次启动期致命错误（标题/简述/详情），供前端启动错误卡展示。
 	// 采用原子值避免并发读写的竞态；nil 表示无致命错误。
@@ -286,17 +278,11 @@ func appDir() string {
 	return cachedAppDir
 }
 
-// resolveAppDir 查找并缓存应用根目录。
+// resolveAppDir 查找并缓存应用根目录（统一为微软商店版布局）。
 //
-// 设计原则：配置和数据必须限制在 exe 所在目录及其直接上级目录，不允许读写到其他目录。
-// 这样确保 release 目录和项目目录完全隔离，互不影响。
-//
-// 查找优先级：
-//  1. exe 同目录（便携模式：exe 直接放在 release/ 下）
-//  2. exe 直接上级目录（发布模式：exe 在 release/bin/ 下，配置在 release/）
-//
-// 不再向上查找多层，避免触及项目根目录（如 release/bin/ 向上 2 层会到达项目目录）。
-// 不再使用 %APPDATA%/douya 兜底，避免读写到用户目录。
+// 豆芽仅发布微软商店（MSIX）一个版本：安装目录（WindowsApps 下）只读，
+// 配置/数据/模型统一写入 %LOCALAPPDATA%\Douya（由 internal/appdata 统一管理，
+// 含旧版本遗留数据的一次性迁移）。
 func resolveAppDir() string {
 	exePath, err := os.Executable()
 	if err != nil {
@@ -306,164 +292,24 @@ func resolveAppDir() string {
 		}
 		return "."
 	}
-	exeDir := filepath.Dir(exePath)
 
-	// Store (MSIX) 模式：安装目录只读，数据统一写到 %LOCALAPPDATA%\Douya。
-	// 必须在便携模式的目录查找之前判断，否则会误把只读安装目录当作数据根目录。
-	if isStoreMode() {
-		return storeAppDir(exePath)
-	}
-
-	// 候选目录：exe 同目录 + 直接上级目录（最多 2 个候选）
-	searchDirs := []string{exeDir}
-	parent := filepath.Dir(exeDir)
-	if parent != exeDir {
-		searchDirs = append(searchDirs, parent)
-	}
-
-	// 优先查找 config.json。
-	// 只要 config.json 能正常 JSON 解析就信任，不基于字段内容判断有效性。
-	isValidConfig := func(d string) bool {
-		cfgPath := filepath.Join(d, "config.json")
-		data, err := os.ReadFile(cfgPath)
-		if err != nil {
-			return false
-		}
-		// 解析为通用 map，验证是否为有效 JSON
-		var raw map[string]any
-		if err := json.Unmarshal(data, &raw); err != nil {
-			// 尝试双重序列化容错
-			if len(data) > 0 && data[0] == '"' {
-				var inner string
-				if err := json.Unmarshal(data, &inner); err == nil {
-					if err := json.Unmarshal([]byte(inner), &raw); err != nil {
-						return true // 无法解析内容时保守信任
-					}
-				} else {
-					return true
-				}
-			} else {
-				return true // 解析失败时保守信任
-			}
-		}
-		return true
-	}
-
-	for _, d := range searchDirs {
-		cfgPath := filepath.Join(d, "config.json")
-		if _, err := os.Stat(cfgPath); err == nil {
-			if !isValidConfig(d) {
-				zlog.Info().Str("dir", d).Msg("[appDir] 跳过无效配置文件")
-				continue
-			}
-			zlog.Info().Str("dir", d).Msg("[appDir] 找到配置文件目录")
-			return d
-		}
-	}
-
-	// 没有找到 config.json，尝试通过资源目录定位应用根目录
-	for _, d := range searchDirs {
-		if info, err := os.Stat(filepath.Join(d, "models")); err == nil && info.IsDir() {
-			zlog.Info().Str("dir", d).Msg("[appDir] 通过资源目录定位到应用根目录")
-			// 在找到的根目录创建默认配置文件
-			cfgPath := filepath.Join(d, "config.json")
-			if err := config.Save(cfgPath, config.DefaultConfig()); err != nil {
-				zlog.Error().Err(err).Msg("[appDir] 创建默认配置失败")
-			}
-			return d
-		}
-	}
-
-	// 均未找到，在 exe 直接上级目录创建默认配置（发布模式：exe 在 bin/ 下，配置在上级）
-	// 如果 exe 没有上级目录（在根目录），则在 exe 同目录创建
-	targetDir := parent
-	if targetDir == exeDir {
-		targetDir = exeDir
-	}
-	zlog.Info().Str("dir", targetDir).Msg("[appDir] 未找到配置文件或资源目录，在上级目录创建默认配置")
-	defaultCfg := config.DefaultConfig()
-	cfgPath := filepath.Join(targetDir, "config.json")
-	if err := config.Save(cfgPath, defaultCfg); err != nil {
-		zlog.Error().Err(err).Msg("[appDir] 创建默认配置失败")
-		// 创建失败时回退到 exe 同目录
-		return exeDir
-	}
-	return targetDir
-}
-
-// isStoreMode 检测当前是否为 Microsoft Store (MSIX) 安装版。
-//
-// 检测逻辑已收敛到 internal/distinfo 包（唯一事实来源），此处保留薄包装
-// 以兼容既有调用点。新增渠道相关判断请直接使用 distinfo 包。
-//
-// 生活类比：判断自己是"拎包入住"（便携版，东西放行李箱旁），
-// 还是"酒店式管理"（商店版，行李统一寄存到前台）。
-func isStoreMode() bool {
-	return distinfo.IsStore()
-}
-
-// storeAppDir 返回 Store (MSIX) 版的数据目录。
-//
-// MSIX 安装目录（WindowsApps）只读，配置/数据/模型必须写到用户可写目录，
-// 否则启动时写入 config.json 即失败。
-//
-// 数据目录：%LOCALAPPDATA%\Douya\
-// 回退顺序：LOCALAPPDATA → APPDATA → exe 所在目录。
-//
-// 首次进入新数据目录时执行一次性旧数据迁移（审计报告 §4.1）：
-// 旧版本可能把 config.json/data/ 留在安装目录旁（MSIX 文件虚拟化下可读），
-// 迁移保证老用户升级后聊天记录不丢。迁移在创建默认配置之前执行，
-// 否则目标目录已初始化会被迁移逻辑判定为跳过。
-func storeAppDir(exePath string) string {
-	base := os.Getenv("LOCALAPPDATA")
-	if base == "" {
-		base = os.Getenv("APPDATA")
-	}
-	if base == "" {
-		base = filepath.Dir(exePath)
-	}
-	dir := filepath.Join(base, "Douya")
-
-	// 确保数据目录存在
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		zlog.Error().Err(err).Str("dir", dir).Msg("[appDir] 创建 Store 数据目录失败")
-	}
-
-	// 一次性迁移旧版遗留数据（幂等；失败降级，不阻塞启动）
-	exeDir := filepath.Dir(exePath)
-	candidates := []string{exeDir}
-	if parent := filepath.Dir(exeDir); parent != exeDir {
-		candidates = append(candidates, parent)
-	}
-	distinfo.MigrateLegacyStoreData(dir, candidates)
+	dir := appdata.EnsureDataDir(exePath)
 
 	// 生成默认配置（若无），保证后续 loadAndValidateConfig 能正常读到配置
 	cfgPath := filepath.Join(dir, "config.json")
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
 		if err := config.Save(cfgPath, config.DefaultConfig()); err != nil {
-			zlog.Error().Err(err).Msg("[appDir] 创建 Store 默认配置失败")
+			zlog.Error().Err(err).Msg("[appDir] 创建默认配置失败")
 		}
 	}
-
-	zlog.Info().Str("dir", dir).Msg("[appDir] Store 模式数据目录")
 	return dir
-}
-
-// IsStoreMode 返回当前是否为 Microsoft Store (MSIX) 版，
-// 供前端据此隐藏"检查更新"等应用内自更新入口（商店政策 10.1.5）。
-func (a *App) IsStoreMode() bool {
-	return isStoreMode()
 }
 
 // bundledRuntimeDir 返回随安装包内置的 runtime 目录（含推理引擎与依赖）。
 //
-// 仅商店版存在独立的内置目录：MSIX 安装目录（WindowsApps 下）只读，
-// 引擎随包分发、开箱即用；便携版返回空串——它的"安装目录"就是数据目录本身，
-// 不存在第二个候选，调用方据此自然退化为单目录查找。
+// MSIX 安装目录（WindowsApps 下）只读，引擎随包分发、开箱即用；
+// 数据目录中的 runtime 仅存放运行期下载的后端（内容下载，非应用自更新）。
 func bundledRuntimeDir() string {
-	if !isStoreMode() {
-		return ""
-	}
 	exePath, err := os.Executable()
 	if err != nil {
 		zlog.Error().Err(err).Msg("[appDir] 获取可执行文件路径失败，无法定位内置 runtime")
@@ -473,14 +319,13 @@ func bundledRuntimeDir() string {
 }
 
 // runtimeDirCandidates 返回按优先级排列的候选 runtime 目录列表：
-// 商店版为 [内置目录（只读）, 数据目录（可写）]，便携版为 [数据目录]。
-// 顺序即优先级：内置引擎保证商店版首启即用，不被数据目录的旧文件干扰。
+// [内置目录（只读、随包分发）, 数据目录（可写、运行期下载）]。
+// 顺序即优先级：内置引擎保证首启即用，不被数据目录的旧文件干扰。
 func runtimeDirCandidates() []string {
-	dirs := make([]string, 0, 2)
-	if br := bundledRuntimeDir(); br != "" {
-		dirs = append(dirs, br)
+	return []string{
+		bundledRuntimeDir(),
+		filepath.Join(appDir(), "runtime"),
 	}
-	return append(dirs, filepath.Join(appDir(), "runtime"))
 }
 
 func resolvePath(p string) string {

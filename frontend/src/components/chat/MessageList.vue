@@ -709,22 +709,16 @@ watch(
   margin: auto 0;
 }
 
-/* 扉页小印：LOGO 收敛为 64px 圆角方印，发丝描边 + 单一浅阴影
- * 双主题自适应，背景图模式下以卡面底色承托 */
+/* 扉页小印：LOGO 透明原图直接呈现——无边框、无底色、无阴影 */
 .welcome-logo {
   width: 64px;
   height: 64px;
-  border-radius: 14px;
-  overflow: hidden;
-  background: var(--surface-card);
-  border: 1px solid var(--border-color);
-  box-shadow: var(--shadow-sm);
 }
 
 .welcome-logo img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
   user-select: none;
   -webkit-user-drag: none;

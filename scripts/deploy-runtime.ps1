@@ -24,7 +24,7 @@ $ErrorActionPreference = "Stop"
 #
 # 规则：
 #   - 项目根 runtime\ 只放"当前版本"，不放备份（保持事实源干净）
-#   - 旧版本备份留在 build\runtime\xxx.b构建号（build.ps1 同步发布包时自动排除）
+#   - 旧版本备份留在 build\runtime\xxx.b构建号（本地回滚用，MSIX 打包只取项目根 runtime\）
 #   - models 同理：个人模型放 build\models\（dev 测试），项目根 models\ 只留占位结构
 #
 # 用法示例：
@@ -140,5 +140,5 @@ Write-Host "  dev镜像 : build\runtime\$Backend\"
 Write-Host "  部署时间: $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))"
 Write-Host ""
 Write-Host "后续：" -ForegroundColor Yellow
-Write-Host "  - 发布便携版: .\build.ps1 (自动携带 runtime\$Backend，排除 .b数字 备份)" -ForegroundColor Gray
-Write-Host "  - 商店 MSIX : build\windows\msix\make-msix.ps1 (不含 runtime，用户端按需下载)" -ForegroundColor Gray
+Write-Host "  - 本地自测  : .\build.ps1 构建应用，引擎位于 build\runtime\$Backend（dev 数据区）" -ForegroundColor Gray
+Write-Host "  - 商店 MSIX : build\windows\msix\make-msix.ps1（内置 runtime\{cuda,vulkan,cpu} 三套引擎随包分发）" -ForegroundColor Gray

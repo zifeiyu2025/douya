@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"douya/internal/config"
 	"douya/internal/llm"
@@ -24,8 +23,8 @@ import (
 // cleanupOrphanProcesses 清理上次进程残留的孤儿 llama-server。
 // 生活类比：开店前先清理前一天遗留的垃圾，避免影响今天的运营。
 // P2.5 修复：只清理本应用 runtime 目录下的 llama-server，避免误杀用户手动启动的同名进程。
-// Store 适配：引擎可能运行在内置目录（WindowsApps）下，该目录的孤儿进程同样要清理，
-// 否则商店版崩溃后重启时无法回收旧引擎进程（占用显存/内存）。
+// 引擎可能运行在包内内置目录（WindowsApps）或数据 runtime 目录下，两处都要清理，
+// 否则崩溃后重启时无法回收旧引擎进程（占用显存/内存）。
 func (a *App) cleanupOrphanProcesses() {
 	llm.KillOrphanLlamaServers(filepath.Join(appDir(), "runtime"))
 	if br := bundledRuntimeDir(); br != "" {
@@ -117,8 +116,8 @@ func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
 	// 遇到装不上的发动机也悄悄换成稳妥的 CPU 模式，全程不问话。
 
 	// P3 改进：使用多目录运行时预校验的解析函数。候选目录为
-	// [内置 runtime（商店版只读、随包分发）, 数据 runtime（可写、运行期下载）]，
-	// 内置目录优先保证"开箱即用"；便携版两目录合一，行为与原单目录版本完全一致。
+	// [内置 runtime（只读、随包分发）, 数据 runtime（可写、运行期下载）]，
+	// 内置目录优先保证"开箱即用"。
 	runtimeDirs := runtimeDirCandidates()
 	resolvedBackend := llm.ResolveBackendTypeWithRuntimeDirs(a.hwInfo, cfg.BackendType, runtimeDirs)
 	isAuto := cfg.BackendType == "" || cfg.BackendType == string(llm.BackendAuto)
@@ -156,43 +155,47 @@ func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
 		}
 	}
 
-	// 幂等查找已安装后端：内置目录或数据目录任一命中即直接复用，不进入下载分支。
-	// 这是商店版跳过首启"下载确认弹窗"的关键（微软认证 10.1.2.10 失败的根因正是该弹窗：
-	// 测试员点「确定」前应用按设计退出，被判定为崩溃）。
+	// 幂等查找已安装后端：只搜索"包内内置目录"。
+	// 微软认证 10.1.2.10 的根因正是首启"下载确认弹窗"：测试员点「确定」前应用
+	// 按设计退出，被判定为崩溃；而弹窗本身源于引擎查找命中失败。
 	//
-	// 【P3.7 商店版崩溃修复】搜索范围在商店版必须收敛到"包内内置目录"。
+	// 【P3.7 商店版崩溃修复】搜索范围必须收敛到"包内内置目录"。
 	// 诊断实验（diag_store）已确认：MSIX 容器内从"可写数据目录"启动引擎会触发
 	// "Unknown Hard Error"（退出码 0xC0000267 = STATUS_DLL_INIT_FAILED）——
 	// 该路径被文件虚拟化重定向到 LocalCache\Local，DLL 加载器无法从中加载引擎依赖；
 	// 而从包内内置目录（WindowsApps，只读、非虚拟化）启动则完全正常。
-	// 因此商店版绝不能使用数据目录的引擎副本，只能跑随包分发的内置引擎。
-	searchDirs := runtimeDirs
-	if isStoreMode() {
-		if br := bundledRuntimeDir(); br != "" {
-			searchDirs = []string{br}
-		} else {
-			searchDirs = nil
-		}
+	// 因此绝不能使用数据目录的引擎副本，只能跑随包分发的内置引擎。
+	searchDirs := []string{bundledRuntimeDir()}
+	if searchDirs[0] == "" {
+		searchDirs = nil
 	}
 	serverPath := llm.FindInstalledBackend(resolvedBackend, searchDirs)
 
-	// Store 特例：商店版已把 cuda/vulkan/cpu 三套引擎全部内置（见 make-msix.ps1），
-	// N 卡 auto 模式上方即可直接命中包内 CUDA，无需再走此分支。
-	// 此分支仅作安全网：万一某次发布包内缺了目标后端（如 CUDA 体积大被精简），
+	// 安全网：包内已内置 cuda/vulkan/cpu 三套引擎（见 make-msix.ps1），
+	// N 卡 auto 模式上方即可直接命中包内 CUDA，正常不会走到这里。
+	// 万一某次发布包内缺了目标后端（如 CUDA 体积大被精简），
 	// 仍从包内已内置的其他引擎兜底：优先 Vulkan（跨 N/A/I 厂商通用），其次 CPU。
-	// 注意商店版绝不能回退到数据目录下载的引擎（会触发 Unknown Hard Error），
-	// 因此这里的兜底只查 searchDirs（商店版已收敛为仅包内目录）。
-	if isStoreMode() && serverPath == "" {
+	// 注意绝不能回退到数据目录下载的引擎（会触发 Unknown Hard Error），
+	// 因此这里的兜底只查 searchDirs（已收敛为仅包内目录）。
+	//
+	// 回退必须非静默：本地 build\bin 布局下 exe 旁 runtime 若缺目标引擎
+	// （build.ps1 只产出裸 exe），此分支每次启动都会命中，N 卡会被静默换成
+	// Vulkan 且无任何提示（首启排障时仅有 wanted=cuda 一行日志可循）。
+	// 因此回退发生时同步推送 server:warning 事件告知用户。
+	if serverPath == "" {
+		wanted := resolvedBackend
 		if vkPath := llm.FindInstalledBackend(llm.BackendVulkan, searchDirs); vkPath != "" {
-			zlog.Warn().Str("wanted", resolvedBackend.String()).
-				Msg("[startup] 商店版：目标后端不在包内，改用包内内置 Vulkan")
+			zlog.Warn().Str("wanted", wanted.String()).
+				Msg("[startup] 目标后端不在包内，改用包内内置 Vulkan")
 			resolvedBackend = llm.BackendVulkan
 			serverPath = vkPath
+			a.warnBundledFallback(ctx, wanted)
 		} else if cpuPath := llm.FindInstalledBackend(llm.BackendCPU, searchDirs); cpuPath != "" {
-			zlog.Warn().Str("wanted", resolvedBackend.String()).
-				Msg("[startup] 商店版：目标后端不在包内，改用包内内置 CPU")
+			zlog.Warn().Str("wanted", wanted.String()).
+				Msg("[startup] 目标后端不在包内，改用包内内置 CPU")
 			resolvedBackend = llm.BackendCPU
 			serverPath = cpuPath
+			a.warnBundledFallback(ctx, wanted)
 		}
 	}
 
@@ -230,9 +233,15 @@ func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
 	// 主包已安装但 cudart 包未解压时，validatePaths 会检测到厂商 DLL 缺失，
 	// 导致无限提示下载。此处主动解压已有的 cudart zip 包，避免重复下载。
 	// 生活类比：电脑装好了但外设配件包还没拆，开机前先把配件包装好。
+	//
+	// 注意先检查 cudart DLL 是否已存在（包内内置或数据目录均已解压）：
+	// EnsureCudartInstalled 只认数据目录的 zip，包内自带 DLL 时它每次启动
+	// 都会打一条"未找到 cudart zip 包"的误导性警告。
 	if resolvedBackend == llm.BackendCUDA && serverPath != "" {
-		if cudartErr := llm.EnsureCudartInstalled(runtimeDir, nil); cudartErr != nil {
-			zlog.Warn().Err(cudartErr).Msg("[startup] cudart 包未安装，validatePaths 将报告缺失")
+		if !cudartDLLsPresent(runtimeDirCandidates()) {
+			if cudartErr := llm.EnsureCudartInstalled(runtimeDir, nil); cudartErr != nil {
+				zlog.Warn().Err(cudartErr).Msg("[startup] cudart 包未安装，validatePaths 将报告缺失")
+			}
 		}
 	}
 
@@ -249,51 +258,11 @@ func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
 	}
 
 	info := llm.GetBackendInfo(resolvedBackend)
-	gpuName := "未知"
-	if a.hwInfo != nil && a.hwInfo.GPUName != "" {
-		gpuName = a.hwInfo.GPUName
-	}
 
-	// 构造缺失文件清单：validatePaths 有结果时用其清单，否则用通用提示
-	var missingMsg strings.Builder
-	if checkResult.HasRuntimeIssues() {
-		for _, p := range checkResult.RuntimeMissing {
-			missingMsg.WriteString("  ❌ ")
-			missingMsg.WriteString(p)
-			missingMsg.WriteString("\n")
-		}
-	} else {
-		missingMsg.WriteString("  ❌ 推理引擎（llama-server.exe）及依赖文件缺失\n")
-	}
-
-	// P2.6（前端化）：便携版使用"前端风格"对话框询问是否下载后端，前端答复后解除阻塞。
-	// 商店版（MSIX）例外：不弹确认框——微软商店审核 10.1.2.10 曾把
+	// 引擎缺失时不弹任何确认框，直接进入后台静默下载（带重试 3 次），
+	// 保证开箱即用、永不因等待确认而退出——微软商店审核 10.1.2.10 曾把
 	// "测试员在下载确认框未确认前应用退出"判定为崩溃（闪退）。
-	// 商店版一旦缺少引擎，直接进入后台静默下载，保证开箱即用、永不因等待确认而退出。
-	// 生活类比：便携版像订餐时问顾客"要不要加辣"，商店版像连锁店按标准配方直接出品。
-	proceed := true
-	if !isStoreMode() {
-		proceed = a.waitForBackendDownloadConfirm(ctx, BackendDownloadRequestPayload{
-			GPUName:        gpuName,
-			BackendName:    info.DisplayName,
-			BackendType:    resolvedBackend.String(),
-			MissingFiles:   missingMsg.String(),
-			TimeoutSeconds: int(backendChoiceTimeout / time.Second),
-			SourceURL:      "https://github.com/ggml-org/llama.cpp/releases",
-		})
-	} else {
-		zlog.Info().Msg("[startup] 商店版：引擎缺失时静默后台下载，不弹确认框（避免审核判定闪退）")
-	}
-
-	if !proceed {
-		zlog.Info().Msg("[startup] 用户取消下载，退出应用")
-		a.forceQuit()
-		return true
-	}
-
-	// 用户选择「是」：异步下载+安装（带重试 3 次），startup 直接返回
-	// 下载进度通过事件推送到前端，在启动动效中展示
-	zlog.Info().Str("backend", resolvedBackend.String()).Msg("[startup] 用户选择从 GitHub 下载后端")
+	zlog.Info().Str("backend", resolvedBackend.String()).Msg("[startup] 引擎缺失，静默后台下载")
 
 	// 通知前端进入下载阶段（splashScreen 将切换到 downloading 阶段并显示进度条）
 	runtime.EventsEmit(ctx, EventBackendDownloadStart, map[string]any{
@@ -330,6 +299,39 @@ func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
 	// startup 直接返回，跳过后续流程（数据库/llama-server 启动等）
 	// 应用窗口正常显示，前端监听下载事件展示进度，完成后提示用户重启
 	return true
+}
+
+// cudartDLLsPresent 检查任一候选 runtime 目录的 cuda/ 子目录下
+// 是否已有 cudart64_*.dll（厂商运行时 DLL，glob 兼容 CUDA 12/13 命名）。
+// 已存在说明 cudart 包此前已解压或随包内置，无需再找 zip。
+func cudartDLLsPresent(runtimeDirs []string) bool {
+	for _, dir := range runtimeDirs {
+		if dir == "" {
+			continue
+		}
+		matches, _ := filepath.Glob(filepath.Join(dir, "cuda", "cudart64_*.dll"))
+		if len(matches) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// warnBundledFallback 推送"包内缺目标引擎已回退"的警告事件。
+//
+// 生活类比：车检员想装原厂发动机但货箱里没有，临时换了通用发动机——
+// 换可以换，但必须告诉车主"这次不是原厂的"，否则用户只会纳闷
+// "明明是 N 卡为什么用的是跨厂商后端"。
+func (a *App) warnBundledFallback(ctx context.Context, wanted llm.BackendType) {
+	if ctx == nil {
+		return
+	}
+	runtime.EventsEmit(ctx, EventServerWarning, map[string]any{
+		"type": "backend_package_fallback",
+		"message": fmt.Sprintf("包内未找到 %s 引擎，本次启动已改用包内内置引擎。"+
+			"请确认发布包含完整引擎（本地调试：先运行 scripts\\deploy-runtime.ps1 部署引擎，再执行 build.ps1）。",
+			llm.GetBackendInfo(wanted).DisplayName),
+	})
 }
 
 // handleMissingModels 检查 models 目录，若为空则弹窗提示用户下载模型。

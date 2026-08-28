@@ -203,9 +203,7 @@ const inputPlaceholder = computed(() => {
 })
 
 const canSend = computed(
-  () =>
-    !chatUnavailable.value &&
-    (inputText.value.trim() || attachments.value.length > 0)
+  () => !chatUnavailable.value && (inputText.value.trim() || attachments.value.length > 0)
 )
 
 function adjustHeight() {

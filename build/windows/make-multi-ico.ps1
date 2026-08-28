@@ -1,18 +1,24 @@
-﻿# 从透明底 appicon.png 生成多尺寸真透明 icon.ico
+﻿# 从透明底图标素材生成多尺寸真透明 icon.ico
 # 任务栏高 DPI 需要 256 等大尺寸；只有真透明通道的系统图标才能像 Edge 一样透出背景
+# 素材：build\appicon.png（透明底、去水印后的完整原图构图）——所有尺寸统一使用，
+# 不裁剪特写，保证细节与原图一致。
+# 产出：build\windows\icon.ico（exe 资源图标）与根目录 app.ico（系统托盘图标），两者内容一致
 Add-Type -AssemblyName System.Drawing
 
-$src = [System.Drawing.Image]::FromFile("D:\MyGoWorkspace\douya\build\appicon.png")
-$sizes = @(16, 24, 32, 48, 64, 128, 256)
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ProjectRoot = (Resolve-Path (Join-Path $ScriptDir "..\..")).Path
 
-# 生成每尺寸的 PNG 字节流（保留透明通道）
-$pngs = @()
-foreach ($s in $sizes) {
+$Source = Join-Path $ProjectRoot "build\appicon.png"
+if (-not (Test-Path $Source)) { throw "未找到图标素材: $Source" }
+
+function New-IconPng([int]$s) {
+    $src = [System.Drawing.Image]::FromFile($Source)
     $bmp = New-Object System.Drawing.Bitmap($s, $s)
     $g = [System.Drawing.Graphics]::FromImage($bmp)
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
     $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
     $g.Clear([System.Drawing.Color]::Transparent)
+    # 原样全幅绘制（透明底自带边角余量），与原图视觉一致
     $ratio = [Math]::Min($s / $src.Width, $s / $src.Height)
     $nw = [int]($src.Width * $ratio)
     $nh = [int]($src.Height * $ratio)
@@ -22,10 +28,16 @@ foreach ($s in $sizes) {
     $g.Dispose()
     $ms = New-Object System.IO.MemoryStream
     $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
-    $pngs += ,$ms.ToArray()
+    $bytes = $ms.ToArray()
     $ms.Dispose()
     $bmp.Dispose()
+    $src.Dispose()
+    return ,$bytes
 }
+
+$sizes = @(16, 24, 32, 48, 64, 128, 256)
+$pngs = @()
+foreach ($s in $sizes) { $pngs += ,(New-IconPng $s) }
 
 # 写 ICO 容器
 $out = New-Object System.IO.MemoryStream
@@ -57,6 +69,8 @@ $bw.Write($entryQ.ToArray())
 # 依次写入各尺寸 PNG 数据
 foreach ($d in $pngs) { $bw.Write($d) }
 $bw.Flush()
-[System.IO.File]::WriteAllBytes("D:\MyGoWorkspace\douya\build\windows\icon.ico", $out.ToArray())
-$eb.Dispose(); $entryQ.Dispose(); $bw.Dispose(); $out.Dispose(); $src.Dispose()
-Write-Host "generated multi-size icon.ico frames=$count"
+$icoBytes = $out.ToArray()
+[System.IO.File]::WriteAllBytes((Join-Path $ProjectRoot "build\windows\icon.ico"), $icoBytes)
+[System.IO.File]::WriteAllBytes((Join-Path $ProjectRoot "app.ico"), $icoBytes)
+$eb.Dispose(); $entryQ.Dispose(); $bw.Dispose(); $out.Dispose()
+Write-Host "generated multi-size icon.ico + app.ico frames=$count (完整原图构图)"

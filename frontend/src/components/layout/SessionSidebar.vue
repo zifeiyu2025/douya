@@ -274,6 +274,17 @@ function removeConv(conv: Conversation) {
   flex-direction: column;
   width: var(--sidebar-width);
   height: 100%;
+  opacity: 1;
+  transform: translateX(0);
+  transition:
+    opacity var(--transition-normal) ease,
+    transform var(--transition-normal) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 收拢时内容淡出并顺势左移，配合宽度收拢避免"硬裁切"观感 */
+.session-sidebar.collapsed .sidebar-inner {
+  opacity: 0;
+  transform: translateX(-16px);
 }
 
 /* ===== 头部 ===== */
@@ -570,5 +581,15 @@ function removeConv(conv: Conversation) {
   height: 1px;
   margin: 4px 6px;
   background: var(--border-light);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-sidebar,
+  .sidebar-inner {
+    transition: none;
+  }
+  .session-sidebar.collapsed .sidebar-inner {
+    transform: none;
+  }
 }
 </style>

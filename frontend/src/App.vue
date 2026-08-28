@@ -72,12 +72,6 @@
           :payload="startupErrorPayload"
           @exit="handleStartupErrorExit"
         />
-        <BackendDownloadDialog
-          :show="backendDownloadVisible"
-          :payload="backendDownloadPayload"
-          @download="handleBackendDownload(true)"
-          @exit="handleBackendDownload(false)"
-        />
       </n-dialog-provider>
     </n-message-provider>
   </n-config-provider>
@@ -94,7 +88,6 @@ import SplashScreen from './components/layout/SplashScreen.vue'
 import ModelSwitchOverlay from './components/ModelSwitchOverlay.vue'
 import ExitOverlay from './components/ExitOverlay.vue'
 import StartupErrorCard from './components/StartupErrorCard.vue'
-import BackendDownloadDialog from './components/BackendDownloadDialog.vue'
 // 背景双层绘制模型：同一张图按主题各存一套透明度/模糊/遮罩参数
 import { buildBackgroundStyle } from './utils/backgroundStyle'
 import { useSettingsStore } from './stores/settings'
@@ -180,10 +173,7 @@ const {
   exitProgress,
   startupErrorVisible,
   startupErrorPayload,
-  handleStartupErrorExit,
-  backendDownloadVisible,
-  backendDownloadPayload,
-  handleBackendDownload
+  handleStartupErrorExit
 } = useAppLifecycle()
 
 // ----- 服务器控制台 -----

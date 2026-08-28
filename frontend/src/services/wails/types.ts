@@ -95,16 +95,6 @@ export interface StartupErrorPayload {
   detail: string
 }
 
-/** "是否下载后端"确认 payload：runtime 缺失时推送，前端展示后让用户选择 */
-export interface BackendDownloadRequestPayload {
-  gpu_name: string
-  backend_name: string
-  backend_type: string
-  missing_files: string
-  timeout_seconds: number
-  source_url: string
-}
-
 /** 后端下载完成事件 */
 export interface BackendDownloadComplete {
   backend: string
@@ -192,23 +182,6 @@ export interface SlotInfo {
   model: string
   n_cache_tokens: number
   cache_shift: boolean
-}
-
-/** 更新信息 */
-export interface UpdateInfo {
-  has_update: boolean
-  latest_version: string
-  current_version: string
-  download_url: string
-  release_notes: string
-  published_at: string
-}
-
-/** 更新下载进度事件 */
-export interface UpdateProgressEvent {
-  percent: number
-  downloaded: number
-  total: number
 }
 
 /** 聊天消息（用于 token 计数和模板应用） */

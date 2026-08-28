@@ -1,10 +1,10 @@
 <template>
   <div class="think-block" :class="{ 'is-thinking': isThinking }">
     <div class="think-block-header" @click="expanded = !expanded">
-      <n-icon size="18" :class="{ rotated: expanded }">
+      <n-icon size="15" class="think-chevron" :class="{ rotated: expanded }">
         <ChevronForwardOutline />
       </n-icon>
-      <n-icon size="16" class="think-icon"><BulbOutline /></n-icon>
+      <n-icon size="14" class="think-icon"><BulbOutline /></n-icon>
       <span v-if="isThinking" class="think-status thinking">
         深度思考中
         <span class="thinking-dots">
@@ -35,7 +35,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { NIcon } from 'naive-ui'
-import { ChevronForwardOutline } from '@vicons/ionicons5'
+import { ChevronForwardOutline, BulbOutline } from '@vicons/ionicons5'
 import { useMorphRender } from '../../composables/useMorphRender'
 
 const props = defineProps<{
@@ -101,7 +101,7 @@ const formattedDuration = computed(() => {
 .think-block-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   cursor: pointer;
   user-select: none;
   padding: 4px 0;
@@ -112,14 +112,6 @@ const formattedDuration = computed(() => {
 
 .think-block-header:hover {
   color: var(--text-primary);
-}
-
-/* § 章节号：等宽字体 + 朱砂印色，如书页边注 */
-.think-mark {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1;
-  color: var(--seal-color);
 }
 
 /* 状态文字：衬线体呼应书页标题气质 */
@@ -137,15 +129,27 @@ const formattedDuration = computed(() => {
   color: var(--text-secondary);
 }
 
-/* 展开指示箭头收敛至行尾 */
+/* 折叠指示箭头：位于行首，展开时顺时针转 90° 指向下方 */
 .think-chevron {
-  margin-left: auto;
+  flex-shrink: 0;
   color: var(--text-muted);
-  transition: color 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    color 0.2s ease;
+}
+
+.think-chevron.rotated {
+  transform: rotate(90deg);
 }
 
 .think-block-header:hover .think-chevron {
   color: var(--accent-primary);
+}
+
+/* 灯泡图标：朱砂印色点题 */
+.think-icon {
+  flex-shrink: 0;
+  color: var(--seal-color);
 }
 
 /* 折页内容区：透明落纸 + 左缘朱砂折页线（常态半透，克制） */
@@ -179,6 +183,9 @@ const formattedDuration = computed(() => {
   .think-block.is-thinking .think-block-content {
     animation: none;
     border-left-color: var(--seal-color);
+  }
+  .think-chevron {
+    transition: none;
   }
 }
 

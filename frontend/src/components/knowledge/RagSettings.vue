@@ -7,7 +7,10 @@
   <section class="rag-section">
     <!-- 节头：§ 编号 + 标题 -->
     <header class="rag-head">
-      <span class="section-num head-no"><span class="sec-mark">§</span> 二</span>
+      <span class="section-num head-no">
+        <span class="sec-mark">§</span>
+        二
+      </span>
       <h2 class="head-title">检索配置</h2>
       <span class="head-space" />
     </header>

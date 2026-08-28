@@ -16,23 +16,23 @@ import (
 // nightly（bXXXXX）release 含 *.zip 二进制包。
 func TestReleaseHasBinaryAsset(t *testing.T) {
 	tests := []struct {
-		name    string
-		assets  []string
+		name      string
+		assets    []string
 		hasBinary bool
 	}{
 		{
-			name:    "nightly 含 zip 二进制",
-			assets:  []string{"llama-b10567-bin-win-cuda-13.3-x64.zip", "cudart-llama-bin-win-cuda-13.3-x64.zip"},
+			name:      "nightly 含 zip 二进制",
+			assets:    []string{"llama-b10567-bin-win-cuda-13.3-x64.zip", "cudart-llama-bin-win-cuda-13.3-x64.zip"},
 			hasBinary: true,
 		},
 		{
-			name:    "稳定版只有 nightly-tag.txt 指针",
-			assets:  []string{"nightly-tag.txt"},
+			name:      "稳定版只有 nightly-tag.txt 指针",
+			assets:    []string{"nightly-tag.txt"},
 			hasBinary: false,
 		},
 		{
-			name:    "空资产列表",
-			assets:  nil,
+			name:      "空资产列表",
+			assets:    nil,
 			hasBinary: false,
 		},
 	}

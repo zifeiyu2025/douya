@@ -313,7 +313,7 @@ func ResolveBackendTypeWithRuntime(hw *system.HardwareInfo, cfgBackend string, r
 //  2. 再尝试 CPU（纯 CPU，兜底方案）
 //  3. 都没安装则返回原推断后端，交给 installBackend 触发下载流程
 //
-// 区别仅在于"是否已安装"的检查覆盖所有候选目录（如商店版内置目录 + 数据目录），
+// 区别仅在于"是否已安装"的检查覆盖所有候选目录（包内内置目录 + 数据目录），
 // 使包内自带的引擎能被识别，从而跳过下载流程（微软商店政策 10.1.2.10 要求开箱即用）。
 //
 // 参数：
@@ -399,22 +399,6 @@ func ResolveBackendTypeWithRuntimeDirs(hw *system.HardwareInfo, cfgBackend strin
 // "auto 模式首选后端被能力预检剔除"。它不会出现在任何配置或前端值里，
 // IsValidBackendType 会拒绝它，因此不会泄露到外部。
 const BackendUnknown BackendType = "unknown_sentinel"
-
-// isBackendInstalled 检查指定后端是否已安装到 runtime 目录（llama-server.exe 存在）。
-//
-// 生活类比：派人去车库看一眼，指定型号的发动机装好了没。
-func isBackendInstalled(bt BackendType, runtimeDir string) bool {
-	if bt == BackendAuto {
-		return false
-	}
-	info := GetBackendInfo(bt)
-	if info.Subdir == "" {
-		return false
-	}
-	serverPath := filepath.Join(runtimeDir, info.Subdir, llamaServerExe)
-	_, err := os.Stat(serverPath)
-	return err == nil
-}
 
 // backendRuntimeDeps 记录各后端在 Windows 上运行所需的外部运行时 DLL（缺失时启动会失败）。
 // CUDA/Vulkan/CPU 的运行时由显卡驱动或安装包自带，无需预检；

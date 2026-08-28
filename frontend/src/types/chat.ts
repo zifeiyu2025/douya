@@ -293,6 +293,8 @@ export interface Config {
   top_k: number
   repeat_penalty: number
   kv_unified: boolean
+  // 统一 KV 池下每个并行 slot 的独立上下文上限（0=不启用，上游 b10675 新增）
+  kv_unified_per_slot: number
   cache_idle_slots: boolean
   cache_reuse: number
   cache_ram: number
@@ -456,6 +458,8 @@ export interface Config {
   cpu_moe: boolean
   // 前 N 层 MoE 权重 CPU 卸载（0=不启用，精细控制 cpu_moe 的影响范围）
   n_cpu_moe: number
+  // 前 N 层 FFN 权重 CPU 卸载（0=不启用，上游 b10675 新增，比 n_cpu_moe 覆盖面广）
+  n_cpu_ffn: number
   // 算子卸载开关（null=使用默认值 true，对应 Go *bool）
   op_offload: boolean | null
   // MCP 服务器列表（豆芽原生 MCP 客户端，通过 stdio 连接外部 MCP server）
@@ -519,6 +523,7 @@ export const DEFAULT_CONFIG: Config = {
   top_k: 40, // 与 Go DefaultConfig 对齐（llama.cpp 默认值）
   repeat_penalty: 1,
   kv_unified: false,
+  kv_unified_per_slot: 0, // 0=不启用（与 Go DefaultConfig 对齐）
   cache_idle_slots: true,
   cache_reuse: 256,
   cache_ram: 0, // 与 Go DefaultConfig 对齐
@@ -654,6 +659,7 @@ export const DEFAULT_CONFIG: Config = {
   direct_io: false, // 默认不绕过页面缓存
   cpu_moe: false, // 默认不卸载 MoE 权重到 CPU
   n_cpu_moe: 0, // 0=不启用
+  n_cpu_ffn: 0, // 0=不启用（与 Go DefaultConfig 对齐）
   op_offload: null, // null=使用默认值 true（对应 Go *bool nil）
   mcp_servers: [] // 默认不连接任何 MCP server
 }

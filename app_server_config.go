@@ -177,6 +177,7 @@ func buildServerConfigFromFields(
 		MmprojOffload:          d.MmprojOffload,
 		MmprojDevice:           cfg.MmprojDevice,
 		KVUnified:              cfg.KVUnified,
+		KVUnifiedPerSlot:       cfg.KVUnifiedPerSlot,
 		CacheIdleSlots:         cfg.CacheIdleSlots,
 		CacheRAM:               cfg.CacheRAM,
 		ImageMinTokens:         cfg.ImageMinTokens,
@@ -289,6 +290,7 @@ func buildServerConfigFromFields(
 		DirectIO:                 cfg.DirectIO,
 		CPUMoe:                   cfg.CPUMoe,
 		NCpuMoe:                  cfg.NCpuMoe,
+		NCpuFfn:                  cfg.NCpuFfn,
 		OpOffload:                cfg.OpOffload,
 	}
 }

@@ -17,11 +17,7 @@ import { computed, onMounted, onUnmounted, readonly, ref, watch } from 'vue'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import { wails } from '../services/wails'
-import type {
-  ServerWarningEvent,
-  StartupErrorPayload,
-  BackendDownloadRequestPayload
-} from '../services/wails'
+import type { ServerWarningEvent, StartupErrorPayload } from '../services/wails'
 import { discreteDialog, discreteMessage } from '../utils/discrete'
 import { logError } from '../utils/logger'
 import { classifyError } from '../utils/errorGuidance'
@@ -74,28 +70,6 @@ export function useAppLifecycle() {
         content: '向后端确认退出时出错，请手动关闭应用。',
         positiveText: '知道了'
       })
-    }
-  }
-
-  // ===== "是否下载后端"确认框状态 =====
-  // runtime 缺失需下载时，后端推送 EventBackendDownloadRequest，前端弹框询问；
-  // 用户作答后调用 resolveBackendDownloadConfirm 写回 channel，解除后端阻塞等待。
-  const backendDownloadVisible = ref(false)
-  const backendDownloadPayload = ref<BackendDownloadRequestPayload | null>(null)
-
-  function showBackendDownloadDialog(payload: BackendDownloadRequestPayload) {
-    backendDownloadPayload.value = payload
-    backendDownloadVisible.value = true
-  }
-
-  async function handleBackendDownload(proceed: boolean) {
-    backendDownloadVisible.value = false
-    backendDownloadPayload.value = null
-    try {
-      await wails.resolveBackendDownloadConfirm(proceed)
-    } catch (e) {
-      logError('resolveBackendDownloadConfirm failed', e)
-      discreteMessage.error('提交选择失败，将默认继续下载')
     }
   }
 
@@ -286,13 +260,6 @@ export function useAppLifecycle() {
     unsubscribers.push(
       wails.subscribeStartupError(err => {
         showStartupError(err)
-      })
-    )
-
-    // "是否下载后端"确认框：runtime 缺失需下载时推送，让用户决定下载或退出。
-    unsubscribers.push(
-      wails.subscribeBackendDownloadRequest(payload => {
-        showBackendDownloadDialog(payload)
       })
     )
 
@@ -487,10 +454,6 @@ export function useAppLifecycle() {
     // 启动期致命错误卡状态
     startupErrorVisible: readonly(startupErrorVisible),
     startupErrorPayload: readonly(startupErrorPayload),
-    handleStartupErrorExit,
-    // "是否下载后端"确认框状态
-    backendDownloadVisible: readonly(backendDownloadVisible),
-    backendDownloadPayload: readonly(backendDownloadPayload),
-    handleBackendDownload
+    handleStartupErrorExit
   }
 }

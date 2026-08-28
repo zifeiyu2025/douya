@@ -153,9 +153,9 @@ func detectLanguage(content string) string {
 
 // estimateTokensByLang estimates token count for a given text and language.
 // 采用偏保守的估算系数，确保预防性裁剪在溢出前生效：
-// - 中文：Qwen/GPT 系 BPE 实测约 1.4~1.6 字/token，旧系数按 2 token/字计算虚高约 3 倍，
-//   曾导致小会话被误判"上下文超限"而触发降级裁剪；现取 1 字=1 token，保留约 50% 安全边际
-// - 英文：BPE tokenizer 约 4 chars/token，取 3 chars/token 保持轻微保守
+//   - 中文：Qwen/GPT 系 BPE 实测约 1.4~1.6 字/token，旧系数按 2 token/字计算虚高约 3 倍，
+//     曾导致小会话被误判"上下文超限"而触发降级裁剪；现取 1 字=1 token，保留约 50% 安全边际
+//   - 英文：BPE tokenizer 约 4 chars/token，取 3 chars/token 保持轻微保守
 func estimateTokensByLang(text string, lang string) int {
 	runes := []rune(text)
 	if lang == "zh" {

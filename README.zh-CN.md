@@ -116,15 +116,16 @@
 
 ## 🚀 快速开始
 
-### 方式一：下载发布包（推荐）
+### 方式一：微软商店安装（推荐）
 
-前往 [Releases](https://github.com/zifeiyu2025/douya/releases) 下载 `Douya-vX.X.X-windows.zip`，解压即可使用，**无需安装**。
+豆芽以微软商店（MSIX）为唯一发行渠道：在 Microsoft Store 搜索"豆芽"安装即可，更新由商店自动接管（应用内无自更新）。
 
 **首次使用：**
-1. 解压 zip 到任意目录
-2. 将 GGUF 模型文件放入 `models/` 目录
-3. 双击运行 `bin/Douya.exe`
-4. 程序会在 `data/` 目录自动创建数据库和配置
+1. 将 GGUF 模型文件放入 `%LOCALAPPDATA%\Douya\models\` 目录
+2. 从开始菜单启动豆芽
+3. 程序会在 `%LOCALAPPDATA%\Douya\data\` 自动创建数据库和配置
+
+> CUDA / Vulkan / CPU 三套推理引擎已随 MSIX 包内置，开箱即用；若某套引擎缺失，应用会后台静默下载，不打断启动。
 
 ### 方式二：从源码构建
 
@@ -140,8 +141,9 @@ wails dev
 ```
 
 ```powershell
-# 生产构建（生成 release/ 发布包）
+# 生产构建（产出 build/bin/Douya.exe，供 MSIX 打包使用）
 .\build.ps1
+# 商店打包：build/windows/msix/make-msix.ps1 产出 build/bin/Douya.msix
 ```
 
 > `build.ps1` 优先使用 `D:\Program Files\GoTools\bin\wails.exe`，回退到 `$GOPATH/bin/wails.exe`。脚本包含 UTF-8 BOM 以兼容 PowerShell 5.1。
@@ -184,7 +186,7 @@ douya/
 ├── main.go                     # 应用入口：Wails 初始化、单实例、系统托盘
 ├── app.go                      # 核心逻辑：模型切换、服务管理、Wails 绑定
 ├── app_*.go                    # 应用层模块（chat/config/lifecycle/rag/search/server）
-├── build.ps1                   # Windows 构建脚本（生成 release/ 发布包）
+├── build.ps1                   # Windows 构建脚本（产出 build/bin/Douya.exe）
 ├── internal/
 │   ├── chat/                   # 对话服务：消息构建、流式生成、搜索集成、RAG
 │   ├── config/                 # 配置管理：JSON 持久化、参数验证
@@ -331,21 +333,19 @@ cd frontend && npm test
 
 ---
 
-## 📦 发布包结构
+## 📦 商店版（MSIX）数据目录结构
+
+应用以 MSIX 安装后，全部可写数据统一位于 `%LOCALAPPDATA%\Douya\`（安装目录只读）：
 
 ```
-Douya-vX.X.X/
-├── bin/
-│   └── Douya.exe               # 主程序（双击运行）
+%LOCALAPPDATA%/Douya/
+├── config.json                 # 应用配置（自动生成）
 ├── data/                       # 数据目录（自动创建）
 │   ├── douya.db                # SQLite 数据库
 │   ├── .enc_key               # API Key 加密密钥（请勿删除）
 │   └── rag/                    # RAG 向量索引
-├── docs/
-│   └── external-tools-access.md
 ├── models/                     # 模型文件目录（需自行放入 GGUF）
-└── runtime/                    # llama-server.exe + 后端 DLL（按后端分子目录）
-    └── cuda/                   # CUDA 后端运行时（首次切换其他后端时自动下载）
+└── runtime/                    # 运行期按需下载的后端（内置引擎在只读安装目录内）
 ```
 
 ---

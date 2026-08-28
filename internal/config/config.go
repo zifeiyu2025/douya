@@ -58,15 +58,19 @@ type Config struct {
 	TopK                       int     `json:"top_k"`
 	RepeatPenalty              float64 `json:"repeat_penalty"`
 	KVUnified                  bool    `json:"kv_unified"`
-	CacheIdleSlots             bool    `json:"cache_idle_slots"`
-	CacheRAM                   int     `json:"cache_ram"`
-	ImageMinTokens             int     `json:"image_min_tokens"`
-	ImageMaxTokens             int     `json:"image_max_tokens"`
-	FitTarget                  int     `json:"fit_target"`
-	FitCtx                     int     `json:"fit_ctx"`
-	Reasoning                  string  `json:"reasoning"`
-	ReasoningBudget            int     `json:"reasoning_budget"`
-	ReasoningFormat            string  `json:"reasoning_format"`
+	// KVUnifiedPerSlot 统一 KV 池下每个并行 slot 的独立上下文上限（0=不启用，跟随上游默认行为）。
+	// 上游 b10675 新增（--kv-unified-per-slot），仅 KVUnified=true 时有意义：
+	// 共享 KV 池按 n_parallel*N 预分配，避免单个 slot 独占池导致其余 slot 可用上下文过小。
+	KVUnifiedPerSlot int    `json:"kv_unified_per_slot"`
+	CacheIdleSlots   bool   `json:"cache_idle_slots"`
+	CacheRAM         int    `json:"cache_ram"`
+	ImageMinTokens   int    `json:"image_min_tokens"`
+	ImageMaxTokens   int    `json:"image_max_tokens"`
+	FitTarget        int    `json:"fit_target"`
+	FitCtx           int    `json:"fit_ctx"`
+	Reasoning        string `json:"reasoning"`
+	ReasoningBudget  int    `json:"reasoning_budget"`
+	ReasoningFormat  string `json:"reasoning_format"`
 	// 思考强度（模板级 reasoning_effort，空=不传递跟随模型默认）
 	// 由聊天请求直接设置请求级 OAI 字段 ReasoningEffort，
 	// 交由新版 llama-server（#26045 + #27041）原生转发给支持该参数的模板
@@ -251,6 +255,10 @@ type Config struct {
 	CPUMoe bool `json:"cpu_moe"`
 	// 前 N 层 MoE 权重 CPU 卸载（0=不启用，精细控制 --cpu-moe 的影响范围）
 	NCpuMoe int `json:"n_cpu_moe"`
+	// FFN 层 CPU 卸载层数（0=不启用）。上游 b10675 新增（--n-cpu-ffn）：
+	// 仅将前 N 层 FFN 权重保留在 CPU，比 --cpu-moe 覆盖面更广（非 MoE 模型也可用），
+	// 用于显存不足时以少量 CPU 换取更大模型加载。
+	NCpuFfn int `json:"n_cpu_ffn"`
 	// 算子卸载开关（nil=使用默认值 true，true=--op-offload，false=--no-op-offload）
 	OpOffload *bool `json:"op_offload"`
 	// MCP 服务器列表（由豆芽写入 mcp_servers.json，llama-server 通过 --mcp-servers-config 加载）
@@ -306,9 +314,10 @@ func DefaultConfig() *Config {
 		ProactiveCompressThreshold: 0.8, // P1-A1: 80% 时主动压缩，为后续对话留出 20% 空间
 		Temperature:                0.8, // 与 llama.cpp 默认值对齐
 		TopP:                       0.95,
-		TopK:                       40, // 与 llama.cpp 默认值对齐
+		TopK:                       40,  // 与 llama.cpp 默认值对齐
 		RepeatPenalty:              1.1, // 1.0=完全关闭重复惩罚，量化小模型极易进入"复读退化"循环，反复重复一句话；1.1 为 llama.cpp 常见合理值，压制退化同时不明显改变正常采样
 		KVUnified:                  false,
+		KVUnifiedPerSlot:           0,
 		CacheIdleSlots:             true, // 与 llama.cpp 默认值对齐，空闲 slot 缓存保留
 		CacheRAM:                   0,
 		ImageMinTokens:             0,
@@ -461,6 +470,7 @@ func DefaultConfig() *Config {
 		DirectIO:         false,
 		CPUMoe:           false,
 		NCpuMoe:          0,
+		NCpuFfn:          0,
 		OpOffload:        nil,
 		MCPServers:       []MCPServerConfig{},
 	}

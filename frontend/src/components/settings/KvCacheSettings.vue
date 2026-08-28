@@ -248,6 +248,24 @@
           />
         </n-form-item>
 
+        <!-- FFN 前 N 层卸载（上游 b10675 新增 --n-cpu-ffn） -->
+        <n-form-item>
+          <template #label>
+            FFN 前 N 层卸载
+            <HelpTip
+              content="仅将前 N 层 FFN 权重保留在 CPU，0=不启用。比 MoE 前 N 层卸载覆盖面更广（非 MoE 模型也可用），显存不足时以少量 CPU 换取更大模型加载"
+            />
+          </template>
+          <n-input-number
+            v-model:value="formConfig.n_cpu_ffn"
+            :min="0"
+            :step="1"
+            placeholder="0 = 不启用"
+            style="width: 100%"
+            @blur="autoSave"
+          />
+        </n-form-item>
+
         <!-- 分组注意力 N -->
         <n-form-item>
           <template #label>

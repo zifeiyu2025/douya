@@ -49,7 +49,9 @@
             <span v-if="switchProgressStage !== 'idle'" class="state-row switching">
               <span class="loading-spinner"></span>
               <span class="state-text">
-                <span class="state-model" :title="switchingModelName">{{ switchingModelName }}</span>
+                <span class="state-model" :title="switchingModelName">
+                  {{ switchingModelName }}
+                </span>
                 <span class="state-sep">·</span>
                 <span class="state-status">{{ switchStageText }}{{ switchDuration }}</span>
               </span>
@@ -61,7 +63,9 @@
               <span class="loading-spinner"></span>
               <span class="progress-col">
                 <span class="state-text">
-                  <span class="state-model" :title="loadProgressModelName">{{ loadProgressModelName }}</span>
+                  <span class="state-model" :title="loadProgressModelName">
+                    {{ loadProgressModelName }}
+                  </span>
                   <span class="state-sep">·</span>
                   <span class="state-status">加载 {{ modelLoadProgress.progress }}%</span>
                 </span>
@@ -90,7 +94,10 @@
             </span>
             <span v-else class="state-row idle">
               <span class="status-dot" :class="serverStatus.running ? 'running' : 'stopped'"></span>
-              <span class="state-text" :class="{ 'error-text': !serverStatus.running && serverStatus.error }">
+              <span
+                class="state-text"
+                :class="{ 'error-text': !serverStatus.running && serverStatus.error }"
+              >
                 <span class="state-model" :title="modelName">{{ modelName }}</span>
                 <span class="state-sep">·</span>
                 <span class="state-status">

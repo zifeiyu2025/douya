@@ -161,6 +161,8 @@ func (s *Server) appendReasoningArgs(args []string) []string {
 // 包括 kv-unified、cache-idle-slots、cache-ram、image-tokens、fit、mmap、kv-offload、context-shift、keep。
 func (s *Server) appendKVCacheArgs(args []string) []string {
 	args = appendBoolArg(args, "--kv-unified", s.config.KVUnified)
+	// 统一 KV 池下每个并行 slot 的上下文上限（上游 b10675 新增，0=不传跟随默认）
+	args = appendIntArg(args, "--kv-unified-per-slot", s.config.KVUnifiedPerSlot)
 	args = appendBoolArg(args, "--cache-idle-slots", s.config.CacheIdleSlots)
 	args = appendIntArg(args, "--cache-ram", s.config.CacheRAM)
 	args = appendIntArg(args, "--image-min-tokens", s.config.ImageMinTokens)
@@ -586,6 +588,8 @@ func (s *Server) appendCPUMoeArgs(args []string) []string {
 		args = append(args, "--cpu-moe")
 	}
 	args = appendIntArg(args, "--n-cpu-moe", s.config.NCpuMoe)
+	// 前 N 层 FFN 权重 CPU 卸载（上游 b10675 新增，0=不传；覆盖面比 n-cpu-moe 广）
+	args = appendIntArg(args, "--n-cpu-ffn", s.config.NCpuFfn)
 	// 算子卸载开关（nil=使用默认值，true=--op-offload，false=--no-op-offload）
 	if s.config.OpOffload != nil {
 		if *s.config.OpOffload {

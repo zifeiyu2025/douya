@@ -1,4 +1,4 @@
-package distinfo
+package appdata
 
 import (
 	"os"
@@ -6,47 +6,40 @@ import (
 	"testing"
 )
 
-// TestDetectChannel 验证发行渠道检测的核心规则：
-// exe 位于 WindowsApps 目录（大小写不敏感）即为商店版，否则为便携版。
-func TestDetectChannel(t *testing.T) {
-	tests := []struct {
-		name    string
-		exePath string
-		want    Channel
-	}{
-		{"标准 MSIX 安装路径", `C:\Program Files\WindowsApps\F42A97F8.Douya_0.12.6.0_x64__abc123\Douya.exe`, ChannelStore},
-		{"小写 windowsapps", `c:\program files\windowsapps\pkg\douya.exe`, ChannelStore},
-		{"大写 WINDOWSAPPS", `C:\PROGRAM FILES\WINDOWSAPPS\PKG\Douya.exe`, ChannelStore},
-		{"便携版 release/bin", `D:\Tools\Douya-release\bin\Douya.exe`, ChannelPortable},
-		{"开发模式项目目录", `D:\MyGoWorkspace\douya\Douya.exe`, ChannelPortable},
-		{"仅目录名相似不含完整段", `C:\app\mywindowsapps2\Douya.exe`, ChannelPortable},
-		{"空路径保守按便携版", "", ChannelPortable},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := DetectChannel(tt.exePath); got != tt.want {
-				t.Errorf("DetectChannel(%q) = %q, 期望 %q", tt.exePath, got, tt.want)
-			}
-		})
+// TestDataDir_PrefersLocalAppData 验证数据目录优先取 %LOCALAPPDATA%\Douya
+func TestDataDir_PrefersLocalAppData(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", `C:\Users\u\AppData\Local`)
+	t.Setenv("APPDATA", `C:\Users\u\AppData\Roaming`)
+	got := DataDir(`D:\Apps\Douya.exe`)
+	if want := `C:\Users\u\AppData\Local\Douya`; got != want {
+		t.Errorf("DataDir() = %q, 期望 %q", got, want)
 	}
 }
 
-// TestIsStoreFromChannel 验证 IsStore 判定逻辑
-func TestIsStoreFromChannel(t *testing.T) {
-	if DetectChannel(`C:\WindowsApps\x\App.exe`) != ChannelStore {
-		t.Fatal("前置条件失败：该路径应判定为商店版")
-	}
-	if IsStore() && Detect() == ChannelStore {
-		// 当前测试进程不在 WindowsApps 下，Detect 应为便携版；
-		// 此分支仅在环境异常时触发，保证测试自身一致性
-		t.Skip("测试进程意外运行于 WindowsApps 目录")
+// TestDataDir_FallsBackToAppData 验证 LOCALAPPDATA 缺失时回退 APPDATA
+func TestDataDir_FallsBackToAppData(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", "")
+	t.Setenv("APPDATA", `C:\Users\u\AppData\Roaming`)
+	got := DataDir(`D:\Apps\Douya.exe`)
+	if want := `C:\Users\u\AppData\Roaming\Douya`; got != want {
+		t.Errorf("DataDir() = %q, 期望 %q", got, want)
 	}
 }
 
-// TestMigrateLegacyStoreData_NoLegacy 验证无旧数据时跳过并写标记（幂等）
-func TestMigrateLegacyStoreData_NoLegacy(t *testing.T) {
+// TestDataDir_FallsBackToExeDir 验证两个环境变量均缺失时回退 exe 同目录
+func TestDataDir_FallsBackToExeDir(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", "")
+	t.Setenv("APPDATA", "")
+	got := DataDir(`D:\Apps\Douya.exe`)
+	if want := `D:\Apps\Douya`; got != want {
+		t.Errorf("DataDir() = %q, 期望 %q", got, want)
+	}
+}
+
+// TestMigrateLegacyData_NoLegacy 验证无旧数据时跳过并写标记（幂等）
+func TestMigrateLegacyData_NoLegacy(t *testing.T) {
 	dst := t.TempDir()
-	got := MigrateLegacyStoreData(dst, []string{filepath.Join(dst, "nowhere")})
+	got := MigrateLegacyData(dst, []string{filepath.Join(dst, "nowhere")})
 	if !got.Skipped {
 		t.Errorf("无旧数据应 Skipped=true，实际: %+v", got)
 	}
@@ -55,8 +48,8 @@ func TestMigrateLegacyStoreData_NoLegacy(t *testing.T) {
 	}
 }
 
-// TestMigrateLegacyStoreData_DstInitialized 验证目标已有配置时绝不覆盖
-func TestMigrateLegacyStoreData_DstInitialized(t *testing.T) {
+// TestMigrateLegacyData_DstInitialized 验证目标已有配置时绝不覆盖
+func TestMigrateLegacyData_DstInitialized(t *testing.T) {
 	dst := t.TempDir()
 	src := t.TempDir()
 	if err := os.WriteFile(filepath.Join(src, "config.json"), []byte(`{"old":true}`), 0o644); err != nil {
@@ -68,7 +61,7 @@ func TestMigrateLegacyStoreData_DstInitialized(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := MigrateLegacyStoreData(dst, []string{src})
+	got := MigrateLegacyData(dst, []string{src})
 	if !got.Skipped {
 		t.Errorf("目标已初始化应 Skipped=true，实际: %+v", got)
 	}
@@ -78,8 +71,8 @@ func TestMigrateLegacyStoreData_DstInitialized(t *testing.T) {
 	}
 }
 
-// TestMigrateLegacyStoreData_CopiesConfigAndData 验证核心迁移能力
-func TestMigrateLegacyStoreData_CopiesConfigAndData(t *testing.T) {
+// TestMigrateLegacyData_CopiesConfigAndData 验证核心迁移能力
+func TestMigrateLegacyData_CopiesConfigAndData(t *testing.T) {
 	dst := t.TempDir()
 	src := t.TempDir()
 
@@ -93,9 +86,9 @@ func TestMigrateLegacyStoreData_CopiesConfigAndData(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := map[string]string{
-		filepath.Join(dataDir, "douya.db"):   "DB",
-		filepath.Join(dataDir, ".enc_key"):   "KEY",
-		filepath.Join(logsDir, "app.log"):    "LOG",
+		filepath.Join(dataDir, "douya.db"): "DB",
+		filepath.Join(dataDir, ".enc_key"): "KEY",
+		filepath.Join(logsDir, "app.log"):  "LOG",
 	}
 	for path, content := range files {
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -103,7 +96,7 @@ func TestMigrateLegacyStoreData_CopiesConfigAndData(t *testing.T) {
 		}
 	}
 
-	got := MigrateLegacyStoreData(dst, []string{src})
+	got := MigrateLegacyData(dst, []string{src})
 	if got.Skipped || !got.MigratedConfig || got.MigratedFiles != len(files) || got.FailedFiles != 0 {
 		t.Fatalf("迁移结果不符预期: %+v", got)
 	}
@@ -125,8 +118,8 @@ func TestMigrateLegacyStoreData_CopiesConfigAndData(t *testing.T) {
 	}
 }
 
-// TestMigrateLegacyStoreData_Idempotent 验证重复调用幂等（标记生效）
-func TestMigrateLegacyStoreData_Idempotent(t *testing.T) {
+// TestMigrateLegacyData_Idempotent 验证重复调用幂等（标记生效）
+func TestMigrateLegacyData_Idempotent(t *testing.T) {
 	dst := t.TempDir()
 	src := t.TempDir()
 	if err := os.WriteFile(filepath.Join(src, "data.db"), []byte("x"), 0o644); err != nil {
@@ -140,20 +133,20 @@ func TestMigrateLegacyStoreData_Idempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first := MigrateLegacyStoreData(dst, []string{src})
+	first := MigrateLegacyData(dst, []string{src})
 	if first.Skipped || first.MigratedFiles != 1 {
 		t.Fatalf("首次迁移结果异常: %+v", first)
 	}
 
 	// 模拟用户随后删除了 dst 的 data/（如清理磁盘），再次启动不应"复活"旧数据扫描
-	second := MigrateLegacyStoreData(dst, []string{src})
+	second := MigrateLegacyData(dst, []string{src})
 	if !second.Skipped {
 		t.Errorf("第二次调用应因标记跳过，实际: %+v", second)
 	}
 }
 
-// TestMigrateLegacyStoreData_PicksFirstCandidate 验证候选顺序：优先 exe 同目录
-func TestMigrateLegacyStoreData_PicksFirstCandidate(t *testing.T) {
+// TestMigrateLegacyData_PicksFirstCandidate 验证候选顺序：优先 exe 同目录
+func TestMigrateLegacyData_PicksFirstCandidate(t *testing.T) {
 	dst := t.TempDir()
 	exeDir := t.TempDir()
 	parent := t.TempDir()
@@ -164,7 +157,7 @@ func TestMigrateLegacyStoreData_PicksFirstCandidate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	MigrateLegacyStoreData(dst, []string{exeDir, parent})
+	MigrateLegacyData(dst, []string{exeDir, parent})
 	data, err := os.ReadFile(filepath.Join(dst, "config.json"))
 	if err != nil {
 		t.Fatalf("config.json 未迁移: %v", err)

@@ -87,13 +87,13 @@ type HubModel struct {
 
 // HubFile 仓库内的一个可下载文件。
 type HubFile struct {
-	Provider HubProvider `json:"provider"` // 来源站点
-	RepoID   string      `json:"repo_id"`  // 所属仓库 ID
-	Path     string      `json:"path"`     // 仓库内相对路径（basename），如 "Qwen3-8B-Q4_K_M.gguf"
-	Size     int64       `json:"size"`     // 文件大小（字节），未知为 0
-	IsGGUF   bool        `json:"is_gguf"`  // 是否为 .gguf 模型文件
+	Provider HubProvider `json:"provider"`  // 来源站点
+	RepoID   string      `json:"repo_id"`   // 所属仓库 ID
+	Path     string      `json:"path"`      // 仓库内相对路径（basename），如 "Qwen3-8B-Q4_K_M.gguf"
+	Size     int64       `json:"size"`      // 文件大小（字节），未知为 0
+	IsGGUF   bool        `json:"is_gguf"`   // 是否为 .gguf 模型文件
 	IsMmproj bool        `json:"is_mmproj"` // 是否为 MMProj 多模态投影文件
-	URL      string      `json:"url"`      // 直链下载地址
+	URL      string      `json:"url"`       // 直链下载地址
 }
 
 // ModelDownloadProgress 模型下载进度信息（通过回调推送给调用方再转为前端事件）。
@@ -535,7 +535,7 @@ func isMmprojName(lower string) bool {
 //   - ctx 取消时保留已下载部分（不删除），供下次续传；进度推送成功回调。
 //   - 网络中断/读写失败同样保留 .tmp 断点，配合上层"重试下载"实现断点续传；
 //     仅完成后字节数校验不一致（数据可疑）时清理并报错。
-func DownloadHubFile(ctx context.Context, url, destPath string, totalSize int64, provider HubProvider, progressCB func(ModelDownloadProgress)) error {
+func DownloadHubFile(ctx context.Context, fileURL, destPath string, totalSize int64, provider HubProvider, progressCB func(ModelDownloadProgress)) error {
 	destPath = filepath.Clean(destPath)
 
 	// 断点探测：优先看目标文件本体（历史暂停路径），其次看失败时保留的 .tmp 部分文件。
@@ -554,7 +554,7 @@ func DownloadHubFile(ctx context.Context, url, destPath string, totalSize int64,
 	}
 
 	// Range 请求
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fileURL, http.NoBody)
 	if err != nil {
 		return apperror.Wrap(apperror.KindUnavailable, "创建下载请求失败", err)
 	}
@@ -623,7 +623,7 @@ func DownloadHubFile(ctx context.Context, url, destPath string, totalSize int64,
 	}()
 
 	buf := make([]byte, 64*1024)
-	var downloaded int64 = resumeFrom
+	var downloaded = resumeFrom
 	lastReport := time.Now()
 
 	for {
@@ -721,8 +721,8 @@ func DownloadHubFile(ctx context.Context, url, destPath string, totalSize int64,
 // 用于激活 DownloadHubFile 的 Range 断点续传与完成度校验：调用方拿到 totalSize 后，
 // 失败重试时能从 .tmp 已下载字节处继续，而不是从头再下数 GB。
 // 探测失败一律返回 0（未知大小），调用方以无续传模式降级，不阻断下载流程。
-func ProbeFileSize(ctx context.Context, url string) int64 {
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, http.NoBody)
+func ProbeFileSize(ctx context.Context, fileURL string) int64 {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, fileURL, http.NoBody)
 	if err != nil {
 		return 0
 	}

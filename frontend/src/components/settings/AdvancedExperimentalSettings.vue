@@ -229,6 +229,23 @@
 
       <n-form-item>
         <template #label>
+          Slot 上下文上限
+          <HelpTip
+            content="统一 KV 缓存开启时，限制每个并行 slot 可占用的最大上下文长度，0=不限制。避免单个长对话独占 KV 池（上游 b10675 新增）"
+          />
+        </template>
+        <n-input-number
+          v-model:value="formConfig.kv_unified_per_slot"
+          :min="0"
+          :step="1024"
+          placeholder="0 = 不限制"
+          style="width: 100%"
+          @blur="autoSave"
+        />
+      </n-form-item>
+
+      <n-form-item>
+        <template #label>
           直接 I/O
           <HelpTip
             content="绕过操作系统页面缓存直接读写磁盘，加速大模型加载。HDD 上效果明显，SSD 提升有限"

@@ -297,6 +297,7 @@ export namespace config {
 	    top_k: number;
 	    repeat_penalty: number;
 	    kv_unified: boolean;
+	    kv_unified_per_slot: number;
 	    cache_idle_slots: boolean;
 	    cache_ram: number;
 	    image_min_tokens: number;
@@ -435,6 +436,7 @@ export namespace config {
 	    direct_io: boolean;
 	    cpu_moe: boolean;
 	    n_cpu_moe: number;
+	    n_cpu_ffn: number;
 	    op_offload?: boolean;
 	    mcp_servers: MCPServerConfig[];
 	
@@ -461,6 +463,7 @@ export namespace config {
 	        this.top_k = source["top_k"];
 	        this.repeat_penalty = source["repeat_penalty"];
 	        this.kv_unified = source["kv_unified"];
+	        this.kv_unified_per_slot = source["kv_unified_per_slot"];
 	        this.cache_idle_slots = source["cache_idle_slots"];
 	        this.cache_ram = source["cache_ram"];
 	        this.image_min_tokens = source["image_min_tokens"];
@@ -599,6 +602,7 @@ export namespace config {
 	        this.direct_io = source["direct_io"];
 	        this.cpu_moe = source["cpu_moe"];
 	        this.n_cpu_moe = source["n_cpu_moe"];
+	        this.n_cpu_ffn = source["n_cpu_ffn"];
 	        this.op_offload = source["op_offload"];
 	        this.mcp_servers = this.convertValues(source["mcp_servers"], MCPServerConfig);
 	    }
@@ -1335,28 +1339,6 @@ export namespace main {
 		    }
 		    return a;
 		}
-	}
-	export class UpdateInfo {
-	    has_update: boolean;
-	    latest_version: string;
-	    current_version: string;
-	    download_url: string;
-	    release_notes: string;
-	    published_at: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new UpdateInfo(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.has_update = source["has_update"];
-	        this.latest_version = source["latest_version"];
-	        this.current_version = source["current_version"];
-	        this.download_url = source["download_url"];
-	        this.release_notes = source["release_notes"];
-	        this.published_at = source["published_at"];
-	    }
 	}
 
 }

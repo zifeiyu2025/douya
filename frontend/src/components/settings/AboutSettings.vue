@@ -57,133 +57,37 @@
       </n-card>
     </div>
 
-    <!-- 更新检查 -->
+    <!-- 版本信息 -->
     <div class="update-section">
       <!-- 书房风：双侧格线夹衬线小节标题，替代 NDivider -->
       <div class="update-divider">
-        <span class="update-divider-title">版本更新</span>
+        <span class="update-divider-title">版本信息</span>
       </div>
 
-      <!-- Store 版：更新由 Microsoft Store 接管，隐藏应用内更新入口 -->
-      <div v-if="isStoreMode" class="update-row">
+      <div class="update-row">
         <span class="update-current">当前版本：v{{ currentVersion }}</span>
-        <span class="update-status-text">此版本由 Microsoft Store 自动更新</span>
-      </div>
-
-      <!-- 空闲状态 -->
-      <div v-else-if="updateStatus === 'idle'" class="update-row">
-        <span class="update-current">当前版本：v{{ currentVersion }}</span>
-        <n-button type="primary" size="small" ghost @click="handleCheckUpdate">检查更新</n-button>
-      </div>
-
-      <!-- 检查中 -->
-      <div v-else-if="updateStatus === 'checking'" class="update-row">
-        <n-spin size="small" />
-        <span class="update-status-text">检查中...</span>
-      </div>
-
-      <!-- 已是最新 -->
-      <div v-else-if="updateStatus === 'up-to-date'" class="update-row">
-        <n-icon size="18" color="var(--accent-success)"><CheckmarkCircleOutline /></n-icon>
-        <span class="update-status-text update-success">已是最新版本</span>
-      </div>
-
-      <!-- 有更新 -->
-      <div v-else-if="updateStatus === 'available'" class="update-available">
-        <div class="update-row">
-          <span class="update-info">
-            新版本：
-            <span class="version-highlight">v{{ updateInfo?.latest_version }}</span>
-          </span>
-          <n-button type="primary" size="small" ghost @click="handlePerformUpdate">
-            立即更新
-          </n-button>
-        </div>
-        <div v-if="updateInfo?.release_notes" class="release-notes">
-          <n-collapse>
-            <n-collapse-item title="更新日志" name="notes">
-              <div class="release-notes-content">{{ updateInfo.release_notes }}</div>
-            </n-collapse-item>
-          </n-collapse>
-        </div>
-      </div>
-
-      <!-- 下载中 -->
-      <div v-else-if="updateStatus === 'downloading'" class="update-progress">
-        <div class="update-row">
-          <span class="update-status-text">正在下载更新...</span>
-          <span class="update-percent">{{ downloadPercent }}%</span>
-        </div>
-        <n-progress
-          type="line"
-          :percentage="downloadPercent"
-          :show-indicator="false"
-          status="info"
-        />
-      </div>
-
-      <!-- 安装中 -->
-      <div v-else-if="updateStatus === 'installing'" class="update-row">
-        <n-spin size="small" />
-        <span class="update-status-text">正在安装更新...</span>
-      </div>
-
-      <!-- 错误 -->
-      <div v-else-if="updateStatus === 'error'" class="update-row">
-        <n-icon size="18" color="var(--accent-danger)"><CloseCircleOutline /></n-icon>
-        <span class="update-status-text update-error">{{ errorMessage }}</span>
-        <n-button type="primary" size="small" ghost @click="handleCheckUpdate">重试</n-button>
+        <span class="update-status-text">更新由 Microsoft Store 接管</span>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
-import {
-  NCard,
-  NButton,
-  NIcon,
-  NSpin,
-  NProgress,
-  NCollapse,
-  NCollapseItem,
-  useMessage
-} from 'naive-ui'
-import {
-  PersonOutline,
-  LogoGithub,
-  ChatbubblesOutline,
-  CopyOutline,
-  CheckmarkCircleOutline,
-  CloseCircleOutline
-} from '@vicons/ionicons5'
+import { ref, onMounted } from 'vue'
+import { NCard, NIcon, NButton, useMessage } from 'naive-ui'
+import { PersonOutline, LogoGithub, ChatbubblesOutline, CopyOutline } from '@vicons/ionicons5'
 import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime'
 import { GetGitHubURL } from '../../../wailsjs/go/main/App'
-import { wails, type UpdateInfo } from '../../services/wails'
+import { wails } from '../../services/wails'
 import appIcon from '../../assets/images/appicon.png'
 import llamaIcon from '../../assets/images/llama-icon.png'
 import pkg from '../../../package.json'
 
 const message = useMessage()
 const currentVersion = ref(pkg.version)
-// 是否为 Microsoft Store (MSIX) 版：Store 版隐藏"检查更新"入口，由商店自动更新
-const isStoreMode = ref(false)
 const githubUrl = ref('https://github.com/zifeiyu2025/douya')
-const updateStatus = ref<
-  'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'installing' | 'error'
->('idle')
-const updateInfo = ref<UpdateInfo | null>(null)
-const downloadPercent = ref(0)
-const errorMessage = ref('')
 
 async function loadVersion() {
-  try {
-    isStoreMode.value = await wails.isStoreMode()
-  } catch {
-    // Store 检测失败时默认 false（便携版行为），不影响正常使用
-    isStoreMode.value = false
-  }
   try {
     currentVersion.value = await wails.getAppVersion()
   } catch {
@@ -210,59 +114,8 @@ async function copyQQ() {
   }
 }
 
-async function handleCheckUpdate() {
-  updateStatus.value = 'checking'
-  errorMessage.value = ''
-  try {
-    const info = await wails.checkUpdate()
-    updateInfo.value = info
-    if (info.has_update) {
-      updateStatus.value = 'available'
-    } else {
-      updateStatus.value = 'up-to-date'
-    }
-  } catch (e: unknown) {
-    errorMessage.value = e instanceof Error ? e.message : '检查更新失败'
-    updateStatus.value = 'error'
-  }
-}
-
-async function handlePerformUpdate() {
-  if (!updateInfo.value) return
-  updateStatus.value = 'downloading'
-  downloadPercent.value = 0
-  try {
-    await wails.performUpdate(updateInfo.value.download_url, updateInfo.value.latest_version)
-    updateStatus.value = 'installing'
-  } catch (e: unknown) {
-    errorMessage.value = e instanceof Error ? e.message : '更新失败'
-    updateStatus.value = 'error'
-  }
-}
-
-function onUpdateProgress(data: any) {
-  if (data?.percent !== undefined) {
-    downloadPercent.value = Math.round(data.percent)
-  }
-  // 下载完成后进入安装状态
-  if (downloadPercent.value >= 100) {
-    updateStatus.value = 'installing'
-  }
-}
-
-// 保存 subscribeUpdateProgress 返回的 unsubscribe 函数，替代原 onUpdateProgress/offUpdateProgress 配对
-let unsubscribeUpdateProgress: (() => void) | null = null
-
 onMounted(() => {
   loadVersion()
-  unsubscribeUpdateProgress = wails.subscribeUpdateProgress(onUpdateProgress)
-})
-
-onUnmounted(() => {
-  if (unsubscribeUpdateProgress) {
-    unsubscribeUpdateProgress()
-    unsubscribeUpdateProgress = null
-  }
 })
 </script>
 
@@ -382,7 +235,7 @@ onUnmounted(() => {
   object-fit: contain;
 }
 
-/* 更新区域 */
+/* 版本信息 */
 .update-section {
   margin-top: 4px;
 }
@@ -423,56 +276,5 @@ onUnmounted(() => {
 .update-status-text {
   font-size: 13px;
   color: var(--text-secondary);
-}
-
-.update-success {
-  color: var(--accent-success);
-}
-
-.update-error {
-  color: var(--accent-danger);
-}
-
-.update-available {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.update-info {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.version-highlight {
-  font-family: var(--font-mono);
-  font-weight: 600;
-  color: var(--accent-primary);
-}
-
-.update-progress {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.update-percent {
-  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-  font-size: 13px;
-  color: var(--text-secondary);
-  margin-left: auto;
-}
-
-.release-notes {
-  margin-top: 4px;
-}
-
-.release-notes-content {
-  font-size: 13px;
-  color: var(--text-secondary);
-  white-space: pre-wrap;
-  line-height: 1.6;
-  max-height: 200px;
-  overflow-y: auto;
 }
 </style>

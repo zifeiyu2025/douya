@@ -8,7 +8,10 @@
   <section class="doc-section">
     <!-- 节头细工具栏：§ 编号 + 标题 + 计数 + 上传入口 -->
     <header class="section-bar">
-      <span class="section-num bar-no"><span class="sec-mark">§</span> 一</span>
+      <span class="section-num bar-no">
+        <span class="sec-mark">§</span>
+        一
+      </span>
       <h2 class="bar-title">档案目录</h2>
       <span v-if="documents.length > 0" class="bar-count">{{ documents.length }} 卷</span>
       <span class="bar-space" />

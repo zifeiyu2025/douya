@@ -42,13 +42,3 @@ func IsValid(v string) bool {
 func GitHubURL() string {
 	return "https://github.com/" + GitHubOwner + "/" + GitHubRepo
 }
-
-// GitHubAPIURL 返回 GitHub API 仓库基础 URL
-//
-// 生活类比：GitHubURL 是"仓库主页"，GitHubAPIURL 是"仓库的 API 门牌"——
-// 检查更新等程序化操作走 API 门牌（api.github.com），用户点击走主页。
-//
-//	url := version.GitHubAPIURL() // "https://api.github.com/repos/zifeiyu2025/douya"
-func GitHubAPIURL() string {
-	return "https://api.github.com/repos/" + GitHubOwner + "/" + GitHubRepo
-}
