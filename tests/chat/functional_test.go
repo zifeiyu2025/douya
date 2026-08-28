@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"douya/internal/chat"
+	"douya/internal/config"
 	"douya/internal/llm"
 	"douya/internal/search"
 	"douya/internal/store"
@@ -313,6 +314,9 @@ func TestFunctional_SingleToolCall(t *testing.T) {
 }
 
 func TestFunctional_MaxRounds_NoToolsOnLastRound(t *testing.T) {
+	// 显式配置 2 轮上限：同时验证 AgentMaxRounds 配置链路与"末轮撤工具强制收尾"行为
+	// （默认轮次已从 3 放宽到 8，固定 mock 次数会对默认值漂移脆弱）
+	const maxRounds = 2
 	callCount := 0
 	var lastReqTools []llm.ToolDefinition
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -321,7 +325,7 @@ func TestFunctional_MaxRounds_NoToolsOnLastRound(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		json.Unmarshal(body, &req)
 
-		if callCount < 4 {
+		if callCount <= maxRounds {
 			sseData := makeSSEData([]string{
 				makeToolCallChunk(fmt.Sprintf("call_%d", callCount), "search", `{"query":"test"}`),
 				makeFinishChunk("tool_calls"),
@@ -349,6 +353,11 @@ func TestFunctional_MaxRounds_NoToolsOnLastRound(t *testing.T) {
 	}
 
 	svc := newInteractionTestService(t, server, searchProvider)
+	svc.UpdateConfig(&config.Config{
+		ContextSize:    8192,
+		Temperature:    0.7,
+		AgentMaxRounds: maxRounds,
+	})
 	err := svc.SendMessage(context.Background(), chat.SendMessageParams{
 		Content: "keep searching",
 	})

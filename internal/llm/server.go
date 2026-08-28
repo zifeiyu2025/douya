@@ -216,8 +216,9 @@ type ServerConfig struct {
 	// 模型重打包（启动时重新打包模型权重，用于优化加载速度）
 	Repack bool
 	// Agent 模式与 MCP CORS 代理
-	Agent      bool // 一键启用 CORS 代理 + 所有内置工具
-	UIMcpProxy bool // 仅启用 MCP CORS 代理
+	Agent      bool   // 一键启用 CORS 代理 + 所有内置工具
+	UIMcpProxy bool   // 仅启用 MCP CORS 代理
+	AgentCwd   string // Agent 工具的工作目录（read_file/exec 等相对路径的解析基准；空=引擎所在目录）
 	// 细粒度 CORS 配置（上游 --cors-*，llama.cpp #25655）
 	CorsOrigins     string // 允许的来源，逗号分隔，空=使用 llama.cpp 默认
 	CorsMethods     string // 允许的 HTTP 方法，逗号分隔

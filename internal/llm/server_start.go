@@ -63,6 +63,16 @@ func (s *Server) Start() error {
 
 	s.cmd = exec.Command(s.config.ServerPath, args...)
 	s.cmd.Dir = runtimeDir
+	// Agent 模式：内置工具（read_file/exec_shell_command 等 uses_cwd）的相对路径
+	// 以进程工作目录为基准。用户配置了 AgentCwd 时切到该目录，让 Agent 直接
+	// 在用户的项目文件夹里干活；目录无效则保持引擎目录（不阻断启动）。
+	if s.config.Agent && s.config.AgentCwd != "" {
+		if info, statErr := os.Stat(s.config.AgentCwd); statErr == nil && info.IsDir() {
+			s.cmd.Dir = s.config.AgentCwd
+		} else {
+			s.cmdEnv = append(s.cmdEnv, "LLAMA_AGENT_CWD_INVALID=1")
+		}
+	}
 
 	s.stderrBuf = NewRingBuffer(500) // 增大缓冲区到 500 行，便于控制台查看历史
 	if s.onLog != nil {

@@ -63,25 +63,27 @@ type StreamEvent struct {
 // 统一管理事件类型字符串，避免发送侧/接收侧拼写不一致。
 // 与前端 frontend/src/types/chat.ts 的 StreamEvent 联合类型成员一一对应。
 const (
-	EventToken               = "token"                // token 增量，content: string
-	EventThinking            = "thinking"             // 思考增量，content: string
-	EventToolCallStart       = "tool_call_start"      // 工具调用开始，content: ToolCallStartContent
-	EventSearchStart         = "search_start"         // 搜索开始，content: string
-	EventSearchResult        = "search_result"        // 搜索结果，content: SearchResultContent（C-7 起预搜索与 tool call 统一格式）
-	EventSearchError         = "search_error"         // 搜索失败，content: string（用户友好的错误提示）
-	EventTokenSpeed          = "token_speed"          // 生成速度，content: TokenSpeedContent
-	EventPromptProgress      = "prompt_progress"      // 提示词进度，content: PromptProgressContent
-	EventContextTrimmed      = "context_trimmed"      // 上下文裁剪，content: ContextTrimmedContent
-	EventOutputTruncated     = "output_truncated"     // 输出截断（finish_reason=length），content: OutputTruncatedContent
-	EventDone                = "done"                 // 生成完成，content: nil
-	EventStopped             = "stopped"              // 生成停止，content: nil
-	EventError               = "error"                // 错误，content: string
-	EventConversationCreated = "conversation_created" // 会话创建，content: Conversation
-	EventAssistantMessage    = "assistant_message"    // 助手消息，content: Message
-	EventUserMessage         = "user_message"         // 用户消息，content: Message
-	EventConversationUpdated = "conversation_updated" // 会话更新，content: Conversation
-	EventConversationDeleted = "conversation_deleted" // 会话删除，content: string（会话 ID，C-7 起唯一格式）
-	EventMessageDeleted      = "message_deleted"      // 消息删除，content: string（消息 ID，C-7 起唯一格式）
+	EventToken               = "token"                 // token 增量，content: string
+	EventThinking            = "thinking"              // 思考增量，content: string
+	EventToolCallStart       = "tool_call_start"       // 工具调用开始，content: ToolCallStartContent
+	EventSearchStart         = "search_start"          // 搜索开始，content: string
+	EventSearchResult        = "search_result"         // 搜索结果，content: SearchResultContent（C-7 起预搜索与 tool call 统一格式）
+	EventSearchError         = "search_error"          // 搜索失败，content: string（用户友好的错误提示）
+	EventTokenSpeed          = "token_speed"           // 生成速度，content: TokenSpeedContent
+	EventPromptProgress      = "prompt_progress"       // 提示词进度，content: PromptProgressContent
+	EventContextTrimmed      = "context_trimmed"       // 上下文裁剪，content: ContextTrimmedContent
+	EventOutputTruncated     = "output_truncated"      // 输出截断（finish_reason=length），content: OutputTruncatedContent
+	EventDone                = "done"                  // 生成完成，content: nil
+	EventStopped             = "stopped"               // 生成停止，content: nil
+	EventError               = "error"                 // 错误，content: string
+	EventConversationCreated = "conversation_created"  // 会话创建，content: Conversation
+	EventAssistantMessage    = "assistant_message"     // 助手消息，content: Message
+	EventUserMessage         = "user_message"          // 用户消息，content: Message
+	EventConversationUpdated = "conversation_updated"  // 会话更新，content: Conversation
+	EventConversationDeleted = "conversation_deleted"  // 会话删除，content: string（会话 ID，C-7 起唯一格式）
+	EventMessageDeleted      = "message_deleted"       // 消息删除，content: string（消息 ID，C-7 起唯一格式）
+	EventToolApprovalRequest = "tool_approval_request" // 工具审批请求（Agent 模式硬门禁），content: ToolApprovalRequestContent
+	EventToolCallEnd         = "tool_call_end"         // 单个工具执行结束，content: ToolCallEndContent
 )
 
 // ===== 类型化 Content struct（任务 31.4） =====
@@ -95,6 +97,27 @@ type ToolCallStartContent struct {
 	ToolCallID string `json:"tool_call_id"` // 工具调用 ID（用于并发 tool call 关联）
 	Tool       string `json:"tool"`         // 工具名称
 	Query      string `json:"query"`        // 查询参数
+}
+
+// ToolApprovalRequestContent 工具审批请求事件的内容（Agent 模式硬门禁）。
+// 前端展示工具名、参数与风险等级，用户决定后调用 ResolveToolApproval 回传，
+// 后端以 tool_call_id 关联解除阻塞；超时未响应视为拒绝。
+type ToolApprovalRequestContent struct {
+	ToolCallID  string `json:"tool_call_id"` // 工具调用 ID
+	Tool        string `json:"tool"`         // 工具名称（如 exec_shell_command）
+	DisplayName string `json:"display_name"` // 展示名（如 "Execute shell command"，来自引擎元数据）
+	Risk        string `json:"risk"`         // 风险等级："write"（引擎声明写操作）/ "unknown"（未声明权限的 MCP 工具）/ "all"（审批模式为 always）
+	Arguments   string `json:"arguments"`    // 原始 JSON 参数（前端格式化预览）
+}
+
+// ToolCallEndContent 单个工具执行结束事件的内容。
+// 前端据此把时间线上对应条目从 running 翻转为成功/失败/被拒绝终态。
+type ToolCallEndContent struct {
+	ToolCallID string `json:"tool_call_id"` // 工具调用 ID
+	OK         bool   `json:"ok"`           // 是否执行成功
+	Denied     bool   `json:"denied"`       // 是否被用户拒绝
+	Error      string `json:"error"`        // 失败/拒绝原因（ok=true 时为空）
+	Preview    string `json:"preview"`      // 结果预览（截断，仅 UI 摘要展示）
 }
 
 // SearchResultContent 搜索结果事件的内容

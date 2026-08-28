@@ -4,6 +4,7 @@
  * （从原 wails.ts 迁移,方法体逐字搬移,逻辑零变化）
  */
 import {
+  ResolveToolApproval,
   SendMessage,
   StopGeneration,
   GetConversations,
@@ -36,6 +37,10 @@ import type { AbnormalCleanupEvent, ChatMessage, CompressResult, SlotInfo } from
 import { toWailsChatMessages, toWailsSendMessageParams } from './adapters'
 
 export const chatMethods = {
+  // 工具审批决定回传（Agent 模式硬门禁，toolApproval store 调用）
+  approveToolCall: async (toolCallId: string, approved: boolean, remember: boolean): Promise<void> => {
+    await ResolveToolApproval(toolCallId, approved, remember)
+  },
   sendMessage: async (params: SendMessageParams): Promise<void> => {
     // 使用 wailsjs 生成的 createFrom 适配类型
     const wailsParams = ChatModel.SendMessageParams.createFrom({

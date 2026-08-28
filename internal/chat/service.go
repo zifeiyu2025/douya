@@ -78,19 +78,30 @@ type Service struct {
 	mcpToolsCacheMu     sync.RWMutex
 	mcpToolsInitialized bool
 	mcpToolsOnce        sync.Once
+	// 工具权限元数据：与 mcpToolsCache 同源（GET /tools 的 permissions/display_name），
+	// 供 Agent 审批门禁做风险分级（tool_approval.go）。
+	mcpToolPerms map[string]toolPermission
+	// 工具审批注册表：待用户决定的审批请求（key=tool_call_id）+ 会话级允许清单。
+	// 硬门禁设计见 tool_approval.go；允许清单仅存内存（应用重启即失效，稳定性优先）。
+	approvalMu          sync.Mutex
+	pendingApprovals    map[string]*pendingToolApproval
+	sessionAllowedTools map[string]bool
 	// 上下文压缩累计统计（并发安全）
 	compressionStats CompressionStats
 }
 
 func NewService(llmClient *llm.Client, searchChain *search.SearchChain, db *sql.DB, cfg *config.Config, cipher secrets.Cipher, appDir string) *Service {
 	return &Service{
-		llmClient:   llmClient,
-		searchChain: searchChain,
-		db:          db,
-		config:      cfg,
-		cipher:      cipher,
-		appDir:      appDir,
-		modelCaps:   llm.ModelCapabilities{TextInput: true},
+		llmClient:           llmClient,
+		searchChain:         searchChain,
+		db:                  db,
+		config:              cfg,
+		cipher:              cipher,
+		appDir:              appDir,
+		modelCaps:           llm.ModelCapabilities{TextInput: true},
+		mcpToolPerms:        make(map[string]toolPermission),
+		pendingApprovals:    make(map[string]*pendingToolApproval),
+		sessionAllowedTools: make(map[string]bool),
 	}
 }
 

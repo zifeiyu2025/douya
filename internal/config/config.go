@@ -215,6 +215,10 @@ type Config struct {
 	// Agent 模式与 MCP CORS 代理（llama.cpp 新特性）
 	Agent      bool `json:"agent"`        // 一键启用 CORS 代理 + 所有内置工具
 	UIMcpProxy bool `json:"ui_mcp_proxy"` // 仅启用 MCP CORS 代理（Agent 已包含此项）
+	// Agent 深度配置
+	AgentApproval  string `json:"agent_approval"`   // 工具审批模式："auto"（默认，写操作/未知工具需确认）、"always"、"never"
+	AgentMaxRounds int    `json:"agent_max_rounds"` // tool call 循环最大轮次，0=默认 8，上限 25
+	AgentCwd       string `json:"agent_cwd"`        // Agent 工具的工作目录（相对路径解析基准；空=沿用引擎运行目录）
 	// 细粒度 CORS 配置（上游 --cors-*，llama.cpp #25655）
 	// 优先于 llama.cpp 内置的 localhost 默认值，用于自定义浏览器跨域来源。
 	// 生活类比：像校门口访客登记——默认只放行本班（localhost），登记表可额外写明放行哪些班级（外部来源）。
@@ -449,6 +453,9 @@ func DefaultConfig() *Config {
 		CacheReuse:      256,
 		Agent:           false,
 		UIMcpProxy:      false,
+		AgentApproval:   "",
+		AgentMaxRounds:  0,
+		AgentCwd:        "",
 		BackendSampling: false,
 		// 细粒度 CORS：空值走 llama.cpp 默认（localhost），保持与升级前行为一致
 		CorsOrigins:     "",
@@ -965,6 +972,13 @@ func (c *Config) Validate() error {
 	// P1-A1: 主动压缩阈值，> 0 时才校验 0.5-0.95
 	if c.ProactiveCompressThreshold > 0 && (c.ProactiveCompressThreshold < 0.5 || c.ProactiveCompressThreshold > 0.95) {
 		return apperror.Newf(apperror.KindInvalidConfig, "invalid proactive_compress_threshold: %.2f (must be 0.5-0.95 or 0 for default)", c.ProactiveCompressThreshold)
+	}
+
+	// Agent 审批模式：空串视为默认 auto，其余仅接受三个合法值
+	switch c.AgentApproval {
+	case "", "auto", "always", "never":
+	default:
+		return apperror.Newf(apperror.KindInvalidConfig, "invalid agent_approval: %q (must be auto/always/never or empty)", c.AgentApproval)
 	}
 
 	// 每主题背景参数：合法零值放行（blur=0/mask=0），仅越界/NaN 报错

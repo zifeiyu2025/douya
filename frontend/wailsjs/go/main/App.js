@@ -266,6 +266,10 @@ export function RestartApp() {
   return window['go']['main']['App']['RestartApp']();
 }
 
+export function ResolveToolApproval(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ResolveToolApproval'](arg1, arg2, arg3);
+}
+
 export function RestoreSlot(arg1) {
   return window['go']['main']['App']['RestoreSlot'](arg1);
 }

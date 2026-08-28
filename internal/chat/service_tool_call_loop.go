@@ -25,6 +25,7 @@ type toolCallResult struct {
 	tc          llm.ToolCall
 	toolContent string
 	searchJSON  string
+	denied      bool // 被审批门禁拒绝（未实际执行）
 }
 
 // toolCallLoopState 封装 tool call 循环中的可变状态。
@@ -113,25 +114,41 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 	return s.saveToolCallFinalMessage(convID, acc, state, llmMessages)
 }
 
-// executeToolCallsConcurrently 并发执行所有 tool calls（search + MCP 工具）。
-
-// executeToolCallsConcurrently 并发执行所有 tool calls（search + MCP 工具）。
+// executeToolCallsConcurrently 并发执行所有 tool calls（search + MCP 工具 + Agent 内置工具）。
 // 预分配结果切片，按 tool call 在原切片中的索引写入，
 // 避免 goroutine 并发完成后 append 导致结果乱序。
 // 生活类比：像给每个快递员编好编号，按编号放回对应格子，避免谁先回来谁先放导致顺序乱。
 //
-// MCP 工具的判定基于缓存的工具列表（由 llama-server /tools 端点提供）。
+// 审批门禁（tool_approval.go）：写操作/未知工具在派发执行前暂停等待用户决定，
+// 拒绝结果直接作为 tool 消息内容回传模型，不实际执行。
+//
+// MCP/内置工具的判定基于缓存的工具列表（由 llama-server /tools 端点提供）。
 // 工具名形如 "<server>_<tool>"，由 llama-server 自动加前缀避免命名冲突。
 func (s *Service) executeToolCallsConcurrently(cancelCtx context.Context, convID string, toolCalls []llm.ToolCall, cfg *config.Config) []toolCallResult {
 	toolResults := make([]toolCallResult, len(toolCalls))
 	var toolWg sync.WaitGroup
 
 	for idx, tc := range toolCalls {
-		// 判断工具类型：search、MCP 工具、未知工具
+		// 判断工具类型：search、MCP/内置工具、未知工具
 		isSearch := tc.Function.Name == "search"
 		isMCP := !isSearch && s.isMCPTool(tc.Function.Name)
 		if !isSearch && !isMCP {
 			continue // 跳过未知工具
+		}
+
+		// 审批门禁：需要审批的工具在此阻塞等待用户决定（拒绝不执行）
+		if approved, denyReason := s.gateToolCall(cancelCtx, convID, tc, cfg); !approved {
+			toolResults[idx] = toolCallResult{
+				tc:          tc,
+				toolContent: denyReason,
+				denied:      true,
+			}
+			s.emitForConv(convID, EventToolCallEnd, ToolCallEndContent{
+				ToolCallID: tc.ID,
+				Denied:     true,
+				Error:      denyReason,
+			})
+			continue
 		}
 
 		if isSearch {
@@ -150,11 +167,20 @@ func (s *Service) executeToolCallsConcurrently(cancelCtx context.Context, convID
 						toolContent: fmt.Sprintf(`{"error":"工具执行内部错误:%v"}`, r),
 						searchJSON:  "",
 					}
+					s.emitForConv(convID, EventToolCallEnd, ToolCallEndContent{
+						ToolCallID: tc.ID,
+						Error:      fmt.Sprintf("工具执行内部错误: %v", r),
+					})
 				}
 			}()
 			result := s.executeSingleToolCall(cancelCtx, convID, tc, cfg)
 			// 按 idx 写入预分配的切片，不同 goroutine 写不同位置，无需加锁
 			toolResults[idx] = result
+			s.emitForConv(convID, EventToolCallEnd, ToolCallEndContent{
+				ToolCallID: tc.ID,
+				OK:         toolResultOK(result.toolContent),
+				Preview:    truncateForLog(result.toolContent, 160),
+			})
 		}(idx, tc)
 	}
 	toolWg.Wait()

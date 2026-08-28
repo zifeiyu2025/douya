@@ -35,6 +35,52 @@
         <n-switch v-model:value="formConfig.agent" @update:value="handleAgentChange" />
       </n-form-item>
 
+      <template v-if="formConfig.agent">
+        <n-form-item>
+          <template #label>
+            工具审批模式
+            <HelpTip
+              content="auto（推荐）：只读工具自动执行，写操作与未验证的 MCP 工具弹出确认；always：所有工具都需确认；never：全部自动执行，仅推荐完全可信环境"
+            />
+          </template>
+          <n-select
+            v-model:value="formConfig.agent_approval"
+            :options="approvalOptions"
+            @update:value="autoSave"
+          />
+        </n-form-item>
+
+        <n-form-item>
+          <template #label>
+            Agent 工作目录
+            <HelpTip
+              content="内置工具（读写文件、执行命令）相对路径的解析基准目录。留空使用引擎运行目录；建议设置为你的项目文件夹"
+            />
+          </template>
+          <n-input
+            v-model:value="formConfig.agent_cwd"
+            placeholder="如 D:\projects\my-app（留空使用默认）"
+            clearable
+            @update:value="autoSave"
+          />
+        </n-form-item>
+
+        <n-form-item>
+          <template #label>
+            工具调用最大轮次
+            <HelpTip
+              content="单次对话中模型连续调用工具的最大轮数（默认 8，上限 25）。轮次越多可完成越复杂的多步任务，上下文接近上限时会自动压缩"
+            />
+          </template>
+          <n-input-number
+            :value="agentMaxRounds"
+            :min="1"
+            :max="25"
+            @update:value="onAgentMaxRoundsChange"
+          />
+        </n-form-item>
+      </template>
+
       <n-form-item>
         <template #label>
           内置工具
@@ -351,7 +397,7 @@
 </template>
 
 <script setup lang="ts">
-import { defineAsyncComponent, inject } from 'vue'
+import { computed, defineAsyncComponent, inject } from 'vue'
 import { NFormItem, NSwitch, NInput, NInputNumber, NSelect } from 'naive-ui'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
 // 性能项：MCP 设置含终端交互逻辑，异步加载减小高级面板首包
@@ -377,6 +423,21 @@ function handleAgentChange() {
   if (formConfig.value.agent) {
     formConfig.value.ui_mcp_proxy = false
   }
+  autoSave()
+}
+
+/** 工具审批模式选项 */
+const approvalOptions = [
+  { label: '自动（推荐：只读放行，写操作确认）', value: 'auto' },
+  { label: '严格（所有工具都确认）', value: 'always' },
+  { label: '信任（全部自动执行）', value: 'never' }
+]
+
+/** 最大轮次：0 视为默认 8 展示 */
+const agentMaxRounds = computed(() => formConfig.value.agent_max_rounds || 8)
+
+function onAgentMaxRoundsChange(v: number | null) {
+  formConfig.value.agent_max_rounds = v && v > 0 ? Math.min(Math.round(v), 25) : 0
   autoSave()
 }
 

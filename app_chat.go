@@ -11,6 +11,15 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+// ResolveToolApproval 回传工具审批决定（Agent 模式硬门禁）。
+// 前端审批弹窗调用：approved=false 拒绝执行；remember=true 时本会话内同名工具不再询问。
+func (a *App) ResolveToolApproval(toolCallID string, approved bool, remember bool) error {
+	if err := a.requireReady(); err != nil {
+		return err
+	}
+	return a.service.ResolveToolApproval(toolCallID, approved, remember)
+}
+
 func (a *App) SendMessage(params chat.SendMessageParams) error {
 	if err := a.requireReady(); err != nil {
 		return err

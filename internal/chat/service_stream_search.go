@@ -261,7 +261,7 @@ func (s *Service) recordCalibration(acc *StreamAccumulator, llmMessages []llm.Ch
 // finalizeStreamResult 处理流式结果：tool call 循环或保存 AI 消息。
 func (s *Service) finalizeStreamResult(cancelCtx context.Context, convID string, llmMessages []llm.ChatMessage, acc *StreamAccumulator) error {
 	if acc.FinishReason == "tool_calls" && len(acc.toolCalls()) > 0 {
-		return s.handleToolCallLoop(cancelCtx, convID, llmMessages, acc, 3)
+		return s.handleToolCallLoop(cancelCtx, convID, llmMessages, acc, s.toolCallMaxRounds(s.getConfigSnapshot()))
 	}
 
 	// 记录 prompt_tokens 反馈校准数据（普通回复路径）

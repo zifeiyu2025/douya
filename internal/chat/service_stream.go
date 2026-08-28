@@ -183,8 +183,12 @@ func (s *Service) refreshMcpToolsCache() {
 	// 豆芽内部使用 OpenAI ToolDefinition 格式（{type, function:{...}} 顶层），
 	// 这里做一次字段提取，把 definition 内的内容提到顶层。
 	var rawTools []struct {
-		Type       string `json:"type"` // 顶层 type（"mcp" 或 "function"）
-		Tool       string `json:"tool"` // 工具名（与 function.name 相同）
+		Type        string `json:"type"` // 顶层 type（"mcp" 或 "function"）
+		Tool        string `json:"tool"` // 工具名（与 function.name 相同）
+		DisplayName string `json:"display_name"`
+		Permissions struct {
+			Write bool `json:"write"`
+		} `json:"permissions"`
 		Definition struct {
 			Type     string          `json:"type"`
 			Function llm.FunctionDef `json:"function"`
@@ -197,6 +201,7 @@ func (s *Service) refreshMcpToolsCache() {
 
 	// 转换为豆芽内部 ToolDefinition 格式，过滤 "search"（豆芽自实现，避免与 llama-server 内置 search 冲突）
 	filtered := make([]llm.ToolDefinition, 0, len(rawTools))
+	perms := make(map[string]toolPermission, len(rawTools))
 	for _, t := range rawTools {
 		fn := t.Definition.Function
 		if fn.Name == "" {
@@ -214,10 +219,18 @@ func (s *Service) refreshMcpToolsCache() {
 			Type:     toolType,
 			Function: fn,
 		})
+		// 权限元数据供审批门禁分级：内置 agent 工具带 permissions.write；
+		// MCP 工具若引擎未声明权限，Known=false → 审批门禁按"未知"处理
+		perms[fn.Name] = toolPermission{
+			Write:       t.Permissions.Write,
+			DisplayName: t.DisplayName,
+			Known:       t.Type != "" && t.Type != "mcp",
+		}
 	}
 
 	s.mcpToolsCacheMu.Lock()
 	s.mcpToolsCache = filtered
+	s.mcpToolPerms = perms
 	s.mcpToolsCacheMu.Unlock()
 
 	log.Info().Int("count", len(filtered)).Msg("[chat] MCP 工具列表已刷新")

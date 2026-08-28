@@ -419,6 +419,9 @@ export namespace config {
 	    repack: boolean;
 	    agent: boolean;
 	    ui_mcp_proxy: boolean;
+	    agent_approval: string;
+	    agent_max_rounds: number;
+	    agent_cwd: string;
 	    cors_origins: string;
 	    cors_methods: string;
 	    cors_headers: string;
@@ -585,6 +588,9 @@ export namespace config {
 	        this.repack = source["repack"];
 	        this.agent = source["agent"];
 	        this.ui_mcp_proxy = source["ui_mcp_proxy"];
+	        this.agent_approval = source["agent_approval"];
+	        this.agent_max_rounds = source["agent_max_rounds"];
+	        this.agent_cwd = source["agent_cwd"];
 	        this.cors_origins = source["cors_origins"];
 	        this.cors_methods = source["cors_methods"];
 	        this.cors_headers = source["cors_headers"];

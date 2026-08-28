@@ -28,12 +28,14 @@
           <span class="rule-line"></span>
         </div>
 
-        <!-- 快捷操作纸片条：点击即发送（沿用现有 store 机制） -->
+        <!-- 快捷操作纸片条：点击即发送（沿用现有 store 机制）；
+             未就绪时弱化展示，点击给出友好引导而非触发后端报错 -->
         <div class="quick-actions">
           <button
             v-for="action in quickActions"
             :key="action.id"
             class="action-chip"
+            :class="{ 'action-chip--pending': chatUnavailable }"
             @click="handleQuickAction(action)"
           >
             <span class="chip-text">{{ action.title }}</span>
@@ -149,6 +151,7 @@
                 {{ generationSpeed.toFixed(1) }} token/s
               </div>
             </template>
+            <ToolActivityStrip :activities="toolActivities" />
             <SearchStatus
               v-if="isSearching"
               :searching="true"
@@ -203,6 +206,7 @@ import { useMessage } from 'naive-ui'
 import MessageItem from './MessageItem.vue'
 import ThinkBlock from './ThinkBlock.vue'
 import SearchStatus from './SearchStatus.vue'
+import ToolActivityStrip from './ToolActivityStrip.vue'
 import ContextTrimmed from './ContextTrimmed.vue'
 import OutputTruncated from './OutputTruncated.vue'
 import ModelDetailCard from '../models/ModelDetailCard.vue'
@@ -245,7 +249,25 @@ const quickActions: QuickAction[] = [
   { id: 4, icon: '', title: '头脑风暴', prompt: '帮我做一些头脑风暴，探索新想法' }
 ]
 
+// chatUnavailable：与 ChatInput 同一口径——模型未安装/加载中/未就绪时不可对话。
+// 快捷纸片虽常驻空状态页，但未就绪时点击只会触发后端 "AI 服务未启动" 报错 toast
+// （微软商店认证 10.12.10 审核员正是点了"翻译一段文字"截到报错），必须在此拦截并给出友好引导。
+const chatUnavailable = computed(() => {
+  if (settingsStore.missingModels) return true
+  if (settingsStore.isModelSwitching) return true
+  const s = settingsStore.serverStatus
+  return !(s.running && s.model_ready)
+})
+
 function handleQuickAction(action: QuickAction) {
+  if (chatUnavailable.value) {
+    if (settingsStore.missingModels) {
+      message.info('还没有可用模型，先到「设置 → 模型下载」获取一个吧', { duration: 4000 })
+    } else {
+      message.info('模型还没准备好，加载完成后再来体验吧', { duration: 4000 })
+    }
+    return
+  }
   chatStore.sendMessage(action.prompt, settingsStore.searchMode)
 }
 
@@ -282,12 +304,28 @@ onMounted(async () => {
   }
 })
 
+// 模型就绪后刷新空状态模型卡（首启装完模型自动加载成功时，空状态页的
+// "还没有可用模型"引导卡应消失、展示真实模型大卡）
+watch(
+  () => settingsStore.serverStatus.model_ready,
+  ready => {
+    if (!ready) return
+    wails
+      .getAvailableModels()
+      .then(m => {
+        availableModels.value = m
+      })
+      .catch(e => logError('就绪后刷新模型列表失败:', e))
+  }
+)
+
 const messages = computed(() => chatStore.messages)
 const isGenerating = computed(() => chatStore.isGenerating)
 const streamingContent = computed(() => chatStore.streamingContent)
 const thinkingContent = computed(() => chatStore.thinkingContent)
 const searchResults = computed(() => chatStore.searchResults)
 const isSearching = computed(() => chatStore.isSearching)
+const toolActivities = computed(() => chatStore.toolActivities)
 const isThinking = computed(() => chatStore.isThinking)
 const thinkingDuration = computed(() => chatStore.thinkingDuration)
 const searchQuery = computed(() => chatStore.searchQuery)
@@ -808,6 +846,11 @@ watch(
     background 0.15s ease;
   font-family: inherit;
   line-height: 1;
+}
+
+/* 模型未就绪：弱化但仍可点击（点击给出引导提示，而非禁用后无任何反馈） */
+.action-chip--pending {
+  opacity: 0.55;
 }
 
 .action-chip::before {

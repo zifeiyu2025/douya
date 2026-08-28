@@ -10,6 +10,7 @@ import {
 import { fixUtf8 } from '../utils/utf8'
 import { logError } from '../utils/logger'
 import { useSettingsStore } from './settings'
+import { useToolApprovalStore } from './toolApproval'
 import { useConversations } from './chat/conversations'
 import type { ConvStreamingState, StreamEventType } from '../types/chat'
 
@@ -39,7 +40,8 @@ function createEmptyStreamingState(): ConvStreamingState {
     outputTruncated: false,
     tokensPerSecond: 0,
     predictedN: 0,
-    promptProgress: null
+    promptProgress: null,
+    toolActivities: []
   })
 }
 
@@ -60,6 +62,7 @@ function clearConvState(state: ConvStreamingState) {
   state.thinkingDuration = 0
   state.searchQuery = ''
   state.searchError = ''
+  state.toolActivities = []
 }
 
 export const useChatStore = defineStore('chat', () => {
@@ -191,6 +194,8 @@ export const useChatStore = defineStore('chat', () => {
   const isSearching = computed(() => currentConvState.value.isSearching)
   const isThinking = computed(() => currentConvState.value.isThinking)
   const thinkingDuration = computed(() => currentConvState.value.thinkingDuration)
+  // 工具执行时间线：当前查看会话的 Agent/搜索工具活动（ToolActivityStrip 渲染）
+  const toolActivities = computed(() => currentConvState.value.toolActivities ?? [])
   const searchQuery = computed(() => currentConvState.value.searchQuery)
   const searchError = computed(() => currentConvState.value.searchError)
   const contextTrimmed = computed(() => currentConvState.value.contextTrimmed)
@@ -366,7 +371,8 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  // content 包含 tool_call_id，用于并发 tool call 关联
+  // content 包含 tool_call_id，用于并发 tool call 关联。
+  // 同时写入会话级工具执行时间线（Agent 模式专业化展示；isSearching/searchQuery 保留兼容 SearchStatus）
   function handleToolCallStart(
     convId: string,
     content: Extract<StreamEvent, { type: 'tool_call_start' }>['content']
@@ -376,7 +382,79 @@ export const useChatStore = defineStore('chat', () => {
     const state = getConvState(convId)
     state.isSearching = true
     state.searchQuery = content.query || ''
-    // tool_call_id 用于未来细粒度状态跟踪（当前保持单值兼容，多 tool call 时最后一个覆盖）
+    const activities = state.toolActivities ?? []
+    activities.push({
+      toolCallId: content.tool_call_id,
+      tool: content.tool,
+      argsPreview: content.query || '',
+      status: 'running',
+      startedAt: Date.now()
+    })
+    state.toolActivities = activities
+  }
+
+  // 工具审批请求（Agent 模式硬门禁）：时间线标记待审批，并转交全局审批弹窗
+  function handleToolApprovalRequest(
+    convId: string,
+    content: Extract<StreamEvent, { type: 'tool_approval_request' }>['content']
+  ) {
+    const state = getConvState(convId)
+    const activities = state.toolActivities ?? []
+    const entry = activities.find(a => a.toolCallId === content.tool_call_id)
+    if (entry) {
+      entry.status = 'pending_approval'
+    } else {
+      // 审批请求先于 tool_call_start 到达的兜底（理论上不会发生）
+      activities.push({
+        toolCallId: content.tool_call_id,
+        tool: content.tool,
+        argsPreview: content.arguments,
+        status: 'pending_approval',
+        startedAt: Date.now()
+      })
+    }
+    state.toolActivities = activities
+    useToolApprovalStore().push({
+      convId,
+      toolCallId: content.tool_call_id,
+      tool: content.tool,
+      displayName: content.display_name || content.tool,
+      risk: content.risk,
+      arguments: content.arguments
+    })
+  }
+
+  // 单个工具执行结束：翻转时间线条目终态
+  function handleToolCallEnd(
+    convId: string,
+    content: Extract<StreamEvent, { type: 'tool_call_end' }>['content']
+  ) {
+    const state = getConvState(convId)
+    const activities = state.toolActivities ?? []
+    const entry = activities.find(a => a.toolCallId === content.tool_call_id)
+    if (!entry) return
+    entry.durationMs = Date.now() - entry.startedAt
+    if (content.denied) {
+      entry.status = 'denied'
+      entry.resultPreview = content.error || '用户拒绝执行'
+    } else if (content.ok === false) {
+      entry.status = 'failed'
+      entry.resultPreview = content.error || content.preview || '执行失败'
+    } else {
+      entry.status = 'ok'
+      entry.resultPreview = content.preview || ''
+    }
+    state.toolActivities = activities
+  }
+
+  /** 回传工具审批决定（转发 Wails 绑定，结果由 tool_call_end 事件反映到时间线） */
+  async function resolveToolApproval(toolCallId: string, approved: boolean, remember: boolean) {
+    try {
+      await wails.approveToolCall(toolCallId, approved, remember)
+    } catch (e) {
+      // 请求已过期（超时/取消）：错误提示由时间线终态体现，这里仅记录
+      logError('回传工具审批决定失败', e)
+    }
   }
 
   // 后端在 tool call 场景发送 JSON 字符串（紧跟 tool_call_start 事件会覆盖 searchQuery），
@@ -690,6 +768,8 @@ export const useChatStore = defineStore('chat', () => {
     token: (id, c) => handleToken(id, c),
     thinking: (id, c) => handleThinking(id, c),
     tool_call_start: (id, c) => handleToolCallStart(id, c),
+    tool_approval_request: (id, c) => handleToolApprovalRequest(id, c),
+    tool_call_end: (id, c) => handleToolCallEnd(id, c),
     search_start: (id, c) => handleSearchStart(id, c),
     search_result: (id, c) => handleSearchResult(id, c),
     search_error: (id, c) => handleSearchError(id, c),
@@ -924,6 +1004,8 @@ export const useChatStore = defineStore('chat', () => {
     isSearching,
     isThinking,
     thinkingDuration,
+    toolActivities,
+    resolveToolApproval,
     searchQuery,
     searchError,
     contextTrimmed,

@@ -277,6 +277,7 @@ func buildServerConfigFromFields(
 		Offline:                  cfg.Offline,
 		Repack:                   cfg.Repack,
 		Agent:                    cfg.Agent,
+		AgentCwd:                 cfg.AgentCwd,
 		UIMcpProxy:               cfg.UIMcpProxy,
 		CorsOrigins:              cfg.CorsOrigins,
 		CorsMethods:              cfg.CorsMethods,

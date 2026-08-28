@@ -78,6 +78,30 @@ export interface ToolCallStartEvent extends StreamEventBase {
   content: { tool_call_id: string; tool: string; query: string }
 }
 
+/** 工具审批请求（Agent 模式硬门禁：写操作/未知工具执行前等待用户决定） */
+export interface ToolApprovalRequestEvent extends StreamEventBase {
+  type: 'tool_approval_request'
+  content: {
+    tool_call_id: string
+    tool: string
+    display_name: string
+    risk: 'safe' | 'write' | 'unknown' | 'all'
+    arguments: string
+  }
+}
+
+/** 单个工具执行结束（前端时间线据此翻转条目终态） */
+export interface ToolCallEndEvent extends StreamEventBase {
+  type: 'tool_call_end'
+  content: {
+    tool_call_id: string
+    ok?: boolean
+    denied?: boolean
+    error?: string
+    preview?: string
+  }
+}
+
 /** 搜索开始（content 为搜索查询参数字符串） */
 export interface SearchStartEvent extends StreamEventBase {
   type: 'search_start'
@@ -199,6 +223,8 @@ export type StreamEvent =
   | TokenEvent
   | ThinkingEvent
   | ToolCallStartEvent
+  | ToolApprovalRequestEvent
+  | ToolCallEndEvent
   | SearchStartEvent
   | SearchResultEvent
   | SearchErrorEvent
@@ -395,6 +421,12 @@ export interface Config {
   simple_io: boolean
   agent: boolean
   ui_mcp_proxy: boolean
+  /** Agent 工具审批模式："auto"（默认，写操作/未知工具需确认）、"always"、"never" */
+  agent_approval: string
+  /** tool call 循环最大轮次，0=默认 8，上限 25 */
+  agent_max_rounds: number
+  /** Agent 工具的工作目录（相对路径解析基准；空=引擎运行目录） */
+  agent_cwd: string
   cors_origins: string
   cors_methods: string
   cors_headers: string
@@ -614,6 +646,9 @@ export const DEFAULT_CONFIG: Config = {
   simple_io: false,
   agent: false,
   ui_mcp_proxy: false,
+  agent_approval: '',
+  agent_max_rounds: 0,
+  agent_cwd: '',
   cors_origins: '',
   cors_methods: '',
   cors_headers: '',
@@ -724,6 +759,17 @@ export interface SwitchResult {
   params_restored?: boolean
 }
 
+/** 工具执行时间线条目（生成期瞬态，随消息完成而清空） */
+export interface ToolActivity {
+  toolCallId: string
+  tool: string
+  argsPreview: string
+  status: 'running' | 'pending_approval' | 'ok' | 'failed' | 'denied'
+  startedAt: number
+  durationMs?: number
+  resultPreview?: string
+}
+
 /** 流式状态：单个会话的临时状态 */
 export interface ConvStreamingState {
   isGenerating: boolean
@@ -749,6 +795,8 @@ export interface ConvStreamingState {
   tokensPerSecond: number // 实时生成速度（tokens/s），0 表示未获取
   predictedN: number // 已生成的 token 数
   promptProgress: { total: number; cache: number; processed: number; timeMs: number } | null
+  /** 工具执行时间线（Agent/搜索工具的瞬态活动记录，生成结束随会话状态清空） */
+  toolActivities: ToolActivity[]
 }
 
 /**

@@ -59,6 +59,10 @@
           :switch-stages="switchStages"
           :get-switch-stage-index="getSwitchStageIndex"
         />
+        <!-- 模型下载全局悬浮状态卡：进度/完成/失败脱离设置页随时可见 -->
+        <ModelDownloadStatus />
+        <!-- Agent 工具执行审批弹窗（硬门禁 UI 端，写操作/未知工具执行前确认） -->
+        <ToolApprovalModal />
         <ExitOverlay :show="showExitOverlay" :exit-progress="exitProgress" />
         <SplashScreen
           :visible="showSplash"
@@ -85,6 +89,8 @@ import TopCommandBar from './components/layout/TopCommandBar.vue'
 import SessionSidebar from './components/layout/SessionSidebar.vue'
 import CommandPalette from './components/layout/CommandPalette.vue'
 import SplashScreen from './components/layout/SplashScreen.vue'
+import ModelDownloadStatus from './components/layout/ModelDownloadStatus.vue'
+import ToolApprovalModal from './components/layout/ToolApprovalModal.vue'
 import ModelSwitchOverlay from './components/ModelSwitchOverlay.vue'
 import ExitOverlay from './components/ExitOverlay.vue'
 import StartupErrorCard from './components/StartupErrorCard.vue'
