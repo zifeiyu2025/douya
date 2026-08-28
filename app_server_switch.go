@@ -274,13 +274,26 @@ func (a *App) regeneratePresetWithoutMmproj(modelName string) bool {
 
 func (a *App) generatePresetFile() error {
 	modelsDir := filepath.Join(appDir(), "models")
-	presets, err := llm.ScanModelsDir(modelsDir)
-	if err != nil {
-		return apperror.Wrap(apperror.KindInternal, "scan models dir", err)
+
+	var presets []llm.ModelPreset
+	if _, statErr := os.Stat(modelsDir); os.IsNotExist(statErr) {
+		// 模型目录尚未创建（商店版首次启动/升级后数据目录为空，models 文件夹还没生成）。
+		// 直接视为"无模型"继续，避免 ScanModelsDir 因目录不存在而报错提前返回，
+		// 从而无法写入预设文件。
+		zlog.Warn().Str("dir", modelsDir).Msg("[preset] models dir not found, writing empty preset file")
+	} else {
+		var err error
+		presets, err = llm.ScanModelsDir(modelsDir)
+		if err != nil {
+			return apperror.Wrap(apperror.KindInternal, "scan models dir", err)
+		}
 	}
 
 	if len(presets) == 0 {
-		return apperror.Newf(apperror.KindNotFound, "no models found in %s", modelsDir)
+		// 无模型时不再提前报错退出：仍写入"仅含全局默认段"的空预设文件，
+		// 保证 --models-preset 始终存在。否则商店版首次启动/升级后数据目录为空，
+		// 预设文件缺失会让路由器以默认参数运行，并被前端误报"预设文件生成失败"。
+		zlog.Warn().Str("dir", modelsDir).Msg("[preset] no models found, writing empty preset file")
 	}
 
 	defaultModelPath := a.getConfig().ModelPath
