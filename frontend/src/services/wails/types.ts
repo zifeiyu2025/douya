@@ -110,6 +110,8 @@ export interface HubModel {
   name: string
   downloads: number
   likes: number
+  /** 主 .gguf 文件大小（字节）：仓库内最小的主文件（入门量化档），查询失败为 0 */
+  main_file_size?: number
 }
 
 /** 仓库内的一个可下载文件 */
@@ -141,6 +143,8 @@ export interface ModelDownloadComplete {
   file: string
   success: boolean
   error?: string
+  /** 下载成功后的生效方式：auto=后端自动加载，listed=已入列表可手动切换，restart=需重启 */
+  activate?: 'auto' | 'listed' | 'restart'
 }
 
 /** 异常清理事件 */

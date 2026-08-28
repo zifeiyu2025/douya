@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -83,6 +84,10 @@ type HubModel struct {
 	Name      string      `json:"name"`      // 展示名
 	Downloads int64       `json:"downloads"` // 下载量
 	Likes     int64       `json:"likes"`     // 点赞/标星数
+	// MainFileSize 主 .gguf 文件大小（字节）：取仓库内最小的主 .gguf（入门量化档），
+	// 代表"跑起来至少要下多大"。搜索过滤阶段顺带捕获，用于按模型大小排序与列表展示；
+	// 查询失败/未知为 0，排序时沉底。
+	MainFileSize int64 `json:"main_file_size"`
 }
 
 // HubFile 仓库内的一个可下载文件。
@@ -142,6 +147,8 @@ func FilterModelsWithGGUF(ctx context.Context, provider HubProvider, models []Hu
 	}
 
 	keep := make([]bool, len(models))
+	// 各仓库的主 .gguf 大小（过滤阶段顺带捕获，供按大小排序与前端展示）
+	mainSizes := make([]int64, len(models))
 	// 每个仓库单独一个限时 context，避免个别慢请求拖慢整批
 	perCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -163,11 +170,13 @@ func FilterModelsWithGGUF(ctx context.Context, provider HubProvider, models []Hu
 				keep[i] = true
 				return
 			}
-			// 只剔除"确实列出文件且没有主 .gguf"的仓库
+			// 只剔除"确实列出文件且没有主 .gguf"的仓库；顺带记录最小的主 .gguf（入门量化档）
 			for _, f := range files {
 				if f.IsGGUF && !f.IsMmproj {
 					keep[i] = true
-					return
+					if f.Size > 0 && (mainSizes[i] == 0 || f.Size < mainSizes[i]) {
+						mainSizes[i] = f.Size
+					}
 				}
 			}
 		}(i, m)
@@ -177,10 +186,33 @@ func FilterModelsWithGGUF(ctx context.Context, provider HubProvider, models []Hu
 	filtered := make([]HubModel, 0, len(models))
 	for i, m := range models {
 		if keep[i] {
+			m.MainFileSize = mainSizes[i]
 			filtered = append(filtered, m)
 		}
 	}
+	// 按模型大小升序排序：小的在前（低配机器优先可跑），大小未知（查询失败）的沉底，
+	// 同大小时下载量高的在前。搜索接口本身按热度返回，这里仅对当页结果重排。
+	sortModelsByMainSize(filtered)
 	return filtered
+}
+
+// sortModelsByMainSize 按主文件大小升序对模型列表排序（未知大小沉底，同大小下载量优先）。
+func sortModelsByMainSize(models []HubModel) {
+	sort.SliceStable(models, func(a, b int) bool {
+		as, bs := models[a].MainFileSize, models[b].MainFileSize
+		switch {
+		case as == 0 && bs == 0:
+			return models[a].Downloads > models[b].Downloads
+		case as == 0:
+			return false
+		case bs == 0:
+			return true
+		case as != bs:
+			return as < bs
+		default:
+			return models[a].Downloads > models[b].Downloads
+		}
+	})
 }
 
 // ListModelFiles 列出指定仓库内的文件（用于挑选 .gguf 主文件与 MMProj 投影文件）。

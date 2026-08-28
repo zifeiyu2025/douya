@@ -193,9 +193,11 @@ const chatUnavailable = computed(() => {
 
 // inputPlaceholder：输入框禁用时给出明确的中文原因提示，引导用户如何恢复对话。
 const inputPlaceholder = computed(() => {
-  if (settingsStore.missingModels) return '尚未安装模型，请先到「设置」中下载模型'
-  if (isSwitching.value) return '模型加载中，请稍候…'
   const s = settingsStore.serverStatus
+  // missingModels 且引擎未运行才是真正的"没装模型"；引擎已运行说明模型正在加载
+  // （内置下载器装完模型后端会自动加载，无需重启），此时显示加载中而非下载引导
+  if (settingsStore.missingModels && !s.running) return '尚未安装模型，请先到「设置」中下载模型'
+  if (isSwitching.value) return '模型加载中，请稍候…'
   if (s.error) return '引擎异常，请查看顶部状态提示'
   if (!s.running) return '引擎启动中，请稍候…'
   if (!s.model_ready) return '模型加载中，请稍候…'

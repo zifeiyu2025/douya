@@ -153,7 +153,17 @@ func (a *App) DownloadHubModel(provider string, repoID string, mainFile string, 
 		a.refreshModelsAfterDownload()
 
 		zlog.Info().Str("file", mainBase).Msg("[modelhub] 模型下载完成")
-		a.emitModelDownloadComplete(repoID, mainBase, true, "")
+
+		// 微软商店认证 10.12.10 修复：下载完成后自动激活新模型（ReloadPresets + 切换加载），
+		// 不再要求"重启应用生效"——审核员装完模型即点对话，重启兜底对他们不可见。
+		// activateMode 告知前端后续走向：auto=后端自动加载，listed=已入列表可手动切换，restart=需重启（引擎未就绪）。
+		activateMode := a.downloadedModelActivateMode()
+		a.emitModelDownloadComplete(repoID, mainBase, true, "", activateMode)
+		if activateMode == "auto" {
+			a.trackedGo(func() {
+				a.autoActivateDownloadedModel(mainBase)
+			})
+		}
 	}()
 
 	return nil
@@ -196,7 +206,7 @@ func (a *App) emitModelDownloadProgress(p llm.ModelDownloadProgress) {
 	wailsruntime.EventsEmit(a.ctx, EventModelDownloadProgress, p)
 }
 
-func (a *App) emitModelDownloadComplete(repoID, file string, success bool, errMsg string) {
+func (a *App) emitModelDownloadComplete(repoID, file string, success bool, errMsg string, activateMode ...string) {
 	payload := map[string]any{
 		"repo_id": repoID,
 		"file":    file,
@@ -204,6 +214,10 @@ func (a *App) emitModelDownloadComplete(repoID, file string, success bool, errMs
 	}
 	if errMsg != "" {
 		payload["error"] = errMsg
+	}
+	// activateMode 仅在成功时携带：告知前端下载完成后的走向（auto/listed/restart）
+	if success && len(activateMode) > 0 && activateMode[0] != "" {
+		payload["activate"] = activateMode[0]
 	}
 	wailsruntime.EventsEmit(a.ctx, EventModelDownloadComplete, payload)
 }
@@ -220,6 +234,87 @@ func (a *App) refreshModelsAfterDownload() {
 	if err := a.generatePresetFile(); err != nil {
 		zlog.Warn().Err(err).Msg("[modelhub] regenerate preset file failed after download")
 	}
+	// models 目录已非空：清除首启的"空模型"标志，让 GetServerStatus 恢复真实状态。
+	// 若不清除，GetServerStatus 会一直返回"模型目录为空"，前端 missingModels 粘滞、聊天入口不解锁。
+	if a.presetCount() > 0 {
+		a.modelsEmpty.Store(false)
+	}
+}
+
+// presetCount 返回当前内存中的模型预设数量（RLock 保护）。
+func (a *App) presetCount() int {
+	a.presetsMu.RLock()
+	defer a.presetsMu.RUnlock()
+	return len(a.presets)
+}
+
+// downloadedModelActivateMode 判定刚下载完成的模型如何生效：
+//   - "auto"：服务已构建且尚无就绪模型（典型为首次使用）——后端自动 ReloadPresets + 加载新模型；
+//   - "listed"：已有就绪模型——ReloadModels 已让新模型进入列表，可随时手动切换，不打断当前会话；
+//   - "restart"：服务尚未构建完成（如引擎缺失走启动期下载、startup 提前返回）——保持"重启后生效"兜底。
+func (a *App) downloadedModelActivateMode() string {
+	if !a.ready.Load() {
+		return "restart"
+	}
+	if a.getServer() == nil || a.getClient() == nil {
+		return "restart"
+	}
+	if a.serverReady.Load() {
+		return "listed"
+	}
+	return "auto"
+}
+
+// autoActivateDownloadedModel 下载完成后自动加载新模型，免除"重启应用生效"。
+// 微软商店认证 10.12.10（Unusable Feature: Chat with AI）的修复主路径：
+// 审核员装完模型即尝试对话，若应用要求重启后模型才会加载，会被判定为功能不可用。
+func (a *App) autoActivateDownloadedModel(fileName string) {
+	// 加载可能耗时数分钟（trackedGo 独立 goroutine），panic 防护避免拖垮进程
+	defer recoverLog("[modelhub] auto activate downloaded model panic")
+
+	if a.getServer() == nil || a.getClient() == nil {
+		return
+	}
+	// 用户在下载收尾期间已手动切换并加载了模型：尊重当前会话，不再强行切到新模型
+	if a.serverReady.Load() {
+		return
+	}
+
+	// 让运行中的路由器重新加载 preset 文件，感知刚下载的模型（启动时 preset 还是空表）
+	reloadCtx, reloadCancel := context.WithTimeout(context.Background(), apiTimeoutShort)
+	if err := a.getClient().ReloadPresets(reloadCtx); err != nil {
+		zlog.Warn().Err(err).Msg("[modelhub] ReloadPresets failed before auto activate")
+	}
+	reloadCancel()
+
+	modelName := a.findPresetNameByFile(fileName)
+	if modelName == "" {
+		zlog.Warn().Str("file", fileName).Msg("[modelhub] downloaded model not found in presets, skip auto activate")
+		return
+	}
+
+	zlog.Info().Str("model", modelName).Str("file", fileName).Msg("[modelhub] auto activating downloaded model")
+	result := a.SwitchModel(modelName)
+	if result.Error != "" {
+		// 失败不弹窗不退出：前端下载横幅会展示错误并保留重启兜底，用户也可手动重试
+		zlog.Warn().Str("model", modelName).Str("error", result.Error).
+			Msg("[modelhub] auto activate downloaded model failed")
+		return
+	}
+	zlog.Info().Str("model", modelName).Msg("[modelhub] downloaded model activated (no restart needed)")
+}
+
+// findPresetNameByFile 按模型文件名（basename）在 preset 列表中定位注册名。
+// generatePresetFile 已把 ModelPath 解析为绝对路径，basename 与下载落盘的文件名一致。
+func (a *App) findPresetNameByFile(fileName string) string {
+	a.presetsMu.RLock()
+	defer a.presetsMu.RUnlock()
+	for _, p := range a.presets {
+		if filepath.Base(p.ModelPath) == fileName {
+			return p.Name
+		}
+	}
+	return ""
 }
 
 // resolveHubProvider 将前端传来的 provider 字符串校验并转换为 HubProvider。

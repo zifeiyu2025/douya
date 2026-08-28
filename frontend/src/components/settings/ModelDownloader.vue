@@ -15,7 +15,7 @@
         v-model:value="provider"
         class="provider-select"
         :options="providerOptions"
-        :disabled="downloading"
+        :disabled="dlStore.hasActive"
         aria-label="下载源"
       />
       <n-input
@@ -23,13 +23,13 @@
         class="search-input"
         placeholder="输入模型关键词，如 Qwen3、DeepSeek-R1"
         clearable
-        :disabled="downloading"
+        :disabled="dlStore.hasActive"
         @keydown.enter="search"
       />
       <n-button
         type="primary"
         :loading="searching"
-        :disabled="downloading || keyword.trim() === ''"
+        :disabled="dlStore.hasActive || keyword.trim() === ''"
         @click="search"
       >
         <template #icon>
@@ -76,6 +76,8 @@
             <div class="model-item__name">{{ m.name }}</div>
             <div class="model-item__meta">
               <span>仓库：{{ m.repo_id }}</span>
+              <!-- 主文件大小：搜索结果已按模型大小升序排序，这里展示排序依据 -->
+              <span v-if="m.main_file_size">主文件 {{ formatSize(m.main_file_size) }}</span>
               <span v-if="m.downloads > 0">下载 {{ formatCount(m.downloads) }}</span>
               <span v-if="m.likes > 0">点赞 {{ formatCount(m.likes) }}</span>
             </div>
@@ -105,7 +107,7 @@
               <div class="files-title">请选择要下载的文件：</div>
               <n-radio-group v-model:value="selectedFile" class="files-group">
                 <div v-for="f in ggufFiles" :key="f.path" class="file-option">
-                  <n-radio :value="f.path" :disabled="downloading">
+                  <n-radio :value="f.path" :disabled="dlStore.hasActive">
                     <span class="file-option__name">{{ f.path }}</span>
                   </n-radio>
                   <span class="file-option__size">{{ formatSize(f.size) }}</span>
@@ -120,7 +122,7 @@
                   <div v-for="f in mmprojFiles" :key="f.path" class="file-option">
                     <n-checkbox
                       :checked="selectedMmproj === f.path"
-                      :disabled="downloading"
+                      :disabled="dlStore.hasActive"
                       :aria-label="'额外勾选 MMProj 文件 ' + f.path"
                       @update:checked="(val: boolean) => onToggleMmproj(f.path, val)"
                     >
@@ -138,7 +140,7 @@
                 type="primary"
                 size="small"
                 :loading="startingDownload"
-                :disabled="downloading || !selectedFile"
+                :disabled="dlStore.hasActive || !selectedFile"
                 @click="startDownload"
               >
                 开始下载 {{ selectedFile ? formatSize(selectedFileSize) : '' }}
@@ -177,77 +179,13 @@
       </template>
     </div>
 
-    <!-- 下载进度列表 -->
-    <div v-if="Object.keys(progressMap).length > 0" class="download-progress">
-      <div class="progress-title">下载进度</div>
-      <div v-for="(p, file) in progressMap" :key="file" class="progress-item">
-        <div class="progress-item__head">
-          <span class="progress-item__file" :title="file">{{ file }}</span>
-          <span class="progress-item__status" :class="'status--' + p.status">
-            {{ statusText(p) }}
-          </span>
-        </div>
-        <n-progress
-          v-if="p.status === 'downloading' || p.status === 'paused'"
-          type="line"
-          :percentage="Math.round(p.percent)"
-          :indicator-placement="'inside'"
-          status="default"
-          :height="8"
-        />
-        <n-progress
-          v-else
-          type="line"
-          :percentage="p.status === 'completed' ? 100 : 0"
-          :indicator-placement="'inside'"
-          :status="p.status === 'failed' ? 'error' : 'success'"
-          :height="8"
-        />
-        <div v-if="p.status === 'failed' && p.error" class="progress-item__error">
-          {{ p.error }}
-        </div>
-        <div v-if="p.status === 'downloading'" class="progress-item__bytes">
-          {{ formatSize(p.downloaded) }} / {{ formatSize(p.total_bytes) }}
-        </div>
-      </div>
-    </div>
-
-    <!-- 下载失败横幅：醒目展示失败状态并提供一键重试；
-         Go 侧已保留断点（.tmp），重试会从已下载字节处继续，不必从头再来 -->
-    <div v-if="downloadFailed && lastAttempt" class="download-failed" role="alert">
-      <div class="download-failed__body">
-        <div class="download-failed__title">模型下载中断</div>
-        <div class="download-failed__hint">
-          可能是网络波动或源站临时不可用。已下载的部分已保留断点，点击重试将从断点继续，无需重新下载。
-        </div>
-      </div>
-      <button
-        class="download-failed__retry"
-        :disabled="retrying || downloading"
-        :aria-label="'重试下载 ' + lastAttempt.mainFile"
-        @click="retryDownload"
-      >
-        {{ retrying ? '正在重试…' : '重试下载' }}
-      </button>
-    </div>
-
-    <!-- 下载完成：移除进度条，提示重启应用以加载新模型 -->
-    <div v-if="downloadDone" class="download-done">
-      <div class="download-done__text">模型下载完成，重启应用后即可加载使用</div>
-      <button
-        class="download-done__restart"
-        :disabled="restarting"
-        :aria-label="'重启应用'"
-        @click="restartApp"
-      >
-        {{ restarting ? '正在重启…' : '重启应用' }}
-      </button>
-    </div>
+    <!-- 下载进度/完成/失败状态已抽出为全局悬浮卡（App.vue 挂载的 ModelDownloadStatus），
+         任意页面可见，不再内嵌在本面板中 -->
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed } from 'vue'
 import {
   NSelect,
   NInput,
@@ -256,17 +194,13 @@ import {
   NRadioGroup,
   NRadio,
   NTag,
-  NProgress,
   NSpin,
   NEmpty
 } from 'naive-ui'
 import { SearchOutline } from '@vicons/ionicons5'
-import {
-  wails,
-  type HubModel,
-  type HubFile,
-  type ModelDownloadProgress
-} from '../../services/wails'
+import { wails, type HubModel, type HubFile } from '../../services/wails'
+import { useModelDownloadStore } from '../../stores/modelDownload'
+import { formatSize } from '../../utils/model'
 import { logError } from '../../utils/logger'
 
 defineOptions({ name: 'ModelDownloader' })
@@ -297,26 +231,10 @@ const fileList = ref<HubFile[]>([])
 const selectedFile = ref('')
 const selectedMmproj = ref('') // 用户额外勾选的 MMProj 文件
 
-// 下载状态
-const downloading = ref(false)
+// 下载状态：进度/完成/重试统一收敛在全局 modelDownload store，
+// 与 App.vue 挂载的悬浮状态卡（ModelDownloadStatus）共享同一份数据
+const dlStore = useModelDownloadStore()
 const startingDownload = ref(false)
-const progressMap = ref<Record<string, ModelDownloadProgress>>({})
-
-// 最近一次发起的下载参数：下载中断/失败后，"重试下载"按钮据此原样重发，
-// 用户无需重新搜索、展开仓库、勾选文件；已下载的部分（断点）不会重下。
-interface DownloadAttempt {
-  provider: string
-  repoId: string
-  mainFile: string
-  mmproj: string
-}
-const lastAttempt = ref<DownloadAttempt | null>(null)
-// 正在重试（防重复点击重试按钮）
-const retrying = ref(false)
-
-// 存储事件退订函数，组件卸载时清理
-let unsubProgress: (() => void) | null = null
-let unsubComplete: (() => void) | null = null
 
 // 仅保留 .gguf 主文件（排除 MMProj），作为单选主文件列表
 const ggufFiles = computed(() => fileList.value.filter(f => f.is_gguf && !f.is_mmproj))
@@ -328,18 +246,6 @@ const selectedFileSize = computed(() => {
   const f = fileList.value.find(x => x.path === selectedFile.value)
   return f ? f.size : 0
 })
-
-function formatSize(bytes: number): string {
-  if (!bytes || bytes <= 0) return '未知大小'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let i = 0
-  let v = bytes
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024
-    i++
-  }
-  return `${v >= 100 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`
-}
 
 function formatCount(n: number): string {
   if (n >= 10000) return `${(n / 10000).toFixed(1)}w`
@@ -358,8 +264,6 @@ async function search() {
   selectedFile.value = ''
   loadingMoreError.value = ''
   hasMore.value = false
-  downloadDone.value = false
-  downloadFailed.value = false
   try {
     models.value = await wails.searchHubModels(provider.value, q, 1)
     currentPage.value = 1
@@ -438,69 +342,24 @@ async function selectModel(m: HubModel) {
   }
 }
 
-/** 发起一次模型下载（startDownload 与 retryDownload 的公共逻辑） */
-async function beginDownload(attempt: DownloadAttempt): Promise<void> {
-  startingDownload.value = true
-  try {
-    await wails.downloadHubModel(attempt.provider, attempt.repoId, attempt.mainFile, attempt.mmproj)
-    downloading.value = true
-    // 初始化进度占位
-    progressMap.value[attempt.mainFile] = {
-      provider: attempt.provider,
-      repo_id: attempt.repoId,
-      file_path: attempt.mainFile,
-      total_bytes: 0,
-      downloaded: 0,
-      percent: 0,
-      status: 'downloading',
-      error: ''
-    }
-    if (attempt.mmproj) {
-      progressMap.value[attempt.mmproj] = {
-        provider: attempt.provider,
-        repo_id: attempt.repoId,
-        file_path: attempt.mmproj,
-        total_bytes: 0,
-        downloaded: 0,
-        percent: 0,
-        status: 'waiting',
-        error: ''
-      }
-    }
-  } finally {
-    startingDownload.value = false
-  }
-}
-
+/** 发起下载：进度/完成/失败状态由全局 store 与悬浮卡接管，本面板只负责发起 */
 async function startDownload() {
   if (!selectedModel.value || !selectedFile.value) return
-  const attempt: DownloadAttempt = {
+  const attempt = {
     provider: provider.value,
     repoId: selectedModel.value.repo_id,
     mainFile: selectedFile.value,
     mmproj: selectedMmproj.value
   }
-  // 保存本次下载参数：无论本次结果如何，失败后都可一键原样重试
-  lastAttempt.value = attempt
+  startingDownload.value = true
   try {
-    await beginDownload(attempt)
+    await wails.downloadHubModel(attempt.provider, attempt.repoId, attempt.mainFile, attempt.mmproj)
+    // 发起成功才记录：留底参数供悬浮卡一键重试，并弹出悬浮卡展示进度
+    dlStore.recordAttempt(attempt)
   } catch (e) {
     logError('发起下载失败', e)
-  }
-}
-
-/** 一键重试：用上次留底的参数重新发起下载；Go 侧已保留断点，会自动从已下载字节处续传 */
-async function retryDownload() {
-  const attempt = lastAttempt.value
-  if (!attempt || downloading.value || retrying.value || startingDownload.value) return
-  retrying.value = true
-  downloadFailed.value = false
-  try {
-    await beginDownload(attempt)
-  } catch (e) {
-    logError('重试下载发起失败', e)
   } finally {
-    retrying.value = false
+    startingDownload.value = false
   }
 }
 
@@ -508,65 +367,6 @@ async function retryDownload() {
 function onToggleMmproj(path: string, checked: boolean) {
   selectedMmproj.value = checked ? path : ''
 }
-
-/** 重启应用：启动新进程后退出当前进程，用于让下载完成的模型立即生效 */
-async function restartApp() {
-  restarting.value = true
-  try {
-    await wails.restartApp()
-  } catch (e) {
-    restarting.value = false
-    logError('重启应用失败', e)
-  }
-}
-
-function statusText(p: ModelDownloadProgress): string {
-  switch (p.status) {
-    case 'downloading':
-      return '下载中'
-    case 'completed':
-      return '已完成'
-    case 'failed':
-      return '失败'
-    case 'paused':
-      return '已暂停（保留断点）'
-    case 'waiting':
-      return '等待中'
-    default:
-      return p.status
-  }
-}
-
-// 是否显示"下载完成，重启应用"提示
-const downloadDone = ref(false)
-// 是否有下载失败（失败时不自动隐藏，便于查看错误）
-const downloadFailed = ref(false)
-// 正在重启应用（防重复点击）
-const restarting = ref(false)
-
-onMounted(() => {
-  unsubProgress = wails.subscribeModelDownloadProgress(p => {
-    progressMap.value[p.file_path] = p
-  })
-  unsubComplete = wails.subscribeModelDownloadComplete(result => {
-    // 全部主文件+MMProj完成后关闭"下载中"状态
-    downloading.value = false
-    if (result.success) {
-      // 下载完成：移除下载进度，提示重启应用以加载新模型
-      downloadDone.value = true
-      downloadFailed.value = false
-      progressMap.value = {}
-    } else {
-      downloadFailed.value = true
-      // 失败保留进度项，供用户查看错误详情；不放重启按钮
-    }
-  })
-})
-
-onUnmounted(() => {
-  unsubProgress?.()
-  unsubComplete?.()
-})
 </script>
 
 <style scoped>
@@ -740,182 +540,4 @@ onUnmounted(() => {
   margin-bottom: 10px;
 }
 
-.download-progress {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.progress-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.progress-item {
-  background: var(--bg-tertiary);
-  border-radius: 8px;
-  padding: 10px 12px;
-}
-
-.progress-item__head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 6px;
-}
-
-.progress-item__file {
-  font-size: 12px;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.progress-item__status {
-  font-size: 12px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-.progress-item__status.status--downloading {
-  color: var(--color-primary);
-}
-
-.progress-item__status.status--completed {
-  color: var(--success-color);
-}
-
-.progress-item__status.status--failed {
-  color: var(--color-error);
-}
-
-.progress-item__status.status--paused {
-  color: var(--color-warning);
-}
-
-.progress-item__bytes {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-top: 4px;
-}
-
-.progress-item__error {
-  font-size: 12px;
-  color: var(--error-color);
-  margin-top: 4px;
-  word-break: break-all;
-}
-
-/* 下载失败横幅：区分于普通进度，用高对比警示样式（错误红），
-   与成功横幅（download-done）形成视觉呼应，让"失败可重试"一眼可见 */
-.download-failed {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
-  border: 1px solid var(--error-color);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--error-color) 8%, transparent);
-}
-
-.download-failed__body {
-  min-width: 0;
-}
-
-.download-failed__title {
-  color: var(--error-color);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.download-failed__hint {
-  margin-top: 4px;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.download-failed__retry {
-  flex-shrink: 0;
-  padding: 6px 22px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--error-color);
-  background: transparent;
-  border: 1px solid var(--error-color);
-  border-radius: 8px;
-  cursor: pointer;
-  transition:
-    color 0.2s,
-    background 0.2s,
-    border-color 0.2s;
-}
-
-.download-failed__retry:hover:not(:disabled) {
-  color: #fff;
-  background: var(--error-color);
-  border-color: var(--error-color);
-}
-
-.download-failed__retry:focus-visible {
-  outline: 2px solid var(--error-color);
-  outline-offset: 2px;
-}
-
-.download-failed__retry:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-/* 下载完成后的重启提示：区分于普通进度，用高对比重点提示（成功绿色） */
-.download-done {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 16px;
-  border: 1px solid var(--success-color);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--success-color) 8%, transparent);
-}
-
-.download-done__text {
-  color: var(--success-color);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.download-done__restart {
-  padding: 6px 22px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--success-color);
-  background: transparent;
-  border: 1px solid var(--success-color);
-  border-radius: 8px;
-  cursor: pointer;
-  transition:
-    color 0.2s,
-    background 0.2s,
-    border-color 0.2s;
-}
-
-.download-done__restart:hover:not(:disabled) {
-  color: #fff;
-  background: var(--success-color);
-  border-color: var(--success-color);
-}
-
-.download-done__restart:focus-visible {
-  outline: 2px solid var(--success-color);
-  outline-offset: 2px;
-}
-
-.download-done__restart:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
 </style>

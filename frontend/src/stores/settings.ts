@@ -274,6 +274,10 @@ export const useSettingsStore = defineStore('settings', () => {
       if (status.model_ready) {
         hasEverBeenReady.value = true
         onServerReady()
+        // 空模型自愈（轮询通道）：与事件通道一致，模型就绪即解除引导态
+        if (missingModels.value) {
+          markMissingModels(false)
+        }
       }
       if (status.capabilities) {
         modelCapabilities.value = status.capabilities
@@ -490,6 +494,12 @@ export const useSettingsStore = defineStore('settings', () => {
       if (status.model_ready) {
         hasEverBeenReady.value = true
         onServerReady()
+        // 空模型自愈：模型真正就绪说明 models 目录已非空（如内置下载器装完模型后端自动加载），
+        // 清除 missingModels 让聊天输入解锁。只认 model_ready：切换中/加载中不清，
+        // 激活失败时保持引导态，避免把用户带进 first_load_failed 启动屏死局。
+        if (missingModels.value) {
+          markMissingModels(false)
+        }
       }
       if (status.current_model && !isModelSwitching.value) {
         const oldModel = currentModel.value

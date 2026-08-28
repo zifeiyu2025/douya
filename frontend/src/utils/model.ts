@@ -39,3 +39,34 @@ export function formatModelNameFromPath(path: string): { display: string; full: 
   const display = truncateModelName(stripQuantSuffix(raw))
   return { display, full: raw }
 }
+
+/** 字节数格式化为人类可读大小（未知/非法返回"未知大小"） */
+export function formatSize(bytes: number): string {
+  if (!bytes || bytes <= 0) return '未知大小'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let i = 0
+  let v = bytes
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  return `${v >= 100 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`
+}
+
+/** 下载进度状态 → 中文文案 */
+export function downloadStatusText(status: string): string {
+  switch (status) {
+    case 'downloading':
+      return '下载中'
+    case 'completed':
+      return '已完成'
+    case 'failed':
+      return '失败'
+    case 'paused':
+      return '已暂停（保留断点）'
+    case 'waiting':
+      return '等待中'
+    default:
+      return status
+  }
+}
