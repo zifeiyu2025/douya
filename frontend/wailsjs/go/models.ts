@@ -790,6 +790,7 @@ export namespace llm {
 	    name: string;
 	    downloads: number;
 	    likes: number;
+	    main_file_size: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new HubModel(source);
@@ -802,6 +803,7 @@ export namespace llm {
 	        this.name = source["name"];
 	        this.downloads = source["downloads"];
 	        this.likes = source["likes"];
+	        this.main_file_size = source["main_file_size"];
 	    }
 	}
 	export class LoraAdapter {

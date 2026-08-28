@@ -136,8 +136,9 @@ export function RerankEnabled():Promise<boolean>;
 
 export function ResizeTerminal(arg1:number,arg2:number):Promise<void>;
 
-export function RestartApp():Promise<void>;
 export function ResolveToolApproval(arg1:string,arg2:boolean,arg3:boolean):Promise<void>;
+
+export function RestartApp():Promise<void>;
 
 export function RestoreSlot(arg1:string):Promise<void>;
 
