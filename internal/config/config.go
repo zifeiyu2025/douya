@@ -307,7 +307,7 @@ func DefaultConfig() *Config {
 		Temperature:                0.8, // 与 llama.cpp 默认值对齐
 		TopP:                       0.95,
 		TopK:                       40, // 与 llama.cpp 默认值对齐
-		RepeatPenalty:              1,
+		RepeatPenalty:              1.1, // 1.0=完全关闭重复惩罚，量化小模型极易进入"复读退化"循环，反复重复一句话；1.1 为 llama.cpp 常见合理值，压制退化同时不明显改变正常采样
 		KVUnified:                  false,
 		CacheIdleSlots:             true, // 与 llama.cpp 默认值对齐，空闲 slot 缓存保留
 		CacheRAM:                   0,

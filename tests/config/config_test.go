@@ -29,8 +29,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.TopK != 40 {
 		t.Fatalf("expected TopK=40, got %d", cfg.TopK)
 	}
-	if cfg.RepeatPenalty != 1.0 {
-		t.Fatalf("expected RepeatPenalty=1.0, got %f", cfg.RepeatPenalty)
+	if cfg.RepeatPenalty != 1.1 {
+		t.Fatalf("expected RepeatPenalty=1.1, got %f", cfg.RepeatPenalty)
 	}
 	if cfg.SystemPrompt != "" {
 		t.Fatalf("expected SystemPrompt='', got '%s'", cfg.SystemPrompt)

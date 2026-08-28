@@ -635,6 +635,12 @@ func (s *Service) retryStreamAfterContextExceeded(
 	retryCtx, retryCancel := context.WithTimeout(cancelCtx, streamRequestTimeout)
 	defer retryCancel()
 
+	// 关键修复：重试前必须重置累积器。
+	// 首次请求若在生成中途发生上下文溢出，acc.FullContent 里已含有部分生成内容；
+	// 若直接复用 acc.callback() 而不重置，重试从开头重新生成的内容会追加到已有内容之上，
+	// 导致最终回复开头重复（"一直重复一句话"）。resetForNextCall 清空 FullContent/TokenBuf 等，
+	// 让重试从头累积一套干净内容（与 tool call 每轮之间的重置行为保持一致）。
+	acc.resetForNextCall()
 	retryErr := client.StreamChatWithConvID(retryCtx, req, retryConvID, acc.callback())
 	if retryErr == nil {
 		// 重试成功，调用方继续往下执行
