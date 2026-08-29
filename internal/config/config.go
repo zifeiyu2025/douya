@@ -78,12 +78,9 @@ type Config struct {
 	// 服务器层仅对顶层 "none" 有语义，其余值由模板自行解释。
 	ReasoningEffort string `json:"reasoning_effort"`
 	// 推理内容保留开关（nil=不传递，true=--reasoning-preserve，false=--no-reasoning-preserve）
-	ReasoningPreserve *bool  `json:"reasoning_preserve"`
-	SystemPrompt      string `json:"system_prompt"`
-	SystemPromptMode  string `json:"system_prompt_mode"` // "append" (追加) or "replace" (替换), 默认 "append"
-	// 编程助手模式：控制默认提示词使用通用版还是编程版。
-	// "auto"（默认）：检测到 coder 类模型自动启用编程版；"on"：始终启用；"off"：始终禁用。
-	ProgrammingMode       string  `json:"programming_mode"`
+	ReasoningPreserve     *bool   `json:"reasoning_preserve"`
+	SystemPrompt          string  `json:"system_prompt"`
+	SystemPromptMode      string  `json:"system_prompt_mode"` // "append" (追加) or "replace" (替换), 默认 "append"
 	ChatBackground        string  `json:"chat_background"`
 	ChatBackgroundOpacity float64 `json:"chat_background_opacity"`
 	// 每主题独立背景参数（v3 引入）：同一张 chat_background 图，
@@ -212,20 +209,12 @@ type Config struct {
 	Offline bool `json:"offline"`
 	// 模型重打包（启动时重新打包模型权重，用于优化加载速度）
 	Repack bool `json:"repack"`
-	// Agent 模式与 MCP CORS 代理（llama.cpp 新特性）
-	Agent      bool `json:"agent"`        // 一键启用 CORS 代理 + 所有内置工具
-	UIMcpProxy bool `json:"ui_mcp_proxy"` // 仅启用 MCP CORS 代理（Agent 已包含此项）
+	// Agent 模式（llama.cpp 新特性）：一键启用 CORS 代理 + 所有内置工具
+	Agent bool `json:"agent"`
 	// Agent 深度配置
 	AgentApproval  string `json:"agent_approval"`   // 工具审批模式："auto"（默认，写操作/未知工具需确认）、"always"、"never"
 	AgentMaxRounds int    `json:"agent_max_rounds"` // tool call 循环最大轮次，0=默认 8，上限 25
 	AgentCwd       string `json:"agent_cwd"`        // Agent 工具的工作目录（相对路径解析基准；空=沿用引擎运行目录）
-	// 细粒度 CORS 配置（上游 --cors-*，llama.cpp #25655）
-	// 优先于 llama.cpp 内置的 localhost 默认值，用于自定义浏览器跨域来源。
-	// 生活类比：像校门口访客登记——默认只放行本班（localhost），登记表可额外写明放行哪些班级（外部来源）。
-	CorsOrigins     string `json:"cors_origins"`     // 允许的来源，逗号分隔（如 "http://localhost:5173,*"），空=使用 llama.cpp 默认
-	CorsMethods     string `json:"cors_methods"`     // 允许的 HTTP 方法，逗号分隔（空=使用 llama.cpp 默认）
-	CorsHeaders     string `json:"cors_headers"`     // 允许的请求头，逗号分隔（空=使用 llama.cpp 默认）
-	CorsCredentials bool   `json:"cors_credentials"` // 是否允许携带凭证（true 且 origins=* 时服务端会回显 Origin 并始终允许凭证）
 	// 后端采样（实验性，将采样逻辑移到 GPU 执行，不兼容 grammar 和 reasoning budget）
 	BackendSampling bool `json:"backend_sampling"`
 
@@ -334,7 +323,6 @@ func DefaultConfig() *Config {
 		ReasoningEffort:            "",
 		SystemPrompt:               "",
 		SystemPromptMode:           "append", // 默认使用追加模式
-		ProgrammingMode:            "auto",   // 默认自动检测（coder 模型启用编程版提示词）
 		ChatBackground:             "",
 		ChatBackgroundOpacity:      0.9,
 		// 每主题背景参数默认值（仅在设置了背景图时生效）：
@@ -452,16 +440,10 @@ func DefaultConfig() *Config {
 		// 256 是合理块大小，覆盖豆芽 system prompt（约 200-400 token）
 		CacheReuse:      256,
 		Agent:           false,
-		UIMcpProxy:      false,
 		AgentApproval:   "",
 		AgentMaxRounds:  0,
 		AgentCwd:        "",
 		BackendSampling: false,
-		// 细粒度 CORS：空值走 llama.cpp 默认（localhost），保持与升级前行为一致
-		CorsOrigins:     "",
-		CorsMethods:     "",
-		CorsHeaders:     "",
-		CorsCredentials: false,
 		// TTS 文本转语音默认配置
 		// 默认启用朗读按钮，发音人留空（自动按优先级挑选晓晓等自然语音）
 		TtsEnabled: true,
@@ -1032,11 +1014,6 @@ func (c *Config) Validate() error {
 	case "append", "replace", "":
 	default:
 		return apperror.Newf(apperror.KindInvalidConfig, "invalid system_prompt_mode: %q (必须是 append / replace)", c.SystemPromptMode)
-	}
-	switch c.ProgrammingMode {
-	case "auto", "on", "off", "":
-	default:
-		return apperror.Newf(apperror.KindInvalidConfig, "invalid programming_mode: %q (必须是 auto / on / off)", c.ProgrammingMode)
 	}
 	// reasoning 枚举校验：自动思考已移除，仅允许 on / off
 	switch c.Reasoning {

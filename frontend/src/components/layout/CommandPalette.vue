@@ -225,7 +225,7 @@ watch(
   /* 略偏上放置，符合启动器类交互惯例 */
   align-items: flex-start;
   padding-top: 14vh;
-  background: var(--veil-color);
+  background: var(--surface-veil);
 }
 
 .palette-card {
@@ -236,7 +236,7 @@ watch(
   background: var(--surface-panel);
   border: 1px solid var(--border-light);
   border-radius: var(--border-radius-lg);
-  box-shadow: var(--shadow-modal);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
 

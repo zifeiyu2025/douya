@@ -9,12 +9,6 @@ import "regexp"
 // Version 当前应用版本号（每次发版时更新）
 const Version = "0.12.10"
 
-// GitHubOwner GitHub 仓库所有者
-const GitHubOwner = "zifeiyu2025"
-
-// GitHubRepo GitHub 仓库名称
-const GitHubRepo = "douya"
-
 // versionPattern 语义化版本号正则（X.Y.Z 格式，可选预发布后缀如 -beta.1）
 //
 // 生活类比：身份证号的格式校验规则——必须是 18 位且符合特定模式。
@@ -32,13 +26,4 @@ var versionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$`)
 // 在测试中用于确保发版前版本号格式正确。
 func IsValid(v string) bool {
 	return versionPattern.MatchString(v)
-}
-
-// GitHubURL 返回完整的 GitHub 仓库主页 URL
-//
-// 用法：
-//
-//	url := version.GitHubURL() // "https://github.com/zifeiyu2025/douya"
-func GitHubURL() string {
-	return "https://github.com/" + GitHubOwner + "/" + GitHubRepo
 }

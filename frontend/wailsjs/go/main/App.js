@@ -122,10 +122,6 @@ export function GetConversations() {
   return window['go']['main']['App']['GetConversations']();
 }
 
-export function GetGitHubURL() {
-  return window['go']['main']['App']['GetGitHubURL']();
-}
-
 export function GetLastPromptTokens() {
   return window['go']['main']['App']['GetLastPromptTokens']();
 }

@@ -331,8 +331,6 @@ export interface Config {
   system_prompt: string
   // 系统提示词模式："append"（追加）或 "replace"（替换），默认 "append"
   system_prompt_mode: 'append' | 'replace' | ''
-  // 编程助手模式："auto"（检测到 coder 模型自动启用）/ "on"（始终启用）/ "off"（始终禁用），默认 "auto"
-  programming_mode: 'auto' | 'on' | 'off'
   chat_background: string
   chat_background_opacity: number
   /**
@@ -420,17 +418,12 @@ export interface Config {
   api_prefix: string
   simple_io: boolean
   agent: boolean
-  ui_mcp_proxy: boolean
   /** Agent 工具审批模式："auto"（默认，写操作/未知工具需确认）、"always"、"never" */
   agent_approval: string
   /** tool call 循环最大轮次，0=默认 8，上限 25 */
   agent_max_rounds: number
   /** Agent 工具的工作目录（相对路径解析基准；空=引擎运行目录） */
   agent_cwd: string
-  cors_origins: string
-  cors_methods: string
-  cors_headers: string
-  cors_credentials: boolean
   lora_paths: string
   gpu_layers: number
   flash_attn: boolean | null
@@ -565,7 +558,6 @@ export const DEFAULT_CONFIG: Config = {
   fit_ctx: 0,
   system_prompt: '',
   system_prompt_mode: 'append', // 默认使用追加模式（与 Go DefaultConfig 对齐）
-  programming_mode: 'auto', // 默认自动检测（coder 模型启用编程版提示词，与 Go DefaultConfig 对齐）
   chat_background: '',
   chat_background_opacity: 0.9, // 与 Go DefaultConfig 对齐（默认背景不透明度 0.9）
   // 每主题背景参数默认值（与 Go DefaultConfig 对齐，仅在设置背景图后生效）
@@ -645,14 +637,9 @@ export const DEFAULT_CONFIG: Config = {
   api_prefix: '',
   simple_io: false,
   agent: false,
-  ui_mcp_proxy: false,
   agent_approval: '',
   agent_max_rounds: 0,
   agent_cwd: '',
-  cors_origins: '',
-  cors_methods: '',
-  cors_headers: '',
-  cors_credentials: false,
   lora_paths: '',
   gpu_layers: 0,
   flash_attn: null,

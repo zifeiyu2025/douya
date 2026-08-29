@@ -4,7 +4,8 @@
       <n-icon size="15" class="think-chevron" :class="{ rotated: expanded }">
         <ChevronForwardOutline />
       </n-icon>
-      <n-icon size="14" class="think-icon"><BulbOutline /></n-icon>
+      <!-- 大脑图标：位于折叠箭头与"深度思考"文字之间，与工具栏思考开关同源 -->
+      <BrainIcon :size="15" class="think-icon" />
       <span v-if="isThinking" class="think-status thinking">
         深度思考中
         <span class="thinking-dots">
@@ -35,7 +36,8 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { NIcon } from 'naive-ui'
-import { ChevronForwardOutline, BulbOutline } from '@vicons/ionicons5'
+import { ChevronForwardOutline } from '@vicons/ionicons5'
+import BrainIcon from '../ui/BrainIcon.vue'
 import { useMorphRender } from '../../composables/useMorphRender'
 
 const props = defineProps<{
@@ -146,10 +148,24 @@ const formattedDuration = computed(() => {
   color: var(--accent-primary);
 }
 
-/* 灯泡图标：朱砂印色点题 */
+/* 大脑图标：朱砂印色点题；思考中与折页线同呼吸（同步 2.2s 透明度脉动） */
 .think-icon {
   flex-shrink: 0;
   color: var(--seal-color);
+}
+
+.think-block.is-thinking .think-icon {
+  animation: think-icon-breathe 2.2s ease-in-out infinite;
+}
+
+@keyframes think-icon-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 /* 折页内容区：透明落纸 + 左缘朱砂折页线（常态半透，克制） */
@@ -186,6 +202,9 @@ const formattedDuration = computed(() => {
   }
   .think-chevron {
     transition: none;
+  }
+  .think-block.is-thinking .think-icon {
+    animation: none;
   }
 }
 

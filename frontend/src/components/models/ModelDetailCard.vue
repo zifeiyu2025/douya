@@ -188,7 +188,7 @@ const statusClass = computed(() => {
 }
 
 .status-dot.loaded {
-  background: var(--success-color, #1a7f37);
+  background: var(--success-color);
 }
 
 .status-dot.loading {

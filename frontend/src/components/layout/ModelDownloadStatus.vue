@@ -39,11 +39,16 @@
       <!-- 完成/失败结果 -->
       <div v-else-if="store.lastComplete" class="mds-body">
         <template v-if="store.lastComplete.success">
-          <div class="mds-status" :class="store.activateFailed ? 'mds-status--err' : 'mds-status--ok'">
+          <div
+            class="mds-status"
+            :class="store.activateFailed ? 'mds-status--err' : 'mds-status--ok'"
+          >
             {{ doneText }}
           </div>
           <n-spin
-            v-if="store.lastComplete.activate === 'auto' && !store.modelReady && !store.activateFailed"
+            v-if="
+              store.lastComplete.activate === 'auto' && !store.modelReady && !store.activateFailed
+            "
             size="small"
           />
           <div v-if="showRestartFallback" class="mds-actions">
@@ -172,7 +177,7 @@ onUnmounted(() => {
   color: var(--text-muted);
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--border-radius-sm);
   font-size: 14px;
   line-height: 1;
   cursor: pointer;

@@ -7,7 +7,7 @@
       :title="thinkingTitle"
       @click="handleThinkClick"
     >
-      <n-icon size="22" class="think-icon"><BulbOutline /></n-icon>
+      <BrainIcon :size="20" class="think-icon" />
       <span v-if="thinkingMode === 'no_think'" class="think-slash"></span>
     </button>
     <button
@@ -210,13 +210,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { NIcon, useMessage } from 'naive-ui'
-import {
-  GlobeOutline,
-  AttachOutline,
-  BulbOutline,
-  LayersOutline,
-  OptionsOutline
-} from '@vicons/ionicons5'
+import { GlobeOutline, AttachOutline, LayersOutline, OptionsOutline } from '@vicons/ionicons5'
+import BrainIcon from '../ui/BrainIcon.vue'
 import { useSettingsStore } from '../../stores/settings'
 import { wails } from '../../services/wails'
 import { openParamsPanel } from '../../composables/useSamplingSettings'
@@ -598,7 +593,7 @@ onUnmounted(() => {
   width: 24px;
   height: 3px;
   background: var(--accent-danger);
-  border-radius: 2px;
+  border-radius: var(--border-radius-xs);
   pointer-events: none;
   opacity: 0.9;
 }
@@ -627,7 +622,8 @@ onUnmounted(() => {
   position: absolute;
   bottom: 52px;
   left: 0;
-  background: var(--bg-primary);
+  /* 阅读层表面：与右键菜单/会话菜单同语汇，背景图模式下自动适配 */
+  background: var(--surface-panel);
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-md);
   box-shadow: var(--shadow-lg);

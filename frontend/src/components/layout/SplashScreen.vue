@@ -393,7 +393,7 @@ const stageText = computed(() => {
   width: 100%;
   height: 3px;
   background: var(--bg-hover);
-  border-radius: 2px;
+  border-radius: var(--border-radius-xs);
   overflow: hidden;
 }
 
@@ -401,7 +401,7 @@ const stageText = computed(() => {
   width: 100%;
   height: 100%;
   background: var(--accent-primary);
-  border-radius: 2px;
+  border-radius: var(--border-radius-xs);
   transform-origin: left;
   transition: transform 0.3s ease;
 }

@@ -35,7 +35,6 @@ const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'fit_ctx',
   'system_prompt',
   'system_prompt_mode',
-  'programming_mode',
   'chat_background',
   'chat_background_opacity',
   // B5 每主题背景参数（v3）：同一张图，亮/暗主题各一套 opacity/blur/mask_alpha
@@ -114,7 +113,6 @@ const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'api_prefix',
   'simple_io',
   'agent',
-  'ui_mcp_proxy',
   'backend_sampling',
   'gpu_layers',
   'flash_attn',

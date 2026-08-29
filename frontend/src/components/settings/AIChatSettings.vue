@@ -23,21 +23,6 @@
     />
   </n-form-item>
 
-  <!-- ===== 编程助手模式 ===== -->
-  <n-form-item>
-    <template #label>
-      编程助手模式
-      <HelpTip
-        content="使用针对编程场景强化的提示词（代码风格、测试、调试、重构、多文件结构等）。自动：检测到 coder 类模型（如 qwen2.5-coder）时自动启用；开启：始终使用编程版提示词；关闭：始终使用通用版提示词"
-      />
-    </template>
-    <n-select
-      v-model:value="formConfig.programming_mode"
-      :options="programmingModeOptions"
-      @update:value="autoSave"
-    />
-  </n-form-item>
-
   <!-- ===== 思考强度 ===== -->
   <n-form-item>
     <template #label>
@@ -447,13 +432,6 @@ const { contextSizeIndex } = performance
 
 const advancedExpanded = ref(false)
 
-// 编程助手模式选项（与 Go config.go ProgrammingMode 对齐）
-const programmingModeOptions = [
-  { label: '自动（检测 coder 模型）', value: 'auto' },
-  { label: '开启', value: 'on' },
-  { label: '关闭', value: 'off' }
-]
-
 // 思考强度选项（与 Go config.go ReasoningEffort 对齐，空=不传递跟随模型默认）
 const reasoningEffortOptions = [
   { label: '默认（跟随模型）', value: '' },
@@ -500,7 +478,7 @@ const reasoningEffortOptions = [
 .model-ref-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--border-radius-lg);
   padding: 16px;
   margin-bottom: 16px;
 }
@@ -524,7 +502,7 @@ const reasoningEffortOptions = [
   color: var(--text-muted);
   background: var(--bg-tertiary);
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--border-radius-sm);
 }
 .model-ref-tabs {
   display: flex;
@@ -575,7 +553,7 @@ const reasoningEffortOptions = [
 .advanced-section {
   margin-top: 16px;
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--border-radius-lg);
   overflow: hidden;
 }
 .advanced-header {
@@ -611,6 +589,6 @@ const reasoningEffortOptions = [
 }
 
 .rounded-textarea {
-  border-radius: 8px;
+  border-radius: var(--border-radius-md);
 }
 </style>

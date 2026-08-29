@@ -482,18 +482,6 @@ func TestAppendNewFeatureArgs_AgentMode(t *testing.T) {
 	}
 }
 
-// TestAppendNewFeatureArgs_UIMcpProxy 验证 Agent=false 且 UIMcpProxy=true 时传递 --ui-mcp-proxy
-func TestAppendNewFeatureArgs_UIMcpProxy(t *testing.T) {
-	s := newTestServer()
-	s.config.Agent = false
-	s.config.UIMcpProxy = true
-
-	args := s.appendNewFeatureArgs(nil)
-	if !containsArg(args, "--ui-mcp-proxy") {
-		t.Errorf("期望包含 --ui-mcp-proxy，实际 args: %v", args)
-	}
-}
-
 // TestAppendNewFeatureArgs_EnableBuiltinTools 验证 EnableBuiltinTools=true 时传递 --tools all
 func TestAppendNewFeatureArgs_EnableBuiltinTools(t *testing.T) {
 	s := newTestServer()
@@ -516,56 +504,6 @@ func TestAppendNewFeatureArgs_EnableBuiltinToolsFalse(t *testing.T) {
 	args := s.appendNewFeatureArgs(nil)
 	if got := argValue(args, "--tools"); got != "read_file,grep_search" {
 		t.Errorf("期望 --tools=read_file,grep_search，实际: %q", got)
-	}
-}
-
-// TestAppendNewFeatureArgs_AgentOverridesUIMcpProxy 验证 Agent 和 UIMcpProxy 同时启用时优先 Agent
-func TestAppendNewFeatureArgs_AgentOverridesUIMcpProxy(t *testing.T) {
-	s := newTestServer()
-	s.config.Agent = true
-	s.config.UIMcpProxy = true
-
-	args := s.appendNewFeatureArgs(nil)
-	if !containsArg(args, "--agent") {
-		t.Errorf("期望包含 --agent（优先），实际 args: %v", args)
-	}
-	if containsArg(args, "--ui-mcp-proxy") {
-		t.Errorf("期望不包含 --ui-mcp-proxy（被 Agent 覆盖），实际 args: %v", args)
-	}
-}
-
-// TestAppendNewFeatureArgs_CORS 验证细粒度 CORS 配置参数透传（仅显式配置时传递）
-func TestAppendNewFeatureArgs_CORS(t *testing.T) {
-	s := newTestServer()
-	s.config.CorsOrigins = "http://localhost:5173,http://192.168.1.5:3000"
-	s.config.CorsMethods = "GET,POST"
-	s.config.CorsHeaders = "Content-Type,X-Tool-Cwd"
-	s.config.CorsCredentials = true
-
-	args := s.appendNewFeatureArgs(nil)
-	if got := argValue(args, "--cors-origins"); got != "http://localhost:5173,http://192.168.1.5:3000" {
-		t.Errorf("期望 --cors-origins=%q，实际 %q", "http://localhost:5173,http://192.168.1.5:3000", got)
-	}
-	if got := argValue(args, "--cors-methods"); got != "GET,POST" {
-		t.Errorf("期望 --cors-methods=GET,POST，实际 %q", got)
-	}
-	if got := argValue(args, "--cors-headers"); got != "Content-Type,X-Tool-Cwd" {
-		t.Errorf("期望 --cors-headers=%q，实际 %q", "Content-Type,X-Tool-Cwd", got)
-	}
-	if !containsArg(args, "--cors-credentials") {
-		t.Errorf("期望包含 --cors-credentials，实际 args: %v", args)
-	}
-}
-
-// TestAppendNewFeatureArgs_CORS_Empty 验证 CORS 为空时不传递任何 --cors-* 参数（用 llama.cpp 默认）
-func TestAppendNewFeatureArgs_CORS_Empty(t *testing.T) {
-	s := newTestServer()
-
-	args := s.appendNewFeatureArgs(nil)
-	for _, f := range []string{"--cors-origins", "--cors-methods", "--cors-headers", "--cors-credentials"} {
-		if containsArg(args, f) {
-			t.Errorf("期望空配置时不传递 %s，实际 args: %v", f, args)
-		}
 	}
 }
 

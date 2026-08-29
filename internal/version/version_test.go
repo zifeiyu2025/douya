@@ -41,24 +41,9 @@ func TestIsValid(t *testing.T) {
 	}
 }
 
-// TestGitHubURL 验证 GitHubURL 返回正确的 URL
-func TestGitHubURL(t *testing.T) {
-	got := GitHubURL()
-	want := "https://github.com/" + GitHubOwner + "/" + GitHubRepo
-	if got != want {
-		t.Errorf("GitHubURL() = %q, want %q", got, want)
-	}
-}
-
 // TestConstants_NonEmpty 验证所有常量非空
 func TestConstants_NonEmpty(t *testing.T) {
 	if Version == "" {
 		t.Error("Version 常量不应为空")
-	}
-	if GitHubOwner == "" {
-		t.Error("GitHubOwner 常量不应为空")
-	}
-	if GitHubRepo == "" {
-		t.Error("GitHubRepo 常量不应为空")
 	}
 }

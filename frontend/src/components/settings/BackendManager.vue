@@ -736,7 +736,7 @@ onUnmounted(() => {
   color: var(--text-muted);
   padding: 8px 12px;
   background: var(--n-color-target, rgba(255, 255, 255, 0.06));
-  border-radius: 4px;
+  border-radius: var(--border-radius-sm);
 }
 
 .progress-footer {

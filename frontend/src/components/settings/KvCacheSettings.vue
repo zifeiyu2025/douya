@@ -403,7 +403,7 @@ const splitModeOptions = [
 .advanced-section {
   margin-top: 16px;
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--border-radius-lg);
   overflow: hidden;
 }
 

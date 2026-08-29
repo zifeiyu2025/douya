@@ -506,7 +506,7 @@ onUnmounted(() => {
 .voice-stop-btn {
   font-size: 12px;
   padding: 4px 12px;
-  border-radius: 8px;
+  border-radius: var(--border-radius-md);
   border: 1px solid var(--border-color);
   background: transparent;
   color: var(--text-secondary);
@@ -550,7 +550,8 @@ onUnmounted(() => {
 
 .ctx-menu {
   position: fixed;
-  background: var(--bg-primary);
+  /* 阅读层表面：与附件菜单/会话菜单同语汇，背景图模式下自动适配 */
+  background: var(--surface-panel);
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-md);
   box-shadow: var(--shadow-lg);

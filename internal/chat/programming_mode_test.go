@@ -32,26 +32,6 @@ func TestIsCoderModel(t *testing.T) {
 	}
 }
 
-// TestResolveProgrammingMode 验证编程模式解析逻辑。
-func TestResolveProgrammingMode(t *testing.T) {
-	cases := []struct {
-		mode, model string
-		want        bool
-	}{
-		{"on", "llama-3-8b", true},      // 强制开启
-		{"off", "qwen-coder", false},    // 强制关闭覆盖自动检测
-		{"auto", "qwen2.5-coder", true}, // 自动检测命中
-		{"auto", "llama-3-8b", false},   // 自动检测未命中
-		{"", "qwen2.5-coder", true},     // 空值走自动检测（向后兼容）
-		{"", "llama-3-8b", false},
-	}
-	for _, c := range cases {
-		if got := resolveProgrammingMode(c.mode, c.model); got != c.want {
-			t.Errorf("resolveProgrammingMode(%q, %q) = %v, want %v", c.mode, c.model, got, c.want)
-		}
-	}
-}
-
 // TestBuildCoderSystemPrompt 验证编程版提示词包含编程强化指令。
 func TestBuildCoderSystemPrompt(t *testing.T) {
 	p := buildCoderSystemPrompt("qwen-coder", "")

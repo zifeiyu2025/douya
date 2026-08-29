@@ -20,12 +20,12 @@
         </div>
       </n-card>
 
-      <n-card class="info-card" hoverable @click="openGitHub">
+      <n-card class="info-card" hoverable>
         <div class="info-card-content">
-          <n-icon size="20" class="info-card-icon"><LogoGithub /></n-icon>
+          <n-icon size="20" class="info-card-icon"><InformationCircleOutline /></n-icon>
           <div class="info-card-text">
-            <span class="info-card-label">仓库</span>
-            <span class="info-card-value info-card-link">GitHub</span>
+            <span class="info-card-label">当前版本</span>
+            <span class="info-card-value">v{{ currentVersion }}</span>
           </div>
         </div>
       </n-card>
@@ -56,28 +56,18 @@
         </div>
       </n-card>
     </div>
-
-    <!-- 版本信息 -->
-    <div class="update-section">
-      <!-- 书房风：双侧格线夹衬线小节标题，替代 NDivider -->
-      <div class="update-divider">
-        <span class="update-divider-title">版本信息</span>
-      </div>
-
-      <div class="update-row">
-        <span class="update-current">当前版本：v{{ currentVersion }}</span>
-        <span class="update-status-text">更新由 Microsoft Store 接管</span>
-      </div>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { NCard, NIcon, NButton, useMessage } from 'naive-ui'
-import { PersonOutline, LogoGithub, ChatbubblesOutline, CopyOutline } from '@vicons/ionicons5'
-import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime'
-import { GetGitHubURL } from '../../../wailsjs/go/main/App'
+import {
+  PersonOutline,
+  InformationCircleOutline,
+  ChatbubblesOutline,
+  CopyOutline
+} from '@vicons/ionicons5'
 import { wails } from '../../services/wails'
 import appIcon from '../../assets/images/appicon.png'
 import llamaIcon from '../../assets/images/llama-icon.png'
@@ -85,7 +75,6 @@ import pkg from '../../../package.json'
 
 const message = useMessage()
 const currentVersion = ref(pkg.version)
-const githubUrl = ref('https://github.com/zifeiyu2025/douya')
 
 async function loadVersion() {
   try {
@@ -94,15 +83,6 @@ async function loadVersion() {
     // 后端方法未就绪时使用 package.json 中的版本（构建时注入，无需手动维护）
     currentVersion.value = pkg.version
   }
-  try {
-    githubUrl.value = await GetGitHubURL()
-  } catch {
-    // 后端方法未就绪时使用默认 URL，保证"访问主页"按钮始终可用
-  }
-}
-
-function openGitHub() {
-  BrowserOpenURL(githubUrl.value)
 }
 
 async function copyQQ() {
@@ -212,15 +192,6 @@ onMounted(() => {
   color: var(--text-primary);
 }
 
-.info-card-link {
-  color: var(--accent-primary);
-  cursor: pointer;
-}
-
-.info-card-link:hover {
-  text-decoration: underline;
-}
-
 .copy-btn {
   margin-left: auto;
   flex-shrink: 0;
@@ -233,48 +204,5 @@ onMounted(() => {
   flex-shrink: 0;
   display: block;
   object-fit: contain;
-}
-
-/* 版本信息 */
-.update-section {
-  margin-top: 4px;
-}
-
-/* 双侧格线夹衬线标题：替代带文字的 NDivider */
-.update-divider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 8px 0 16px;
-}
-.update-divider::before,
-.update-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--border-light);
-}
-.update-divider-title {
-  font-family: var(--font-display);
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--text-secondary);
-}
-
-.update-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.update-current {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.update-status-text {
-  font-size: 13px;
-  color: var(--text-secondary);
 }
 </style>

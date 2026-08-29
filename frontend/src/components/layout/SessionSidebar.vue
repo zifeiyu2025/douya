@@ -548,7 +548,7 @@ function removeConv(conv: Conversation) {
   background: var(--surface-panel);
   border: 1px solid var(--border-light);
   border-radius: var(--border-radius-md);
-  box-shadow: var(--shadow-popover);
+  box-shadow: var(--shadow-lg);
 }
 
 .ctx-item {

@@ -423,20 +423,10 @@ func (s *Server) appendNewFeatureArgs(args []string) []string {
 	args = appendStringArg(args, "--api-prefix", s.config.APIPrefix)
 	args = appendBoolArg(args, "--simple-io", s.config.SimpleIO)
 
-	// Agent 模式：一键启用 CORS 代理 + 所有内置工具
-	// 与 UIMcpProxy 互斥（Agent 已包含 MCP CORS 代理）
+	// Agent 模式：一键启用 CORS 代理 + 所有内置工具（CORS 由 llama.cpp --agent 内置处理）
 	if s.config.Agent {
 		args = append(args, "--agent")
-	} else if s.config.UIMcpProxy {
-		args = append(args, "--ui-mcp-proxy")
 	}
-
-	// 细粒度 CORS 配置（上游 #25655）：仅当用户显式配置时才传递，避免覆盖 llama.cpp 内置默认。
-	// 生活类比：默认只放行本班（localhost），用户登记表（配置）非空时才额外放行。
-	args = appendStringArg(args, "--cors-origins", s.config.CorsOrigins)
-	args = appendStringArg(args, "--cors-methods", s.config.CorsMethods)
-	args = appendStringArg(args, "--cors-headers", s.config.CorsHeaders)
-	args = appendBoolArg(args, "--cors-credentials", s.config.CorsCredentials)
 
 	// MCP 服务器配置文件：豆芽在 AppDir 下生成 mcp_servers.json，
 	// 由 llama-server 通过 --mcp-servers-config 加载并管理所有 MCP 子进程。

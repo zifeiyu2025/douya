@@ -171,9 +171,9 @@ html.dark .app-layout::after {
   background-image: repeating-linear-gradient(
     to bottom,
     transparent 0,
-    transparent calc(28px * var(--paper-ruled-n, 1) - 1px),
-    var(--paper-line) calc(28px * var(--paper-ruled-n, 1) - 1px),
-    var(--paper-line) calc(28px * var(--paper-ruled-n, 1))
+    transparent 27px,
+    var(--paper-line) 27px,
+    var(--paper-line) 28px
   );
 }
 
@@ -527,7 +527,7 @@ html.dark .markdown-body a {
 
 ::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
-  border-radius: 4px;
+  border-radius: var(--border-radius-sm);
   border: 2px solid transparent;
   background-clip: content-box;
 }

@@ -508,7 +508,7 @@ function renderModelLabel(option: ModelOptionView) {
   width: 110px;
   height: 3px;
   background: var(--bg-secondary);
-  border-radius: 2px;
+  border-radius: var(--border-radius-xs);
   overflow: hidden;
 }
 
@@ -517,7 +517,7 @@ function renderModelLabel(option: ModelOptionView) {
   width: 100%;
   height: 100%;
   background: var(--accent-primary);
-  border-radius: 2px;
+  border-radius: var(--border-radius-xs);
   transform-origin: left;
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -611,7 +611,8 @@ function renderModelLabel(option: ModelOptionView) {
 }
 
 .win-btn-close:hover {
-  background: #b0432e;
+  /* 关闭钮悬停落朱砂印：取令牌随主题自适应（亮 #b0432e / 暗 #d16b55） */
+  background: var(--seal-color);
   color: #ffffff;
 }
 </style>

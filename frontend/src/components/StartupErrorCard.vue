@@ -74,7 +74,7 @@ function onExit() {
 .error-detail {
   background: var(--n-color-target, rgba(232, 128, 128, 0.06));
   border: 1px solid var(--n-divider-color, rgba(255, 255, 255, 0.08));
-  border-radius: 8px;
+  border-radius: var(--border-radius-md);
   padding: 12px 14px;
   font-size: 13px;
   line-height: 1.7;

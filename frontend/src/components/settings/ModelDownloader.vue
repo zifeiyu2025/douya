@@ -186,17 +186,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import {
-  NSelect,
-  NInput,
-  NButton,
-  NIcon,
-  NRadioGroup,
-  NRadio,
-  NTag,
-  NSpin,
-  NEmpty
-} from 'naive-ui'
+import { NSelect, NInput, NButton, NIcon, NRadioGroup, NRadio, NTag, NSpin, NEmpty } from 'naive-ui'
 import { SearchOutline } from '@vicons/ionicons5'
 import { wails, type HubModel, type HubFile } from '../../services/wails'
 import { useModelDownloadStore } from '../../stores/modelDownload'
@@ -448,11 +438,11 @@ function onToggleMmproj(path: string, checked: boolean) {
 }
 
 .model-item:hover {
-  border-color: var(--color-primary);
+  border-color: var(--accent-primary);
 }
 
 .model-item--active {
-  border-color: var(--color-primary);
+  border-color: var(--accent-primary);
   background: var(--bg-hover);
 }
 
@@ -539,5 +529,4 @@ function onToggleMmproj(path: string, checked: boolean) {
   color: var(--text-muted);
   margin-bottom: 10px;
 }
-
 </style>

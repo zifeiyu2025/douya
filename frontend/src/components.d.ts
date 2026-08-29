@@ -19,6 +19,7 @@ declare module 'vue' {
     AppIcon: typeof import('./components/ui/AppIcon.vue')['default']
     AttachmentPreview: typeof import('./components/chat/AttachmentPreview.vue')['default']
     BackendManager: typeof import('./components/settings/BackendManager.vue')['default']
+    BrainIcon: typeof import('./components/ui/BrainIcon.vue')['default']
     ChatInput: typeof import('./components/chat/ChatInput.vue')['default']
     ChatToolbar: typeof import('./components/chat/ChatToolbar.vue')['default']
     CommandPalette: typeof import('./components/layout/CommandPalette.vue')['default']

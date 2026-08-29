@@ -3,11 +3,7 @@
 // 设置页的下载器也要发起/重试下载——两侧共享同一份状态与事件订阅（store 单例只订阅一次）。
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import {
-  wails,
-  type ModelDownloadComplete,
-  type ModelDownloadProgress
-} from '../services/wails'
+import { wails, type ModelDownloadComplete, type ModelDownloadProgress } from '../services/wails'
 import { useSettingsStore } from './settings'
 import { logError } from '../utils/logger'
 
@@ -98,7 +94,12 @@ export const useModelDownloadStore = defineStore('modelDownload', () => {
     retrying.value = true
     try {
       recordAttempt(attempt)
-      await wails.downloadHubModel(attempt.provider, attempt.repoId, attempt.mainFile, attempt.mmproj)
+      await wails.downloadHubModel(
+        attempt.provider,
+        attempt.repoId,
+        attempt.mainFile,
+        attempt.mmproj
+      )
     } catch (e) {
       logError('重试下载发起失败', e)
     } finally {

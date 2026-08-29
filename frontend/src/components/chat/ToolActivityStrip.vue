@@ -13,16 +13,65 @@
     <div class="tas-list">
       <div v-for="a in activities" :key="a.toolCallId" class="tas-item" :class="'tas-' + a.status">
         <span class="tas-status-dot" :title="statusText(a.status)">
-          <svg v-if="a.status === 'ok'" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
-          <svg v-else-if="a.status === 'failed'" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-          <svg v-else-if="a.status === 'denied'" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9"/><path d="M5.5 5.5l13 13"/></svg>
-          <svg v-else-if="a.status === 'pending_approval'" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4m0 4h.01"/><circle cx="12" cy="12" r="9"/></svg>
+          <svg
+            v-if="a.status === 'ok'"
+            width="11"
+            height="11"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="3"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M20 6L9 17l-5-5" />
+          </svg>
+          <svg
+            v-else-if="a.status === 'failed'"
+            width="11"
+            height="11"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="3"
+            stroke-linecap="round"
+          >
+            <path d="M18 6L6 18M6 6l12 12" />
+          </svg>
+          <svg
+            v-else-if="a.status === 'denied'"
+            width="11"
+            height="11"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+          >
+            <circle cx="12" cy="12" r="9" />
+            <path d="M5.5 5.5l13 13" />
+          </svg>
+          <svg
+            v-else-if="a.status === 'pending_approval'"
+            width="11"
+            height="11"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M12 9v4m0 4h.01" />
+            <circle cx="12" cy="12" r="9" />
+          </svg>
           <span v-else class="tas-spinner"></span>
         </span>
         <span class="tas-name">{{ toolLabel(a.tool) }}</span>
         <span class="tas-args" :title="a.argsPreview">{{ a.argsPreview }}</span>
         <span v-if="a.status === 'pending_approval'" class="tas-flag tas-flag--warn">待审批</span>
-        <span v-if="a.durationMs != null" class="tas-duration">{{ formatDuration(a.durationMs) }}</span>
+        <span v-if="a.durationMs != null" class="tas-duration">
+          {{ formatDuration(a.durationMs) }}
+        </span>
       </div>
     </div>
   </div>
@@ -81,7 +130,7 @@ function formatDuration(ms: number): string {
   padding: 8px 12px;
   background: var(--surface-panel);
   border: 1px solid var(--border-light);
-  border-radius: 8px;
+  border-radius: var(--border-radius-md);
   font-size: 12px;
 }
 
@@ -99,7 +148,7 @@ function formatDuration(ms: number): string {
 .tas-count {
   padding: 0 6px;
   background: var(--border-light);
-  border-radius: 8px;
+  border-radius: var(--border-radius-md);
   font-variant-numeric: tabular-nums;
 }
 
@@ -175,7 +224,7 @@ function formatDuration(ms: number): string {
 .tas-flag {
   flex-shrink: 0;
   padding: 0 6px;
-  border-radius: 8px;
+  border-radius: var(--border-radius-md);
   font-size: 10px;
 }
 

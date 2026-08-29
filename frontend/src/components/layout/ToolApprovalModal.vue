@@ -7,7 +7,13 @@
 <template>
   <Teleport to="body">
     <Transition name="tam">
-      <div v-if="store.current" class="tam-mask" role="dialog" aria-modal="true" aria-label="工具执行审批">
+      <div
+        v-if="store.current"
+        class="tam-mask"
+        role="dialog"
+        aria-modal="true"
+        aria-label="工具执行审批"
+      >
         <div class="tam-card">
           <div class="tam-head">
             <span class="tam-title">Agent 请求执行工具</span>
@@ -23,9 +29,7 @@
 
           <div v-if="store.resolveError" class="tam-error">{{ store.resolveError }}</div>
 
-          <div class="tam-hint">
-            只读操作通常安全；请检查参数中是否包含你不认可的路径或命令。
-          </div>
+          <div class="tam-hint">只读操作通常安全；请检查参数中是否包含你不认可的路径或命令。</div>
 
           <div class="tam-actions">
             <button class="tam-btn" :disabled="store.resolving" @click="store.dismiss()">
@@ -108,7 +112,7 @@ const prettyArgs = computed(() => {
   padding: 18px 20px;
   background: var(--surface-panel);
   border: 1px solid var(--border-light);
-  border-radius: 12px;
+  border-radius: var(--border-radius-lg);
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.28);
 }
 
@@ -173,7 +177,7 @@ const prettyArgs = computed(() => {
   overflow: auto;
   background: color-mix(in srgb, var(--border-light) 30%, transparent);
   border: 1px solid var(--border-light);
-  border-radius: 8px;
+  border-radius: var(--border-radius-md);
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.5;
@@ -203,7 +207,7 @@ const prettyArgs = computed(() => {
 .tam-btn {
   padding: 7px 14px;
   border: 1px solid var(--border-light);
-  border-radius: 8px;
+  border-radius: var(--border-radius-md);
   background: transparent;
   color: var(--text-primary);
   font-size: 13px;

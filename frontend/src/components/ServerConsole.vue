@@ -344,18 +344,18 @@ onUnmounted(() => {
   margin-left: auto;
   font-size: 12px;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--border-radius-sm);
   font-weight: 500;
 }
 /* 原生终端：成功语义色（绿） */
 .mode-native {
   color: var(--accent-success);
-  background: var(--accent-g-soft);
+  background: color-mix(in srgb, var(--accent-success) 12%, transparent);
 }
 /* 文本日志：警告语义色（黄） */
 .mode-fallback {
   color: var(--accent-warning);
-  background: var(--accent-y-soft);
+  background: color-mix(in srgb, var(--accent-warning) 12%, transparent);
 }
 .terminal-area {
   height: calc(100vh - 180px);
@@ -374,7 +374,7 @@ onUnmounted(() => {
 .metrics-update-time {
   margin-left: auto;
   font-size: 12px;
-  color: var(--text-color-3);
+  color: var(--text-tertiary);
 }
 .metrics-error {
   padding: 16px 0;
@@ -389,34 +389,34 @@ onUnmounted(() => {
   margin-bottom: 20px;
 }
 .metric-card {
-  background: var(--bg-color-secondary, rgba(0, 0, 0, 0.03));
-  border-radius: 8px;
+  background: var(--bg-secondary);
+  border-radius: var(--border-radius-md);
   padding: 12px;
   border: 1px solid var(--border-color);
 }
 .metric-card-primary {
   grid-column: span 2;
-  background: var(--accent-p-soft, rgba(99, 102, 241, 0.1));
-  border-color: var(--accent-primary, #6366f1);
+  background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+  border-color: var(--accent-primary);
 }
 .metric-label {
   font-size: 12px;
-  color: var(--text-color-3);
+  color: var(--text-tertiary);
   margin-bottom: 6px;
 }
 .metric-value {
   font-size: 24px;
   font-weight: 600;
-  color: var(--text-color);
+  color: var(--text-primary);
   line-height: 1.2;
 }
 .metric-card-primary .metric-value {
   font-size: 32px;
-  color: var(--accent-primary, #6366f1);
+  color: var(--accent-primary);
 }
 .metric-unit {
   font-size: 12px;
-  color: var(--text-color-3);
+  color: var(--text-tertiary);
   margin-top: 2px;
 }
 .metric-progress {
@@ -432,7 +432,7 @@ onUnmounted(() => {
 .detail-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-color-2);
+  color: var(--text-secondary);
   margin-bottom: 8px;
   display: flex;
   align-items: baseline;
@@ -441,7 +441,7 @@ onUnmounted(() => {
 .detail-title-hint {
   font-size: 11px;
   font-weight: 400;
-  color: var(--text-color-3);
+  color: var(--text-tertiary);
 }
 .detail-row {
   display: flex;
@@ -450,15 +450,15 @@ onUnmounted(() => {
   font-size: 13px;
 }
 .detail-label {
-  color: var(--text-color-3);
+  color: var(--text-tertiary);
 }
 .detail-value {
-  color: var(--text-color);
+  color: var(--text-primary);
   font-variant-numeric: tabular-nums;
 }
 .detail-row-highlight .detail-label,
 .detail-row-highlight .detail-value {
-  color: var(--primary-color);
+  color: var(--accent-primary);
   font-weight: 600;
 }
 .metrics-empty {
@@ -467,7 +467,7 @@ onUnmounted(() => {
 .metrics-empty-hint {
   text-align: center;
   font-size: 13px;
-  color: var(--text-color-3);
+  color: var(--text-tertiary);
   line-height: 1.8;
 }
 .metrics-empty-hint p {
@@ -475,11 +475,11 @@ onUnmounted(() => {
 }
 .metrics-empty-tip {
   font-size: 12px;
-  color: var(--text-color-3);
+  color: var(--text-tertiary);
   max-width: 360px;
   margin: 8px auto 0;
 }
 .metrics-empty-tip strong {
-  color: var(--text-color-2);
+  color: var(--text-secondary);
 }
 </style>

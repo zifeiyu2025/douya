@@ -311,7 +311,6 @@ export namespace config {
 	    reasoning_preserve?: boolean;
 	    system_prompt: string;
 	    system_prompt_mode: string;
-	    programming_mode: string;
 	    chat_background: string;
 	    chat_background_opacity: number;
 	    background_light: ThemeBackgroundParams;
@@ -418,14 +417,9 @@ export namespace config {
 	    offline: boolean;
 	    repack: boolean;
 	    agent: boolean;
-	    ui_mcp_proxy: boolean;
 	    agent_approval: string;
 	    agent_max_rounds: number;
 	    agent_cwd: string;
-	    cors_origins: string;
-	    cors_methods: string;
-	    cors_headers: string;
-	    cors_credentials: boolean;
 	    backend_sampling: boolean;
 	    tts_enabled: boolean;
 	    tts_voice: string;
@@ -480,7 +474,6 @@ export namespace config {
 	        this.reasoning_preserve = source["reasoning_preserve"];
 	        this.system_prompt = source["system_prompt"];
 	        this.system_prompt_mode = source["system_prompt_mode"];
-	        this.programming_mode = source["programming_mode"];
 	        this.chat_background = source["chat_background"];
 	        this.chat_background_opacity = source["chat_background_opacity"];
 	        this.background_light = this.convertValues(source["background_light"], ThemeBackgroundParams);
@@ -587,14 +580,9 @@ export namespace config {
 	        this.offline = source["offline"];
 	        this.repack = source["repack"];
 	        this.agent = source["agent"];
-	        this.ui_mcp_proxy = source["ui_mcp_proxy"];
 	        this.agent_approval = source["agent_approval"];
 	        this.agent_max_rounds = source["agent_max_rounds"];
 	        this.agent_cwd = source["agent_cwd"];
-	        this.cors_origins = source["cors_origins"];
-	        this.cors_methods = source["cors_methods"];
-	        this.cors_headers = source["cors_headers"];
-	        this.cors_credentials = source["cors_credentials"];
 	        this.backend_sampling = source["backend_sampling"];
 	        this.tts_enabled = source["tts_enabled"];
 	        this.tts_voice = source["tts_voice"];

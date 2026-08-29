@@ -518,19 +518,6 @@ func isCoderModel(modelName string) bool {
 	return false
 }
 
-// resolveProgrammingMode 根据配置与模型名解析最终是否启用编程提示词。
-// mode 取值："on"（始终启用）、"off"（始终禁用）、"auto"（检测到 coder 模型自动启用）。
-func resolveProgrammingMode(mode, modelName string) bool {
-	switch mode {
-	case "on":
-		return true
-	case "off":
-		return false
-	default: // "" 与 "auto" 都走自动检测
-		return isCoderModel(modelName)
-	}
-}
-
 // applyDynamicSystemPrompt 在基础提示词上追加每次请求动态变化的内容：当前时间、搜索工具说明、引用规则。
 // 引用规则根据 searchMode 动态生成：仅当 searchMode 为 "auto" 或 "on" 时才追加，
 // 避免在未启用搜索时引入与 RAG 引用规则冲突的静态规则。

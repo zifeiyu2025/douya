@@ -66,8 +66,6 @@ export function GetConfig():Promise<config.Config>;
 
 export function GetConversations():Promise<Array<chat.Conversation>>;
 
-export function GetGitHubURL():Promise<string>;
-
 export function GetLastPromptTokens():Promise<number>;
 
 export function GetLogLevel():Promise<string>;

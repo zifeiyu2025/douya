@@ -440,7 +440,7 @@ onMounted(() => {
 }
 
 .lora-path-remove:hover {
-  color: var(--accent-r-primary);
+  color: var(--accent-danger);
 }
 
 /* ===== 添加按钮 ===== */
@@ -463,18 +463,18 @@ onMounted(() => {
   line-height: 1.4;
 }
 
-/* warning：黄色语义色（背景 --accent-y-soft，边框 color-mix，文字 --accent-y-strong） */
+/* warning：琥珀语义色（淡底现调，边框/文字用 --accent-warning） */
 .lora-hint.warning {
-  background: var(--accent-y-soft);
-  border: 1px solid color-mix(in srgb, var(--accent-y-primary) 25%, transparent);
-  color: var(--accent-y-strong);
+  background: color-mix(in srgb, var(--accent-warning) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-warning) 25%, transparent);
+  color: var(--accent-warning);
 }
 
-/* error：红色语义色（背景 --accent-r-soft，边框 color-mix，文字 --accent-r-strong） */
+/* error：警示红语义色（背景 --accent-r-soft，边框/文字用 --accent-danger） */
 .lora-hint.error {
   background: var(--accent-r-soft);
-  border: 1px solid color-mix(in srgb, var(--accent-r-primary) 25%, transparent);
-  color: var(--accent-r-strong);
+  border: 1px solid color-mix(in srgb, var(--accent-danger) 25%, transparent);
+  color: var(--accent-danger);
 }
 
 .lora-hint-enter-active,
@@ -585,8 +585,8 @@ onMounted(() => {
 }
 
 .lora-badge.on {
-  background: var(--accent-g-soft);
-  color: var(--accent-g-primary);
+  background: color-mix(in srgb, var(--accent-success) 12%, transparent);
+  color: var(--accent-success);
 }
 
 .lora-badge.off {

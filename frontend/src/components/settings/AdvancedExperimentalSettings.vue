@@ -32,7 +32,7 @@
             content="一键启用 CORS 代理和所有内置工具（文件读写、shell 命令等）。实验性功能，不建议在不可信环境启用"
           />
         </template>
-        <n-switch v-model:value="formConfig.agent" @update:value="handleAgentChange" />
+        <n-switch v-model:value="formConfig.agent" @update:value="autoSave" />
       </n-form-item>
 
       <template v-if="formConfig.agent">
@@ -93,14 +93,6 @@
 
       <n-form-item>
         <template #label>
-          MCP CORS 代理
-          <HelpTip content="仅为 Web UI 的 MCP 功能启用 CORS 代理。Agent 模式已包含此项" />
-        </template>
-        <n-switch v-model:value="formConfig.ui_mcp_proxy" @update:value="autoSave" />
-      </n-form-item>
-
-      <n-form-item>
-        <template #label>
           后端采样
           <HelpTip
             content="实验性功能，将采样逻辑移到 GPU 执行以提升性能。不兼容 Grammar 和 Reasoning Budget"
@@ -110,62 +102,6 @@
           v-model:value="formConfig.backend_sampling"
           @update:value="handleBackendSamplingChange"
         />
-      </n-form-item>
-
-      <!-- 细粒度 CORS 配置 -->
-      <n-form-item>
-        <template #label>
-          CORS 允许来源
-          <HelpTip
-            content="允许的浏览器跨域来源，逗号分隔（如 http://localhost:5173,*）。留空使用 llama.cpp 默认（仅 localhost）。供浏览器访问 Lua/Web 工具时自定义来源"
-          />
-        </template>
-        <n-input
-          v-model:value="formConfig.cors_origins"
-          placeholder="http://localhost:5173,*"
-          clearable
-          @update:value="autoSave"
-        />
-      </n-form-item>
-
-      <n-form-item>
-        <template #label>
-          CORS 允许方法
-          <HelpTip
-            content="允许的 HTTP 方法，逗号分隔（如 GET,POST,PUT,DELETE）。留空使用 llama.cpp 默认"
-          />
-        </template>
-        <n-input
-          v-model:value="formConfig.cors_methods"
-          placeholder="GET,POST"
-          clearable
-          @update:value="autoSave"
-        />
-      </n-form-item>
-
-      <n-form-item>
-        <template #label>
-          CORS 允许请求头
-          <HelpTip
-            content="允许的请求头，逗号分隔（如 Content-Type,X-Tool-Cwd）。留空使用 llama.cpp 默认"
-          />
-        </template>
-        <n-input
-          v-model:value="formConfig.cors_headers"
-          placeholder="Content-Type"
-          clearable
-          @update:value="autoSave"
-        />
-      </n-form-item>
-
-      <n-form-item>
-        <template #label>
-          CORS 允许凭证
-          <HelpTip
-            content="是否允许跨域携带凭证（Cookie/认证头）。若与允许来源 * 同时启用，llama.cpp 会回显请求 Origin 并始终允许凭证。请仅在可信来源下开启"
-          />
-        </template>
-        <n-switch v-model:value="formConfig.cors_credentials" @update:value="autoSave" />
       </n-form-item>
 
       <!-- 实验功能 -->
@@ -417,14 +353,6 @@ if (!ctx) {
 // 域切片：高级面板自包含（Agent/后端采样互斥逻辑在面板内部），仅需核心表单与保存
 const { core } = ctx
 const { formConfig, autoSave } = core
-
-/** Agent 模式切换处理 */
-function handleAgentChange() {
-  if (formConfig.value.agent) {
-    formConfig.value.ui_mcp_proxy = false
-  }
-  autoSave()
-}
 
 /** 工具审批模式选项 */
 const approvalOptions = [

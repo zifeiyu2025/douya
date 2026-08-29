@@ -392,7 +392,7 @@ const maskLayerStyle = computed(() => ({
 .swatch-line {
   display: block;
   height: 5px;
-  border-radius: 2px;
+  border-radius: var(--border-radius-xs);
   background: color-mix(in srgb, var(--sw-text) 26%, transparent);
 }
 .swatch-line--title {
