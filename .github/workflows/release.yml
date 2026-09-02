@@ -1,0 +1,268 @@
+# =============================================================================
+# 豆芽 Microsoft Store 发布流水线（B 层：GitHub Actions 自动发版）
+# -----------------------------------------------------------------------------
+# 何时触发：
+#   1. push 形如 vX.Y.Z 的标签（推荐发版方式：先递增版本号并提交，再打 tag）
+#   2. 手动触发（workflow_dispatch），用于预发布/补发
+#
+# 主版本事实源：internal/version/version.go（单点），其余版本号校验依赖它。
+#
+# ✨ 引擎策略（锁定官方预编译版）：
+#   MSIX 打包引擎直接从 **llama.cpp GitHub 官方预编译下载**，版本由 Go 源码中
+#   `llm.PinnedReleaseTag` 单点锁定（与豆芽运行时后端下载版本严格一致）。
+#   自本提交起，流水线不需要依赖本机/缓存/私有 URL 带引擎，完全自包含。
+#
+#  下载逻辑：
+#   - 拉取锁定 tag 的官方 release，按官方规则匹配 cpu/cuda/vulkan + cudart 资产
+#   - 自动解压合并到 `runtime/`，符合 make-msix.ps1 要求的布局（runtime/cpu/ 等）
+#   - 始终和运行时保持同一版本，无本机 vs CI 版本不一致风险
+#
+# 微软商店提交免本地签名：商店会重签，因此不加 -DevSign。
+#
+# 上架自检（store-readiness-check.ps1）在构建出 exe、引擎就绪后才执行，
+# 因为它的第 4、5 项分别要求引擎目录与 Douya.exe 已存在。
+# =============================================================================
+name: 发布到微软商店
+
+on:
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: 作为预发布（Prerelease）
+        type: boolean
+        default: false
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write   # 创建/附件 GitHub Release 资产
+
+concurrency:
+  group: release-publish
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    name: 构建并发布（Windows）
+    runs-on: windows-latest
+
+    steps:
+      # ---------------- 0. 检出与工具链 ----------------
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 安装 Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # ---------------- 1. 读取版本号（唯一事实源） ----------------
+      - name: 读取主版本号
+        id: version
+        shell: pwsh
+        run: |
+          $content = Get-Content -Raw -Path 'internal/version/version.go'
+          $m = [regex]::Match($content, 'Version\s*=\s*"([^"]+)"')
+          if (-not $m.Success) { throw '无法从 version.go 提取版本号' }
+          Write-Output "version=$($m.Groups[1].Value)" >> $env:GITHUB_OUTPUT
+      - name: 导出版本号到环境
+        shell: pwsh
+        run: |
+          Write-Output "DOUYA_VERSION=${{ steps.version.outputs.version }}" >> $env:GITHUB_ENV
+
+      # ---------------- 2. 版本一致性校验（4 处，始终执行） ----------------
+      - name: 版本一致性校验
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts/check_version_consistency.ps1
+
+      # ---------------- 3. 从官方预编译下载引擎（锁定 PinnedReleaseTag） ----------------
+      # 与运行时 `backend_install.go` 的解压/合并逻辑严格一致：
+      #   - CPU 包是"基底"（llama-server.exe + 核心 DLL）
+      #   - CUDA / Vulkan 包是模块化包（只含 ggml-cuda.dll / ggml-vulkan.dll），
+      #     需叠加在 CPU 基底之上；CUDA 另附 cudart 配套运行库。
+      #   - 官方 zip 为扁平结构；此处加防御性"拍平"，兼容可能的套层目录。
+      - name: 下载官方预编译引擎
+        id: engines
+        shell: pwsh
+        run: |
+          # 1) 从 Go 源码读取锁定版本号（唯一事实源，与运行时严格一致）
+          $content = Get-Content -Raw -Path 'internal/llm/backend_download.go'
+          $m = [regex]::Match($content, 'PinnedReleaseTag\s*=\s*"([^"]+)"')
+          if (-not $m.Success) { throw '无法从 backend_download.go 提取 PinnedReleaseTag' }
+          $tag = $m.Groups[1].Value
+          Write-Host "锁定官方版本: $tag" -ForegroundColor Cyan
+
+          # 2) 查询该 release 的资产清单
+          $apiUrl = "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/$tag"
+          $release = Invoke-RestMethod -Uri $apiUrl -Headers @{ 'User-Agent' = 'Douya-Release' } -TimeoutSec 30
+          $assets = @{}
+          $release.assets | ForEach-Object { $assets[$_.name] = $_.browser_download_url }
+          Write-Host "Release: $($release.name)（$($release.assets.Count) 个资产）" -ForegroundColor Cyan
+
+          # 3) 锁定三套后端 + cudart 的确切官方资产文件名
+          $cpuZip    = "llama-$tag-bin-win-cpu-x64.zip"
+          $cudaZip   = "llama-$tag-bin-win-cuda-13.3-x64.zip"
+          $cudartZip = "cudart-llama-bin-win-cuda-13.3-x64.zip"
+          $vulkanZip = "llama-$tag-bin-win-vulkan-x64.zip"
+
+          function New-TempZip($name) { Join-Path $env:RUNNER_TEMP $name }
+
+          # 4) 工具：拍平——解压后若 llama-server.exe 不在顶层（套了一层目录），上移内容
+          function Flatten-Dir([string]$dir) {
+            if (-not (Test-Path (Join-Path $dir 'llama-server.exe'))) {
+              $nested = Get-ChildItem -Path $dir -Directory | Select-Object -First 1
+              if ($nested -and (Test-Path (Join-Path $nested.FullName 'llama-server.exe'))) {
+                Get-ChildItem -Path $nested.FullName | Move-Item -Destination $dir -Force
+                Remove-Item -LiteralPath $nested.FullName -Recurse -Force
+              }
+            }
+          }
+
+          # 5) 工具：清理冗余 CLI 工具（与运行时 isRedundantFile 同款），只留 llama-server 运行链路
+          function Remove-Redundant([string]$dir) {
+            if (-not (Test-Path $dir)) { return }
+            Get-ChildItem -Path $dir -File -ErrorAction SilentlyContinue | ForEach-Object {
+              $n = $_.Name -replace '\.(exe|dll)$',''
+              if ($n -match '^(llama-batched-bench|llama-bench|llama-cli$|llama-completion|llama-fit-params|llama-gguf-split|llama-imatrix|llama-llava-cli|llama-minicpmv-cli|llama-mtmd-cli|llama-perplexity|llama-quantize|llama-qwen2vl-cli|llama-results|llama-template-analysis|llama-tokenize|llama-export-lora|ggml-rpc-server)$') {
+                Remove-Item $_.FullName -Force
+              }
+            }
+          }
+
+          # 6) 下载并解压 CPU 基底包 → runtime/cpu
+          $down = New-TempZip 'cpu.zip'
+          Write-Host "下载 $cpuZip ..." -ForegroundColor Yellow
+          Invoke-WebRequest -Uri $assets[$cpuZip] -OutFile $down -TimeoutSec 300
+          Expand-Archive -Path $down -DestinationPath 'runtime\cpu' -Force
+          Flatten-Dir 'runtime\cpu'
+          Remove-Redundant 'runtime\cpu'
+          if (-not (Test-Path 'runtime\cpu\llama-server.exe')) { throw "CPU 基底解压缺少 llama-server.exe" }
+
+          # 7) 构建 cuda：CPU 基底 + cuda 模块化 DLL + cudart 运行库
+          Copy-Item -Path 'runtime\cpu\*' -Destination 'runtime\cuda' -Recurse -Force
+          $down = New-TempZip 'cuda.zip'
+          Write-Host "下载 $cudaZip ..." -ForegroundColor Yellow
+          Invoke-WebRequest -Uri $assets[$cudaZip] -OutFile $down -TimeoutSec 300
+          Expand-Archive -Path $down -DestinationPath 'runtime\cuda' -Force
+          Flatten-Dir 'runtime\cuda'; Remove-Redundant 'runtime\cuda'
+          $down = New-TempZip 'cudart.zip'
+          Write-Host "下载 $cudartZip ..." -ForegroundColor Yellow
+          Invoke-WebRequest -Uri $assets[$cudartZip] -OutFile $down -TimeoutSec 300
+          Expand-Archive -Path $down -DestinationPath 'runtime\cuda' -Force
+          if (-not (Test-Path 'runtime\cuda\ggml-cuda.dll')) { throw "cuda 缺少 ggml-cuda.dll" }
+          if (-not (Get-ChildItem 'runtime\cuda' -Filter 'cudart64_*.dll')) { throw "cuda 缺少 cudart64_*.dll" }
+
+          # 8) 构建 vulkan：CPU 基底 + vulkan 模块化 DLL
+          Copy-Item -Path 'runtime\cpu\*' -Destination 'runtime\vulkan' -Recurse -Force
+          $down = New-TempZip 'vulkan.zip'
+          Write-Host "下载 $vulkanZip ..." -ForegroundColor Yellow
+          Invoke-WebRequest -Uri $assets[$vulkanZip] -OutFile $down -TimeoutSec 300
+          Expand-Archive -Path $down -DestinationPath 'runtime\vulkan' -Force
+          Flatten-Dir 'runtime\vulkan'; Remove-Redundant 'runtime\vulkan'
+          if (-not (Test-Path 'runtime\vulkan\ggml-vulkan.dll')) { throw "vulkan 缺少 ggml-vulkan.dll" }
+
+          # 9) 汇总校验：三套引擎完整
+          $ready = $true
+          foreach ($b in @('cpu','cuda','vulkan')) {
+            if (-not (Test-Path "runtime\$b\llama-server.exe")) { $ready = $false; Write-Host "错误: $b 缺 llama-server.exe" -ForegroundColor Red }
+          }
+          Write-Output "ready=$ready" >> $env:GITHUB_OUTPUT
+          if (-not $ready) { throw '引擎组装/校验失败' }
+          Write-Host "三套引擎组装完成（cpu/cuda/vulkan），锁定版本: $tag" -ForegroundColor Green
+
+      # ---------------- 4. 安装工具链 ----------------
+      - name: 安装 Wails CLI v2
+        shell: pwsh
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.14.0
+          $gobin = (go env GOPATH) + '\bin'
+          Add-Content -Path $env:GITHUB_PATH -Value $gobin
+          wails version
+
+      - name: 安装前端依赖
+        shell: pwsh
+        run: |
+          Set-Location frontend
+          npm ci
+
+      # ---------------- 5. 构建可执行文件 ----------------
+      # 与 build.ps1 对齐：前端构建 + wails build(-ldflags 去调试信息)，产出 build/bin/Douya.exe
+      - name: 构建前端
+        shell: pwsh
+        run: |
+          Set-Location frontend
+          npm run build
+
+      - name: Wails 构建
+        shell: pwsh
+        run: |
+          $env:GOPROXY = 'https://goproxy.cn,direct'
+          wails build -ldflags "-s -w"
+          if (-not (Test-Path 'build/bin/Douya.exe')) { throw 'Wails 构建未产出 Douya.exe' }
+
+      # ---------------- 6. 商店上架自检（引擎就绪时）---------------
+      # 注意：此脚本第 4 项要求引擎、第 5 项要求 Douya.exe，故放在构建之后、引擎就绪时执行
+      - name: 商店上架自检
+        if: steps.engines.outputs.ready == 'true'
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts/store-readiness-check.ps1
+
+      - name: 上传 Douya.exe 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: Douya-${{ env.DOUYA_VERSION }}-exe
+          path: build/bin/Douya.exe
+          if-no-files-found: error
+
+      # ---------------- 7. 打包 .msix（引擎齐全时） ----------------
+      - name: 打包 MSIX 商店安装包
+        id: msix
+        if: steps.engines.outputs.ready == 'true'
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File build/windows/msix/make-msix.ps1 -OutputDir (Join-Path $PWD 'build/bin')
+          if (-not (Test-Path 'build/bin/Douya.msix')) { throw '.msix 打包失败：build/bin/Douya.msix 未生成' }
+          $target = "Douya-${{ env.DOUYA_VERSION }}.msix"
+          Move-Item -LiteralPath 'build/bin/Douya.msix' -Destination (Join-Path 'build/bin' $target) -Force
+          Write-Host "MSIX 产物: build/bin/$target" -ForegroundColor Green
+
+      - name: 上传 .msix 产物
+        if: steps.engines.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Douya-${{ env.DOUYA_VERSION }}-msix
+          path: build/bin/Douya-${{ env.DOUYA_VERSION }}.msix
+          if-no-files-found: error
+
+      # ---------------- 8. 发布到 GitHub Release ----------------
+      - name: 创建/更新 GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $v = "${{ env.DOUYA_VERSION }}"
+          $tag = "v$v"
+          $isPre = ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') -and ("${{ inputs.prerelease }}" -eq 'true')
+          # tag 已存在（tag push 场景）则复用，否则新建（含手动触发场景）
+          gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            $args = @('release','create',$tag,'--repo',$env:GITHUB_REPOSITORY,'--title',"豆芽 v$v",'--generate-notes','--target',$env:GITHUB_SHA)
+            if ($isPre) { $args += '--prerelease' }
+            & gh @args
+          }
+          # 按存在性组装待上传资产（.msix 仅在引擎齐全时生成）
+          $files = @('build/bin/Douya.exe')
+          if (Test-Path "build/bin/Douya-$v.msix") { $files += "build/bin/Douya-$v.msix" }
+          gh release upload $tag --repo $env:GITHUB_REPOSITORY --clobber $files | Out-Null
+          Write-Host "已发布到 GitHub Release: $tag（资产: $($files -join ', ')）" -ForegroundColor Green
