@@ -385,6 +385,7 @@ export namespace config {
 	    checkpoint_min_step: number;
 	    tools: string;
 	    enable_builtin_tools: boolean;
+	    tools_runtime: string;
 	    prefill_assistant: boolean;
 	    slot_prompt_similarity: number;
 	    skip_chat_parsing: boolean;
@@ -548,6 +549,7 @@ export namespace config {
 	        this.checkpoint_min_step = source["checkpoint_min_step"];
 	        this.tools = source["tools"];
 	        this.enable_builtin_tools = source["enable_builtin_tools"];
+	        this.tools_runtime = source["tools_runtime"];
 	        this.prefill_assistant = source["prefill_assistant"];
 	        this.slot_prompt_similarity = source["slot_prompt_similarity"];
 	        this.skip_chat_parsing = source["skip_chat_parsing"];

@@ -167,6 +167,10 @@ type Config struct {
 	CheckpointMinStep      int     `json:"checkpoint_min_step"`
 	Tools                  string  `json:"tools"`
 	EnableBuiltinTools     bool    `json:"enable_builtin_tools"` // 启用 llama.cpp 全部内置工具（--tools all）
+	// 工具运行环境（--tools-runtime，实验性）：让内置工具在隔离环境执行，
+	// 支持 docker:<image> / podman:<image> / docker-container:<id> / podman-container:<id> / ssh:<target>。
+	// 空 = 使用宿主环境（默认）。格式非法时修复为空，避免 llama-server 启动失败。
+	ToolsRuntime string `json:"tools_runtime"`
 	PrefillAssistant       bool    `json:"prefill_assistant"`
 	SlotPromptSimilarity   float64 `json:"slot_prompt_similarity"`
 	SkipChatParsing        bool    `json:"skip_chat_parsing"`
@@ -390,6 +394,7 @@ func DefaultConfig() *Config {
 		CheckpointMinStep:        256, // 与 llama.cpp 默认值对齐，检查点最小步长
 		Tools:                    "",
 		EnableBuiltinTools:       false,
+		ToolsRuntime:             "", // 工具运行环境，默认使用宿主
 		PrefillAssistant:         true,
 		SlotPromptSimilarity:     0.1, // 与 llama.cpp 默认值对齐，slot 缓存 prompt 相似度阈值
 		SkipChatParsing:          false,
@@ -924,6 +929,11 @@ func (c *Config) repairInvalidFields() []string {
 		repaired = append(repaired, fmt.Sprintf("tools: %q -> %q (enable_builtin_tools 开启，细粒度 tools 互斥)", c.Tools, defaults.Tools))
 		c.Tools = defaults.Tools
 	}
+	// ToolsRuntime 格式修复：空值保留（使用宿主环境），非法前缀回退为空，避免 llama-server 启动失败
+	if strings.TrimSpace(c.ToolsRuntime) != "" && !isValidToolsRuntime(c.ToolsRuntime) {
+		repaired = append(repaired, fmt.Sprintf("tools_runtime: %q -> %q (非法格式，需 docker:/podman:/docker-container:/podman-container:/ssh: 前缀)", c.ToolsRuntime, defaults.ToolsRuntime))
+		c.ToolsRuntime = defaults.ToolsRuntime
+	}
 	// reasoning 枚举修复：自动思考已移除，auto/非法值归一化为 off（默认关闭）
 	switch c.Reasoning {
 	case "on", "off":
@@ -961,6 +971,11 @@ func (c *Config) Validate() error {
 	case "", "auto", "always", "never":
 	default:
 		return apperror.Newf(apperror.KindInvalidConfig, "invalid agent_approval: %q (must be auto/always/never or empty)", c.AgentApproval)
+	}
+
+	// 工具运行环境格式校验：非空时必须有合法前缀（空 = 使用宿主环境）
+	if strings.TrimSpace(c.ToolsRuntime) != "" && !isValidToolsRuntime(c.ToolsRuntime) {
+		return apperror.Newf(apperror.KindInvalidConfig, "invalid tools_runtime: %q (must start with docker:/podman:/docker-container:/podman-container:/ssh:)", c.ToolsRuntime)
 	}
 
 	// 每主题背景参数：合法零值放行（blur=0/mask=0），仅越界/NaN 报错
@@ -1107,6 +1122,22 @@ func isValidSplitMode(mode string) bool {
 	switch mode {
 	case "", "none", "layer", "row", "tensor":
 		return true
+	}
+	return false
+}
+
+// isValidToolsRuntime 校验工具运行环境格式（llama.cpp --tools-runtime，实验性）。
+// 合法前缀：docker:<image> / podman:<image> / docker-container:<id> / podman-container:<id> / ssh:<target>。
+// 空字符串表示使用宿主环境，属于合法值。
+func isValidToolsRuntime(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return true
+	}
+	for _, prefix := range []string{"docker:", "podman:", "docker-container:", "podman-container:", "ssh:"} {
+		if strings.HasPrefix(s, prefix) && len(s) > len(prefix) {
+			return true
+		}
 	}
 	return false
 }

@@ -252,6 +252,7 @@ func buildServerConfigFromFields(
 		CheckpointMinStep:        cfg.CheckpointMinStep,
 		Tools:                    cfg.Tools,
 		EnableBuiltinTools:       cfg.EnableBuiltinTools,
+		ToolsRuntime:             cfg.ToolsRuntime,
 		PrefillAssistant:         cfg.PrefillAssistant,
 		SlotPromptSimilarity:     cfg.SlotPromptSimilarity,
 		SkipChatParsing:          cfg.SkipChatParsing,

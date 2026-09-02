@@ -412,6 +412,8 @@ export interface Config {
   checkpoint_min_step: number
   tools: string
   enable_builtin_tools: boolean
+  /** 工具运行环境（--tools-runtime，实验性）：docker:<image> / podman:<image> / ssh:<target> 等。空=使用宿主环境 */
+  tools_runtime: string
   prefill_assistant: boolean
   slot_prompt_similarity: number
   skip_chat_parsing: boolean
@@ -631,6 +633,7 @@ export const DEFAULT_CONFIG: Config = {
   checkpoint_min_step: 256,
   tools: '',
   enable_builtin_tools: false,
+  tools_runtime: '',
   prefill_assistant: true,
   slot_prompt_similarity: 0.1,
   skip_chat_parsing: false,

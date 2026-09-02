@@ -107,6 +107,7 @@ const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'ctx_checkpoints',
   'checkpoint_min_step',
   'tools',
+  'tools_runtime',
   'prefill_assistant',
   'slot_prompt_similarity',
   'skip_chat_parsing',

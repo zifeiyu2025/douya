@@ -222,6 +222,61 @@ func TestValidate_MinP(t *testing.T) {
 	}
 }
 
+// TestRepair_InvalidToolsRuntimeResets 验证非法 tools_runtime 被修复为空
+func TestRepair_InvalidToolsRuntimeResets(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.ToolsRuntime = "some-runtime-string-without-prefix"
+	repaired := cfg.repairInvalidFields()
+	if cfg.ToolsRuntime != "" {
+		t.Errorf("期望非法 ToolsRuntime 被修复为空，实际 %q", cfg.ToolsRuntime)
+	}
+	found := false
+	for _, msg := range repaired {
+		if containsStr(msg, "tools_runtime") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("期望修复列表包含 tools_runtime，实际 %v", repaired)
+	}
+}
+
+// TestRepair_ValidToolsRuntimeKept 验证合法 tools_runtime 被保留
+func TestRepair_ValidToolsRuntimeKept(t *testing.T) {
+	for _, v := range []string{"docker:ubuntu:22.04", "podman:alpine", "docker-container:abc123", "podman-container:xyz", "ssh:user@host"} {
+		cfg := DefaultConfig()
+		cfg.ToolsRuntime = v
+		repaired := cfg.repairInvalidFields()
+		if cfg.ToolsRuntime != v {
+			t.Errorf("期望 ToolsRuntime=%q 被保留，实际 %q", v, cfg.ToolsRuntime)
+		}
+		if len(repaired) != 0 {
+			t.Errorf("期望 ToolsRuntime=%q 无修复项，实际 %v", v, repaired)
+		}
+	}
+}
+
+// TestValidate_InvalidToolsRuntime 验证非法 tools_runtime 在 Validate 中报错
+func TestValidate_InvalidToolsRuntime(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.ToolsRuntime = "invalid-no-prefix"
+	if err := cfg.Validate(); err == nil {
+		t.Error("期望非法 ToolsRuntime 时 Validate 返回错误，实际返回 nil")
+	}
+}
+
+// TestValidate_ValidToolsRuntime 验证合法 tools_runtime 通过校验
+func TestValidate_ValidToolsRuntime(t *testing.T) {
+	for _, v := range []string{"", "docker:ubuntu:22.04", "ssh:user@host"} {
+		cfg := DefaultConfig()
+		cfg.ToolsRuntime = v
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("期望 ToolsRuntime=%q 通过校验，实际错误: %v", v, err)
+		}
+	}
+}
+
 // TestValidate_DryFields 验证 Dry 相关字段为负数时返回错误
 func TestValidate_DryFields(t *testing.T) {
 	// DryMultiplier 为负

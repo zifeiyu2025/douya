@@ -415,6 +415,9 @@ func (s *Server) appendNewFeatureArgs(args []string) []string {
 	} else {
 		args = appendStringArg(args, "--tools", s.config.Tools)
 	}
+	// 工具运行环境（实验性 --tools-runtime）：让内置工具在 Docker/Podman 容器或
+	// SSH 远程主机隔离执行。空 = 使用宿主环境。config 已做格式校验，非法值被修复为空。
+	args = appendStringArg(args, "--tools-runtime", s.config.ToolsRuntime)
 	if !s.config.PrefillAssistant {
 		args = append(args, "--no-prefill-assistant")
 	}

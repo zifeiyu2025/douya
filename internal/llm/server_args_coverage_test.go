@@ -507,6 +507,28 @@ func TestAppendNewFeatureArgs_EnableBuiltinToolsFalse(t *testing.T) {
 	}
 }
 
+// TestAppendNewFeatureArgs_ToolsRuntime 验证 ToolsRuntime 非空时传递 --tools-runtime
+func TestAppendNewFeatureArgs_ToolsRuntime(t *testing.T) {
+	s := newTestServer()
+	s.config.ToolsRuntime = "docker:ubuntu:22.04"
+
+	args := s.appendNewFeatureArgs(nil)
+	if got := argValue(args, "--tools-runtime"); got != "docker:ubuntu:22.04" {
+		t.Errorf("期望 --tools-runtime=docker:ubuntu:22.04，实际: %q", got)
+	}
+}
+
+// TestAppendNewFeatureArgs_ToolsRuntimeEmpty 验证 ToolsRuntime 为空时不传 --tools-runtime
+func TestAppendNewFeatureArgs_ToolsRuntimeEmpty(t *testing.T) {
+	s := newTestServer()
+	s.config.ToolsRuntime = ""
+
+	args := s.appendNewFeatureArgs(nil)
+	if containsArg(args, "--tools-runtime") {
+		t.Errorf("期望空 ToolsRuntime 不传递 --tools-runtime，实际 args: %v", args)
+	}
+}
+
 // TestAppendNewFeatureArgs_NoPrefillAssistant 验证 PrefillAssistant=false 时传递 --no-prefill-assistant
 func TestAppendNewFeatureArgs_NoPrefillAssistant(t *testing.T) {
 	s := newTestServer()

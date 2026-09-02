@@ -93,6 +93,28 @@
 
       <n-form-item>
         <template #label>
+          工具运行环境
+          <HelpTip
+            content="实验性：让内置工具在隔离环境执行，而非宿主机。支持 docker:&lt;镜像&gt;、podman:&lt;镜像&gt;、docker-container:&lt;ID&gt;、podman-container:&lt;ID&gt;、ssh:&lt;目标&gt;。留空使用宿主环境。需已安装 Docker/Podman 或配置 SSH 才能生效"
+          />
+        </template>
+        <n-input
+          v-model:value="formConfig.tools_runtime"
+          placeholder="如 docker:ubuntu:22.04 / ssh:user@host（留空使用宿主环境）"
+          clearable
+          @blur="autoSave"
+        />
+        <div class="field-hint">
+          <span class="hint-item">使用前提：本机已安装 Docker / Podman，或已配置可访问的 SSH 目标主机</span>
+          <span class="hint-item">
+            示例：docker:ubuntu:22.04（容器内执行）、docker-container:&lt;ID&gt;（复用已有容器）、ssh:user@host（远程主机执行）
+          </span>
+          <span class="hint-item">留空 = 内置工具直接在宿主机执行</span>
+        </div>
+      </n-form-item>
+
+      <n-form-item>
+        <template #label>
           后端采样
           <HelpTip
             content="实验性功能，将采样逻辑移到 GPU 执行以提升性能。不兼容 Grammar 和 Reasoning Budget"
@@ -420,5 +442,20 @@ const opOffloadOptions = [
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--text-secondary);
+}
+
+/* 输入项内联使用提示 */
+.field-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hint-item::before {
+  content: '· ';
+  color: var(--text-faint, #999);
 }
 </style>

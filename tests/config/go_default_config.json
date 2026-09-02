@@ -112,6 +112,7 @@
   "checkpoint_min_step": 256,
   "tools": "",
   "enable_builtin_tools": false,
+  "tools_runtime": "",
   "prefill_assistant": true,
   "slot_prompt_similarity": 0.1,
   "skip_chat_parsing": false,

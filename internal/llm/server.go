@@ -182,6 +182,9 @@ type ServerConfig struct {
 	CheckpointMinStep      int
 	Tools                  string
 	EnableBuiltinTools     bool
+	// ToolsRuntime 工具运行环境（--tools-runtime，实验性）：让内置工具在
+	// Docker/Podman 容器或 SSH 远程主机隔离执行。空 = 使用宿主环境。
+	ToolsRuntime           string
 	PrefillAssistant       bool
 	SlotPromptSimilarity   float64
 	SkipChatParsing        bool
