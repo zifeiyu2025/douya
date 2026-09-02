@@ -1,6 +1,32 @@
 <template>
   <div class="input-area">
-    <div class="input-wrapper">
+    <div
+      class="input-wrapper"
+      @dragenter="onDragEnter"
+      @dragover.prevent
+      @dragleave="onDragLeave"
+      @drop.prevent="onDrop"
+    >
+      <!-- 拖拽上传高亮遮罩：文件拖入输入框时浮现，松开释放即添加附件 -->
+      <div v-if="isDragging" class="drop-overlay" aria-hidden="true">
+        <svg
+          class="drop-icon"
+          width="30"
+          height="30"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="17 8 12 3 7 8"></polyline>
+          <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+        <span class="drop-title">松开以添加文件</span>
+        <span class="drop-sub">支持上传图片 / 音频 / 视频 / PDF / Word / 文本</span>
+      </div>
       <!-- Token 计数器：显示在输入框上方 -->
       <TokenCounter :text="inputText" :context-size="settingsStore.config.context_size" />
       <AttachmentPreview
@@ -259,6 +285,52 @@ function handlePaste(e: ClipboardEvent) {
   }
 }
 
+// ===== 拖拽上传 =====
+// 拖入文件时输入框浮现高亮遮罩，松开后逐个处理（类型识别 → 模型能力判断 → 添加）。
+// dragDepth 深计数：防止鼠标在输入框内子元素间移动时 dragleave 误关闭遮罩，
+// 只在真正拖出整个输入框后才隐藏。
+const isDragging = ref(false)
+let dragDepth = 0
+
+function hasFiles(e: DragEvent): boolean {
+  return !!e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')
+}
+
+function onDragEnter(e: DragEvent) {
+  // 仅当拖入的是文件（而非纯文本/链接）才处理，避免误弹遮罩
+  if (!hasFiles(e)) return
+  e.preventDefault()
+  dragDepth++
+  if (dragDepth === 1) isDragging.value = true
+}
+
+function onDragLeave() {
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (dragDepth === 0) isDragging.value = false
+}
+
+// drop 分发：复用粘贴文件的同一套「识别类型 → 校验模型能力 → 添加附件」逻辑，
+// 保证拖拽与粘贴、选择的行为完全一致
+function onDrop(e: DragEvent) {
+  const files = e.dataTransfer?.files
+  dragDepth = 0
+  isDragging.value = false
+  if (!files || files.length === 0) return
+  if (chatUnavailable.value) {
+    message.warning('引擎尚未就绪，暂时无法添加附件')
+    return
+  }
+  for (const file of Array.from(files)) {
+    const fileType = detectFileType(file)
+    if (!fileType) {
+      message.warning(`不支持的文件类型: ${file.name}，可上传图片、音频、视频、PDF、Word 或文本`)
+      continue
+    }
+    if (!checkCapability(fileType)) continue
+    processFileByType(fileType, file)
+  }
+}
+
 // 上下文菜单逻辑抽取到 useContextMenu composable（基于架构优化）
 // 依赖注入：将 handlePaste 作为参数传入，让 composable 内部的"粘贴"操作能复用主组件的文件处理逻辑
 const {
@@ -422,6 +494,55 @@ onUnmounted(() => {
   /* 微信式铺满：不再居中限宽，直接吃满 .input-area 已有的 24px 水平内边距，
    * 左右边缘与上方消息列（同样 24px）保持对齐 */
   width: 100%;
+  position: relative; /* 作为拖拽高亮遮罩（绝对定位）的定位上下文 */
+}
+
+/* 拖拽上传高亮遮罩：文件拖入输入框时浮现的"放下我"提示
+ * pointer-events:none 不拦截拖放事件，事件穿透到下方 .input-wrapper 的 drop 处理 */
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  pointer-events: none;
+  /* 书房风：半透明纸面 + 苔绿虚线描边，悬停感但贴合纸面原理，不做玻璃拟态 */
+  background: color-mix(in srgb, var(--surface-panel) 96%, transparent);
+  border: 1.5px dashed var(--accent-primary);
+  border-radius: var(--border-radius-md);
+  color: var(--accent-primary);
+  text-align: center;
+  animation: drop-overlay-in 0.18s ease;
+}
+
+@keyframes drop-overlay-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.drop-icon {
+  opacity: 0.9;
+}
+
+.drop-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.2px;
+}
+
+.drop-sub {
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .input-footer-reminder {
