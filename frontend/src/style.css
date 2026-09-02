@@ -348,12 +348,13 @@ html.dark .app-layout::after {
 /* --- 代码块：一张代码纸片（浮起层 card） --- */
 .markdown-body pre {
   margin: 1em 0;
-  padding: 14px 16px;
+  padding: 44px 16px 14px; /* 顶部留白：容纳代码头工具条 */
   background: var(--bg-code);
   border: 1px solid var(--border-light);
   border-radius: var(--border-radius-md);
   overflow-x: auto;
   line-height: 1.6;
+  position: relative; /* 作为代码头工具条（绝对定位）的定位上下文 */
 }
 
 .markdown-body pre code {
@@ -363,6 +364,88 @@ html.dark .app-layout::after {
   border: none;
   padding: 0;
   color: var(--code-variable);
+}
+
+/* --- 代码头工具条：语言标签在左、复制按钮在右，固定在代码块右上角 ---
+ * 采用业界成熟的「右上角悬浮」做法：
+ * - .code-header 绝对定位于 pre 顶部，横向滚动代码时按钮不会跟着跑走
+ * - 语言标签常显；复制按钮默认隐藏，悬停代码块/聚焦时才浮现，减少视觉噪音
+ */
+.markdown-body .code-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px 4px 16px;
+  pointer-events: none; /* 默认不拦截点击，仅复制按钮自身放行 */
+}
+
+.markdown-body .code-lang {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.markdown-body .code-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  pointer-events: auto; /* 按钮自身可交互 */
+  font-family: var(--font-body);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--border-radius-sm);
+  padding: 5px 9px;
+  cursor: pointer;
+  opacity: 0; /* 悬停代码块时才浮现 */
+  transition:
+    opacity var(--transition-fast),
+    color var(--transition-fast),
+    background-color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.markdown-body pre:hover .code-copy-btn,
+.markdown-body pre:focus-within .code-copy-btn {
+  opacity: 1;
+}
+
+.markdown-body .code-copy-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--border-color);
+}
+
+/* 复制成功的「完成态」：文字与边框变绿，图标切换为对勾 */
+.markdown-body .code-copy-btn.copied {
+  color: var(--success-color);
+  border-color: var(--success-color);
+}
+
+/* 双态图标：默认显示「复制」，.copied 时切换为「对勾」 */
+.code-copy-btn .cp-icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.code-copy-btn .cp-done-ic,
+.code-copy-btn.copied .cp-copy-ic {
+  display: none;
+}
+.code-copy-btn.copied .cp-done-ic {
+  display: inline-block;
 }
 
 /* --- 表格：账本式三线表（上下粗线 + 表头细线，无竖线） --- */

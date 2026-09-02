@@ -117,10 +117,20 @@ const renderer = new marked.Renderer()
  * <pre class="hljs">
  *   <div class="code-header">
  *     <span class="code-lang">javascript</span>
- *     <button class="code-copy-btn">复制</button>
+ *     <button class="code-copy-btn" type="button">
+ *       <svg class="cp-icon cp-copy-ic">…复制图标…</svg>
+ *       <svg class="cp-icon cp-done-ic">…对勾图标…</svg>
+ *       <span class="cp-label">复制</span>
+ *     </button>
  *   </div>
  *   <code class="hljs language-javascript">...高亮后的代码...</code>
  * </pre>
+ *
+ * 复制按钮采用「复制 / 对勾」双态图标：
+ * - cp-copy-ic：默认显示的「复制」图标
+ * - cp-done-ic：复制成功后显示的「对勾」图标（默认隐藏，由 .copied 切换显示）
+ * - cp-label：按钮文字（codeCopy.ts 会替换其内容为「已复制 / 复制」）
+ * 图标使用 lucide 风格线性图标，stroke=currentColor 以便随按钮文字颜色变化。
  *
  * marked v18 renderer.code 签名：code({ text, lang, escaped }: Tokens.Code)
  * - text: 代码内容（字符串）
@@ -133,7 +143,7 @@ renderer.code = function ({ text, lang }: Tokens.Code): string {
   const highlighted = language ? hljs.highlight(text, { language }).value : escapeHtml(text)
   const langLabel = lang || ''
   const escapedLang = escapeHtml(langLabel)
-  return `<pre class="hljs"><div class="code-header"><span class="code-lang">${escapedLang}</span><button class="code-copy-btn">复制</button></div><code class="hljs language-${escapedLang}">${highlighted}</code></pre>`
+  return `<pre class="hljs"><div class="code-header"><span class="code-lang">${escapedLang}</span><button class="code-copy-btn" type="button" aria-label="复制代码"><svg class="cp-icon cp-copy-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg><svg class="cp-icon cp-done-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><span class="cp-label">复制</span></button></div><code class="hljs language-${escapedLang}">${highlighted}</code></pre>`
 }
 
 /**

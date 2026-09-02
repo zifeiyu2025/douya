@@ -22,14 +22,29 @@ export function setupCodeCopyDelegation(container: HTMLElement): () => void {
     const codeEl = pre?.querySelector('code')
     const code = codeEl?.textContent || ''
     navigator.clipboard.writeText(code).then(() => {
-      btn.textContent = '已复制'
+      // 通过 .copied 类切换「复制→对勾」图标（CSS 控制），
+      // 再更新按钮文字，形成明确的成功反馈
+      btn.classList.add('copied')
+      setCopyLabel(btn, '已复制')
       setTimeout(() => {
-        btn.textContent = '复制'
-      }, 1500)
+        btn.classList.remove('copied')
+        setCopyLabel(btn, '复制')
+      }, 2000)
     })
   }
   container.addEventListener('click', handleClick)
   return () => {
     container.removeEventListener('click', handleClick)
   }
+}
+
+/**
+ * 更新复制按钮文字。
+ * 优先更新按钮内的 .cp-label 元素；当按钮为简化结构（无 .cp-label，如部分测试用例）
+ * 时，回退为整体替换按钮 textContent，保证逻辑一致。
+ */
+function setCopyLabel(btn: HTMLElement, text: string): void {
+  const label = btn.querySelector('.cp-label')
+  if (label) label.textContent = text
+  else btn.textContent = text
 }
