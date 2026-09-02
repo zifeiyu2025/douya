@@ -32,9 +32,12 @@ if (-not (Test-Path $WailsJsonPath)) {
     Write-Host "错误: 找不到 wails.json: $WailsJsonPath" -ForegroundColor Red
     exit 1
 }
-if (-not (Test-Path $AppxManifestPath)) {
-    Write-Host "错误: 找不到 AppxManifest.xml: $AppxManifestPath" -ForegroundColor Red
-    exit 1
+# AppxManifest 位于 build\ 下（该目录被 .gitignore 忽略，本地打包后才生成）。
+# 在 CI 干净环境里它天然不存在——但不影响代码侧发版校验。若缺失仅降级为警告，
+# 不阻断整体校验；只有它存在时才执行严格四段式一致性检查。
+$manifestPresent = Test-Path $AppxManifestPath
+if (-not $manifestPresent) {
+    Write-Host "提示: 未找到 AppxManifest.xml（$AppxManifestPath），跳过商店清单校验。该文件由 make-msix.ps1 打包时从 version.go 自动同步。" -ForegroundColor Yellow
 }
 
 # 从 version.go 用正则提取 Version = "x.y.z"
@@ -67,13 +70,16 @@ if (-not $wailsVersion) {
 }
 
 # 从 AppxManifest.xml 提取 Identity Version = "x.y.z.n"（微软商店 MSIX 清单，四段式）
-$manifestContent = Get-Content -Raw -Path $AppxManifestPath
-$msixMatch = [regex]::Match($manifestContent, '<Identity[^>]*\bVersion\s*=\s*"([^"]+)"')
-if (-not $msixMatch.Success) {
-    Write-Host "错误: 无法从 AppxManifest.xml 提取 Identity Version 属性" -ForegroundColor Red
-    exit 1
+$msixVersion = $null
+if ($manifestPresent) {
+    $manifestContent = Get-Content -Raw -Path $AppxManifestPath
+    $msixMatch = [regex]::Match($manifestContent, '<Identity[^>]*\bVersion\s*=\s*"([^"]+)"')
+    if (-not $msixMatch.Success) {
+        Write-Host "错误: 无法从 AppxManifest.xml 提取 Identity Version 属性" -ForegroundColor Red
+        exit 1
+    }
+    $msixVersion = $msixMatch.Groups[1].Value
 }
-$msixVersion = $msixMatch.Groups[1].Value
 
 # 断言主版本一致：version.go 与 package.json 必须三段式完全相等
 if ($goVersion -ne $npmVersion) {
@@ -86,13 +92,15 @@ if ($goVersion -ne $npmVersion) {
 
 # 校验四段式版本（wails.json 与 AppxManifest.xml）：
 # Windows 文件属性与 MSIX 清单要求四段式 x.y.z.n，前三段必须与主版本一致
-$msixParts = $msixVersion.Split('.')
-if ($msixParts.Count -lt 4 -or ("$($msixParts[0]).$($msixParts[1]).$($msixParts[2])") -ne $goVersion) {
-    Write-Host "错误: 微软商店清单版本与主版本不一致" -ForegroundColor Red
-    Write-Host "  主版本 (version.go 等)            = `"$goVersion`"" -ForegroundColor Red
-    Write-Host "  AppxManifest.xml Identity Version = `"$msixVersion`"" -ForegroundColor Red
-    Write-Host "清单版本必须为四段式 x.y.z.n，且前三位等于主版本；末位 n 为商店递增位（每次上架需递增）。" -ForegroundColor Red
-    exit 1
+if ($manifestPresent) {
+    $msixParts = $msixVersion.Split('.')
+    if ($msixParts.Count -lt 4 -or ("$($msixParts[0]).$($msixParts[1]).$($msixParts[2])") -ne $goVersion) {
+        Write-Host "错误: 微软商店清单版本与主版本不一致" -ForegroundColor Red
+        Write-Host "  主版本 (version.go 等)            = `"$goVersion`"" -ForegroundColor Red
+        Write-Host "  AppxManifest.xml Identity Version = `"$msixVersion`"" -ForegroundColor Red
+        Write-Host "清单版本必须为四段式 x.y.z.n，且前三位等于主版本；末位 n 为商店递增位（每次上架需递增）。" -ForegroundColor Red
+        exit 1
+    }
 }
 $wailsParts = $wailsVersion.Split('.')
 if ($wailsParts.Count -lt 4 -or ("$($wailsParts[0]).$($wailsParts[1]).$($wailsParts[2])") -ne $goVersion) {
@@ -103,7 +111,8 @@ if ($wailsParts.Count -lt 4 -or ("$($wailsParts[0]).$($wailsParts[1]).$($wailsPa
     exit 1
 }
 
-# 一致则输出成功信息
-Write-Host "版本一致: $goVersion（exe 属性/MSIX 清单: $wailsVersion / $msixVersion）" -ForegroundColor Green
+# 一致则输出成功信息（AppxManifest 缺失时 msix 显示"跳过"）
+$msixDisplay = if ($manifestPresent) { $msixVersion } else { "跳过（未打包）" }
+Write-Host "版本一致: $goVersion（exe 属性/MSIX 清单: $wailsVersion / $msixDisplay）" -ForegroundColor Green
 Write-Host "提示: GitHub Release tag 需手动打，请确认 tag 为 v$goVersion 并与上述版本一致。" -ForegroundColor Yellow
 exit 0
