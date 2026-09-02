@@ -148,27 +148,42 @@ jobs:
           Remove-Redundant 'runtime\cpu'
           if (-not (Test-Path 'runtime\cpu\llama-server.exe')) { throw "CPU 基底解压缺少 llama-server.exe" }
 
+          # 6b) 工具：从独立暂存目录解压 zip，再合并进目标目录。
+          # 目的：PowerShell 7 的 Expand-Archive -Force 在目标目录已存在时会报
+          # "New-Item: An item ... already exists"（PS 5.1 才肯合并）。因此一律
+          # 先解压到全新暂存目录（解压必然新建成功），再复制内容合入，最后删暂存。
+          function Merge-Zip([string]$zip, [string]$dest) {
+            $staging = Join-Path $(Join-Path $PWD 'runtime') ("staging_" + [IO.Path]::GetFileNameWithoutExtension($zip))
+            if (Test-Path $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }
+            Expand-Archive -Path $zip -DestinationPath $staging
+            Flatten-Dir $staging
+            Remove-Redundant $staging
+            New-Item -ItemType Directory -Path $dest -Force | Out-Null
+            Copy-Item -Path (Join-Path $staging '*') -Destination $dest -Recurse -Force
+            Remove-Item -LiteralPath $staging -Recurse -Force
+          }
+
           # 7) 构建 cuda：CPU 基底 + cuda 模块化 DLL + cudart 运行库
+          New-Item -ItemType Directory -Path 'runtime\cuda' -Force | Out-Null
           Copy-Item -Path 'runtime\cpu\*' -Destination 'runtime\cuda' -Recurse -Force
           $down = New-TempZip 'cuda.zip'
           Write-Host "下载 $cudaZip ..." -ForegroundColor Yellow
           Invoke-WebRequest -Uri $assets[$cudaZip] -OutFile $down -TimeoutSec 300
-          Expand-Archive -Path $down -DestinationPath 'runtime\cuda' -Force
-          Flatten-Dir 'runtime\cuda'; Remove-Redundant 'runtime\cuda'
+          Merge-Zip $down 'runtime\cuda'
           $down = New-TempZip 'cudart.zip'
           Write-Host "下载 $cudartZip ..." -ForegroundColor Yellow
           Invoke-WebRequest -Uri $assets[$cudartZip] -OutFile $down -TimeoutSec 300
-          Expand-Archive -Path $down -DestinationPath 'runtime\cuda' -Force
+          Merge-Zip $down 'runtime\cuda'
           if (-not (Test-Path 'runtime\cuda\ggml-cuda.dll')) { throw "cuda 缺少 ggml-cuda.dll" }
           if (-not (Get-ChildItem 'runtime\cuda' -Filter 'cudart64_*.dll')) { throw "cuda 缺少 cudart64_*.dll" }
 
           # 8) 构建 vulkan：CPU 基底 + vulkan 模块化 DLL
+          New-Item -ItemType Directory -Path 'runtime\vulkan' -Force | Out-Null
           Copy-Item -Path 'runtime\cpu\*' -Destination 'runtime\vulkan' -Recurse -Force
           $down = New-TempZip 'vulkan.zip'
           Write-Host "下载 $vulkanZip ..." -ForegroundColor Yellow
           Invoke-WebRequest -Uri $assets[$vulkanZip] -OutFile $down -TimeoutSec 300
-          Expand-Archive -Path $down -DestinationPath 'runtime\vulkan' -Force
-          Flatten-Dir 'runtime\vulkan'; Remove-Redundant 'runtime\vulkan'
+          Merge-Zip $down 'runtime\vulkan'
           if (-not (Test-Path 'runtime\vulkan\ggml-vulkan.dll')) { throw "vulkan 缺少 ggml-vulkan.dll" }
 
           # 9) 汇总校验：三套引擎完整
