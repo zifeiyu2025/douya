@@ -1,4 +1,4 @@
-﻿﻿# 引擎组装 + 部署脚本（本地自编译三套引擎：cpu/cuda/vulkan）
+﻿# 引擎组装 + 部署脚本（本地自编译三套引擎：cpu/cuda/vulkan）
 # 1. 组装 staging：cpu 产物为基底，cuda/vulkan 各自叠加后端 DLL 与厂商运行库
 # 2. 调用 scripts\deploy-runtime.ps1 逐套部署（事实源 runtime\<b> + dev 镜像 build\runtime\<b>）
 # 3. 同步到 build\bin\runtime（与 build.ps1 [4/4] 相同逻辑）
