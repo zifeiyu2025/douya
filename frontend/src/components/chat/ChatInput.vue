@@ -172,6 +172,13 @@ import TokenCounter from './TokenCounter.vue'
 import ChatToolbar from './ChatToolbar.vue'
 import AttachmentPreview from './AttachmentPreview.vue'
 import { useAttachments } from '../../composables/useAttachments'
+import {
+  checkUploadCapability,
+  IMAGE_ACCEPT,
+  AUDIO_ACCEPT,
+  TEXT_ACCEPT,
+  VIDEO_ACCEPT
+} from '../../utils/attachments'
 // 语音输入与上下文菜单逻辑抽取为 composable（基于架构优化：ChatInput.vue 1789 行→拆分独立职责）
 // STT（语音输入）基于浏览器 Web Speech API 实现
 import { useVoiceInput } from '../../composables/useSpeech'
@@ -280,7 +287,11 @@ function handlePaste(e: ClipboardEvent) {
       message.warning(`不支持的文件类型: ${file.name}`)
       continue
     }
-    if (!checkCapability(fileType)) continue
+    const warn = checkUploadCapability(fileType, capabilities.value)
+    if (warn) {
+      message.warning(warn)
+      continue
+    }
     processFileByType(fileType, file)
   }
 }
@@ -326,7 +337,11 @@ function onDrop(e: DragEvent) {
       message.warning(`不支持的文件类型: ${file.name}，可上传图片、音频、视频、PDF、Word 或文本`)
       continue
     }
-    if (!checkCapability(fileType)) continue
+    const warn = checkUploadCapability(fileType, capabilities.value)
+    if (warn) {
+      message.warning(warn)
+      continue
+    }
     processFileByType(fileType, file)
   }
 }
@@ -385,40 +400,9 @@ function detectFileType(file: File): string | null {
   return null
 }
 
-function checkCapability(type: string): boolean {
-  if (
-    (type === 'image' || type === 'audio' || type === 'video') &&
-    !capabilities.value.mmproj_loaded
-  ) {
-    message.warning('多模态投影未加载，无法处理此类型文件')
-    return false
-  }
-  if (type === 'image' && !capabilities.value.image_input) {
-    message.warning('当前模型不支持图片输入')
-    return false
-  }
-  if (type === 'audio' && !capabilities.value.audio_input) {
-    message.warning('当前模型不支持音频输入')
-    return false
-  }
-  if (type === 'video' && !capabilities.value.video_input) {
-    message.warning('当前模型不支持视频输入')
-    return false
-  }
-  if ((type === 'text' || type === 'pdf' || type === 'docx') && !capabilities.value.text_input) {
-    message.warning('当前模型不支持文本文件输入')
-    return false
-  }
-  return true
-}
+// checkCapability 抽取到 utils/attachments（与 ChatToolbar 共用），调用点改为 checkUploadCapability
 
 // processFileByType 已抽取到 useAttachments composable
-
-const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.gif,.webp,.bmp,.svg,.heic,.heif'
-const AUDIO_ACCEPT = '.wav,.mp3,.ogg,.flac,.aac,.m4a,.wma'
-const TEXT_ACCEPT =
-  '.txt,.md,.csv,.json,.xml,.html,.htm,.css,.js,.jsx,.ts,.tsx,.vue,.svelte,.py,.go,.java,.c,.cpp,.h,.hpp,.rs,.sh,.bat,.yaml,.yml,.toml,.ini,.cfg,.log,.sql,.adoc,.tex,.bib,.cs,.kt,.swift,.dart,.r,.scala,.hs,.cu,.cuh,.comp,.properties'
-const VIDEO_ACCEPT = '.mp4,.webm,.avi,.mov,.mkv,.wmv,.flv'
 
 // MAX_*_SIZE 常量 / checkFileSize / readFileWithErrorHandling
 // 已抽取到 useAttachments composable

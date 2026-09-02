@@ -810,9 +810,3 @@ export interface BackendStatus {
   /** 所有可选后端列表（含 auto），供下拉框展示 */
   available_backends: string[]
 }
-
-/** 显卡后端切换事件（backend:switched 事件载荷） */
-export interface BackendSwitchedEvent {
-  /** 切换后的后端状态（与 BackendStatus 结构相同） */
-  status: BackendStatus
-}

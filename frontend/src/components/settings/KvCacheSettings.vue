@@ -41,7 +41,7 @@
           </template>
           <n-select
             v-model:value="formConfig.cache_type_k"
-            :options="cacheTypeKOptions"
+            :options="cacheTypeOptions"
             placeholder="自动（q8_0）"
             clearable
           />
@@ -57,7 +57,7 @@
           </template>
           <n-select
             v-model:value="formConfig.cache_type_v"
-            :options="cacheTypeVOptions"
+            :options="cacheTypeOptions"
             placeholder="自动（q4_0）"
             clearable
           />
@@ -384,7 +384,7 @@ const ctx = inject<SettingsContext>(SETTINGS_CONTEXT_KEY)!
 // 域切片：KV 缓存类型选项归入 performance 域
 const { core, performance } = ctx
 const { formConfig, autoSave } = core
-const { cacheTypeKOptions, cacheTypeVOptions } = performance
+const { cacheTypeOptions } = performance
 
 // 折叠状态：默认收起，避免一进设置页就看到一大片专家参数
 const expanded = ref(false)
@@ -397,51 +397,3 @@ const splitModeOptions = [
   { label: '禁用多卡 none', value: 'none' }
 ]
 </script>
-
-<style scoped>
-/* 高级设置折叠区域 */
-.advanced-section {
-  margin-top: 16px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--border-radius-lg);
-  overflow: hidden;
-}
-
-.advanced-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  background: var(--bg-secondary);
-  cursor: pointer;
-  user-select: none;
-  transition: background 0.2s;
-}
-
-.advanced-header:hover {
-  background: var(--bg-hover);
-}
-
-.advanced-icon {
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.advanced-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  flex: 1;
-}
-
-.advanced-toggle {
-  font-size: 16px;
-  color: var(--text-muted);
-  transition: transform 0.2s;
-}
-
-.advanced-content {
-  padding: 12px 16px;
-  background: var(--bg-tertiary);
-}
-</style>

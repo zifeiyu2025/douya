@@ -560,19 +560,7 @@ func (s *Service) saveToolCallFinalMessage(convID string, acc *StreamAccumulator
 	// 覆盖工具调用场景，避免校准只在普通回复路径更新
 	s.recordCalibration(acc, llmMessages)
 
-	aiMsg := &store.Message{
-		ConversationID:   convID,
-		Role:             "assistant",
-		Content:          acc.FullContent.String(),
-		ThinkingContent:  acc.FullThinking.String(),
-		ThinkingDuration: clampDuration(acc.ThinkingDuration),
-	}
-	if aiMsg.ThinkingContent != "" && aiMsg.ThinkingDuration == 0 && acc.FirstRoundThinkingDuration > 0 {
-		aiMsg.ThinkingDuration = clampDuration(acc.FirstRoundThinkingDuration)
-	}
-	if acc.LastSearchJSON != "" {
-		aiMsg.SearchResults = acc.LastSearchJSON
-	}
+	aiMsg := newAssistantMessage(convID, acc)
 	if acc.FinishReason == "tool_calls" && state.hitMaxRounds {
 		aiMsg.Content += "\n\n[工具调用已达最大轮次限制，部分搜索结果可能未完全处理]"
 	}

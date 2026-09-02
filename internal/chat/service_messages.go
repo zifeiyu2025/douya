@@ -755,6 +755,9 @@ func buildVisionOrTextMessage(role, content, imagesJSON string, imageInputSuppor
 		var imageUrls []string
 		if err := json.Unmarshal([]byte(imagesJSON), &imageUrls); err == nil && len(imageUrls) > 0 {
 			return llm.NewVisionMessage(role, content, imageUrls)
+		} else if err != nil {
+			// 旧格式 Images 字段脏数据：静默降级会让多模态上下文"凭空消失"，留痕便于排查
+			log.Warn().Err(err).Str("role", role).Msg("[chat] 历史消息图片列表反序列化失败，该轮上下文降级为纯文本")
 		}
 	}
 	return llm.NewTextMessage(role, content)

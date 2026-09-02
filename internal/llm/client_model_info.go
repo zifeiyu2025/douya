@@ -10,7 +10,6 @@ import (
 	"net/url"
 
 	"douya/internal/apperror"
-	"douya/internal/httputil"
 
 	"github.com/rs/zerolog/log"
 )
@@ -123,23 +122,7 @@ func (c *Client) tryDirectModelEndpoint(ctx context.Context, modelName string) (
 // fetchModelInfoFromList 通过 /v1/models 列表端点获取模型信息。
 // 当 modelName 非空时，在列表中查找指定模型；为空时返回第一个模型。
 func (c *Client) fetchModelInfoFromList(ctx context.Context, modelName string) (*ModelInfo, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/models", http.NoBody)
-	if err != nil {
-		return nil, err
-	}
-	c.setAuthHeader(httpReq)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, httputil.ReadErrorBody(resp, "models endpoint returned")
-	}
-
-	body, err := readBody(resp.Body)
+	body, err := c.fetchModelsListRaw(ctx)
 	if err != nil {
 		return nil, err
 	}

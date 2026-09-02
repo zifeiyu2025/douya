@@ -549,44 +549,7 @@ const reasoningEffortOptions = [
   width: 100%;
 }
 
-/* 高级采样折叠 */
-.advanced-section {
-  margin-top: 16px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--border-radius-lg);
-  overflow: hidden;
-}
-.advanced-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  background: var(--bg-secondary);
-  cursor: pointer;
-  user-select: none;
-  transition: background 0.2s;
-}
-.advanced-header:hover {
-  background: var(--bg-hover);
-}
-.advanced-icon {
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-.advanced-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  flex: 1;
-}
-.advanced-toggle {
-  font-size: 16px;
-  color: var(--text-muted);
-}
-.advanced-content {
-  padding: 12px 16px;
-  background: var(--bg-tertiary);
-}
+/* 折叠卡基础样式（.advanced-section 家族）全局化至 style.css 书房公共母题区 */
 
 .rounded-textarea {
   border-radius: var(--border-radius-md);

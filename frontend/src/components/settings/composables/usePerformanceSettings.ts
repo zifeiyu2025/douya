@@ -21,7 +21,8 @@ export function usePerformanceSettings(core: SettingsCore) {
     formConfig.value.context_size = contextSizeSteps[idx]
   })
 
-  const cacheTypeKOptions = computed(() => {
+  // KV cache 类型选项：K/V 共用同一份可选值（GPU 可用时多出 bf16 / iq4_nl）
+  const cacheTypeOptions = computed(() => {
     const hasGPU = hasGPUInfo.value
     const baseOptions = [
       { label: '自动', value: '' },
@@ -35,25 +36,6 @@ export function usePerformanceSettings(core: SettingsCore) {
     ]
     if (hasGPU) {
       // GPU 模式：在 f16 后插入 bf16，在 q4_0 后追加 iq4_nl
-      baseOptions.splice(3, 0, { label: 'bf16 (16bit)', value: 'bf16' })
-      baseOptions.push({ label: 'iq4_nl (4bit)', value: 'iq4_nl' })
-    }
-    return baseOptions
-  })
-
-  const cacheTypeVOptions = computed(() => {
-    const hasGPU = hasGPUInfo.value
-    const baseOptions = [
-      { label: '自动', value: '' },
-      { label: 'f32 (32bit)', value: 'f32' },
-      { label: 'f16 (16bit)', value: 'f16' },
-      { label: 'q8_0 (8bit)', value: 'q8_0' },
-      { label: 'q5_1 (5bit)', value: 'q5_1' },
-      { label: 'q5_0 (5bit)', value: 'q5_0' },
-      { label: 'q4_1 (4bit)', value: 'q4_1' },
-      { label: 'q4_0 (4bit)', value: 'q4_0' }
-    ]
-    if (hasGPU) {
       baseOptions.splice(3, 0, { label: 'bf16 (16bit)', value: 'bf16' })
       baseOptions.push({ label: 'iq4_nl (4bit)', value: 'iq4_nl' })
     }
@@ -118,8 +100,7 @@ export function usePerformanceSettings(core: SettingsCore) {
   return {
     hasGPUInfo,
     contextSizeIndex,
-    cacheTypeKOptions,
-    cacheTypeVOptions,
+    cacheTypeOptions,
     specTypeOptions,
     init
   }

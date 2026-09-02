@@ -105,50 +105,8 @@ defineProps<{
 </script>
 
 <style scoped>
-/* 基础 overlay 样式（与 ExitOverlay 共用，scoped 各自定义一份） */
-.switch-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  /* 实色背景：主题对齐 */
-  background: var(--bg-primary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  pointer-events: auto;
-  /* 径向渐变营造氛围 */
-  background-image: radial-gradient(
-    circle at 50% 50%,
-    color-mix(in srgb, var(--accent-primary) 4%, transparent) 0%,
-    transparent 70%
-  );
-}
-
-.switch-overlay-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-  position: relative;
-  z-index: 1;
-}
-
-.switch-model-name {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-primary);
-  text-align: center;
-  max-width: 320px;
-  word-break: break-word;
-}
-
-.switch-progress-msg {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
+/* 遮罩基础层（.switch-overlay 家族）全局化至 style.css；
+ * 切换动效（旋转装饰 / 进度环 / 阶段指示器）为 ModelSwitchOverlay 独有，保留在此 */
 
 /* ===== SVG 装饰层（切换动效）===== */
 .switch-deco {

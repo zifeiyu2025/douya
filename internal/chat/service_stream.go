@@ -543,21 +543,15 @@ func (s *Service) mayProduceThinking(reasoning string) bool {
 	return false
 }
 
-// savePartialContentIfAny 在用户停止生成时，若有已生成内容则保存为 assistant 消息。
-//
-// 生活类比：就像录音机中途被按下停止键，已经录到的声音仍然要保存下来。
-// 如果还没录到任何内容（空内容），就不保存，避免产生空录音。
-func (s *Service) savePartialContentIfAny(convID string, acc *StreamAccumulator) {
-	content := acc.FullContent.String()
-	thinkingContent := acc.FullThinking.String()
-	if content == "" && thinkingContent == "" {
-		return
-	}
+// newAssistantMessage 从流式累加器构造 assistant 消息。
+// 三条落库路径（正常结束 / 用户中途停止 / tool call 循环结束）共享同一份构造规则：
+// 思考时长兜底用首轮时长，搜索结果附带最近一次 JSON。
+func newAssistantMessage(convID string, acc *StreamAccumulator) *store.Message {
 	aiMsg := &store.Message{
 		ConversationID:   convID,
 		Role:             "assistant",
-		Content:          content,
-		ThinkingContent:  thinkingContent,
+		Content:          acc.FullContent.String(),
+		ThinkingContent:  acc.FullThinking.String(),
 		ThinkingDuration: clampDuration(acc.ThinkingDuration),
 	}
 	if aiMsg.ThinkingContent != "" && aiMsg.ThinkingDuration == 0 && acc.FirstRoundThinkingDuration > 0 {
@@ -566,6 +560,18 @@ func (s *Service) savePartialContentIfAny(convID string, acc *StreamAccumulator)
 	if acc.LastSearchJSON != "" {
 		aiMsg.SearchResults = acc.LastSearchJSON
 	}
+	return aiMsg
+}
+
+// savePartialContentIfAny 在用户停止生成时，若有已生成内容则保存为 assistant 消息。
+//
+// 生活类比：就像录音机中途被按下停止键，已经录到的声音仍然要保存下来。
+// 如果还没录到任何内容（空内容），就不保存，避免产生空录音。
+func (s *Service) savePartialContentIfAny(convID string, acc *StreamAccumulator) {
+	if acc.FullContent.Len() == 0 && acc.FullThinking.Len() == 0 {
+		return
+	}
+	aiMsg := newAssistantMessage(convID, acc)
 	if err := store.CreateMessage(s.db, aiMsg, secrets.CipherKey(s.cipher)); err != nil {
 		// M6 修复：保存失败时不发 assistant_message（否则刷新后消息消失），改为发 error 事件。
 		log.Error().Err(err).Msg("save partial ai message on stop")

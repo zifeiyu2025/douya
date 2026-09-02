@@ -131,6 +131,9 @@ html.dark a {
   height: 100%;
   background: var(--bg-primary);
   isolation: isolate;
+  /* 裁掉壁纸层四周 48px 出血：出血只服务视口内模糊采样，
+   * 不裁会撑出 1328px 文档宽，程序化滚动后左侧 logo/侧栏被推出视口 */
+  overflow: clip;
 }
 
 .app-layout::before {
@@ -217,6 +220,100 @@ html.dark .app-layout::after {
 
 .seal-dot.is-moss {
   background: var(--accent-primary);
+}
+
+/* 高级设置折叠卡：三处设置组件（KV 缓存/推测解码/AI 采样）共用的折叠区块。
+ * 原 scoped 样式逐份复制，一处声明、处处统一。 */
+.advanced-section {
+  margin-top: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-lg);
+  overflow: hidden;
+}
+
+.advanced-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s;
+}
+
+.advanced-header:hover {
+  background: var(--bg-hover);
+}
+
+.advanced-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.advanced-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.advanced-toggle {
+  font-size: 16px;
+  color: var(--text-muted);
+  transition: transform 0.2s;
+}
+
+.advanced-content {
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+}
+
+/* 全屏遮罩（模型切换 / 应用退出共用）：实色纸底 + 主色径向氛围光。
+ * ExitOverlay 与 ModelSwitchOverlay 原 scoped 各抄一份，现一处声明；
+ * 各自的动效层仍留在组件 scoped 内。 */
+.switch-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* 实色背景：主题对齐 */
+  background: var(--bg-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  pointer-events: auto;
+  /* 径向渐变营造氛围 */
+  background-image: radial-gradient(
+    circle at 50% 50%,
+    color-mix(in srgb, var(--accent-primary) 4%, transparent) 0%,
+    transparent 70%
+  );
+}
+
+.switch-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  position: relative;
+  z-index: 1;
+}
+
+.switch-model-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: center;
+  max-width: 320px;
+  word-break: break-word;
+}
+
+.switch-progress-msg {
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 /* ===== 4. .markdown-body —— AI 回复直排纸面的正文排版 ===== */

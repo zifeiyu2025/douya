@@ -941,7 +941,10 @@ func (c *Client) UnloadModel(ctx context.Context, modelName string) error {
 	return err
 }
 
-func (c *Client) GetModelsList(ctx context.Context) ([]ListedModel, error) {
+// fetchModelsListRaw 请求 /v1/models 并返回原始响应体。
+// GetModelsList / GetModelStatus / fetchModelInfoFromList 三个消费方共享同一份
+// 请求脚手架（鉴权头、非 200 错误读取），各自只负责自己的响应结构解析。
+func (c *Client) fetchModelsListRaw(ctx context.Context) ([]byte, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/models", http.NoBody)
 	if err != nil {
 		return nil, err
@@ -958,7 +961,11 @@ func (c *Client) GetModelsList(ctx context.Context) ([]ListedModel, error) {
 		return nil, httputil.ReadErrorBody(resp, "models endpoint returned")
 	}
 
-	body, err := readBody(resp.Body)
+	return readBody(resp.Body)
+}
+
+func (c *Client) GetModelsList(ctx context.Context) ([]ListedModel, error) {
+	body, err := c.fetchModelsListRaw(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1207,23 +1214,7 @@ type ModelStatus struct {
 }
 
 func (c *Client) GetModelStatus(ctx context.Context, modelName string) (*ModelStatus, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/models", http.NoBody)
-	if err != nil {
-		return nil, err
-	}
-	c.setAuthHeader(httpReq)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, httputil.ReadErrorBody(resp, "models endpoint returned")
-	}
-
-	body, err := readBody(resp.Body)
+	body, err := c.fetchModelsListRaw(ctx)
 	if err != nil {
 		return nil, err
 	}

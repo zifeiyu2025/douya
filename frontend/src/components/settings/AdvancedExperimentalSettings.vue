@@ -105,7 +105,9 @@
           @blur="autoSave"
         />
         <div class="field-hint">
-          <span class="hint-item">使用前提：本机已安装 Docker / Podman，或已配置可访问的 SSH 目标主机</span>
+          <span class="hint-item">
+            使用前提：本机已安装 Docker / Podman，或已配置可访问的 SSH 目标主机
+          </span>
           <span class="hint-item">
             示例：docker:ubuntu:22.04（容器内执行）、docker-container:&lt;ID&gt;（复用已有容器）、ssh:user@host（远程主机执行）
           </span>

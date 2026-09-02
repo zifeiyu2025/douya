@@ -175,8 +175,9 @@ func releaseHasBinaryAsset(release *GitHubRelease) bool {
 	return false
 }
 
-// fetchRelease 查询单个 release API 并解析为 GitHubRelease。
-func fetchRelease(apiURL string) (*GitHubRelease, error) {
+// fetchGitHubAPI 请求 GitHub API 并返回原始响应体。
+// fetchRelease / fetchReleaseList 共享同一份脚手架（UA/Accept 头、状态码校验、错误包装）。
+func fetchGitHubAPI(apiURL string) ([]byte, error) {
 	req, err := http.NewRequest("GET", apiURL, http.NoBody)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.KindUnavailable, "创建 GitHub API 请求失败", err)
@@ -197,6 +198,15 @@ func fetchRelease(apiURL string) (*GitHubRelease, error) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, apperror.Wrap(apperror.KindUnavailable, "读取 GitHub API 响应失败", err)
+	}
+	return body, nil
+}
+
+// fetchRelease 查询单个 release API 并解析为 GitHubRelease。
+func fetchRelease(apiURL string) (*GitHubRelease, error) {
+	body, err := fetchGitHubAPI(apiURL)
+	if err != nil {
+		return nil, err
 	}
 
 	var release GitHubRelease
@@ -210,26 +220,9 @@ func fetchRelease(apiURL string) (*GitHubRelease, error) {
 // fetchReleaseList 查询 GitHub releases 列表 API（返回结果从新到旧）。
 // 用于 releases/latest 是稳定版指针时，从列表中查找最新的含二进制资产的 nightly release。
 func fetchReleaseList(apiURL string) ([]GitHubRelease, error) {
-	req, err := http.NewRequest("GET", apiURL, http.NoBody)
+	body, err := fetchGitHubAPI(apiURL)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.KindUnavailable, "创建 GitHub API 请求失败", err)
-	}
-	req.Header.Set("User-Agent", githubUA)
-	req.Header.Set("Accept", "application/vnd.github+json")
-
-	resp, err := githubHTTPClient.Do(req)
-	if err != nil {
-		return nil, apperror.Wrap(apperror.KindUnavailable, "请求 GitHub API 失败", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, apperror.Newf(apperror.KindUnavailable, "GitHub API 返回非 200 状态码: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, apperror.Wrap(apperror.KindUnavailable, "读取 GitHub API 响应失败", err)
+		return nil, err
 	}
 
 	var list []GitHubRelease

@@ -212,6 +212,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { NIcon, useMessage } from 'naive-ui'
 import { GlobeOutline, AttachOutline, LayersOutline, OptionsOutline } from '@vicons/ionicons5'
 import BrainIcon from '../ui/BrainIcon.vue'
+import { checkUploadCapability, getAcceptForType } from '../../utils/attachments'
 import { useSettingsStore } from '../../stores/settings'
 import { wails } from '../../services/wails'
 import { openParamsPanel } from '../../composables/useSamplingSettings'
@@ -341,60 +342,6 @@ const showAttachMenu = ref(false)
 const pendingUploadType = ref<string>('image')
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
-const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.gif,.webp,.bmp,.svg,.heic,.heif'
-const AUDIO_ACCEPT = '.wav,.mp3,.ogg,.flac,.aac,.m4a,.wma'
-const TEXT_ACCEPT =
-  '.txt,.md,.csv,.json,.xml,.html,.htm,.css,.js,.jsx,.ts,.tsx,.vue,.svelte,.py,.go,.java,.c,.cpp,.h,.hpp,.rs,.sh,.bat,.yaml,.yml,.toml,.ini,.cfg,.log,.sql,.adoc,.tex,.bib,.cs,.kt,.swift,.dart,.r,.scala,.hs,.cu,.cuh,.comp,.properties'
-const PDF_ACCEPT = '.pdf'
-const DOCX_ACCEPT = '.docx'
-const VIDEO_ACCEPT = '.mp4,.webm,.avi,.mov,.mkv,.wmv,.flv'
-
-function checkCapability(type: string): boolean {
-  if (
-    (type === 'image' || type === 'audio' || type === 'video') &&
-    !capabilities.value.mmproj_loaded
-  ) {
-    message.warning('多模态投影未加载，无法处理此类型文件')
-    return false
-  }
-  if (type === 'image' && !capabilities.value.image_input) {
-    message.warning('当前模型不支持图片输入')
-    return false
-  }
-  if (type === 'audio' && !capabilities.value.audio_input) {
-    message.warning('当前模型不支持音频输入')
-    return false
-  }
-  if (type === 'video' && !capabilities.value.video_input) {
-    message.warning('当前模型不支持视频输入')
-    return false
-  }
-  if ((type === 'text' || type === 'pdf' || type === 'docx') && !capabilities.value.text_input) {
-    message.warning('当前模型不支持文本文件输入')
-    return false
-  }
-  return true
-}
-
-function getAcceptForType(type: string): string {
-  switch (type) {
-    case 'image':
-      return IMAGE_ACCEPT
-    case 'audio':
-      return AUDIO_ACCEPT
-    case 'text':
-      return TEXT_ACCEPT
-    case 'pdf':
-      return PDF_ACCEPT
-    case 'docx':
-      return DOCX_ACCEPT
-    case 'video':
-      return VIDEO_ACCEPT
-    default:
-      return ''
-  }
-}
-
 function toggleAttachMenu() {
   showAttachMenu.value = !showAttachMenu.value
 }
@@ -404,7 +351,11 @@ function closeAttachMenu() {
 }
 
 function triggerFileUpload(type: string) {
-  if (!checkCapability(type)) return
+  const warn = checkUploadCapability(type, capabilities.value)
+  if (warn) {
+    message.warning(warn)
+    return
+  }
 
   pendingUploadType.value = type
   if (fileInputRef.value) {

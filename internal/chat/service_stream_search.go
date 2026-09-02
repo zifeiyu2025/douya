@@ -288,19 +288,7 @@ func (s *Service) finalizeStreamResult(cancelCtx context.Context, convID string,
 		return nil
 	}
 
-	aiMsg := &store.Message{
-		ConversationID:   convID,
-		Role:             "assistant",
-		Content:          content,
-		ThinkingContent:  thinkingContent,
-		ThinkingDuration: clampDuration(acc.ThinkingDuration),
-	}
-	if aiMsg.ThinkingContent != "" && aiMsg.ThinkingDuration == 0 && acc.FirstRoundThinkingDuration > 0 {
-		aiMsg.ThinkingDuration = clampDuration(acc.FirstRoundThinkingDuration)
-	}
-	if acc.LastSearchJSON != "" {
-		aiMsg.SearchResults = acc.LastSearchJSON
-	}
+	aiMsg := newAssistantMessage(convID, acc)
 	if err := store.CreateMessage(s.db, aiMsg, secrets.CipherKey(s.cipher)); err != nil {
 		// M6 修复：保存失败时不发送 assistant_message，否则 UI 显示的消息在刷新后消失。
 		// 改为发送 error 事件，让前端知道该条回复未持久化。
