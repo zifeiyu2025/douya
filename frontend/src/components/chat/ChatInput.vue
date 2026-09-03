@@ -183,6 +183,8 @@ import {
 // STT（语音输入）基于浏览器 Web Speech API 实现
 import { useVoiceInput } from '../../composables/useSpeech'
 import { useContextMenu } from '../../composables/useContextMenu'
+import { isEmbeddingModelName } from '../../utils/model'
+import { discreteDialog } from '../../utils/discrete'
 
 const emit = defineEmits<{
   send: [content: string, images?: string[], attachments?: Attachment[]]
@@ -211,6 +213,15 @@ const {
 
 const capabilities = computed(() => settingsStore.modelCapabilities)
 const isSwitching = computed(() => settingsStore.isModelSwitching)
+
+// isEmbeddingOnly：当前模型是否为嵌入模型（只能做向量化/检索、不能聊天）。
+// 两层信号，取其一即命中：
+//   1. 后端权威信号 text_generation === false（llama-server 报告仅嵌入能力）
+//   2. 模型名兜底匹配（isEmbeddingModelName），防止后端信号缺失时误选
+const isEmbeddingOnly = computed(() => {
+  if (capabilities.value.text_generation === false) return true
+  return isEmbeddingModelName(settingsStore.currentModel)
+})
 // chatUnavailable：主界面进入对话的前提条件不满足时禁用输入框——
 //   1. 模型目录为空（missingModels）：没有模型可加载，引导用户先去设置下载
 //   2. 正在加载/切换模型（isSwitching）：模型未就绪，不可对话
@@ -234,6 +245,7 @@ const inputPlaceholder = computed(() => {
   if (s.error) return '引擎异常，请查看顶部状态提示'
   if (!s.running) return '引擎启动中，请稍候…'
   if (!s.model_ready) return '模型加载中，请稍候…'
+  if (isEmbeddingOnly.value) return '当前为嵌入模型，仅支持检索，请切换对话模型'
   return '向豆芽提问……'
 })
 
@@ -422,12 +434,29 @@ function onFileSelect(type: string, file: File) {
   processFileByType(type, file)
 }
 
+// showEmbeddingModelWarning：点击发送时若当前是嵌入模型，弹出明确提示并阻止发送，
+// 引导用户切换到对话模型，避免再出现"logits"这类无法生成回复的报错。
+function showEmbeddingModelWarning() {
+  const modelName = settingsStore.currentModel || '当前模型'
+  discreteDialog.warning({
+    title: '当前模型不能聊天',
+    content: `「${modelName}」是嵌入模型，只能做文本向量化/检索（如知识库问答），无法进行对话回复。\n\n请点击左上角模型名称，切换到对话类模型后再发送消息。`,
+    positiveText: '知道了',
+    style: { whiteSpace: 'pre-wrap' }
+  })
+}
+
 function handleSend() {
   const text = inputText.value.trim()
   if (!text && attachments.value.length === 0) return
   if (chatStore.isAnyGenerating) return
   if (isSwitching.value) return
   if (chatUnavailable.value) return
+  // 嵌入模型不能聊天：拦截发送并给出引导提示
+  if (isEmbeddingOnly.value) {
+    showEmbeddingModelWarning()
+    return
+  }
 
   if (isListening.value) {
     stopListening()

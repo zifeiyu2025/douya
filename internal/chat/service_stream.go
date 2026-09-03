@@ -787,6 +787,10 @@ func (s *Service) SendMessage(ctx context.Context, params SendMessageParams) err
 		Int("attachments", len(params.Attachments)).
 		Int("images", len(params.Images)).
 		Msg("[chat] SendMessage 入口")
+	// 嵌入模型不能聊天：后端权威拦截，任何客户端入口都无法绕过
+	if !s.IsTextGenerationAvailable() {
+		return apperror.New(apperror.KindInvalidInput, s.embeddingBlockedMessage("发送"))
+	}
 	// C-7 修复：用 beginGeneration 统一锁/取消逻辑，消除与 RegenerateMessage 的重复代码
 	cancelCtx, cleanup := s.beginGeneration(ctx, params.ConversationID)
 	defer cleanup()

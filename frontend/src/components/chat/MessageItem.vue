@@ -49,6 +49,7 @@
         @copy="copyContent"
         @speak="toggleSpeak"
         @regenerate="regenerate"
+        @report="reportProblem"
         @delete="deleteMsg"
         @edit="startEdit"
       />
@@ -65,6 +66,7 @@ import { setupCodeCopyDelegation } from '../../utils/codeCopy'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
 import { useTTS } from '../../composables/useTTS'
+import { useReportProblem } from '../../composables/useReportProblem'
 import { wails } from '../../services/wails'
 import type { Message } from '../../services/wails'
 import AppIcon from '../ui/AppIcon.vue'
@@ -77,6 +79,8 @@ const settingsStore = useSettingsStore()
 const messageApi = useMessage()
 // TTS 播音员调度台（全局单例，所有消息共用）
 const tts = useTTS()
+// 举报弹窗调度台（全局单例，ChatView 挂载的 ReportDialog 渲染）
+const report = useReportProblem()
 
 const isUser = computed(() => props.message.role === 'user')
 
@@ -364,6 +368,11 @@ onUnmounted(() => {
 
 async function deleteMsg() {
   await chatStore.deleteMessage(props.message.id)
+}
+
+// 报告问题：打开全局举报弹窗，带上本条 AI 内容（商店政策 11.16 合规）
+function reportProblem() {
+  report.openReport(props.message.content)
 }
 
 function regenerate() {

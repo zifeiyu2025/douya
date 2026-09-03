@@ -64,6 +64,7 @@ export const useSettingsStore = defineStore('settings', () => {
     audio_input: false,
     video_input: false,
     text_input: true,
+    text_generation: true,
     reasoning: false,
     mmproj_loaded: false,
     has_mtp: false,

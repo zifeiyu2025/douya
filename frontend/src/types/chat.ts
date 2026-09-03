@@ -250,6 +250,7 @@ export interface ModelCapabilities {
   audio_input: boolean
   video_input: boolean
   text_input: boolean
+  text_generation: boolean
   reasoning: boolean
   mmproj_loaded: boolean
   has_mtp: boolean

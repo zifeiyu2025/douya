@@ -857,6 +857,7 @@ export namespace llm {
 	    audio_input: boolean;
 	    video_input: boolean;
 	    text_input: boolean;
+	    text_generation: boolean;
 	    reasoning: boolean;
 	    mmproj_loaded: boolean;
 	    has_mtp: boolean;
@@ -879,6 +880,7 @@ export namespace llm {
 	        this.audio_input = source["audio_input"];
 	        this.video_input = source["video_input"];
 	        this.text_input = source["text_input"];
+	        this.text_generation = source["text_generation"];
 	        this.reasoning = source["reasoning"];
 	        this.mmproj_loaded = source["mmproj_loaded"];
 	        this.has_mtp = source["has_mtp"];

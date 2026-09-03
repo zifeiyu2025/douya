@@ -250,6 +250,10 @@ export function RenameConversation(arg1, arg2) {
   return window['go']['main']['App']['RenameConversation'](arg1, arg2);
 }
 
+export function ReportProblem(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ReportProblem'](arg1, arg2, arg3);
+}
+
 export function RerankEnabled() {
   return window['go']['main']['App']['RerankEnabled']();
 }

@@ -656,8 +656,32 @@ type ModelInfo struct {
 
 func DetectCapabilities(info ModelInfo) ModelCapabilities {
 	caps := ModelCapabilities{
-		TextInput: true,
+		TextInput:      true,
+		TextGeneration: true, // 默认支持文本生成；仅当服务器明确报告"仅嵌入/重排"时才判定为不支持
 	}
+
+	// 文本生成能力判定：
+	// llama-server 会对嵌入模型（如 bge-m3）报告 capabilities 只含 embeddings，
+	// 而对对话模型报告 chat/completions。当能力数组非空、且只含嵌入/重排标记、
+	// 不含任何生成标记时，判定为不支持文本生成（防止拿嵌入模型聊天）。
+	hasGeneration := false
+	hasEmbedOnly := false
+	for _, c := range info.Capabilities {
+		lc := strings.ToLower(c)
+		switch lc {
+		case "chat", "completions", "completion", "text_generation", "generation", "infill":
+			hasGeneration = true
+		case "embeddings", "embedding", "rerank":
+			hasEmbedOnly = true
+		}
+	}
+	if len(info.Capabilities) > 0 && !hasGeneration && hasEmbedOnly {
+		caps.TextGeneration = false
+	}
+	// 标记"文本生成能力已被探测"：只要这次调用基于真实的服务器能力数组做出了裁决，
+	// 就视为已知结果（含"判定为不支持"的情况）。能力数组为空时保持 unknown（false），
+	// 由上层按"未探测 → 不拦截"处理，避免误伤尚未上报能力的对话模型。
+	caps.TextGenerationKnown = len(info.Capabilities) > 0
 
 	for _, c := range info.Capabilities {
 		lc := strings.ToLower(c)

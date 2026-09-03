@@ -6,6 +6,8 @@
     <ChatInput @send="handleSend" />
     <!-- 采样参数快捷抽屉：开关状态在 useSamplingSettings 模块级单例中，ChatToolbar 直调打开 -->
     <ParamsPanel />
+    <!-- AI 内容举报弹窗：模块级单例状态，MessageItem 点"报告问题"触发（商店政策 11.16 合规） -->
+    <ReportDialog />
   </div>
 </template>
 
@@ -13,6 +15,7 @@
 import MessageList from '../components/chat/MessageList.vue'
 import ChatInput from '../components/chat/ChatInput.vue'
 import ParamsPanel from '../components/chat/ParamsPanel.vue'
+import ReportDialog from '../components/chat/ReportDialog.vue'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import { useMessage } from 'naive-ui'

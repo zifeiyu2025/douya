@@ -5,6 +5,7 @@ package chat
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -311,6 +312,7 @@ func (s *Service) DetectModelArchitectureForModel(modelName string) error {
 		AudioInput:                caps.AudioInput,
 		VideoInput:                caps.VideoInput,
 		TextInput:                 caps.TextInput,
+		TextGeneration:            caps.TextGeneration,
 		Reasoning:                 supportsReasoning,
 		MmprojLoaded:              mmprojLoaded,
 		HasMTP:                    s.detectHasMTP(),
@@ -380,6 +382,37 @@ func (s *Service) GetModelCapabilities() llm.ModelCapabilities {
 	s.modelCapsMu.RLock()
 	defer s.modelCapsMu.RUnlock()
 	return s.modelCaps
+}
+
+// IsTextGenerationAvailable 判断当前模型是否支持文本生成（对话）。
+// 后端权威拦截的依据，SendMessage / RegenerateMessage 均据此拒绝嵌入模型。
+// 采取"保守放行、确凿才拦"策略，两个信号取任一确凿证据即为不可用：
+//  1. 能力已探测（TextGenerationKnown）且 TextGeneration == false
+//     （llama-server 明确报告仅嵌入/重排能力）
+//  2. 模型名兜底匹配（嵌入模型名片段）
+//
+// 关键：能力未探测时（TextGenerationKnown == false，如测试环境/启动早期）
+// 一律放行，不能因 TextGeneration 的零值 false 误伤正常的对话模型。
+func (s *Service) IsTextGenerationAvailable() bool {
+	s.modelCapsMu.RLock()
+	textGen := s.modelCaps.TextGeneration
+	known := s.modelCaps.TextGenerationKnown
+	s.modelCapsMu.RUnlock()
+	// 已确凿探测到是不支持文本生成的模型 → 不可用
+	if known && !textGen {
+		return false
+	}
+	// 模型名兜底匹配 → 不可用
+	return !llm.IsEmbeddingModelName(s.GetDetectedModelName())
+}
+
+// embeddingBlockedMessage 生成嵌入模型被拦截时的统一友好提示文案。
+func (s *Service) embeddingBlockedMessage(action string) string {
+	modelName := s.GetDetectedModelName()
+	if modelName == "" {
+		modelName = "当前模型"
+	}
+	return fmt.Sprintf("当前模型「%s」是嵌入模型，仅支持文本检索（如知识库问答），不能进行对话。请切换到对话类模型后再%s。", modelName, action)
 }
 
 // GetThinkingSoftSwitch 获取当前思考软开关状态（前端兼容用）

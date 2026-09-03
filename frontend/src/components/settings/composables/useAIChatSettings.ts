@@ -6,7 +6,7 @@ import { showSuccess } from '../../../utils/showError'
 import { logError } from '../../../utils/logger'
 import { DEFAULT_CONFIG } from '../../../services/wails'
 import { wails } from '../../../services/wails'
-import { contextSizeSteps, findClosestStepIndex } from './contextSize'
+import { contextSizeSteps, findClosestStepIndex } from '../../../utils/contextSize'
 import type { SettingsCore } from './useSettingsCore'
 import type { PerformanceSettingsApi } from './usePerformanceSettings'
 

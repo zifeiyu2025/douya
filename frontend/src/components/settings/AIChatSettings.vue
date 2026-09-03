@@ -403,7 +403,7 @@ import {
 import { ChevronDown, ChevronUp } from '@vicons/ionicons5'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
 // 上下文长度档位/格式化改为纯工具直连（不再经 context 传递）
-import { contextSizeSteps, contextSizeMarks, formatContextSize } from './composables/contextSize'
+import { contextSizeSteps, contextSizeMarks, formatContextSize } from '../../utils/contextSize'
 import HelpTip from '../ui/HelpTip.vue'
 import TTSSettings from './TTSSettings.vue'
 

@@ -138,92 +138,103 @@ func TestFuzzyMatchModelID(t *testing.T) {
 // 生活类比：像检查手机的硬件配置清单，看看支持哪些功能。
 func TestDetectCapabilities(t *testing.T) {
 	tests := []struct {
-		name          string
-		info          ModelInfo
-		wantTextInput bool
-		wantImage     bool
-		wantAudio     bool
-		wantVideo     bool
+		name               string
+		info               ModelInfo
+		wantTextInput      bool
+		wantTextGeneration bool
+		wantImage          bool
+		wantAudio          bool
+		wantVideo          bool
 	}{
 		{
-			name:          "默认_仅文本",
-			info:          ModelInfo{},
-			wantTextInput: true,
-			wantImage:     false,
-			wantAudio:     false,
-			wantVideo:     false,
+			name:               "默认_仅文本",
+			info:               ModelInfo{},
+			wantTextInput:      true,
+			wantTextGeneration: true,
+			wantImage:          false,
+			wantAudio:          false,
+			wantVideo:          false,
 		},
 		{
-			name:          "vision能力",
-			info:          ModelInfo{Capabilities: []string{"vision"}},
-			wantTextInput: true,
-			wantImage:     true,
-			wantAudio:     false,
-			wantVideo:     false,
+			name:               "vision能力",
+			info:               ModelInfo{Capabilities: []string{"vision"}},
+			wantTextInput:      true,
+			wantTextGeneration: true,
+			wantImage:          true,
+			wantAudio:          false,
+			wantVideo:          false,
 		},
 		{
-			name:          "multimodal能力_等同于image",
-			info:          ModelInfo{Capabilities: []string{"multimodal"}},
-			wantTextInput: true,
-			wantImage:     true,
-			wantAudio:     false,
-			wantVideo:     false,
+			name:               "multimodal能力_等同于image",
+			info:               ModelInfo{Capabilities: []string{"multimodal"}},
+			wantTextInput:      true,
+			wantTextGeneration: true,
+			wantImage:          true,
+			wantAudio:          false,
+			wantVideo:          false,
 		},
 		{
-			name:          "audio能力",
-			info:          ModelInfo{Capabilities: []string{"audio"}},
-			wantTextInput: true,
-			wantImage:     false,
-			wantAudio:     true,
-			wantVideo:     false,
+			name:               "audio能力",
+			info:               ModelInfo{Capabilities: []string{"audio"}},
+			wantTextInput:      true,
+			wantTextGeneration: true,
+			wantImage:          false,
+			wantAudio:          true,
+			wantVideo:          false,
 		},
 		{
-			name:          "speech能力_等同于audio",
-			info:          ModelInfo{Capabilities: []string{"speech"}},
-			wantTextInput: true,
-			wantImage:     false,
-			wantAudio:     true,
-			wantVideo:     false,
+			name:               "speech能力_等同于audio",
+			info:               ModelInfo{Capabilities: []string{"speech"}},
+			wantTextInput:      true,
+			wantTextGeneration: true,
+			wantImage:          false,
+			wantAudio:          true,
+			wantVideo:          false,
 		},
 		{
-			name:          "video能力",
-			info:          ModelInfo{Capabilities: []string{"video"}},
-			wantTextInput: true,
-			wantImage:     false,
-			wantAudio:     false,
-			wantVideo:     true,
+			name:               "video能力",
+			info:               ModelInfo{Capabilities: []string{"video"}},
+			wantTextInput:      true,
+			wantTextGeneration: true,
+			wantImage:          false,
+			wantAudio:          false,
+			wantVideo:          true,
 		},
 		{
-			name:          "InputModalities_image",
-			info:          ModelInfo{InputModalities: []string{"image"}},
-			wantTextInput: true,
-			wantImage:     true,
-			wantAudio:     false,
-			wantVideo:     false,
+			name:               "InputModalities_image",
+			info:               ModelInfo{InputModalities: []string{"image"}},
+			wantTextInput:      true,
+			wantTextGeneration: true,
+			wantImage:          true,
+			wantAudio:          false,
+			wantVideo:          false,
 		},
 		{
-			name:          "InputModalities_audio",
-			info:          ModelInfo{InputModalities: []string{"audio"}},
-			wantTextInput: true,
-			wantImage:     false,
-			wantAudio:     true,
-			wantVideo:     false,
+			name:               "InputModalities_audio",
+			info:               ModelInfo{InputModalities: []string{"audio"}},
+			wantTextInput:      true,
+			wantTextGeneration: true,
+			wantImage:          false,
+			wantAudio:          true,
+			wantVideo:          false,
 		},
 		{
-			name:          "InputModalities_video",
-			info:          ModelInfo{InputModalities: []string{"video"}},
-			wantTextInput: true,
-			wantImage:     false,
-			wantAudio:     false,
-			wantVideo:     true,
+			name:               "InputModalities_video",
+			info:               ModelInfo{InputModalities: []string{"video"}},
+			wantTextInput:      true,
+			wantTextGeneration: true,
+			wantImage:          false,
+			wantAudio:          false,
+			wantVideo:          true,
 		},
 		{
-			name:          "大小写混合",
-			info:          ModelInfo{Capabilities: []string{"Vision"}, InputModalities: []string{"Audio"}},
-			wantTextInput: true,
-			wantImage:     true,
-			wantAudio:     true,
-			wantVideo:     false,
+			name:               "大小写混合",
+			info:               ModelInfo{Capabilities: []string{"Vision"}, InputModalities: []string{"Audio"}},
+			wantTextInput:      true,
+			wantTextGeneration: true,
+			wantImage:          true,
+			wantAudio:          true,
+			wantVideo:          false,
 		},
 		{
 			name: "多种能力组合",
@@ -231,10 +242,56 @@ func TestDetectCapabilities(t *testing.T) {
 				Capabilities:    []string{"vision", "audio"},
 				InputModalities: []string{"image", "video"},
 			},
-			wantTextInput: true,
-			wantImage:     true,
-			wantAudio:     true,
-			wantVideo:     true,
+			wantTextInput:      true,
+			wantTextGeneration: true,
+			wantImage:          true,
+			wantAudio:          true,
+			wantVideo:          true,
+		},
+		{
+			name:               "嵌入模型_仅embeddings_不支持文本生成",
+			info:               ModelInfo{Capabilities: []string{"embeddings"}},
+			wantTextInput:      true,
+			wantTextGeneration: false,
+			wantImage:          false,
+			wantAudio:          false,
+			wantVideo:          false,
+		},
+		{
+			name:               "重排模型_仅rerank_不支持文本生成",
+			info:               ModelInfo{Capabilities: []string{"rerank"}},
+			wantTextInput:      true,
+			wantTextGeneration: false,
+			wantImage:          false,
+			wantAudio:          false,
+			wantVideo:          false,
+		},
+		{
+			name:               "对话模型_chat和completions_支持文本生成",
+			info:               ModelInfo{Capabilities: []string{"chat", "completions"}},
+			wantTextInput:      true,
+			wantTextGeneration: true,
+			wantImage:          false,
+			wantAudio:          false,
+			wantVideo:          false,
+		},
+		{
+			name:               "混合模型_含embeddings和chat_支持文本生成",
+			info:               ModelInfo{Capabilities: []string{"embeddings", "chat", "completions"}},
+			wantTextInput:      true,
+			wantTextGeneration: true,
+			wantImage:          false,
+			wantAudio:          false,
+			wantVideo:          false,
+		},
+		{
+			name:               "生成标记text_generation",
+			info:               ModelInfo{Capabilities: []string{"text_generation"}},
+			wantTextInput:      true,
+			wantTextGeneration: true,
+			wantImage:          false,
+			wantAudio:          false,
+			wantVideo:          false,
 		},
 	}
 
@@ -244,6 +301,9 @@ func TestDetectCapabilities(t *testing.T) {
 			if got.TextInput != tc.wantTextInput {
 				t.Errorf("TextInput = %v, want %v", got.TextInput, tc.wantTextInput)
 			}
+			if got.TextGeneration != tc.wantTextGeneration {
+				t.Errorf("TextGeneration = %v, want %v", got.TextGeneration, tc.wantTextGeneration)
+			}
 			if got.ImageInput != tc.wantImage {
 				t.Errorf("ImageInput = %v, want %v", got.ImageInput, tc.wantImage)
 			}
@@ -252,6 +312,38 @@ func TestDetectCapabilities(t *testing.T) {
 			}
 			if got.VideoInput != tc.wantVideo {
 				t.Errorf("VideoInput = %v, want %v", got.VideoInput, tc.wantVideo)
+			}
+		})
+	}
+}
+
+// TestIsEmbeddingModelName 验证嵌入模型名匹配（兜底拦截名单）
+func TestIsEmbeddingModelName(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"bge-m3", "bge-m3", true},
+		{"BGE-大写在嵌入", "BGE-large-zh", true},
+		{"text-embedding-3-large", "text-embedding-3-large", true},
+		{"gte-large", "gte-large", true},
+		{"m3e-base", "m3e-base", true},
+		{"multilingual-e5", "multilingual-e5-small", true},
+		{"jina-embeddings-v3", "jina-embeddings-v3", true},
+		{"nomic-embed", "nomic-embed-text", true},
+		{"qwen3-embedding", "Qwen3-Embedding-0.6B", true},
+		{"bce-embedding", "bce-embedding-base", true},
+		{"对话模型qwen3", "qwen3-8b", false},
+		{"对话模型llama", "llama-3.1-8b", false},
+		{"对话模型glm", "glm-4-9b", false},
+		{"空字符串", "", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsEmbeddingModelName(tc.in); got != tc.want {
+				t.Errorf("IsEmbeddingModelName(%q) = %v, want %v", tc.in, got, tc.want)
 			}
 		})
 	}

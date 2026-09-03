@@ -7,7 +7,7 @@ package version
 import "regexp"
 
 // Version 当前应用版本号（每次发版时更新）
-const Version = "0.12.11"
+const Version = "0.12.12"
 
 // versionPattern 语义化版本号正则（X.Y.Z 格式，可选预发布后缀如 -beta.1）
 //

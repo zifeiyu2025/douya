@@ -90,10 +90,15 @@ code_review_report.md
 build/models/
 build/runtime/
 
-# Microsoft Store (MSIX) 打包相关：商店构建产物与清单不入仓库
-build/windows/msix/
+# Microsoft Store (MSIX) 打包相关：打包脚本与清单入库（CI 发版依赖），
+# 构建产物（.msix/.msixbundle、临时输出）仍忽略
+build/windows/msix/*
+!build/windows/msix/make-msix.ps1
+!build/windows/msix/AppxManifest.xml
+!build/windows/msix/priconfig.xml
 build/store/
 build/**/*.msix
+build/**/*.msixbundle
 build/**/*.msixbundle
 
 # 签名证书含私钥，严禁提交到仓库

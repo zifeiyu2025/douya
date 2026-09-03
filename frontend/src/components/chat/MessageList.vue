@@ -7,22 +7,22 @@
     <!-- 模型切换 overlay 已移至 App.vue 统一管理，避免重复 -->
     <div v-if="(!messages || messages.length === 0) && !isGenerating" class="message-list-empty">
       <div class="welcome-container">
-        <!-- 扉页小印：LOGO 收敛为圆角方印，品牌宋体字成为唯一大字 -->
-        <div class="welcome-logo">
+        <!-- 扉页小印：LOGO 透明原图直接呈现——无边框、无底色、无阴影 -->
+        <div class="welcome-logo" style="--stagger-idx: 0">
           <img :src="defaultAiAvatar" alt="豆芽 LOGO" />
         </div>
 
         <!-- 品牌题签：思源宋体，墨色为主、苔绿点睛 -->
-        <div class="welcome-brand">
+        <div class="welcome-brand" style="--stagger-idx: 1">
           <span class="welcome-dou">豆</span>
           <span class="welcome-ya">芽</span>
         </div>
 
         <!-- 副标题：一句话说明，疏排小字 -->
-        <div class="welcome-subtitle">本地运行的 AI 助手</div>
+        <div class="welcome-subtitle" style="--stagger-idx: 2">本地运行的 AI 助手</div>
 
         <!-- 扉页分隔：§ 记号居中，双侧发丝线（横格纸母题的克制表达） -->
-        <div class="welcome-rule" aria-hidden="true">
+        <div class="welcome-rule" style="--stagger-idx: 3" aria-hidden="true">
           <span class="rule-line"></span>
           <span class="rule-no">§</span>
           <span class="rule-line"></span>
@@ -30,7 +30,7 @@
 
         <!-- 快捷操作纸片条：点击即发送（沿用现有 store 机制）；
              未就绪时弱化展示，点击给出友好引导而非触发后端报错 -->
-        <div class="quick-actions">
+        <div class="quick-actions" style="--stagger-idx: 4">
           <button
             v-for="action in quickActions"
             :key="action.id"
@@ -38,16 +38,17 @@
             :class="{ 'action-chip--pending': chatUnavailable }"
             @click="handleQuickAction(action)"
           >
+            <n-icon :size="14" class="chip-icon"><component :is="action.icon" /></n-icon>
             <span class="chip-text">{{ action.title }}</span>
           </button>
         </div>
 
         <!-- 当前模型大卡：真实 GGUF 元数据，给用户"本地已就绪"的确定感 -->
-        <div v-if="activeCardModel" class="welcome-model-card">
+        <div v-if="activeCardModel" class="welcome-model-card" style="--stagger-idx: 5">
           <ModelDetailCard :model="activeCardModel" />
         </div>
         <!-- 一个模型都没有时引导前往设置页下载器 -->
-        <div v-else class="no-model-guide">
+        <div v-else class="no-model-guide" style="--stagger-idx: 5">
           <span class="no-model-text">还没有可用模型，下载一个就能开始对话啦</span>
           <button class="no-model-btn" @click="goModelDownloader">前往模型下载</button>
         </div>
@@ -201,8 +202,10 @@
 
 <script setup lang="ts">
 import { computed, watch, ref, onMounted, onUnmounted } from 'vue'
+import type { Component } from 'vue'
 import { useRouter } from 'vue-router'
-import { useMessage } from 'naive-ui'
+import { NIcon, useMessage } from 'naive-ui'
+import { BookOutline, CodeSlashOutline, LanguageOutline, BulbOutline } from '@vicons/ionicons5'
 import MessageItem from './MessageItem.vue'
 import ThinkBlock from './ThinkBlock.vue'
 import SearchStatus from './SearchStatus.vue'
@@ -235,18 +238,19 @@ const settingsStore = useSettingsStore()
 const message = useMessage()
 
 // 定义 QuickAction 接口替代 any，提供编译期类型保护
+// icon 直接挂图标组件（此前为空串字段，纸片条缺视觉锚点）
 interface QuickAction {
   id: number
-  icon: string
+  icon: Component
   title: string
   prompt: string
 }
 
 const quickActions: QuickAction[] = [
-  { id: 1, icon: '', title: '如何使用豆芽', prompt: '如何使用豆芽？请介绍一下主要功能' },
-  { id: 2, icon: '', title: '写一段代码', prompt: '帮我写一段示例代码' },
-  { id: 3, icon: '', title: '翻译一段文字', prompt: '帮我翻译一段中文为英文' },
-  { id: 4, icon: '', title: '头脑风暴', prompt: '帮我做一些头脑风暴，探索新想法' }
+  { id: 1, icon: BookOutline, title: '如何使用豆芽', prompt: '如何使用豆芽？请介绍一下主要功能' },
+  { id: 2, icon: CodeSlashOutline, title: '写一段代码', prompt: '帮我写一段示例代码' },
+  { id: 3, icon: LanguageOutline, title: '翻译一段文字', prompt: '帮我翻译一段中文为英文' },
+  { id: 4, icon: BulbOutline, title: '头脑风暴', prompt: '帮我做一些头脑风暴，探索新想法' }
 ]
 
 // chatUnavailable：与 ChatInput 同一口径——模型未安装/加载中/未就绪时不可对话。
@@ -747,6 +751,29 @@ watch(
   margin: auto 0;
 }
 
+/* 入场动效：自上而下逐层浮现（侧栏 item-in 同语汇）；一次性，不抢戏 */
+.welcome-container > * {
+  animation: welcome-in 0.45s var(--ease-out) both;
+  animation-delay: calc(var(--stagger-idx, 0) * 80ms);
+}
+
+@keyframes welcome-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome-container > * {
+    animation: none;
+  }
+}
+
 /* 扉页小印：LOGO 透明原图直接呈现——无边框、无底色、无阴影 */
 .welcome-logo {
   width: 64px;
@@ -827,11 +854,11 @@ watch(
   margin-top: 2px;
 }
 
-/* 纸片条：微圆角 + 发丝边，前置苔绿印章点；hover 只染底描边、不位移不投影 */
+/* 纸片条：微圆角 + 发丝边，语义图标点题；hover 只染底描边、不位移不投影 */
 .action-chip {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   padding: 9px 16px;
   /* panel 阅读层：与气泡同层，背景图模式下保持通透 */
   background: var(--surface-panel);
@@ -848,17 +875,15 @@ watch(
   line-height: 1;
 }
 
+/* 语义图标：苔蓝点睛，与品牌题签的"芽"字同语汇 */
+.action-chip .chip-icon {
+  color: var(--accent-primary);
+  flex-shrink: 0;
+}
+
 /* 模型未就绪：弱化但仍可点击（点击给出引导提示，而非禁用后无任何反馈） */
 .action-chip--pending {
   opacity: 0.55;
-}
-
-.action-chip::before {
-  content: '';
-  width: 5px;
-  height: 5px;
-  background: var(--accent-primary);
-  opacity: 0.85;
 }
 
 .action-chip:hover {
@@ -884,7 +909,8 @@ watch(
 .welcome-model-card {
   position: relative;
   z-index: 1;
-  width: min(560px, 100%);
+  width: min(520px, 100%);
+  margin-top: 6px;
 }
 
 /* 无模型引导：虚线胶囊条 + 描边按钮，形态呼应 action-chip 族（阅读层半透明底） */

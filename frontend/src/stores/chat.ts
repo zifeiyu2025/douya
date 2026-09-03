@@ -9,6 +9,8 @@ import {
 } from '../services/wails'
 import { fixUtf8 } from '../utils/utf8'
 import { logError } from '../utils/logger'
+import { isEmbeddingModelName } from '../utils/model'
+import { discreteDialog } from '../utils/discrete'
 import { useSettingsStore } from './settings'
 import { useToolApprovalStore } from './toolApproval'
 import { useConversations } from './chat/conversations'
@@ -67,6 +69,25 @@ function clearConvState(state: ConvStreamingState) {
 
 export const useChatStore = defineStore('chat', () => {
   const settingsStore = useSettingsStore()
+
+  // 判断当前模型是否为嵌入模型（只能检索、不能聊天），两层信号取其一即命中：
+  // 1. 后端权威信号 text_generation === false（llama-server 报告仅嵌入/重排能力）
+  // 2. 模型名兜底匹配（isEmbeddingModelName），防止后端信号缺失时误选
+  function isEmbeddingBlocked(): boolean {
+    if (settingsStore.modelCapabilities.text_generation === false) return true
+    return isEmbeddingModelName(settingsStore.currentModel)
+  }
+
+  // 被嵌入模型拦截时的统一弹窗提示（与 ChatInput 的拦截保持一致文案）
+  function showEmbeddingBlockedDialog(): void {
+    const modelName = settingsStore.currentModel || '当前模型'
+    discreteDialog.warning({
+      title: '当前模型不能聊天',
+      content: `「${modelName}」是嵌入模型，只能做文本向量化/检索（如知识库问答），无法进行对话回复。\n\n请点击左上角模型名称，切换到对话类模型后再发送消息。`,
+      positiveText: '知道了',
+      style: { whiteSpace: 'pre-wrap' }
+    })
+  }
   const conversations = ref<Conversation[]>([])
   const currentConversationId = ref<string>('')
   const messages = ref<Message[]>([])
@@ -853,6 +874,11 @@ export const useChatStore = defineStore('chat', () => {
   async function regenerateMessage(userMessageID: string, searchMode: string) {
     // 用 isAnyGenerating 防止 A 生成中切到 B 时误判可发消息导致并发生成
     if (isAnyGenerating.value) return
+    // 嵌入模型不能聊天：拦截"重新生成"，避免再次触发后端 logits 报错
+    if (isEmbeddingBlocked()) {
+      showEmbeddingBlockedDialog()
+      return
+    }
 
     const convId = currentConversationId.value
     if (!convId) return
@@ -896,6 +922,11 @@ export const useChatStore = defineStore('chat', () => {
   ) {
     // M10: 用 isAnyGenerating 防止 A 生成中切到 B 时误判可发消息导致并发生成
     if (isAnyGenerating.value) return
+    // 嵌入模型不能聊天：拦截发送（兜底，覆盖命令条等所有入口）
+    if (isEmbeddingBlocked()) {
+      showEmbeddingBlockedDialog()
+      return
+    }
 
     const convId = currentConversationId.value
     generatingConvId.value = convId || ''

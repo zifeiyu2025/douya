@@ -130,6 +130,8 @@ export function ReloadModels():Promise<void>;
 
 export function RenameConversation(arg1:string,arg2:string):Promise<void>;
 
+export function ReportProblem(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function RerankEnabled():Promise<boolean>;
 
 export function ResizeTerminal(arg1:number,arg2:number):Promise<void>;

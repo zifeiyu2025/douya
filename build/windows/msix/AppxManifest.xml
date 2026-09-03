@@ -1,0 +1,68 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AppxManifest.xml：Microsoft Store (MSIX) 打包清单
+
+  打包脚本 make-msix.ps1 会自动从 internal/version/version.go 同步 Identity 的 Version 属性，
+  无需（也不应）手工维护本文件的 Version。
+  每次发版时只需递增 internal/version/version.go 的 Version 常量，
+  打包脚本会自动覆盖本文件 Identity 元素的 Version 属性。
+
+  上架前仍需人工确认（见 make-msix.ps1 顶部注释）：
+    1. Name/Publisher 必须与合作伙伴中心预留的应用身份一致
+    2. 首次上架需替换 Publisher 证书主题为商店分发的真实身份
+
+  生活类比：清单就像快递面单——收件人（包身份）必须和寄件时登记的一字不差，
+  否则商店就是"查无此人"直接退回。
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  IgnorableNamespaces="uap rescap desktop">
+
+  <Identity
+    Name="F42A97F8.-AI"
+    Publisher="CN=0B884B65-E30A-4D8E-9DE7-9CC6380FEDFF"
+    Version="0.12.12.0"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>豆芽 - 本地AI 助手</DisplayName>
+    <PublisherDisplayName>zifeiyu</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <Description>豆芽本地AI聊天助手，完全离线的本地大模型对话工具</Description>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="zh-cn" />
+  </Resources>
+
+  <Applications>
+    <Application Id="Douya" Executable="Douya.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="豆芽 - 本地AI 助手"
+        Description="豆芽本地AI聊天助手"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png"
+        AppListEntry="default">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+      </uap:VisualElements>
+      <!-- windows.fullTrustProcess：声明豆芽为 Win32 全信任桌面应用 -->
+      <Extensions>
+        <desktop:Extension Category="windows.fullTrustProcess" Executable="Douya.exe" />
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <!-- runFullTrust：豆芽需要拉起 llama-server 子进程、系统托盘、文件系统访问，
+       必须声明此受限能力，否则在沙箱下启动即崩 -->
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

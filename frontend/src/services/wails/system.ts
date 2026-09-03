@@ -15,7 +15,8 @@ import {
   GetAppVersion,
   ConfirmStartupError,
   GetStartupError,
-  SynthesizeSpeech
+  SynthesizeSpeech,
+  ReportProblem
 } from '../../../wailsjs/go/main/App'
 import { EventsOn, EventsOff } from '../../../wailsjs/runtime/runtime'
 import { EventWindowCloseRequest, EventStartupError } from '../events'
@@ -69,6 +70,12 @@ export const systemMethods = {
   // 用户在错误卡上点"退出"后调用，通知后端可以退出了
   confirmStartupError: async (): Promise<void> => {
     await ConfirmStartupError()
+  },
+  // ============ AI 内容举报（微软商店政策 11.16 合规） ============
+  // 组装 mailto 邮件并调用系统默认邮件客户端打开，邮件发往开发者邮箱。
+  // 豆芽是本地应用：不经过云端，举报走用户本机邮件客户端。
+  reportProblem: async (content: string, reason: string, remark: string): Promise<void> => {
+    await ReportProblem(content, reason, remark)
   },
   // ============ TTS 在线合成（Edge TTS / 微软在线神经语音） ============
   // 有网时优先调用，返回 MP3 的 base64 字符串；无网/失败由前端 useTTS 回退本地 Web Speech API。

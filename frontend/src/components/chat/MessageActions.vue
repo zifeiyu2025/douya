@@ -37,6 +37,11 @@
         <AppIcon name="regenerate" class="action-icon" :size="14" />
         <span class="action-label">重新生成</span>
       </button>
+      <!-- 报告问题按钮：仅 AI 消息显示，用于举报 AI 生成的不当内容（商店政策 11.16 合规） -->
+      <button v-if="!isUser" class="action-btn" title="报告问题" @click="$emit('report')">
+        <AppIcon name="flag" class="action-icon" :size="14" />
+        <span class="action-label">报告问题</span>
+      </button>
       <!-- 编辑按钮：仅用户消息显示，保存后截断重生成 -->
       <button v-if="canEdit" class="action-btn" title="编辑" @click="$emit('edit')">
         <AppIcon name="edit" class="action-icon" :size="14" />
@@ -68,6 +73,7 @@ defineEmits<{
   copy: []
   speak: []
   regenerate: []
+  report: []
   delete: []
   edit: []
 }>()

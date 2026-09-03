@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  makepri 资源配置：为 MSIX 生成 resources.pri（MRT 资源索引）。
+
+  为什么需要它：
+    targetsize / _altform-unplated 等"限定符变体"PNG 只有被 resources.pri 索引后，
+    Windows 资源系统(MRT) 才会按场景挑选；没有 PRI 时它们只是包内的死文件，
+    任务栏就会回退到"给图标垫主题强调色底板(plating)"——即蓝底问题。
+
+  注意：<packaging> 里刻意不放 autoResourcePackage——
+    默认的 autoResourcePackage(Scale) 会把 scale 变体拆成第二个
+    resources.scale-200.pri（资源分包），单个非 bundle 的 .msix 不携带资源包，
+    拆出去的资源就丢了。全部资源必须落在同一个 resources.pri 里。
+-->
+<resources targetOsVersion="10.0.0" majorVersion="1">
+        <packaging>
+        </packaging>
+        <index root="\" startIndexAt="">
+                <default>
+                        <qualifier name="Language" value="zh-CN"/>
+                        <qualifier name="Contrast" value="standard"/>
+                        <qualifier name="Scale" value="100"/>
+                        <qualifier name="HomeRegion" value="001"/>
+                        <qualifier name="TargetSize" value="256"/>
+                        <qualifier name="LayoutDirection" value="LTR"/>
+                        <qualifier name="Theme" value="dark"/>
+                        <qualifier name="AlternateForm" value=""/>
+                        <qualifier name="DXFeatureLevel" value="DX9"/>
+                        <qualifier name="Configuration" value=""/>
+                        <qualifier name="DeviceFamily" value="Universal"/>
+                        <qualifier name="Custom" value=""/>
+                </default>
+                <indexer-config type="folder" foldernameAsQualifier="true" filenameAsQualifier="true" qualifierDelimiter="."/>
+                <indexer-config type="resw" convertDotsToSlashes="true" initialPath=""/>
+                <indexer-config type="resjson" initialPath=""/>
+                <indexer-config type="PRI"/>
+        </index>
+</resources>

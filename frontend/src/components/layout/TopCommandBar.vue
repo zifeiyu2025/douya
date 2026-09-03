@@ -98,8 +98,7 @@
                 class="state-text"
                 :class="{ 'error-text': !serverStatus.running && serverStatus.error }"
               >
-                <span class="state-model" :title="modelName">{{ modelName }}</span>
-                <span class="state-sep">·</span>
+                <!-- 模型名已由左侧选择器展示，就绪态只报状态词，避免同一名字在顶栏出现两遍 -->
                 <span class="state-status">
                   {{ serverStatus.running ? '已就绪' : serverStatus.error || '未运行' }}
                 </span>
@@ -400,11 +399,13 @@ function renderModelLabel(option: ModelOptionView) {
   flex-shrink: 0;
 }
 
-/* 状态区按钮化：透明底 + hover 反馈 + 宽度约束防文字跳动 */
+/* 状态区按钮化：透明底 + hover 反馈 + 宽度约束防文字跳动。
+ * min-width 按就绪态（状态点+状态词）设定；切换/加载态的模型名自然撑宽，
+ * 由右侧 bar-spacer 吸收宽度变化。 */
 .server-status {
   display: flex;
   align-items: center;
-  min-width: 150px;
+  min-width: 86px;
   max-width: 260px;
   padding: 5px 10px;
   border: none;
@@ -614,5 +615,19 @@ function renderModelLabel(option: ModelOptionView) {
   /* 关闭钮悬停落朱砂印：取令牌随主题自适应（亮 #b0432e / 暗 #d16b55） */
   background: var(--seal-color);
   color: #ffffff;
+}
+
+/* ---- 窄窗适配：票签退化为纯图标钮，Ctrl+K 快捷键仍可用 ---- */
+@media (max-width: 880px) {
+  .palette-text,
+  .palette-kbd {
+    display: none;
+  }
+
+  .palette-trigger {
+    width: 30px;
+    justify-content: center;
+    padding: 0;
+  }
 }
 </style>

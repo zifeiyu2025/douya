@@ -317,6 +317,77 @@ func TestGetSetModelCapabilities(t *testing.T) {
 	}
 }
 
+// TestIsTextGenerationAvailable 验证后端"是否支持文本生成"的拦截判定：
+// 采取"保守放行、确凿才拦"策略，两个信号取任一确凿证据即为不可用：
+//  1. 能力已探测（TextGenerationKnown）且 TextGeneration == false → 拦截
+//  2. 模型名命中嵌入模型兜底名单 → 拦截
+//
+// 关键回归点：能力未探测（TextGenerationKnown == false、TextGeneration 零值 false，
+// 如测试环境/启动早期）时不能仅凭零值就拦截常见的对话模型，必须放行。
+func TestIsTextGenerationAvailable(t *testing.T) {
+	tests := []struct {
+		name       string
+		caps       llm.ModelCapabilities
+		modelName  string
+		wantAvail  bool
+	}{
+		{
+			name:      "能力已探测_嵌入_拦截",
+			caps:      llm.ModelCapabilities{TextGeneration: false, TextGenerationKnown: true},
+			modelName: "qwen3-8b",
+			wantAvail: false,
+		},
+		{
+			name:      "能力已探测_对话_可用",
+			caps:      llm.ModelCapabilities{TextGeneration: true, TextGenerationKnown: true},
+			modelName: "qwen3-8b",
+			wantAvail: true,
+		},
+		{
+			name:      "能力true但模型名命中嵌入名单_拦截",
+			caps:      llm.ModelCapabilities{TextGeneration: true, TextGenerationKnown: true},
+			modelName: "bge-m3",
+			wantAvail: false,
+		},
+		{
+			name:      "能力true且模型名为空_可用",
+			caps:      llm.ModelCapabilities{TextGeneration: true, TextGenerationKnown: true},
+			modelName: "",
+			wantAvail: true,
+		},
+		{
+			name:      "能力未探测_TextGeneration零值_对话名_放行（回归）",
+			caps:      llm.ModelCapabilities{TextGeneration: false},
+			modelName: "qwen3-8b",
+			wantAvail: true,
+		},
+		{
+			name:      "能力未探测_TextGeneration零值_空名_放行（回归）",
+			caps:      llm.ModelCapabilities{TextGeneration: false},
+			modelName: "",
+			wantAvail: true,
+		},
+		{
+			name:      "能力未探测_模型名命中嵌入名单_拦截",
+			caps:      llm.ModelCapabilities{TextGeneration: false},
+			modelName: "bge-m3",
+			wantAvail: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &Service{}
+			s.SetModelCapabilities(tc.caps)
+			s.SetDetectedModelName(tc.modelName)
+			if got := s.IsTextGenerationAvailable(); got != tc.wantAvail {
+				t.Errorf("IsTextGenerationAvailable = %v, want %v (caps=%+v name=%q)",
+					got, tc.wantAvail, tc.caps, tc.modelName)
+			}
+		})
+	}
+}
+
 // TestResolveModelPath 解析模型路径
 func TestResolveModelPath(t *testing.T) {
 	s := &Service{}

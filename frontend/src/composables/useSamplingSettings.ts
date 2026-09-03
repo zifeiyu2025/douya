@@ -17,6 +17,7 @@ import { ref, computed } from 'vue'
 import { wails } from '../services/wails'
 import { useSettingsStore, matchModelRef } from '../stores/settings'
 import { MODEL_REFS, type ModelRefConfig } from '../utils/modelRefs'
+import { contextSizeSteps, findClosestStepIndex } from '../utils/contextSize'
 import { logError } from '../utils/logger'
 import type { Config } from '../types/chat'
 
@@ -112,6 +113,9 @@ const draft = ref<SamplingDraft>({
   repeat_penalty: 1.1,
   dry_multiplier: 0
 })
+// 上下文长度：档位索引（2K-256K 八档，与设置页共用同一份档位表）。
+// 引擎级参数（llama-server -c），不随采样参数即时生效，写入后等下次加载模型生效。
+const contextSizeIdx = ref(2)
 const lastError = ref('')
 
 let flushTimer: ReturnType<typeof setTimeout> | null = null
@@ -130,13 +134,14 @@ function applyDraftTo(cfg: Config) {
   }
 }
 
-/** 立即落盘：拉最新全量配置 → 只覆盖六字段 → 经 store 统一入口写回 */
+/** 立即落盘：拉最新全量配置 → 只覆盖六采样字段 + 上下文长度 → 经 store 统一入口写回 */
 async function flush() {
   clearFlushTimer()
   const settingsStore = useSettingsStore()
   try {
     const fullConfig = await wails.getConfig()
     applyDraftTo(fullConfig)
+    fullConfig.context_size = contextSizeSteps[contextSizeIdx.value]
     await settingsStore.updateConfig(fullConfig)
   } catch (e) {
     logError('保存采样参数失败:', e)
@@ -164,6 +169,7 @@ export async function openParamsPanel() {
   for (const k of SLIDER_KEYS) {
     draft.value[k] = source[k]
   }
+  contextSizeIdx.value = findClosestStepIndex(source.context_size)
   isOpen.value = true
 }
 
@@ -194,6 +200,14 @@ export function useSamplingSettings() {
     scheduleFlush()
   }
 
+  /** 上下文长度回官方推荐档位 */
+  function setContextSizeToRecommended() {
+    const raw = recommendedRaw.value
+    if (!raw) return
+    contextSizeIdx.value = findClosestStepIndex(raw.context_size)
+    scheduleFlush()
+  }
+
   /** 一键全部回官方推荐值 */
   function applyAllRecommended() {
     const raw = recommendedRaw.value
@@ -201,18 +215,21 @@ export function useSamplingSettings() {
     for (const k of RECOMMENDABLE_KEYS) {
       draft.value[k] = raw[k]
     }
+    contextSizeIdx.value = findClosestStepIndex(raw.context_size)
     scheduleFlush()
   }
 
   return {
     isOpen,
     draft,
+    contextSizeIdx,
     lastError,
     matchedModelRef,
     recommendedRaw,
     scheduleFlush,
     closeParamsPanel,
     setToRecommended,
+    setContextSizeToRecommended,
     applyAllRecommended
   }
 }

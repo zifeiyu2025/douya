@@ -201,6 +201,10 @@ func (s *Service) EditMessage(messageID string, newContent string) error {
 
 // RegenerateMessage regenerates the last assistant message in a conversation.
 func (s *Service) RegenerateMessage(msgID string, searchMode string) error {
+	// 嵌入模型不能聊天：后端权威拦截，任何客户端入口都无法绕过
+	if !s.IsTextGenerationAvailable() {
+		return apperror.New(apperror.KindInvalidInput, s.embeddingBlockedMessage("重新生成"))
+	}
 	// C-7 修复：用 beginGeneration 统一锁/取消逻辑，消除与 SendMessage 的重复代码
 	// M14 修复：hostCtx 可能为 nil（初始化期间或测试环境），用 context.Background() 兜底
 	// 生活类比：快递员找不到调度总机时，用离线模式继续工作，而不是当场罢工

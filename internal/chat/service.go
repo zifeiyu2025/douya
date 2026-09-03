@@ -98,7 +98,7 @@ func NewService(llmClient *llm.Client, searchChain *search.SearchChain, db *sql.
 		config:              cfg,
 		cipher:              cipher,
 		appDir:              appDir,
-		modelCaps:           llm.ModelCapabilities{TextInput: true},
+		modelCaps:           llm.ModelCapabilities{TextInput: true, TextGeneration: true},
 		mcpToolPerms:        make(map[string]toolPermission),
 		pendingApprovals:    make(map[string]*pendingToolApproval),
 		sessionAllowedTools: make(map[string]bool),

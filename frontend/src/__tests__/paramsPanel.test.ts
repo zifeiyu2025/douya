@@ -33,11 +33,14 @@ vi.mock('../composables/useSamplingSettings', async () => {
     dry_multiplier: 0
   })
   const lastError = ref('')
+  // 上下文长度档位索引（抽屉新增的引擎级参数滑块）
+  const contextSizeIdx = ref(2)
   const matchedModelRef = ref<Record<string, unknown> | null>(null)
   const recommendedRaw = ref<Record<string, number> | null>(null)
   const scheduleFlush = vi.fn()
   const closeParamsPanel = vi.fn()
   const setToRecommended = vi.fn()
+  const setContextSizeToRecommended = vi.fn()
   const applyAllRecommended = vi.fn()
   return {
     // 精简两条覆盖 recommendable 两态：temperature 有角标 / min_p 无角标
@@ -64,23 +67,27 @@ vi.mock('../composables/useSamplingSettings', async () => {
     __bindings: {
       isOpen,
       draft,
+      contextSizeIdx,
       lastError,
       matchedModelRef,
       recommendedRaw,
       scheduleFlush,
       closeParamsPanel,
       setToRecommended,
+      setContextSizeToRecommended,
       applyAllRecommended
     },
     useSamplingSettings: () => ({
       isOpen,
       draft,
+      contextSizeIdx,
       lastError,
       matchedModelRef,
       recommendedRaw,
       scheduleFlush,
       closeParamsPanel,
       setToRecommended,
+      setContextSizeToRecommended,
       applyAllRecommended
     })
   }
@@ -140,6 +147,7 @@ describe('ParamsPanel 渲染与交互', () => {
       temperature: 0.6,
       top_p: 0.95,
       top_k: 40,
+      context_size: 32768,
       repeat_penalty: 1.05
     }
     await flushRendering()
@@ -147,15 +155,22 @@ describe('ParamsPanel 渲染与交互', () => {
     const sourceLine = document.querySelector('.params-source-line')?.textContent ?? ''
     expect(sourceLine).toContain('Qwen3-8B-TEST 官方推荐值')
 
-    // 两个滑块行都渲染，但只有 temperature（recommendable）带推荐角标，值为 raw.temperature
+    // 两个滑块行都渲染，但只有 temperature（recommendable）带推荐角标，值为 raw.temperature；
+    // 上下文长度分组自带一枚推荐角标（32K），不计入采样行
     expect(document.querySelectorAll('.param-row').length).toBe(2)
-    const chips = document.querySelectorAll('.ref-chip')
+    const chips = document.querySelectorAll('.param-row .ref-chip')
     expect(chips.length).toBe(1)
     expect(chips[0].textContent?.trim()).toBe('0.6')
+    const contextChip = document.querySelector('.context-section .ref-chip')
+    expect(contextChip?.textContent?.trim()).toBe('32K')
 
     chips[0].dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await flushRendering()
     expect(bindings.setToRecommended).toHaveBeenCalledWith('temperature')
+
+    contextChip!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushRendering()
+    expect(bindings.setContextSizeToRecommended).toHaveBeenCalledTimes(1)
 
     const applyAll = document.querySelector<HTMLButtonElement>('.apply-all-btn')
     expect(applyAll).not.toBeNull()
@@ -172,7 +187,7 @@ describe('ParamsPanel 渲染与交互', () => {
     )
     expect(document.querySelectorAll('.ref-chip').length).toBe(0)
     expect(document.querySelector('.apply-all-btn')).toBeNull()
-    // 滑块行仍正常渲染并展示草稿值
+    // 滑块行与上下文分组仍正常渲染并展示草稿值
     expect(document.querySelectorAll('.param-row').length).toBe(2)
     expect(document.querySelector('.slider-value')?.textContent?.trim()).toBe('0.7')
   })

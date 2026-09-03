@@ -1,7 +1,7 @@
 import { ref, computed, watch } from 'vue'
 import { useSettingsStore } from '../../../stores/settings'
 import { wails } from '../../../services/wails'
-import { contextSizeSteps, findClosestStepIndex } from './contextSize'
+import { contextSizeSteps, findClosestStepIndex } from '../../../utils/contextSize'
 import type { SettingsCore } from './useSettingsCore'
 
 /**

@@ -1,7 +1,7 @@
 <!--
   ParamsPanel: 聊天页采样参数快捷抽屉
-  六滑块 + 官方推荐角标 + 一键回推荐；与设置页共享同一份 config
-  （写入管线见 useSamplingSettings.ts），改动自动保存。
+  六采样滑块 + 上下文长度档位滑块 + 官方推荐角标 + 一键回推荐；
+  与设置页共享同一份 config（写入管线见 useSamplingSettings.ts），改动自动保存。
 -->
 <template>
   <n-drawer
@@ -43,6 +43,34 @@
         />
       </div>
 
+      <!-- 上下文长度：引擎级档位参数，与采样滑块分组的发丝线隔开 -->
+      <div class="context-section">
+        <div class="param-label">
+          <span class="param-name">上下文长度</span>
+          <HelpTip
+            content="模型能记住的对话历史 token 数。值越大记忆越长但显存占用越高，超过模型支持的最大值会被自动截断"
+          />
+          <span
+            v-if="recommendedRaw"
+            class="ref-chip"
+            :title="`设回 ${matchedModelRef?.name ?? ''} 官方推荐值`"
+            @click="setContextSizeToRecommended"
+          >
+            {{ formatContextSize(recommendedRaw.context_size) }}
+          </span>
+          <span class="slider-value">{{ formatContextSize(currentContextSize) }}</span>
+        </div>
+        <n-slider
+          v-model:value="contextSizeIdx"
+          :min="0"
+          :max="contextSizeSteps.length - 1"
+          :step="1"
+          :format-tooltip="idx => formatContextSize(contextSizeSteps[idx])"
+          @update:value="scheduleFlush"
+        />
+        <div class="context-timing-hint">引擎级参数：下次加载模型时生效（切换模型或重启应用）</div>
+      </div>
+
       <n-button
         v-if="recommendedRaw"
         size="small"
@@ -54,13 +82,13 @@
         全部回推荐值
       </n-button>
 
-      <div class="params-footer-hint">改动会自动保存并即时生效</div>
+      <div class="params-footer-hint">改动会自动保存 · 采样参数即时生效</div>
     </n-drawer-content>
   </n-drawer>
 </template>
 
 <script setup lang="ts">
-import { watch } from 'vue'
+import { computed, watch } from 'vue'
 import { NDrawer, NDrawerContent, NSlider, NButton, useMessage } from 'naive-ui'
 import HelpTip from '../ui/HelpTip.vue'
 import {
@@ -68,18 +96,23 @@ import {
   SAMPLER_SLIDERS,
   type RecommendableKey
 } from '../../composables/useSamplingSettings'
+import { contextSizeSteps, formatContextSize } from '../../utils/contextSize'
 
 const {
   isOpen,
   draft,
+  contextSizeIdx,
   lastError,
   matchedModelRef,
   recommendedRaw,
   scheduleFlush,
   closeParamsPanel,
   setToRecommended,
+  setContextSizeToRecommended,
   applyAllRecommended
 } = useSamplingSettings()
+
+const currentContextSize = computed(() => contextSizeSteps[contextSizeIdx.value])
 
 // composable 不碰 UI，保存失败经 lastError 传到这里弹 toast
 const message = useMessage()
@@ -156,6 +189,20 @@ watch(lastError, msg => {
 .apply-all-btn {
   width: 100%;
   margin-top: 4px;
+}
+
+/* 上下文长度分组：与采样滑块之间用发丝线隔开，声明这是另一类参数 */
+.context-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-light);
+}
+
+/* 生效时机提示：紧贴滑块下方，避免与底部通用提示混淆 */
+.context-timing-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 .params-footer-hint {

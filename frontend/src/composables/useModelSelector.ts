@@ -11,7 +11,12 @@
  */
 import { computed, ref, watch } from 'vue'
 import { useSettingsStore } from '../stores/settings'
-import { formatModelName, formatModelNameFromPath, extractQuantSuffix } from '../utils/model'
+import {
+  formatModelName,
+  formatModelNameFromPath,
+  extractQuantSuffix,
+  isEmbeddingModelName
+} from '../utils/model'
 import { classifyError } from '../utils/errorGuidance'
 import { logError } from '../utils/logger'
 import { discreteMessage, discreteDialog } from '../utils/discrete'
@@ -221,10 +226,23 @@ function createModelSelector() {
           if (caps.reasoning) features.push('推理')
           const featureText = features.length > 0 ? ` · 支持${features.join('、')}` : ' · 仅文本'
           const restoredText = result.params_restored ? ' · 已恢复专属参数' : ''
-          discreteMessage.success(
-            `${formatModelName(result.current_model || value).display}${featureText}${restoredText} 已就绪`,
-            { duration: 3000 }
-          )
+          // 嵌入模型（如 bge-m3）不能聊天：切换成功但给出明确提醒，
+          // 让用户在加载完成前就意识到该模型只能用于检索，避免误发消息报错
+          const isEmbeddingOnly =
+            caps.text_generation === false || isEmbeddingModelName(result.current_model || value)
+          if (isEmbeddingOnly) {
+            discreteDialog.warning({
+              title: '已切换到嵌入模型',
+              content: `「${formatModelName(result.current_model || value).display}」是嵌入模型，只能做文本向量化/检索（如知识库问答），不能进行对话回复。\n\n如需聊天，请切换回对话类模型。`,
+              positiveText: '知道了',
+              style: { whiteSpace: 'pre-wrap' }
+            })
+          } else {
+            discreteMessage.success(
+              `${formatModelName(result.current_model || value).display}${featureText}${restoredText} 已就绪`,
+              { duration: 3000 }
+            )
+          }
           loadAvailableModels()
         }, 300)
       } else {
