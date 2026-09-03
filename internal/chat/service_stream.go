@@ -41,7 +41,7 @@ var searchToolDef = llm.ToolDefinition{
 	Type: "function",
 	Function: llm.FunctionDef{
 		Name:        "search",
-		Description: "搜索互联网获取实时信息。当用户问题涉及以下情况时调用：1.时事新闻、最新动态；2.具体数据、统计、价格等时效性信息；3.你不确定或可能已变化的事实；4.需要验证的信息。无需调用的情况：数学计算、代码编写、文学创作、闲聊问候等。调用是内部流程，不要在回答中提及。",
+		Description: "搜索互联网获取实时信息。当用户问题涉及以下情况时调用：1.时事新闻、最新动态；2.具体数据、统计、价格等时效性信息；3.你不确定或可能已变化的事实；4.需要验证的信息。无需调用的情况：数学计算、代码编写、文学创作、闲聊问候等。",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
