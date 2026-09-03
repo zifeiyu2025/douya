@@ -243,6 +243,9 @@ type ServerConfig struct {
 	NCpuFfn int
 	// 算子卸载开关（nil=使用默认值，true=--op-offload，false=--no-op-offload）
 	OpOffload *bool
+	// 模型张量懒加载模式（--lazy-mode，''=不传递跟随 llama.cpp 默认 auto；
+	// "on"=强制启用懒加载，"auto"=仅 >4GiB 张量，"off"=始终常驻），见 config.LazyMode。
+	LazyMode string
 }
 
 // LoadMode 根据配置推导 llama.cpp --load-mode 值（上游 #20834 将 mlock/mmap/direct-io 合并）。

@@ -31,19 +31,20 @@ import (
 // （参数改名、行为变更、资产结构调整），自动跟随会导致新下载的后端与
 // 应用适配逻辑不兼容，出现模型加载失败等问题。
 //
-// 当前锁定 b10675（2026-08-29 升级）：已完成三重验证——
-//  1. 服务端参数面：本应用传递的全部参数（含 -b/-c/-t 短选项与 --no-* 变体）
-//     与 b10675 的 common/arg.cpp 逐一比对，无一缺失（上游 b10599→b10675 仅新增
-//     --kv-unified-per-slot / --n-cpu-ffn / --video-* 等参数，无删除改名）；
-//  2. 资产命名：该 release 实测含 cpu-x64 / cuda-12.4 / cuda-13.3-x64 /
-//     vulkan-x64 引擎包及 cudart-13.3 配套包，均匹配现有资产正则；
-//  3. 实测：按官方 release.yml 参数本地编译的三套引擎（b10675）已通过
+// 当前锁定 b10791（2026-09-04 升级）：已完成验证——
+//  1. 服务端参数面：b10675 → b10791 共 245 个提交，common/arg.cpp 仅变更
+//     --tensor-read-lazy 改名为 --lazy-mode（豆芽未使用旧名）、新增
+//     --reasoning-preserve / --no-reasoning-preserve（豆芽用 enable_thinking
+//     控制思考开关，不冲突），无参数删除影响豆芽现有传递面；
+//  2. 资产命名：官方 release 仍按 cpu-x64 / cuda-12.4 / cuda-13.3-x64 /
+//     vulkan-x64 及 cudart-13.3 配套包规则发布，匹配现有资产正则；
+//  3. 实测：按官方 release.yml 参数本地编译的三套引擎（b10791）已通过
 //     CUDA 后端加载与应用端到端冒烟，引擎与下载包同源同版本。
 //
 // 升级流程：上游发布新版后，人工验证兼容性（重点核对 --server 参数面与
 // 资产命名规则），确认无误后将此常量改为新 tag（如 "b10800"）即可，
 // 后端下载与版本更新检查会同时跟随新版本。
-const PinnedReleaseTag = "b10675"
+const PinnedReleaseTag = "b10791"
 
 // githubReleasesTagsBase 是按 tag 查询单个 release 的 GitHub API 地址前缀。
 const githubReleasesTagsBase = "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/"

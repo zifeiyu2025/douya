@@ -436,6 +436,7 @@ export namespace config {
 	    n_cpu_moe: number;
 	    n_cpu_ffn: number;
 	    op_offload?: boolean;
+	    lazy_mode: string;
 	    mcp_servers: MCPServerConfig[];
 	
 	    static createFrom(source: any = {}) {
@@ -600,6 +601,7 @@ export namespace config {
 	        this.n_cpu_moe = source["n_cpu_moe"];
 	        this.n_cpu_ffn = source["n_cpu_ffn"];
 	        this.op_offload = source["op_offload"];
+	        this.lazy_mode = source["lazy_mode"];
 	        this.mcp_servers = this.convertValues(source["mcp_servers"], MCPServerConfig);
 	    }
 	

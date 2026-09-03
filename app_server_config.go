@@ -289,6 +289,7 @@ func buildServerConfigFromFields(
 		NCpuMoe:                  cfg.NCpuMoe,
 		NCpuFfn:                  cfg.NCpuFfn,
 		OpOffload:                cfg.OpOffload,
+		LazyMode:                 cfg.LazyMode,
 	}
 }
 

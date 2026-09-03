@@ -204,7 +204,7 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 	if !meta.HasReasoning && meta.Architecture != "" {
 		lowerArch := strings.ToLower(meta.Architecture)
 		// Template 模式：通过 chat template 的 enable_thinking 控制
-		archTemplateKeywords := []string{"gemma2", "gemma4", "qwen3", "llama4", "phi4", "qwen3moe", "qwen3next", "qwen3vl", "qwen3vlmoe", "gemma3n", "mistral3", "mistral4", "granite_speech", "glm4", "chatglm4", "glm4moe", "cohere2moe", "tiny-aya", "qwen35", "qwen35moe", "qwen36", "ernie4-5", "ernie4-5-moe", "minimax-m2", "minicpm5", "smollm3", "hunyuan-moe", "hunyuan-dense", "step35", "kimi-linear", "arcee", "dots1", "dream", "smallthinker"}
+		archTemplateKeywords := []string{"gemma2", "gemma4", "gemma4-assistant", "qwen3", "qwen4exp", "llama4", "phi4", "qwen3moe", "qwen3next", "qwen3vl", "qwen3vlmoe", "gemma3n", "mistral3", "mistral4", "granite_speech", "glm4", "chatglm4", "glm4moe", "cohere2moe", "tiny-aya", "qwen35", "qwen35moe", "qwen36", "ernie4-5", "ernie4-5-moe", "minimax-m2", "minicpm5", "smollm3", "hunyuan-moe", "hunyuan-dense", "step35", "kimi-linear", "arcee", "dots1", "dream", "smallthinker", "nemotron_h"}
 		// 安全实践：使用精确匹配避免未来架构误匹配（见安全审查 #29）
 		// archTemplateKeywords 中的关键词均为完整架构名（如 "qwen3"、"qwen3moe" 是不同架构），
 		// 无需前缀/子串匹配
@@ -224,7 +224,7 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 	if !meta.HasReasoning {
 		lowerName := strings.ToLower(path)
 		reasoningKeywords := []string{
-			"qwen3", "qwen3.5", "qwen3.6", "qwen35", "qwen36", "gemma-4", "gemma4", "gemma-3", "gemma3", "gemma-2", "llama-4", "llama4",
+			"qwen3", "qwen3.5", "qwen3.6", "qwen3.8", "qwen35", "qwen36", "qwen38", "gemma-4-assistant", "gemma4-assistant", "gemma-4", "gemma4", "gemma-3", "gemma3", "gemma-2", "llama-4", "llama4",
 			"mistral-small-3", "mistral-small3", "mistral-4", "mistral4",
 			"deepseek-r1", "deepseek-v2", "deepseek-v3", "deepseek-v4", "deepseek-r", "deepseek-3.2", "deepseek32",
 			"phi-4-reasoning", "phi4-reasoning",

@@ -108,6 +108,13 @@ func (s *Server) appendRuntimeArgs(args []string) []string {
 	if mode := s.config.LoadMode(); mode != "" {
 		args = append(args, "--load-mode", mode)
 	}
+	// 模型张量懒加载模式（上游 b10791 新增，--lazy-mode，默认 auto）：
+	// on=按需读取大张量（如每层 embedding）而非常驻内存（需 mmap）；
+	// auto=仅对 >4GiB 张量启用；off=始终常驻。
+	// 用于降低模型加载内存峰值，提升大模型在内存受限环境的加载成功率。
+	if s.config.LazyMode != "" {
+		args = append(args, "--lazy-mode", s.config.LazyMode)
+	}
 	args = appendIntArg(args, "-t", s.config.Threads)
 	args = appendIntArg(args, "-b", s.config.BatchSize)
 	args = appendIntArg(args, "-ub", s.config.UBatchSize)

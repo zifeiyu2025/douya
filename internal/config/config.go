@@ -258,6 +258,12 @@ type Config struct {
 	NCpuFfn int `json:"n_cpu_ffn"`
 	// 算子卸载开关（nil=使用默认值 true，true=--op-offload，false=--no-op-offload）
 	OpOffload *bool `json:"op_offload"`
+	// LazyMode 模型张量懒加载模式（上游 b10791 新增，--lazy-mode）：
+	// "on"=按需读取大张量（如每层 embedding）而非常驻内存（需 mmap）；
+	// "auto"=自动，仅对 >4GiB 张量启用（llama.cpp 默认）；"off"=始终常驻。
+	// 用于降低模型加载时的内存峰值，提升大模型在内存受限环境的加载成功率。
+	// 空字符串=不传递（跟随 llama.cpp 默认 auto）。
+	LazyMode string `json:"lazy_mode"`
 	// MCP 服务器列表（由豆芽写入 mcp_servers.json，llama-server 通过 --mcp-servers-config 加载）
 	// 空数组表示不启用任何 MCP server，不影响现有行为
 	MCPServers []MCPServerConfig `json:"mcp_servers"`
@@ -441,9 +447,10 @@ func DefaultConfig() *Config {
 		LookupCacheStatic:        "",
 		LookupCacheDynamic:       "",
 		SpecDraftModel:           "",
-		// 默认 256：启用 KV 缓存块复用，对重复的 system prompt 前缀加速
-		// 256 是合理块大小，覆盖豆芽 system prompt（约 200-400 token）
-		CacheReuse:      256,
+		// 默认 0：禁用 KV 缓存块复用（--cache-reuse 不传递）。
+		// Qwen3.5/3.6 等 hybrid/recurrent 架构的 KV 内存不支持 shifting，
+		// 传递该参数也会被 llama-server 自动禁用并告警；纯 attention 模型如需加速可在设置中开启。
+		CacheReuse:      0,
 		Agent:           false,
 		AgentApproval:   "",
 		AgentMaxRounds:  0,
@@ -466,6 +473,7 @@ func DefaultConfig() *Config {
 		NCpuMoe:          0,
 		NCpuFfn:          0,
 		OpOffload:        nil,
+		LazyMode:         "", // 空=不传递，跟随 llama.cpp 默认 auto
 		MCPServers:       []MCPServerConfig{},
 	}
 }
@@ -924,6 +932,13 @@ func (c *Config) repairInvalidFields() []string {
 		repaired = append(repaired, fmt.Sprintf("reasoning_effort: %q -> %q", c.ReasoningEffort, defaults.ReasoningEffort))
 		c.ReasoningEffort = defaults.ReasoningEffort
 	}
+	// LazyMode 枚举修复：空值保留（不传递跟随 llama.cpp 默认 auto），非法值回退到空
+	switch c.LazyMode {
+	case "", "on", "auto", "off":
+	default:
+		repaired = append(repaired, fmt.Sprintf("lazy_mode: %q -> %q", c.LazyMode, defaults.LazyMode))
+		c.LazyMode = defaults.LazyMode
+	}
 	// EnableBuiltinTools 互斥：全量内置工具开关开启时，忽略细粒度 tools 字符串（全量已覆盖）
 	if c.EnableBuiltinTools && strings.TrimSpace(c.Tools) != "" {
 		repaired = append(repaired, fmt.Sprintf("tools: %q -> %q (enable_builtin_tools 开启，细粒度 tools 互斥)", c.Tools, defaults.Tools))
@@ -1041,6 +1056,12 @@ func (c *Config) Validate() error {
 	case "", "low", "medium", "high", "max":
 	default:
 		return apperror.Newf(apperror.KindInvalidConfig, "invalid reasoning_effort: %q (必须是 low / medium / high / max，或留空跟随模型默认)", c.ReasoningEffort)
+	}
+	// LazyMode 枚举校验：空值合法（不传递跟随 llama.cpp 默认 auto）
+	switch c.LazyMode {
+	case "", "on", "auto", "off":
+	default:
+		return apperror.Newf(apperror.KindInvalidConfig, "invalid lazy_mode: %q (必须是 on / auto / off，或留空跟随 llama.cpp 默认)", c.LazyMode)
 	}
 	// TTS 参数范围校验：超范围自动钳制不报错（用户友好）
 	// 生活类比：收音机音量旋钮就算拧过头也不会爆炸，最多就是最大音量。

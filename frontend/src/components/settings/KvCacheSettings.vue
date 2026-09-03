@@ -266,6 +266,23 @@
           />
         </n-form-item>
 
+        <!-- 模型张量懒加载模式（上游 b10791 新增 --lazy-mode） -->
+        <n-form-item>
+          <template #label>
+            张量懒加载
+            <HelpTip
+              content="大张量（如每层 embedding）是否按需从磁盘读取而非一直常驻内存。开启可降低模型加载时的内存峰值，适合内存受限环境加载超大模型；需启用 mmap 才生效"
+            />
+          </template>
+          <n-select
+            v-model:value="formConfig.lazy_mode"
+            :options="lazyModeOptions"
+            placeholder="跟随 llama.cpp 默认（auto）"
+            clearable
+            @update:value="autoSave"
+          />
+        </n-form-item>
+
         <!-- 分组注意力 N -->
         <n-form-item>
           <template #label>
@@ -395,5 +412,12 @@ const splitModeOptions = [
   { label: '按行分割 row', value: 'row' },
   { label: '按张量分割 tensor', value: 'tensor' },
   { label: '禁用多卡 none', value: 'none' }
+]
+
+// 模型张量懒加载模式选项（对应 llama.cpp --lazy-mode，上游 b10791 新增）
+const lazyModeOptions = [
+  { label: '自动（默认，仅 >4GiB 大张量按需读取）', value: 'auto' },
+  { label: '强制开启（所有大张量按需读取，需 mmap）', value: 'on' },
+  { label: '关闭（始终常驻内存）', value: 'off' }
 ]
 </script>

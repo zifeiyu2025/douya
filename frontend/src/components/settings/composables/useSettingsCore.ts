@@ -121,11 +121,12 @@ const ALL_CONFIG_KEYS: (keyof Config)[] = [
   'threads',
   'threads_http',
   'batch_size',
-  // 原生能力：直接 I/O / MoE CPU 卸载 / 算子卸载
+  // 原生能力：直接 I/O / MoE CPU 卸载 / 算子卸载 / 张量懒加载
   'direct_io',
   'cpu_moe',
   'n_cpu_moe',
   'op_offload',
+  'lazy_mode',
   // 推理配置
   'reasoning',
   'reasoning_budget',

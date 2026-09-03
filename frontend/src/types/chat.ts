@@ -490,6 +490,8 @@ export interface Config {
   n_cpu_ffn: number
   // 算子卸载开关（null=使用默认值 true，对应 Go *bool）
   op_offload: boolean | null
+  // 模型张量懒加载模式（上游 b10791 新增 --lazy-mode，''=不传递跟随 llama.cpp 默认 auto）
+  lazy_mode: string
   // MCP 服务器列表（豆芽原生 MCP 客户端，通过 stdio 连接外部 MCP server）
   mcp_servers: MCPServerConfig[]
 }
@@ -687,6 +689,7 @@ export const DEFAULT_CONFIG: Config = {
   n_cpu_moe: 0, // 0=不启用
   n_cpu_ffn: 0, // 0=不启用（与 Go DefaultConfig 对齐）
   op_offload: null, // null=使用默认值 true（对应 Go *bool nil）
+  lazy_mode: '', // ''=不传递，跟随 llama.cpp 默认 auto（与 Go DefaultConfig 对齐）
   mcp_servers: [] // 默认不连接任何 MCP server
 }
 
