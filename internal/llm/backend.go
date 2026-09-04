@@ -331,8 +331,7 @@ func ResolveBackendTypeWithRuntimeDirs(hw *system.HardwareInfo, cfgBackend strin
 	}
 
 	// auto 模式：第一步先做「能力级匹配预检」。
-	// 业界（Ollama/LM Studio）选引擎时不会只看"装了哪个后端包"，而是先确认
-	// 显卡真的能让它跑起来：
+	// 选引擎时不会只看"装了哪个后端包"，而是先确认显卡真的能让它跑起来：
 	//   - 驱动版本不足 → CUDA 直接剔除（避免启动后崩溃再回退的难看体验）
 	//   - 缺 vulkan-1.dll → Vulkan 剔除（AMD/Intel 的通用方案失去地基）
 	// 这一步在"是否已安装"之前，确保匹配的是能力而非安装清单。
@@ -414,10 +413,9 @@ var lookupPath = exec.LookPath
 // CheckBackendCapabilityMatch 校验所选后端与当前硬件的"能力级匹配"。
 //
 // 与 ResolveBackendType（只看厂商做推断）不同，本函数回答更硬的问题：
-// "这个显卡真的能让这个后端跑起来吗？"——业界（Ollama/LM Studio）在选引擎时
-// 都会做这一步能力预检：
+// "这个显卡真的能让这个后端跑起来吗？"——选引擎时都会做这一步能力预检：
 //   - CUDA：必须有 NVIDIA GPU，且驱动版本 ≥ CUDA 最低门槛
-//     （Ollama 官方：CUDA 12 需驱动 ≥531；Blackwell 需 ≥580）
+//     （CUDA 12 需驱动 ≥531；Blackwell 需 ≥580）
 //   - Vulkan：系统必须存在 vulkan-1.dll（AMD/Intel 在 Windows 的通用方案）
 //   - HIP/SYCL/OpenVINO：需对应厂商 GPU（AMD/Intel），且运行时 DLL 就绪
 //   - CPU：任何机器恒可用（终极兜底）

@@ -5,9 +5,9 @@ package chat
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 
+	"douya/internal/apperror"
 	"douya/internal/config"
 
 	zlog "github.com/rs/zerolog/log"
@@ -79,7 +79,7 @@ func (s *Service) GetModelParams(modelName string) (*ModelParams, error) {
 	}
 	raw, err := s.GetSetting(modelParamsKey(modelName))
 	if err != nil {
-		return nil, fmt.Errorf("读取模型参数失败: %w", err)
+		return nil, apperror.Wrap(apperror.KindInternal, "读取模型参数失败", err)
 	}
 	if raw == "" {
 		return nil, nil // 未保存过，不是错误
@@ -97,14 +97,14 @@ func (s *Service) GetModelParams(modelName string) (*ModelParams, error) {
 // 生活类比：把调整好的参数写成"偏好卡片"存入该模型的档案。
 func (s *Service) SetModelParams(modelName string, params *ModelParams) error {
 	if modelName == "" {
-		return fmt.Errorf("模型名不能为空")
+		return apperror.New(apperror.KindInvalidInput, "模型名不能为空")
 	}
 	if params == nil {
 		return s.ClearModelParams(modelName)
 	}
 	data, err := json.Marshal(params)
 	if err != nil {
-		return fmt.Errorf("序列化模型参数失败: %w", err)
+		return apperror.Wrap(apperror.KindInternal, "序列化模型参数失败", err)
 	}
 	return s.SetSetting(modelParamsKey(modelName), string(data))
 }
@@ -114,7 +114,7 @@ func (s *Service) SetModelParams(modelName string, params *ModelParams) error {
 // 生活类比：把该模型的"偏好卡片"从档案柜中抽出来扔掉，下次切换回到全局默认。
 func (s *Service) ClearModelParams(modelName string) error {
 	if modelName == "" {
-		return fmt.Errorf("模型名不能为空")
+		return apperror.New(apperror.KindInvalidInput, "模型名不能为空")
 	}
 	// settings 表没有 DELETE API，用空字符串表示"已清除"
 	// GetModelParams 遇到空字符串会返回 nil，语义一致

@@ -786,7 +786,7 @@ func TestNvidiaTotalVRAMMB(t *testing.T) {
 //
 // 生活类比：这部分测试就像"模拟车检鉴定"——给定一辆车的品牌和排量，
 // 验证 classifyGPUType 能否正确判断它是跑车（discrete）还是小电瓶车（integrated）。
-// 参照业界共识：Ollama gpud、Chromium GPU info、DirectX 适配器枚举
+// 参照业界共识：名称启发式 + 专用显存阈值兜底
 // ============================================================================
 
 // TestClassifyGPUType 测试 classifyGPUType 的双因子判别逻辑
@@ -1079,7 +1079,7 @@ func TestParseDriverVersion(t *testing.T) {
 		wantOK    bool
 	}{
 		{"标准双段版本", "585.00", 585, 0, true},
-		{"Ollama 门槛版本", "531.41", 531, 41, true},
+		{"CUDA 12 门槛版本", "531.41", 531, 41, true},
 		{"Blackwell 门槛版本", "580.88", 580, 88, true},
 		{"无次版本", "580", 580, 0, true},
 		{"带前后空格", "  585.00  ", 585, 0, true},
@@ -1103,7 +1103,7 @@ func TestParseDriverVersion(t *testing.T) {
 
 // TestDriverVersionSufficient 测试驱动版本是否达到 CUDA 最低门槛（业界共识）：
 //   - ≥580：CUDA 12.x / 13.x 均可用（Blackwell）
-//   - 531-579：CUDA 12.x 可用（Ollama 官方门槛）
+//   - 531-579：CUDA 12.x 可用
 //   - <531：任何 CUDA 均不可用
 func TestDriverVersionSufficient(t *testing.T) {
 	tests := []struct {

@@ -21,15 +21,62 @@
       <!-- 左侧：书房目录（§ 章节锚点导航，点击平滑滚动到对应分节） -->
       <nav class="book-toc" aria-label="设置章节目录">
         <div class="toc-caption">目 录</div>
+
+        <!-- 章节搜索（仿 VS Code 设置搜索：输入即过滤，仅保留匹配章节） -->
+        <div class="toc-search">
+          <svg
+            class="toc-search-icon"
+            width="14"
+            height="14"
+            viewBox="0 0 512 512"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M221 80a141 141 0 100 282 141 141 0 000-282zM323 323L432 432"
+              stroke="currentColor"
+              stroke-width="48"
+              stroke-linecap="round"
+            />
+          </svg>
+          <input
+            v-model="searchQuery"
+            type="text"
+            class="toc-search-input"
+            placeholder="搜索设置…"
+            aria-label="搜索设置"
+            @keydown.esc="searchQuery = ''"
+          />
+          <button
+            v-if="searchQuery"
+            type="button"
+            class="toc-search-clear"
+            aria-label="清空搜索"
+            @click="searchQuery = ''"
+          >
+            <svg width="12" height="12" viewBox="0 0 512 512" fill="none" aria-hidden="true">
+              <path
+                d="M368 368L144 144M368 144L144 368"
+                stroke="currentColor"
+                stroke-width="64"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+        </div>
+
+        <template v-if="searchQuery && matchedSections.length === 0">
+          <div class="toc-empty">未找到匹配的设置</div>
+        </template>
         <button
-          v-for="(s, i) in SECTIONS"
+          v-for="s in matchedSections"
           :key="s.id"
           type="button"
           class="toc-item"
           :class="{ 'is-active': activeSection === s.id }"
           @click="scrollToSection(s.id)"
         >
-          <span class="toc-no">§{{ i + 1 }}</span>
+          <span class="toc-no">§{{ s.no }}</span>
           <span class="toc-label">{{ s.title }}</span>
           <!-- 印章方点：仅当前所在章节显示 -->
           <span class="toc-seal" aria-hidden="true"></span>
@@ -40,7 +87,11 @@
       <div ref="contentRef" class="settings-content">
         <n-form label-placement="left" label-width="120" :model="formConfig">
           <!-- ==================== §1 外观 ==================== -->
-          <section class="book-section" data-section="appearance">
+          <section
+            v-show="matchesSection('appearance')"
+            class="book-section"
+            data-section="appearance"
+          >
             <header class="section-head">
               <span class="section-no">§ 1</span>
               <h2 class="section-title">外观</h2>
@@ -64,7 +115,7 @@
           </section>
 
           <!-- ==================== §3 联网搜索 ==================== -->
-          <section class="book-section" data-section="search">
+          <section v-show="matchesSection('search')" class="book-section" data-section="search">
             <header class="section-head">
               <span class="section-no">§ 3</span>
               <h2 class="section-title">联网搜索</h2>
@@ -100,7 +151,7 @@
           </section>
 
           <!-- ==================== §6 高级 ==================== -->
-          <section class="book-section" data-section="advanced">
+          <section v-show="matchesSection('advanced')" class="book-section" data-section="advanced">
             <header class="section-head">
               <span class="section-no">§ 6</span>
               <h2 class="section-title">高级</h2>
@@ -124,11 +175,11 @@
           </section>
 
           <!-- ==================== §8 关于 ==================== -->
-          <section class="book-section" data-section="about">
+          <section v-show="matchesSection('about')" class="book-section" data-section="about">
             <header class="section-head">
               <span class="section-no">§ 8</span>
               <h2 class="section-title">关于</h2>
-              <span class="section-desc">版本与更新</span>
+              <span class="section-desc">版本信息与帮助反馈</span>
             </header>
             <div class="section-body">
               <AboutSettings />
@@ -141,7 +192,16 @@
 </template>
 
 <script setup lang="ts">
-import { defineAsyncComponent, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue'
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  provide,
+  ref,
+  watch
+} from 'vue'
 import { useRoute } from 'vue-router'
 import { NForm, useMessage } from 'naive-ui'
 import AppearanceSettings from '../components/settings/AppearanceSettings.vue'
@@ -161,22 +221,39 @@ import { useAppearanceSettings } from '../components/settings/composables/useApp
 import { useAIChatSettings } from '../components/settings/composables/useAIChatSettings'
 import { usePerformanceSettings } from '../components/settings/composables/usePerformanceSettings'
 import { useAPIServiceSettings } from '../components/settings/composables/useAPIServiceSettings'
+// 章节数据与搜索匹配逻辑为纯函数（见 utils/sectionSearch.ts），与视图解耦便于单测
+import { SETTINGS_SECTIONS, sectionMatches, filterSections } from '../utils/sectionSearch'
 
 const message = useMessage()
 const route = useRoute()
 
-// ===== 书房目录章节数据 =====
-// id 同时承担两个职责：目录锚点滚动定位 + 路由 open 参数对齐（如 open=model-download）
-const SECTIONS = [
-  { id: 'appearance', title: '外观', desc: '主题、背景、头像' },
-  { id: 'chat', title: 'AI 对话', desc: '提示词、推理、生成参数、朗读' },
-  { id: 'search', title: '联网搜索', desc: '搜索引擎、搜索密钥' },
-  { id: 'performance', title: '性能', desc: 'GPU、后端、KV 缓存、推测解码' },
-  { id: 'api', title: 'API 服务', desc: '端点、密钥、局域网访问' },
-  { id: 'advanced', title: '高级', desc: 'MCP 工具、RAG、LoRA、实验功能' },
-  { id: 'model-download', title: '模型下载', desc: 'ModelScope / HF 镜像内置下载' },
-  { id: 'about', title: '关于', desc: '版本与更新' }
-]
+// ===== 书房目录章节数据与搜索匹配 =====
+// 数据与纯逻辑已下沉至 utils/sectionSearch.ts（见其注释），此处仅保留视图层引用
+const SECTIONS = SETTINGS_SECTIONS
+
+// ===== 章节搜索 =====
+const searchQuery = ref('')
+
+/** 判断章节是否匹配当前搜索词（匹配标题/描述/关键词，不区分大小写） */
+function matchesSection(id: string): boolean {
+  const s = SECTIONS.find(x => x.id === id)
+  if (!s) return false
+  return sectionMatches(s, searchQuery.value)
+}
+
+/** 过滤后的目录项（搜索时仅展示匹配章节） */
+const matchedSections = computed(() => filterSections(SECTIONS, searchQuery.value))
+
+// 搜索词变化：自动定位到第一个匹配章节，避免用户滚动位置停留在被隐藏的章节上
+watch(searchQuery, async () => {
+  if (searchQuery.value.trim()) {
+    activeSection.value = matchedSections.value[0]?.id ?? ''
+    await nextTick()
+    if (matchedSections.value.length > 0) scrollToSection(matchedSections.value[0].id)
+  } else {
+    activeSection.value = SECTIONS[0].id
+  }
+})
 
 // 设置域重建：SettingsView 退化为编排壳，组装顺序即依赖链：
 // core ← performance ← aiChat；appearance / apiService 仅依赖 core
@@ -215,6 +292,8 @@ function scrollToSection(id: string) {
   const el = getSectionEl(id)
   const container = contentRef.value
   if (!el || !container) return
+  // 点击即同步高亮（搜索态下 syncActiveSection 已暂停，必须在此显式更新）
+  activeSection.value = id
   const delta = el.getBoundingClientRect().top - container.getBoundingClientRect().top
   container.scrollTo({ top: Math.max(container.scrollTop + delta - 8, 0), behavior: 'smooth' })
 }
@@ -225,6 +304,9 @@ function scrollToSection(id: string) {
  * 滚动抵达底部时兜底高亮最后一节（末节较短时无法越过判定线的场景）。
  */
 function syncActiveSection() {
+  // 搜索激活时：被 v-show 隐藏章节的 offsetTop 恒为 0，会污染高亮判定，
+  // 故搜索态下固定高亮第一个匹配章节（由 searchQuery 的 watch 维护）。
+  if (searchQuery.value.trim()) return
   const container = contentRef.value
   if (!container) return
   const line = container.scrollTop + 140
@@ -358,6 +440,67 @@ onUnmounted(() => {
   letter-spacing: 6px;
   padding-left: 10px;
   margin-bottom: 14px;
+}
+
+/* 章节搜索框：书签签条样式的内联输入（仿 VS Code 设置搜索） */
+.toc-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 6px 12px;
+  padding: 0 8px;
+  height: 28px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  background: var(--bg-tertiary);
+  transition: border-color var(--transition-fast);
+}
+.toc-search:focus-within {
+  border-color: var(--seal-color);
+}
+
+.toc-search-icon {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.toc-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+.toc-search-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.toc-search-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-radius: 3px;
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+.toc-search-clear:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+/* 无匹配的空态提示 */
+.toc-empty {
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .toc-item {

@@ -73,7 +73,13 @@
       </div>
       <!-- 小会话自动降级的 v-for 渲染分支（滞回退出线以下走此处） -->
       <template v-else>
-        <MessageItem v-for="msg in messages" :key="msg.id" :message="msg" />
+        <MessageItem
+          v-for="msg in messages"
+          :key="msg.id"
+          :message="msg"
+          :data-message-id="msg.id"
+          :highlight="highlightedId === msg.id"
+        />
       </template>
       <!-- isGenerating 占位：虚拟/非虚拟两种模式共用，作为列表末尾的兄弟元素。
            非虚拟模式下随内容滚动；虚拟模式下位于 DynamicScroller 下方常驻显示，
@@ -441,6 +447,56 @@ const {
 // 用户显式写入 localStorage douya-enable-virtual-scroll=false 时整体关闭
 const { shouldUseVirtualScroll } = useVirtualScroll(computed(() => messages.value?.length ?? 0))
 
+// ===== 历史全文搜索结果跳转：滚动定位 + 高亮闪烁 =====
+const highlightedId = ref('')
+// 追踪定位用轮询/清除定时器，组件卸载时一并清理，防止泄漏
+const locateTimers: ReturnType<typeof setTimeout>[] = []
+function scheduleLocateCleanup(fn: () => void, ms: number) {
+  const id = setTimeout(fn, ms)
+  locateTimers.push(id)
+  return id
+}
+/** 滚动到指定消息：虚拟模式走 scrollToItem（按 index），普通模式查 DOM 元素。返回是否成功定位。 */
+function scrollToMessage(messageId: string): boolean {
+  const idx = messages.value.findIndex(m => m.id === messageId)
+  if (idx < 0) return false
+  if (shouldUseVirtualScroll.value && scrollerRef.value) {
+    scrollerRef.value.scrollToItem(idx)
+  } else {
+    const el = messageListRef.value?.querySelector(
+      `[data-message-id="${messageId}"]`
+    ) as HTMLElement | null
+    // 目标消息滚到视口中部，上下文更易读（对标 ChatGPT 搜索结果跳转）
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }
+  return true
+}
+
+watch(
+  () => chatStore.pendingHighlightMessageId,
+  id => {
+    if (!id) return
+    highlightedId.value = id
+    // 切换会话后消息为异步加载，短轮询等待消息就绪后定位（上限 2s）
+    let tries = 0
+    let timer: ReturnType<typeof setInterval> | null = null
+    const attempt = () => {
+      tries++
+      if (timer && (scrollToMessage(id) || tries >= 20)) {
+        clearInterval(timer)
+        timer = null
+      }
+    }
+    timer = setInterval(attempt, 100)
+    locateTimers.push(timer)
+    // 高亮持续约 2s 后淡出（MessageItem 侧做过渡动画），并清空 store 待定位标记
+    scheduleLocateCleanup(() => {
+      highlightedId.value = ''
+      chatStore.pendingHighlightMessageId = ''
+    }, 2200)
+  }
+)
+
 // 外层 .message-list 容器 ref（非虚拟模式下的滚动容器；虚拟模式下作为稳定外壳）
 // 注意：此处不再等同于 useScrollToBottom 的 containerRef，containerRef 由下方 watcher 按开关切换
 const messageListRef = ref<HTMLElement | null>(null)
@@ -500,6 +556,11 @@ onUnmounted(() => {
   if (el) {
     el.removeEventListener('click', handleLinkClick)
   }
+  // 清理历史搜索定位的轮询/清除定时器，防止组件卸载后仍触发状态写入
+  for (const t of locateTimers) {
+    clearTimeout(t)
+  }
+  locateTimers.length = 0
   // 清理代码复制的事件委托监听器
   if (cleanupCodeCopyDelegation) {
     cleanupCodeCopyDelegation()

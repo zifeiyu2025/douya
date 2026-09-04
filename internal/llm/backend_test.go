@@ -476,7 +476,7 @@ func contains(slice []string, target string) bool {
 // ============================================================================
 
 // TestCheckBackendCapabilityMatch_CUDA 验证 CUDA 后端的能力匹配判定。
-// 核心规则（业界 Ollama/LM Studio 共识）：
+// 核心规则：
 //   - 必须有 NVIDIA GPU（或 CUDA 驱动核心组件）
 //   - 驱动版本 ≥531（CUDA 12 门槛）；Blackwell 还需 ≥580
 func TestCheckBackendCapabilityMatch_CUDA(t *testing.T) {

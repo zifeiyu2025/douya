@@ -133,56 +133,56 @@ type Config struct {
 	Device                  string  `json:"device"`
 	// 多 GPU 原生参数。空 split_mode 表示不覆盖 llama.cpp 默认的 layer 模式；
 	// main_gpu=-1 表示不传递，让 llama.cpp 使用默认设备。
-	SplitMode              string  `json:"split_mode"`
-	TensorSplit            string  `json:"tensor_split"`
-	MainGPU                int     `json:"main_gpu"`
-	Parallel               int     `json:"parallel"`
-	CacheTypeK             string  `json:"cache_type_k"`
-	CacheTypeV             string  `json:"cache_type_v"`
-	SpecType               string  `json:"spec_type"`
-	SpecDraftNMax          int     `json:"spec_draft_n_max"`
-	SpecDraftNMin          int     `json:"spec_draft_n_min"`
-	CacheTypeKDraft        string  `json:"cache_type_k_draft"`
-	CacheTypeVDraft        string  `json:"cache_type_v_draft"`
-	SpecNgramModNMin       int     `json:"spec_ngram_mod_n_min"`
-	SpecNgramModNMax       int     `json:"spec_ngram_mod_n_max"`
-	SpecNgramModNMatch     int     `json:"spec_ngram_mod_n_match"`
-	SpecNgramSimpleSizeN   int     `json:"spec_ngram_simple_size_n"`
-	SpecNgramSimpleSizeM   int     `json:"spec_ngram_simple_size_m"`
-	SpecNgramSimpleMinHits int     `json:"spec_ngram_simple_min_hits"`
-	SpecNgramMapKSizeN     int     `json:"spec_ngram_map_k_size_n"`
-	SpecNgramMapKSizeM     int     `json:"spec_ngram_map_k_size_m"`
-	SpecNgramMapKMinHits   int     `json:"spec_ngram_map_k_min_hits"`
-	SpecNgramMapK4VSizeN   int     `json:"spec_ngram_map_k4v_size_n"`
-	SpecNgramMapK4VSizeM   int     `json:"spec_ngram_map_k4v_size_m"`
-	SpecNgramMapK4VMinHits int     `json:"spec_ngram_map_k4v_min_hits"`
-	LookupCacheStatic      string  `json:"lookup_cache_static"`
-	LookupCacheDynamic     string  `json:"lookup_cache_dynamic"`
-	SpecDraftModel         string  `json:"spec_draft_model"`
-	ServerAPIKeyEnabled    bool    `json:"server_api_key_enabled"`
-	ExposeServer           bool    `json:"expose_server"` // 暴露服务器地址，允许局域网访问
-	EnableWebUI            bool    `json:"enable_web_ui"` // 启用 llama-server 自带的原生 Web UI（默认关闭）
-	SwaFull                bool    `json:"swa_full"`
-	CtxCheckpoints         int     `json:"ctx_checkpoints"`
-	CheckpointMinStep      int     `json:"checkpoint_min_step"`
-	Tools                  string  `json:"tools"`
-	EnableBuiltinTools     bool    `json:"enable_builtin_tools"` // 启用 llama.cpp 全部内置工具（--tools all）
+	SplitMode              string `json:"split_mode"`
+	TensorSplit            string `json:"tensor_split"`
+	MainGPU                int    `json:"main_gpu"`
+	Parallel               int    `json:"parallel"`
+	CacheTypeK             string `json:"cache_type_k"`
+	CacheTypeV             string `json:"cache_type_v"`
+	SpecType               string `json:"spec_type"`
+	SpecDraftNMax          int    `json:"spec_draft_n_max"`
+	SpecDraftNMin          int    `json:"spec_draft_n_min"`
+	CacheTypeKDraft        string `json:"cache_type_k_draft"`
+	CacheTypeVDraft        string `json:"cache_type_v_draft"`
+	SpecNgramModNMin       int    `json:"spec_ngram_mod_n_min"`
+	SpecNgramModNMax       int    `json:"spec_ngram_mod_n_max"`
+	SpecNgramModNMatch     int    `json:"spec_ngram_mod_n_match"`
+	SpecNgramSimpleSizeN   int    `json:"spec_ngram_simple_size_n"`
+	SpecNgramSimpleSizeM   int    `json:"spec_ngram_simple_size_m"`
+	SpecNgramSimpleMinHits int    `json:"spec_ngram_simple_min_hits"`
+	SpecNgramMapKSizeN     int    `json:"spec_ngram_map_k_size_n"`
+	SpecNgramMapKSizeM     int    `json:"spec_ngram_map_k_size_m"`
+	SpecNgramMapKMinHits   int    `json:"spec_ngram_map_k_min_hits"`
+	SpecNgramMapK4VSizeN   int    `json:"spec_ngram_map_k4v_size_n"`
+	SpecNgramMapK4VSizeM   int    `json:"spec_ngram_map_k4v_size_m"`
+	SpecNgramMapK4VMinHits int    `json:"spec_ngram_map_k4v_min_hits"`
+	LookupCacheStatic      string `json:"lookup_cache_static"`
+	LookupCacheDynamic     string `json:"lookup_cache_dynamic"`
+	SpecDraftModel         string `json:"spec_draft_model"`
+	ServerAPIKeyEnabled    bool   `json:"server_api_key_enabled"`
+	ExposeServer           bool   `json:"expose_server"` // 暴露服务器地址，允许局域网访问
+	EnableWebUI            bool   `json:"enable_web_ui"` // 启用 llama-server 自带的原生 Web UI（默认关闭）
+	SwaFull                bool   `json:"swa_full"`
+	CtxCheckpoints         int    `json:"ctx_checkpoints"`
+	CheckpointMinStep      int    `json:"checkpoint_min_step"`
+	Tools                  string `json:"tools"`
+	EnableBuiltinTools     bool   `json:"enable_builtin_tools"` // 启用 llama.cpp 全部内置工具（--tools all）
 	// 工具运行环境（--tools-runtime，实验性）：让内置工具在隔离环境执行，
 	// 支持 docker:<image> / podman:<image> / docker-container:<id> / podman-container:<id> / ssh:<target>。
 	// 空 = 使用宿主环境（默认）。格式非法时修复为空，避免 llama-server 启动失败。
-	ToolsRuntime string `json:"tools_runtime"`
-	PrefillAssistant       bool    `json:"prefill_assistant"`
-	SlotPromptSimilarity   float64 `json:"slot_prompt_similarity"`
-	SkipChatParsing        bool    `json:"skip_chat_parsing"`
-	APIPrefix              string  `json:"api_prefix"`
-	SimpleIO               bool    `json:"simple_io"`
-	GPULayers              int     `json:"gpu_layers"`   // 0=自动（99全部卸载），正数=指定层数
-	FlashAttn              *bool   `json:"flash_attn"`   // nil=自动，指针类型区分"未设置"和"false"
-	Mlock                  *bool   `json:"mlock"`        // nil=自动
-	Threads                int     `json:"threads"`      // 0=自动
-	ThreadsHTTP            int     `json:"threads_http"` // HTTP 请求处理线程数（0=自动，llama.cpp 默认）
-	BatchSize              int     `json:"batch_size"`   // 0=自动
-	CloseAction            string  `json:"close_action"` // "ask"(默认), "tray"(最小化到托盘), "exit"(直接退出)
+	ToolsRuntime         string  `json:"tools_runtime"`
+	PrefillAssistant     bool    `json:"prefill_assistant"`
+	SlotPromptSimilarity float64 `json:"slot_prompt_similarity"`
+	SkipChatParsing      bool    `json:"skip_chat_parsing"`
+	APIPrefix            string  `json:"api_prefix"`
+	SimpleIO             bool    `json:"simple_io"`
+	GPULayers            int     `json:"gpu_layers"`   // 0=自动（99全部卸载），正数=指定层数
+	FlashAttn            *bool   `json:"flash_attn"`   // nil=自动，指针类型区分"未设置"和"false"
+	Mlock                *bool   `json:"mlock"`        // nil=自动
+	Threads              int     `json:"threads"`      // 0=自动
+	ThreadsHTTP          int     `json:"threads_http"` // HTTP 请求处理线程数（0=自动，llama.cpp 默认）
+	BatchSize            int     `json:"batch_size"`   // 0=自动
+	CloseAction          string  `json:"close_action"` // "ask"(默认), "tray"(最小化到托盘), "exit"(直接退出)
 	// RAG 重排序配置
 	RerankerModelPath string `json:"reranker_model_path"` // reranker 模型路径（可选，为空则不启用重排序）
 	RerankTopN        int    `json:"rerank_top_n"`        // 重排序后返回的 top-N 结果数（默认5）
@@ -300,7 +300,7 @@ func clamp01(v float64) float64 {
 
 func DefaultConfig() *Config {
 	return &Config{
-		Version:         3, // 当前配置 schema 版本号（与 currentConfigVersion/migrate 对齐）
+		Version:         4, // 当前配置 schema 版本号（与 currentConfigVersion/migrate 对齐）
 		ModelPath:       "",
 		MmprojAuto:      true,
 		MmprojOffload:   nil,
@@ -319,22 +319,25 @@ func DefaultConfig() *Config {
 		TopP:                       0.95,
 		TopK:                       40,  // 与 llama.cpp 默认值对齐
 		RepeatPenalty:              1.1, // 1.0=完全关闭重复惩罚，量化小模型极易进入"复读退化"循环，反复重复一句话；1.1 为 llama.cpp 常见合理值，压制退化同时不明显改变正常采样
-		KVUnified:                  false,
-		KVUnifiedPerSlot:           0,
-		CacheIdleSlots:             true, // 与 llama.cpp 默认值对齐，空闲 slot 缓存保留
-		CacheRAM:                   0,
-		ImageMinTokens:             0,
-		ImageMaxTokens:             0,
-		FitTarget:                  0,
-		FitCtx:                     0,
-		Reasoning:                  "off",
-		ReasoningBudget:            0,
-		ReasoningFormat:            "",
-		ReasoningEffort:            "",
-		SystemPrompt:               "",
-		SystemPromptMode:           "append", // 默认使用追加模式
-		ChatBackground:             "",
-		ChatBackgroundOpacity:      0.9,
+		// KVUnified 统一 KV 缓存：默认 true 与 llama-server 上游默认一致（--kv-unified 默认启用）。
+		// 注意 appendBoolArg 仅在 true 时追加 --kv-unified，false 时既不追加 --kv-unified 也不追加 --no-kv-unified，
+		// 即 false 实际等于"跟随上游默认（开启）"而非"关闭"——因此默认值取 true 使 UI 与行为一致。
+		KVUnified:             true,
+		KVUnifiedPerSlot:      0,
+		CacheIdleSlots:        true, // 与 llama.cpp 默认值对齐，空闲 slot 缓存保留
+		CacheRAM:              0,
+		ImageMinTokens:        0,
+		ImageMaxTokens:        0,
+		FitTarget:             0,
+		FitCtx:                0,
+		Reasoning:             "off",
+		ReasoningBudget:       0,
+		ReasoningFormat:       "",
+		ReasoningEffort:       "",
+		SystemPrompt:          "",
+		SystemPromptMode:      "append", // 默认使用追加模式
+		ChatBackground:        "",
+		ChatBackgroundOpacity: 0.9,
 		// 每主题背景参数默认值（仅在设置了背景图时生效）：
 		// 亮色表面保留较多底色+轻遮罩，避免旧版"白纱雾面"；
 		// 深色表面更通透+较重黑遮罩，保证任意壁纸下文字对比度。
@@ -617,7 +620,8 @@ func ensureConfigFields(path string, userData []byte, cfg *Config) {
 // 每次新增 schema 变更时递增此常量，并在 migrate 中追加对应迁移分支。
 // P4.3 修复：此前为 1，但 migrate 中已有 v1→v2 分支（CacheReuse），
 // 实际迁移产物版本是 2，常量与 DefaultConfig 的 1 均不匹配真实 schema 版本。
-const currentConfigVersion = 3
+// v4：统一 KV 缓存默认值修正（kv_unified: false → true，见 migrateKVUnifiedDefault）。
+const currentConfigVersion = 4
 
 // migrate 执行配置 schema 版本迁移链。
 // 根据 cfg.Version 逐步升级到 currentConfigVersion。
@@ -657,6 +661,39 @@ func (c *Config) migrate(data []byte) {
 	if c.Version < 3 {
 		c.migratePerThemeBackground(data)
 		c.Version = 3
+	}
+	// v3 -> v4：统一 KV 缓存持久化默认值修正。
+	// v3 时代默认 kv_unified=false，但参数生成层 appendBoolArg 在 false 时不追加
+	// --no-kv-unified，llama-server 上游 --kv-unified 默认启用，实际运行始终开启，
+	// 仅 UI 显示"关"造成误导。将磁盘上的旧默认 false 迁移为 true 与 DefaultConfig 对齐，
+	// 不改变任何实际运行行为（行为本就是开启），仅修正 UI 语义。
+	if c.Version < 4 {
+		c.migrateKVUnifiedDefault(data)
+		c.Version = 4
+	}
+}
+
+// migrateKVUnifiedDefault v3→v4：修正统一 KV 缓存的持久化默认值。
+// 仅当磁盘配置中显式存在 kv_unified=false 时迁移为 true。
+// 依据：false 在参数生成层不产生 --no-kv-unified，llama-server 上游默认开启，
+// 因此磁盘 false 无论来自旧默认值还是用户显式选择，实际行为都是开启；
+// 迁移仅使 UI 显示与真实行为一致，无行为变化。
+// 采用 migratePerThemeBackground 同款"原始 JSON 键检测"模式。
+func (c *Config) migrateKVUnifiedDefault(data []byte) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return // 解析失败：保持默认（true），不迁移
+	}
+	kvRaw, ok := raw["kv_unified"]
+	if !ok {
+		return // 配置缺键：Unmarshal 后已是默认 true，无需迁移
+	}
+	var val bool
+	if err := json.Unmarshal(kvRaw, &val); err != nil {
+		return // 无法解析为 bool：交给校验层处理
+	}
+	if !val {
+		c.KVUnified = true
 	}
 }
 

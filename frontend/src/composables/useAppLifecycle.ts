@@ -219,11 +219,11 @@ export function useAppLifecycle() {
         if (!isDownloading.value) isDownloading.value = true
         downloadInfo.value = {
           name: downloadInfo.value.name,
-          percent: progress.Percent,
-          status: progress.Status,
-          error: progress.Error,
-          assetName: progress.AssetName,
-          label: progress.Label || downloadInfo.value.label
+          percent: progress.percent,
+          status: progress.status,
+          error: progress.error,
+          assetName: progress.asset_name,
+          label: progress.label || downloadInfo.value.label
         }
       })
     )

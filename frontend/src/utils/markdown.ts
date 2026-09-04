@@ -9,6 +9,8 @@
 import { marked, type Tokens } from 'marked'
 import DOMPurify from 'dompurify'
 import hljs from 'highlight.js'
+import katex from 'katex'
+import 'katex/dist/katex.min.css'
 import { isSafeUrl } from './lightSanitize'
 import { logWarn } from './logger'
 
@@ -170,20 +172,90 @@ marked.use({
   renderer
 })
 
+// ===== 数学公式渲染（KaTeX） =====
+// 对齐 GitHub / ChatGPT / Claude 的数学渲染约定：
+//   - 行内公式用 $...$，独立块级公式用 $$...$$
+//   - 简单式子（如 x=10）保持纯文本，提示词侧已引导模型避免过度使用 $...$
+//
+// 解析策略：
+//   - 一次扫描同时识别"代码保护区"（fenced block / inline code）与数学区，
+//     代码区原样保留（代码内的 $ 不应触发数学渲染），数学区替换为占位符
+//   - 数学 HTML 在 DOMPurify 之后回填：katex 输出依赖 inline style，
+//     若先过 sanitize 会被 FORBID_ATTR 剥离 style，破坏渲染
+//   - 渲染失败的公式（throwOnError 抛错）降级显示原文，避免整条消息渲染崩溃
+
+const MATH_HOLDER = '\u0000MATH'
+
+function renderMathTex(tex: string, displayMode: boolean): string {
+  try {
+    return katex.renderToString(tex, {
+      displayMode,
+      throwOnError: true,
+      output: 'htmlAndMathml',
+      strict: false
+    })
+  } catch {
+    // 非法 LaTeX：降级显示原文（回填阶段不经 DOMPurify，内联样式可用）
+    const marker = displayMode ? '$$' : '$'
+    return `<span class="math-invalid" style="color:var(--text-muted);font-style:italic">${escapeHtml(
+      marker + tex + marker
+    )}</span>`
+  }
+}
+
+// 数学区识别正则（从左到右交替匹配，代码保护区优先于数学区）：
+//   ```...```             fenced code block（原样保留）
+//   `...`                 inline code（原样保留）
+//   $$...$$               块级数学（可跨行）
+//   $...$（≥1 字符）        行内数学：内容首尾非空白、不跨行、后不跟数字
+//                         （对齐 remark-math 规则，避免把"价格 $5 到 $10"误判为公式）
+const MATH_SCAN_RE = /```[\s\S]*?```|`[^`\n]+`|\$\$[\s\S]+?\$\$|\$(\S(?:[^\n$]*?\S)?)\$(?!\d)/g
+
+function extractMath(content: string): { text: string; items: string[] } {
+  const items: string[] = []
+  let out = ''
+  let last = 0
+  const scan = new RegExp(MATH_SCAN_RE.source, 'g')
+  let m: RegExpExecArray | null
+  while ((m = scan.exec(content)) !== null) {
+    out += content.slice(last, m.index)
+    const match = m[0]
+    if (match.startsWith('`')) {
+      // 代码保护区：原样保留，不参与数学渲染
+      out += match
+    } else if (match.startsWith('$$')) {
+      items.push(renderMathTex(match.slice(2, -2).trim(), true))
+      out += `${MATH_HOLDER}${items.length - 1}\u0000`
+    } else {
+      items.push(renderMathTex(m[1].trim(), false))
+      out += `${MATH_HOLDER}${items.length - 1}\u0000`
+    }
+    last = m.index + match.length
+  }
+  out += content.slice(last)
+  return { text: out, items }
+}
+
+function restoreMath(html: string, items: string[]): string {
+  if (items.length === 0) return html
+  return html.replace(new RegExp(`${MATH_HOLDER}(\\d+)\\u0000`, 'g'), (_m, n) => items[+n])
+}
+
 // ===== 核心渲染函数 =====
 
 /**
  * 渲染完整 Markdown（异步）
  * 用于：历史消息、思考内容等已完成的文本
  *
- * 流程：marked 解析为 HTML，再经 DOMPurify 安全过滤后返回。
+ * 流程：提取数学公式 → marked 解析为 HTML → DOMPurify 安全过滤 → 回填公式 HTML。
  */
 export async function renderMarkdown(content: string): Promise<string> {
   if (!content) return ''
+  const { text, items } = extractMath(content)
   try {
     // marked.parse 默认同步，返回 string
-    const html = marked.parse(content, { async: false }) as string
-    return sanitizeHtml(html)
+    const html = marked.parse(text, { async: false }) as string
+    return restoreMath(sanitizeHtml(html), items)
   } catch (_) {
     // 降级：转义 HTML 并返回
     return sanitizeHtml(escapeHtml(content))

@@ -27,6 +27,8 @@ export interface ConversationDeps {
   messagesRequestVersion: Ref<number>
   /** 清理定时器回调（删除会话时清理孤儿定时器，防止内存泄漏） */
   clearFlushTimer: (convId: string) => void
+  /** 待定位高亮的消息 ID（历史全文搜索结果跳转用）：MessageList 消费后自行清除 */
+  pendingHighlightMessageId: Ref<string>
 }
 
 export function useConversations(deps: ConversationDeps) {
@@ -38,7 +40,8 @@ export function useConversations(deps: ConversationDeps) {
     convStreamingStates,
     isLoadingConversations,
     lastError,
-    messagesRequestVersion
+    messagesRequestVersion,
+    pendingHighlightMessageId
   } = deps
 
   async function loadConversations() {
@@ -141,6 +144,19 @@ export function useConversations(deps: ConversationDeps) {
     }
   }
 
+  /**
+   * 打开会话并定位到指定消息（历史全文搜索结果跳转）。
+   * 时序：先确保目标会话已激活、消息已加载，再置 pendingHighlightMessageId，
+   * MessageList 消费该值后滚动定位并高亮，完成后自行清空。
+   * 若目标会话已处于激活态（消息已在内存），直接置位即可。
+   */
+  async function selectConversationAndLocate(id: string, messageId: string) {
+    if (currentConversationId.value !== id) {
+      await selectConversation(id)
+    }
+    pendingHighlightMessageId.value = messageId
+  }
+
   async function exportConversation(id: string, format: string): Promise<string> {
     try {
       return await wails.exportConversation(id, format)
@@ -166,6 +182,7 @@ export function useConversations(deps: ConversationDeps) {
     renameConversation,
     deleteConversation,
     searchMessages,
+    selectConversationAndLocate,
     exportConversation,
     exportConversationWithDialog
   }

@@ -99,7 +99,8 @@ const prettyArgs = computed(() => {
 .tam-mask {
   position: fixed;
   inset: 0;
-  z-index: 950; /* 高于悬浮下载卡(900)，低于切换/退出遮罩(1000) */
+  /* 强模态门禁：对齐 naive-ui 弹窗默认层级(2000)，必须盖过所有自研浮层与普通弹窗 */
+  z-index: 2000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -113,7 +114,7 @@ const prettyArgs = computed(() => {
   background: var(--surface-panel);
   border: 1px solid var(--border-light);
   border-radius: var(--border-radius-lg);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow-lg);
 }
 
 .tam-head {

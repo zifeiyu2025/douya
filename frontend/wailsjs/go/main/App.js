@@ -122,6 +122,10 @@ export function GetConversations() {
   return window['go']['main']['App']['GetConversations']();
 }
 
+export function GetDiagnostics() {
+  return window['go']['main']['App']['GetDiagnostics']();
+}
+
 export function GetLastPromptTokens() {
   return window['go']['main']['App']['GetLastPromptTokens']();
 }

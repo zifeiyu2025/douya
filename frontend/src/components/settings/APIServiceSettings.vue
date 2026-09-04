@@ -64,6 +64,7 @@
         content="访问 API 所需的密钥，由系统一键生成通用格式（sk-douya- 开头），无需手动设置。密钥加密存储，生成后仅显示一次"
       />
     </template>
+    <!-- 启用开关 + 状态标签 + 一键生成（同一行紧凑排版，字段上下文已含"API Key"语义） -->
     <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px">
       <n-switch
         v-model:value="formConfig.server_api_key_enabled"
@@ -74,19 +75,22 @@
       </n-switch>
       <n-tag v-if="hasServerApiKey" type="success" size="small">已设置</n-tag>
       <n-tag v-else type="default" size="small">未设置</n-tag>
+      <n-button
+        v-if="!generatedServerApiKey"
+        size="small"
+        type="primary"
+        ghost
+        :loading="savingServerApiKey"
+        @click="generateServerApiKey"
+      >
+        <template #icon>
+          <n-icon :size="13"><KeyOutline /></n-icon>
+        </template>
+        {{ hasServerApiKey ? '重新生成' : '一键生成' }}
+      </n-button>
     </div>
-    <!-- 未生成时：一键生成按钮（可重复生成，覆盖旧 Key） -->
-    <n-button
-      v-if="!generatedServerApiKey"
-      type="primary"
-      ghost
-      :loading="savingServerApiKey"
-      @click="generateServerApiKey"
-    >
-      {{ hasServerApiKey ? '重新生成 API Key' : '一键生成 API Key' }}
-    </n-button>
     <!-- 生成后：一次性展示明文（关闭即丢弃，后端不再提供查看接口） -->
-    <div v-else class="generated-key-box">
+    <div v-if="generatedServerApiKey" class="generated-key-box">
       <div class="generated-key-value">{{ generatedServerApiKey }}</div>
       <div class="generated-key-actions">
         <n-button text type="primary" @click="copyGeneratedApiKey">复制</n-button>
@@ -109,7 +113,7 @@ import {
   NTag,
   useMessage
 } from 'naive-ui'
-import { CopyOutline } from '@vicons/ionicons5'
+import { CopyOutline, KeyOutline } from '@vicons/ionicons5'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
 import HelpTip from '../ui/HelpTip.vue'
 

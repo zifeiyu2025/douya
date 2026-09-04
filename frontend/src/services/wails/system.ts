@@ -15,6 +15,7 @@ import {
   GetAppVersion,
   ConfirmStartupError,
   GetStartupError,
+  GetDiagnostics,
   SynthesizeSpeech,
   ReportProblem
 } from '../../../wailsjs/go/main/App'
@@ -51,6 +52,11 @@ export const systemMethods = {
   // 版本信息：更新统一由 Microsoft Store 接管，前端仅展示当前版本号
   getAppVersion: async (): Promise<string> => {
     return await GetAppVersion()
+  },
+  // 一键诊断信息：返回脱敏后的环境快照文本（仿 VS Code「复制诊断信息」），
+  // 供用户在反馈问题时直接复制粘贴，避免来回追问版本/后端/硬件等基础信息。
+  getDiagnostics: async (): Promise<string> => {
+    return await GetDiagnostics()
   },
   subscribeCloseRequest: (callback: () => void): (() => void) => {
     EventsOn(EventWindowCloseRequest, callback)

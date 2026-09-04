@@ -334,7 +334,7 @@ var NvidiaDriverVersion = func() (string, error) {
 }
 
 // nvidiaDriverMinimums 各 CUDA 大版本对 NVIDIA Windows 驱动的最低要求（业界共识）：
-//   - CUDA 12.x：驱动 ≥ 531（Ollama 官方文档明确"531 or newer"，对应 CUDA 12.1）
+//   - CUDA 12.x：驱动 ≥ 531（对应 CUDA 12.1）
 //   - CUDA 13.x（Blackwell）：驱动 ≥ 580（Blackwell 架构要求驱动 580+ 才能原生加载）
 //
 // 生活类比：就像不同型号的发动机要求不同的汽油标号——CUDA 12 要 531 号油，
@@ -353,7 +353,7 @@ func driverVersionSufficient(driverVersion string) bool {
 	}
 
 	const cuda13Min = 580 // CUDA 13.x（Blackwell RTX 50 系）最低驱动
-	const cuda12Min = 531 // CUDA 12.x 最低驱动（Ollama 官方门槛）
+	const cuda12Min = 531 // CUDA 12.x 最低驱动
 
 	// 主版本 > CUDA 13 的最低线 → 任何 CUDA 版本都可用
 	if major >= cuda13Min {

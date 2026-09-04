@@ -262,7 +262,7 @@ const smartDefaultCtxSizeCap = 32768
 
 // SmartDefaultCtxSize 根据模型训练上下文长度推导默认服务上下文大小。
 //
-// 设计意图（对标 LM Studio 的加载滑块逻辑）：
+// 设计意图：
 //   - 上限依据 = 模型 GGUF 元数据中的训练上下文长度，而非一刀切的固定值；
 //     训练 8K 的模型（如 Gemma2/3）得到 8K，训练 128K 的模型得到封顶 32K
 //   - 封顶 smartDefaultCtxSizeCap：控制 KV cache 显存占用在保守范围，

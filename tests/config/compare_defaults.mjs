@@ -99,8 +99,45 @@ for (const line of lines) {
         tsConfig[key] = [];
     } else if (!isNaN(Number(valueStr))) {
         tsConfig[key] = Number(valueStr);
+    } else if (/^\{.*\}$/.test(valueStr)) {
+        // 单行内联对象：如 background_light: { opacity: 0.85, blur: 0, mask_alpha: 0.15 },
+        // 仅解析标量值；含嵌套对象/复杂值时放弃（保持旧行为忽略）
+        const obj = parseInlineObject(valueStr);
+        if (obj) tsConfig[key] = obj;
     }
-    // 其他类型（对象、数组等）忽略——DEFAULT_CONFIG 中应全部为标量或空数组
+    // 其他类型（多行对象、数组等）忽略——DEFAULT_CONFIG 中应全部为标量、空数组或单行简单对象
+}
+
+/**
+ * 解析单行内联对象字面量 { k: v, k2: v2 }（值仅支持标量/字符串/null）。
+ * 解析失败返回 null，调用方按旧行为忽略该字段。
+ */
+function parseInlineObject(str) {
+    const body = str.trim().replace(/^\{/, '').replace(/\}$/, '');
+    if (!body.trim()) return {};
+    const result = {};
+    // 按逗号分段（本场景值均为标量，不含字符串内逗号）
+    for (const part of body.split(',')) {
+        const m = part.trim().match(/^(\w+)\s*:\s*(.+)$/);
+        if (!m) return null; // 出现无法解析的分段，放弃整字段
+        const key = m[1];
+        let v = m[2].trim();
+        // 去除行尾注释与尾逗号
+        const commentIdx = v.indexOf('//');
+        if (commentIdx !== -1) v = v.slice(0, commentIdx).trim();
+        if (v.endsWith(',')) v = v.slice(0, -1).trim();
+        if (v === 'null') result[key] = null;
+        else if (v === 'true') result[key] = true;
+        else if (v === 'false') result[key] = false;
+        else if (/^['"]/.test(v) && v.length >= 2 && v[v.length - 1] === v[0]) {
+            result[key] = v.slice(1, -1);
+        } else if (!isNaN(Number(v))) {
+            result[key] = Number(v);
+        } else {
+            return null; // 复杂值，放弃整字段
+        }
+    }
+    return result;
 }
 
 // ============================================================
@@ -133,7 +170,36 @@ for (const key of goKeys) {
     if (Array.isArray(goVal) && Array.isArray(tsVal)) {
         if (goVal.length === tsVal.length) continue;
     }
+    // 内联对象递归比较（如 background_light / background_dark）
+    if (isPlainObject(goVal) && isPlainObject(tsVal)) {
+        if (objectsEqual(goVal, tsVal)) continue;
+    }
     mismatches.push({ key, goVal, tsVal });
+}
+
+/** 是否为普通对象（非数组、非 null） */
+function isPlainObject(v) {
+    return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/** 递归比较两个普通对象：键集合一致 + 每键值一致（数字近似容差） */
+function objectsEqual(a, b) {
+    const aKeys = Object.keys(a);
+    const bKeys = Object.keys(b);
+    if (aKeys.length !== bKeys.length) return false;
+    for (const k of aKeys) {
+        if (!(k in b)) return false;
+        const av = a[k];
+        const bv = b[k];
+        if (isPlainObject(av) && isPlainObject(bv)) {
+            if (!objectsEqual(av, bv)) return false;
+        } else if (typeof av === 'number' && typeof bv === 'number') {
+            if (Math.abs(av - bv) >= 1e-9) return false;
+        } else if (av !== bv) {
+            return false;
+        }
+    }
+    return true;
 }
 
 // ============================================================

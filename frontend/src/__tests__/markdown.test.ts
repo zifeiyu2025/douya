@@ -94,3 +94,53 @@ describe('renderMarkdown', () => {
     expect(result).toBe('')
   })
 })
+
+// ===== 数学公式渲染（KaTeX） =====
+describe('renderMarkdown math (KaTeX)', () => {
+  it('should render inline math $...$', async () => {
+    const result = await renderMarkdown('勾股定理：$a^2 + b^2 = c^2$')
+    expect(result).toContain('class="katex"')
+    expect(result).toContain('a')
+  })
+
+  it('should render block math $$...$$ in display mode', async () => {
+    const result = await renderMarkdown('$$\n\\frac{1}{2}\n$$')
+    expect(result).toContain('katex-display')
+    expect(result).toContain('class="katex"')
+  })
+
+  it('should keep $ inside code blocks untouched', async () => {
+    const result = await renderMarkdown('```bash\necho "$HOME"\n```')
+    // 代码块内 $ 不触发数学渲染
+    expect(result).not.toContain('class="katex"')
+    expect(result).toContain('$HOME')
+  })
+
+  it('should keep $ inside inline code untouched', async () => {
+    const result = await renderMarkdown('运行 `npm install $PACKAGE` 安装')
+    expect(result).not.toContain('class="katex"')
+    expect(result).toContain('$PACKAGE')
+  })
+
+  it('should render single-char math like $x$', async () => {
+    const result = await renderMarkdown('变量 $x$ 表示未知数')
+    expect(result).toContain('class="katex"')
+  })
+
+  it('should not treat currency text as math', async () => {
+    const result = await renderMarkdown('价格 $5 到 $10 元不等')
+    expect(result).not.toContain('class="katex"')
+  })
+
+  it('should fallback to raw text on invalid LaTeX', async () => {
+    const result = await renderMarkdown('错误公式：$\\frac{}$')
+    expect(result).toContain('math-invalid')
+    expect(result).not.toContain('class="katex"')
+  })
+
+  it('should render mixed markdown and math', async () => {
+    const result = await renderMarkdown('**能量公式**：$E=mc^2$')
+    expect(result).toContain('<strong>能量公式</strong>')
+    expect(result).toContain('class="katex"')
+  })
+})

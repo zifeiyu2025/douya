@@ -166,37 +166,37 @@
     <div class="progress-content">
       <n-progress
         type="line"
-        :percentage="Math.round(downloadProgress.Percent)"
+        :percentage="Math.round(downloadProgress.percent)"
         :status="progressStatus"
         :indicator-placement="'inside'"
         processing
       />
       <div class="progress-info">
-        <span v-if="downloadProgress.Status === 'downloading'" class="progress-detail">
-          {{ formatBytes(downloadProgress.Downloaded) }} /
-          {{ formatBytes(downloadProgress.TotalBytes) }} （{{ downloadProgress.AssetName }}）
+        <span v-if="downloadProgress.status === 'downloading'" class="progress-detail">
+          {{ formatBytes(downloadProgress.downloaded) }} /
+          {{ formatBytes(downloadProgress.total_bytes) }} （{{ downloadProgress.asset_name }}）
         </span>
-        <span v-else-if="downloadProgress.Status === 'installing'" class="progress-detail">
+        <span v-else-if="downloadProgress.status === 'installing'" class="progress-detail">
           正在解压安装...
         </span>
         <span
-          v-else-if="downloadProgress.Status === 'completed'"
+          v-else-if="downloadProgress.status === 'completed'"
           class="progress-detail success-text"
         >
           下载完成！
         </span>
-        <span v-else-if="downloadProgress.Status === 'failed'" class="progress-detail error-text">
-          下载失败：{{ downloadProgress.Error }}
+        <span v-else-if="downloadProgress.status === 'failed'" class="progress-detail error-text">
+          下载失败：{{ downloadProgress.error }}
         </span>
       </div>
-      <div v-if="downloadProgress.Status === 'completed'" class="progress-hint">
+      <div v-if="downloadProgress.status === 'completed'" class="progress-hint">
         后端已下载并安装完成，请重启应用使其生效。
       </div>
     </div>
     <template #footer>
       <div class="progress-footer">
         <n-button
-          v-if="downloadProgress.Status === 'completed' || downloadProgress.Status === 'failed'"
+          v-if="downloadProgress.status === 'completed' || downloadProgress.status === 'failed'"
           size="small"
           @click="closeProgressDialog"
         >
@@ -264,15 +264,15 @@ const selectedDownloadBackend = ref<string>('')
 const downloading = ref(false)
 const showProgressDialog = ref(false)
 const downloadProgress = ref<BackendDownloadProgress>({
-  Backend: '',
-  AssetName: '',
-  TagName: '',
-  TotalBytes: 0,
-  Downloaded: 0,
-  Percent: 0,
-  Status: '',
-  Error: '',
-  Label: ''
+  backend: '',
+  asset_name: '',
+  tag_name: '',
+  total_bytes: 0,
+  downloaded: 0,
+  percent: 0,
+  status: '',
+  error: '',
+  label: ''
 })
 
 // ===== 后端类型 -> 中文显示名映射 =====
@@ -402,13 +402,13 @@ const canDownload = computed(() => {
 
 /** 进度对话框标题 */
 const progressDialogTitle = computed(() => {
-  const bt = downloadProgress.value.Backend
+  const bt = downloadProgress.value.backend
   return bt ? `下载 ${backendStatusLabel(bt)} 后端` : '下载后端'
 })
 
 /** n-progress 状态 */
 const progressStatus = computed<'success' | 'error' | 'default'>(() => {
-  const s = downloadProgress.value.Status
+  const s = downloadProgress.value.status
   if (s === 'completed') return 'success'
   if (s === 'failed') return 'error'
   return 'default'
@@ -444,15 +444,15 @@ async function doDownloadBackend(target: string) {
   downloading.value = true
   showProgressDialog.value = true
   downloadProgress.value = {
-    Backend: target,
-    AssetName: '',
-    TagName: '',
-    TotalBytes: 0,
-    Downloaded: 0,
-    Percent: 0,
-    Status: 'downloading',
-    Error: '',
-    Label: ''
+    backend: target,
+    asset_name: '',
+    tag_name: '',
+    total_bytes: 0,
+    downloaded: 0,
+    percent: 0,
+    status: 'downloading',
+    error: '',
+    label: ''
   }
   try {
     await wails.downloadBackend(target)
@@ -536,7 +536,7 @@ onMounted(() => {
   unsubscribeDownloadProgress = wails.subscribeBackendDownloadProgress(
     (progress: BackendDownloadProgress) => {
       downloadProgress.value = progress
-      if (progress.Status === 'completed' || progress.Status === 'failed') {
+      if (progress.status === 'completed' || progress.status === 'failed') {
         downloading.value = false
       }
     }
@@ -546,10 +546,10 @@ onMounted(() => {
       if (result.success) {
         downloadProgress.value = {
           ...downloadProgress.value,
-          Backend: result.backend,
-          Status: 'completed',
-          Percent: 100,
-          Label: '下载完成'
+          backend: result.backend,
+          status: 'completed',
+          percent: 100,
+          label: '下载完成'
         }
         downloading.value = false
         message.success(`${backendStatusLabel(result.backend)} 后端下载安装完成，请重启应用生效`, {
@@ -558,9 +558,9 @@ onMounted(() => {
       } else {
         downloadProgress.value = {
           ...downloadProgress.value,
-          Backend: result.backend,
-          Status: 'failed',
-          Error: result.error || '未知错误'
+          backend: result.backend,
+          status: 'failed',
+          error: result.error || '未知错误'
         }
         downloading.value = false
         message.error(

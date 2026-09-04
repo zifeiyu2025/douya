@@ -528,7 +528,7 @@ export interface MCPConnectResult {
 }
 
 export const DEFAULT_CONFIG: Config = {
-  version: 2, // 与 Go Config.Version 对齐（配置 schema 版本号，P4.3 统一为 2）
+  version: 4, // 与 Go Config.Version 对齐（配置 schema 版本号，契约比对见 tests/config/compare_defaults.mjs）
   model_path: '',
   mmproj_auto: true,
   mmproj_offload: null,
@@ -551,11 +551,14 @@ export const DEFAULT_CONFIG: Config = {
   temperature: 0.8, // 与 Go DefaultConfig 对齐（llama.cpp 默认值）
   top_p: 0.95,
   top_k: 40, // 与 Go DefaultConfig 对齐（llama.cpp 默认值）
-  repeat_penalty: 1,
-  kv_unified: false,
+  repeat_penalty: 1.1, // 与 Go DefaultConfig 对齐（1.0=完全关闭重复惩罚，量化小模型易"复读退化"）
+  // 统一 KV 缓存：默认 true 与 llama-server 上游默认一致（--kv-unified 默认启用）。
+  // 后端 appendBoolArg 仅在 true 时追加 --kv-unified，false 时既不追加也不追加 --no-kv-unified，
+  // 即 false 实际等于"跟随上游默认（开启）"，故默认取 true 使 UI 与行为一致。
+  kv_unified: true,
   kv_unified_per_slot: 0, // 0=不启用（与 Go DefaultConfig 对齐）
   cache_idle_slots: true,
-  cache_reuse: 256,
+  cache_reuse: 0, // 与 Go DefaultConfig 对齐（0=禁用；256 为推荐值，需用户主动开启）
   cache_ram: 0, // 与 Go DefaultConfig 对齐
   image_min_tokens: 0,
   image_max_tokens: 0,
@@ -721,6 +724,7 @@ export interface MetricsSummary {
   spec_draft_tokens_total: number // 草稿模型生成的 token 总数
   spec_accepted_tokens_total: number // 被目标模型接受的草稿 token 总数
   spec_drafts_total: number // 推测解码验证步骤总数
+  spec_accepted_tokens_per_pos_total: number // 按位置累计的被接受草稿 token 数（对齐 Go MetricsSummary）
 }
 
 export interface ModelOption {

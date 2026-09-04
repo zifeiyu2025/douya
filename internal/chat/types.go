@@ -145,8 +145,8 @@ type PromptProgressContent struct {
 
 // OutputTruncatedContent 输出截断事件的内容。
 // 场景：模型回复因触及 max_tokens 上限（finish_reason=length）而中途停止，
-// 用户看到的回复戛然而止却不知原因——对标 LM Studio 的 contextLengthReached 显式上报，
-// 避免 Ollama 式"静默截断只写日志"的反面模式。
+// 用户看到的回复戛然而止却不知原因——显式上报截断事件，
+// 避免"静默截断只写日志"的反面模式。
 type OutputTruncatedContent struct {
 	Reason string `json:"reason"` // 截断原因，当前固定为 "length"
 }

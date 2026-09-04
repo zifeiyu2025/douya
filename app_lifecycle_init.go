@@ -124,8 +124,8 @@ func (a *App) installBackend(ctx context.Context, runtimeDir string) bool {
 
 	// P3.7 增强：能力级预检提示。
 	// auto 模式已在 ResolveBackendTypeWithRuntimeDirs 内部完成剔除与回退；
-	// 此处补两次面向用户的原因提示（业界 LM Studio 的 Settings→Runtime 会在
-	// 用户选引擎时就提示"此引擎与显卡不匹配"，而不是静默失败再回退）：
+	// 此处补两次面向用户的原因提示（在用户选引擎时就提示"此引擎与显卡不匹配"，
+	// 而不是静默失败再回退）：
 	//   - 手动指定后端：用户手动选了 CUDA 但机器是 A 卡，或选了 Vulkan 但系统
 	//     缺 vulkan-1.dll 时，提前告知，不至于装上去打不着火才回头换。
 	//   - auto 模式：理论首选（纯按厂商推断）被能力预检剔除时，把"为什么没用上

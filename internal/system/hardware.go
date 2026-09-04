@@ -219,7 +219,7 @@ const (
 
 // classifyGPUType 按业界成熟方案判别 GPU 是独显还是核显。
 //
-// 业界共识方案（双因子法，参照 Ollama gpud、Chromium GPU info、DirectX 适配器枚举）：
+// 业界共识方案（双因子法）：
 //  1. GPU 名称启发式：基于业界共识的独显/核显关键字库判别
 //  2. 专用显存阈值兜底：名称无法判定时用专用 VRAM 兜底
 //
@@ -254,7 +254,7 @@ func classifyGPUType(vendor, gpuName string, dedicatedVRAMMB int64) string {
 
 	lowerName := strings.ToLower(gpuName)
 
-	// 各厂商的独显/核显关键字库（业界共识，源自 Ollama/Chromium/DirectX 适配器枚举）
+	// 各厂商的独显/核显关键字库（业界共识）
 	type kwEntry struct {
 		keywords []string
 		gpuType  string

@@ -69,17 +69,17 @@ export interface ModelLoadProgressEvent {
   progress: number
 }
 
-/** 后端下载进度事件 */
+/** 后端下载进度事件（对齐 Go llm.DownloadProgress 的 JSON tag，字段名必须两端同步） */
 export interface BackendDownloadProgress {
-  Backend: string
-  AssetName: string
-  TagName: string
-  TotalBytes: number
-  Downloaded: number
-  Percent: number
-  Status: string
-  Error: string
-  Label: string
+  backend: string
+  asset_name: string
+  tag_name: string
+  total_bytes: number
+  downloaded: number
+  percent: number
+  status: string
+  error: string
+  label: string
 }
 
 // BackendDownloadStart 启动阶段下载开始时推送的信息

@@ -585,8 +585,8 @@ func (s *Service) savePartialContentIfAny(convID string, acc *StreamAccumulator)
 //
 // 背景：calcMaxTokens 为防 prompt 溢出会压缩生成预算；当回复触及该上限时
 // llama-server 返回 finish_reason=length，表现为"话说到一半戛然而止"。
-// 若不显式告知，用户无从分辨"模型说完了"与"被截断了"——对标 LM Studio 的
-// contextLengthReached 显式上报，避免 Ollama 式静默截断只写日志的反面模式。
+// 若不显式告知，用户无从分辨"模型说完了"与"被截断了"——显式上报截断事件，
+// 避免"静默截断只写日志"的反面模式。
 // 普通回复路径（finalizeStreamResult）与 tool call 循环最终保存路径
 // （saveToolCallFinalMessage）均需调用本方法。
 func (s *Service) emitOutputTruncatedIfLengthCapped(convID string, acc *StreamAccumulator) {

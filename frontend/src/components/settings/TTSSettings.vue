@@ -42,7 +42,7 @@
         <template #label>
           发音人
           <HelpTip
-            content="选择系统可用的发音人。标注「在线」的发音人在启用在线 TTS 时会使用微软云端神经语音，音质更佳。选「自动」则按优先级自动挑选"
+            content="开启「在线 TTS」时仅列出云端当前可用的发音人（不可用的会被云端拒绝并自动回退默认晓晓，听感不变）；关闭在线时列出系统全部本地发音人。选「自动」则按优先级自动挑选"
           />
         </template>
         <n-select
@@ -183,8 +183,7 @@ const CN_PREFERENCE_ORDER = [
  * 仅在线（云端 Neural）的中文发音人：Windows 本地 Web Speech 不提供，
  * 仅在启用「在线 TTS」时可用。value 直接传在线 Neural 音色名给后端，
  * 后端 ResolveOnlineVoice 会原样透传，从而选定这些本地没有的音色。
- * 注意：微软 Edge TTS 服务端偶发抖动会误报 Unsupported voice，
- * 后端 SynthesizeOnline 已做"失效音色回退默认晓晓"兜底，保证在线播放不中断。
+ * 这是完整目录，渲染时会按 CLOUD_AVAILABLE_VOICES 过滤，只展示云端当前可用的。
  */
 const ONLINE_ONLY_VOICES = [
   { name: 'zh-CN-XiaochenNeural', label: '微软晓辰（在线）', gender: '男' },
@@ -203,6 +202,37 @@ const ONLINE_ONLY_VOICES = [
   { name: 'zh-CN-YunyeNeural', label: '微软云野（在线）', gender: '男' },
   { name: 'zh-CN-YunzeNeural', label: '微软云泽（在线）', gender: '男' }
 ]
+
+/**
+ * 当前云端（微软 Edge TTS）真正可用的中文 Neural 音色清单。
+ * 实测（2026-09-04）：22 个中文发音人中仅以下 6 个可用；
+ * 其余（慧慧/瑶瑶/康康/晓辰/晓涵/晓梦/晓墨/晓秋/晓睿/晓双/晓悠/晓甄/云枫/云浩/云野/云泽）
+ * 会被云端以 Unsupported voice 拒绝。若允许选择，后端会静默回退默认晓晓，
+ * 导致"切换了发音人但听到的总是同一个人"。
+ * 云端可用性随地区/环境变化，未来需要增删时改这里即可（value 用微软 Neural 音色名）。
+ */
+const CLOUD_AVAILABLE_VOICES = new Set<string>([
+  'zh-CN-XiaoxiaoNeural', // 晓晓（女，默认）
+  'zh-CN-YunxiNeural', // 云希（男）
+  'zh-CN-YunyangNeural', // 云扬（男）
+  'zh-CN-XiaoyiNeural', // 晓伊（女）
+  'zh-CN-YunjianNeural', // 云健（男，仅在线）
+  'zh-CN-YunxiaNeural' // 云霞（女，仅在线）
+])
+
+/**
+ * 本地发音人名 → 微软在线 Neural 音色名 映射（与后端 ResolveOnlineVoice 一致）。
+ * 在线模式下列表过滤用：本地发音人只有映射后落在 CLOUD_AVAILABLE_VOICES 里才可选。
+ */
+const LOCAL_TO_ONLINE: Record<string, string> = {
+  'Microsoft Xiaoxiao': 'zh-CN-XiaoxiaoNeural',
+  'Microsoft Yunxi': 'zh-CN-YunxiNeural',
+  'Microsoft Yunyang': 'zh-CN-YunyangNeural',
+  'Microsoft Xiaoyi': 'zh-CN-XiaoyiNeural',
+  'Microsoft Huihui': 'zh-CN-HuihuiNeural',
+  'Microsoft Yaoyao': 'zh-CN-YaoyaoNeural',
+  'Microsoft Kangkang': 'zh-CN-KangkangNeural'
+}
 
 /**
  * 判断本地发音人是否可在线使用（能映射到微软云端 Neural 语音）
@@ -240,12 +270,49 @@ interface VoiceOption extends SelectOption {
 
 /**
  * 构建发音人下拉选项
- * 列出系统全部发音人，中文语音排在前面，其余按优先级排序。
+ * 在线模式：直接列出云端当前可用的发音人（硬编码，不依赖浏览器本地语音列表，
+ * 因为本机 Web Speech 可能未加载微软本地音色，导致晓晓/云希/云扬/晓伊不出现）；
+ * 本地模式：列出浏览器全部本地发音人，中文语音排前，其余按优先级排序。
  */
 const voiceOptions = computed<VoiceOption[]>(() => {
   if (!tts.isSupported.value) return []
 
-  // 第一项：自动（空值，让 useTTS 按优先级挑选）
+  // ===== 在线模式：固定列出云端可用发音人 =====
+  if (formConfig.value.tts_online) {
+    const options: VoiceOption[] = [
+      {
+        label: '自动（推荐晓晓）',
+        value: ''
+      }
+    ]
+    // 本地+在线兼有的 4 个：value 用本地发音人名，在线合成时后端自动映射为对应 Neural 音色
+    const localCloudVoices = [
+      { label: '微软晓晓（在线）', value: 'Microsoft Xiaoxiao' },
+      { label: '微软云希（在线）', value: 'Microsoft Yunxi' },
+      { label: '微软云扬（在线）', value: 'Microsoft Yunyang' },
+      { label: '微软晓伊（在线）', value: 'Microsoft Xiaoyi' }
+    ]
+    for (const v of localCloudVoices) {
+      options.push({
+        label: v.label,
+        value: v.value,
+        onlineCapable: true
+      })
+    }
+    // 仅在线发音人（云健/云霞）：value 用 Neural 名，后端原样透传
+    for (const ov of ONLINE_ONLY_VOICES) {
+      if (CLOUD_AVAILABLE_VOICES.has(ov.name)) {
+        options.push({
+          label: ov.label,
+          value: ov.name,
+          onlineCapable: true
+        })
+      }
+    }
+    return options
+  }
+
+  // ===== 本地模式：列出浏览器全部本地发音人 =====
   const options: VoiceOption[] = [
     {
       label: '自动（推荐晓晓）',
@@ -270,15 +337,6 @@ const voiceOptions = computed<VoiceOption[]>(() => {
       label: `${v.name} (${v.lang})`,
       value: v.name,
       onlineCapable: isOnlineCapable(v.name)
-    })
-  }
-
-  // 追加仅在线（云端 Neural）的中文发音人：本地没有，但可在线使用
-  for (const ov of ONLINE_ONLY_VOICES) {
-    options.push({
-      label: ov.label,
-      value: ov.name,
-      onlineCapable: true
     })
   }
 
@@ -332,6 +390,26 @@ watch(
   ],
   () => syncConfigToTTS(),
   { deep: true }
+)
+
+// 在线模式下列表被过滤：若当前选中的发音人已不在可选列表（例如之前选了
+// 康康/云枫等当前云端不可用的音色，或云端可用性变化），自动回到「自动」，
+// 避免下拉框显示一个不存在的选项、朗读时又被静默回退晓晓。
+watch(
+  () => [formConfig.value.tts_voice, formConfig.value.tts_online],
+  () => {
+    if (!formConfig.value.tts_online) return
+    const cur = formConfig.value.tts_voice
+    if (!cur) return
+    // 本地发音人先映射成在线音色名；仅在线发音人名本身就是 Neural 名
+    const onlineName = LOCAL_TO_ONLINE[cur] ?? cur
+    if (!CLOUD_AVAILABLE_VOICES.has(onlineName)) {
+      formConfig.value.tts_voice = ''
+      syncConfigToTTS()
+      void autoSave()
+    }
+  },
+  { immediate: true }
 )
 
 // ===== 事件处理 =====

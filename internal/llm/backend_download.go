@@ -238,16 +238,20 @@ func fetchReleaseList(apiURL string) ([]GitHubRelease, error) {
 //
 // 生活类比：就像快递追踪——已发货（开始下载）、运输中（下载中，进度 45%）、
 // 已签收（下载完成）。
+//
+// 注意：本结构经 Wails EventsEmit 透传前端，JSON tag 即前后端字段契约，
+// 前端对应类型为 frontend/src/services/wails/types.ts 的 BackendDownloadProgress，
+// 字段名与 tag 必须保持完全一致，修改时必须两端同步。
 type DownloadProgress struct {
-	Backend    BackendType // 后端类型
-	AssetName  string      // GitHub asset 文件名，如 "llama-b10167-bin-win-cuda-13.3-x64.zip"
-	TagName    string      // GitHub release 标签，如 "b10167"
-	TotalBytes int64       // 文件总大小（字节），未知时为 0
-	Downloaded int64       // 已下载字节数
-	Percent    float64     // 下载百分比（0-100）
-	Status     string      // 状态："downloading" / "completed" / "failed" / "installing" / "retrying"
-	Error      string      // 失败时的错误信息
-	Label      string      // 当前下载内容的描述，如"推理后端"、"cudart 依赖包"
+	Backend    BackendType `json:"backend"`     // 后端类型
+	AssetName  string      `json:"asset_name"`  // GitHub asset 文件名，如 "llama-b10167-bin-win-cuda-13.3-x64.zip"
+	TagName    string      `json:"tag_name"`    // GitHub release 标签，如 "b10167"
+	TotalBytes int64       `json:"total_bytes"` // 文件总大小（字节），未知时为 0
+	Downloaded int64       `json:"downloaded"`  // 已下载字节数
+	Percent    float64     `json:"percent"`     // 下载百分比（0-100）
+	Status     string      `json:"status"`      // 状态："downloading" / "completed" / "failed" / "installing" / "retrying"
+	Error      string      `json:"error"`       // 失败时的错误信息
+	Label      string      `json:"label"`       // 当前下载内容的描述，如"推理后端"、"cudart 依赖包"
 }
 
 // GitHubAsset 表示 GitHub release 中的一个资源文件。

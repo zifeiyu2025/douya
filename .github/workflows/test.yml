@@ -107,8 +107,10 @@ jobs:
           echo "🎉 所有包覆盖率均达标"
 
   config-sync-check:
-    # 配置字段同步检查：防止 Go Config struct 与前端 TS Config / DEFAULT_CONFIG 漂移
-    # 运行 cmd/checkconfig 验证工具，对比三处字段是否一致
+    # 配置同步检查：防止 Go Config 与前端 TS 配置漂移
+    #  1) 字段结构同步：cmd/checkconfig 对比 Go Config struct ↔ TS Config 接口 ↔ DEFAULT_CONFIG
+    #  2) 默认值契约：导出 Go DefaultConfig() 为 JSON，用 node 脚本与 TS DEFAULT_CONFIG 全字段比对，
+    #     发现"后端改了默认值前端未同步"（如 kv_unified/repeat_penalty）即报错
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -120,6 +122,19 @@ jobs:
           go-version: '1.26.x'
           check-latest: true
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Check config field sync
         shell: bash
         run: go run ./cmd/checkconfig
+
+      - name: Export Go default config (contract fixture)
+        shell: bash
+        run: go test ./tests/config/... -run TestContractExportDefaultConfig -count=1
+
+      - name: Compare Go vs TS default values
+        shell: bash
+        run: node tests/config/compare_defaults.mjs

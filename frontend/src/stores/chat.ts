@@ -108,6 +108,8 @@ export const useChatStore = defineStore('chat', () => {
   // 旧请求返回后覆盖新会话的消息列表（TOCTOU 竞态）。每次发起新请求递增，响应返回后校验。
   // 用 ref 包装以便跨 composable 共享（useConversations 也需要递增此值）。
   const messagesRequestVersion = ref(0)
+  // 历史全文搜索结果跳转：待定位高亮的消息 ID（MessageList 消费后自行清空）
+  const pendingHighlightMessageId = ref('')
 
   // ----- 集中 timer 管理（防止泄漏/竞态） -----
   const timers: ReturnType<typeof setTimeout>[] = []
@@ -302,6 +304,7 @@ export const useChatStore = defineStore('chat', () => {
     renameConversation,
     deleteConversation,
     searchMessages,
+    selectConversationAndLocate,
     exportConversation,
     exportConversationWithDialog
   } = useConversations({
@@ -313,7 +316,8 @@ export const useChatStore = defineStore('chat', () => {
     isLoadingConversations,
     lastError,
     messagesRequestVersion,
-    clearFlushTimer
+    clearFlushTimer,
+    pendingHighlightMessageId
   })
 
   // 切换对话时重置 lastPromptTokens（新对话的已用 token 数未知，显示 0 直到下次请求完成）
@@ -1059,6 +1063,8 @@ export const useChatStore = defineStore('chat', () => {
     renameConversation,
     deleteConversation,
     searchMessages,
+    selectConversationAndLocate,
+    pendingHighlightMessageId,
     exportConversation,
     exportConversationWithDialog,
     deleteMessage,

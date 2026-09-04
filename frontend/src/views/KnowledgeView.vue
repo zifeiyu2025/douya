@@ -51,7 +51,9 @@ onMounted(async () => {
 
 <style scoped>
 .knowledge-container {
-  flex: 1;
+  /* 撑满 .main-area 高度（与 ChatView/SettingsView 同法：height:100%
+     参照 flex 布局确定的 used height；main-area 非 flex 容器，flex:1 不生效） */
+  height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;

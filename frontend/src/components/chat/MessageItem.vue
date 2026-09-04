@@ -73,7 +73,7 @@ import AppIcon from '../ui/AppIcon.vue'
 import defaultUserAvatar from '../../assets/images/user-avatar.svg'
 import defaultAiAvatar from '../../assets/images/appicon.png'
 
-const props = defineProps<{ message: Message }>()
+const props = defineProps<{ message: Message; highlight?: boolean }>()
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
 const messageApi = useMessage()
@@ -419,6 +419,26 @@ function regenerate() {
   flex-direction: row-reverse;
   justify-content: flex-start;
   animation: messageSlideIn 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* 历史全文搜索结果跳转定位：消息外框短暂亮起再淡出（CSS 动画自回收，无需 JS 控制） */
+@keyframes locatePulse {
+  0%,
+  60% {
+    outline-color: var(--seal-color);
+    outline-width: 2px;
+    outline-offset: -2px;
+    background-color: var(--locate-tint, rgba(176, 67, 46, 0.08));
+  }
+  100% {
+    outline-color: transparent;
+    outline-width: 0px;
+    background-color: transparent;
+  }
+}
+.message-item.is-located {
+  border-radius: var(--border-radius-md, 10px);
+  animation: locatePulse 2.2s ease-out forwards;
 }
 
 .message-item:not(.user) {

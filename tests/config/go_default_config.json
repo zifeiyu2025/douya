@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "model_path": "",
   "mmproj_auto": true,
   "mmproj_offload": null,
@@ -15,7 +15,7 @@
   "top_p": 0.95,
   "top_k": 40,
   "repeat_penalty": 1.1,
-  "kv_unified": false,
+  "kv_unified": true,
   "kv_unified_per_slot": 0,
   "cache_idle_slots": true,
   "cache_ram": 0,
@@ -129,7 +129,7 @@
   "rerank_top_n": 5,
   "slot_save_path": "",
   "slot_save_enabled": true,
-  "cache_reuse": 256,
+  "cache_reuse": 0,
   "spec_draft_ngl": 0,
   "spec_draft_device": "",
   "spec_draft_p_split": 0,
@@ -163,5 +163,6 @@
   "n_cpu_moe": 0,
   "n_cpu_ffn": 0,
   "op_offload": null,
+  "lazy_mode": "",
   "mcp_servers": []
 }

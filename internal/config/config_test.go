@@ -548,8 +548,8 @@ func TestMigrate_V2ToV3_SeedsPerThemeBackground(t *testing.T) {
 	rawData := []byte(`{"version":2,"chat_background_opacity":0.6}`)
 	cfg.migrate(rawData)
 
-	if cfg.Version != 3 {
-		t.Errorf("期望迁移后 Version=3，实际得到: %d", cfg.Version)
+	if cfg.Version != 4 {
+		t.Errorf("期望迁移后 Version=4，实际得到: %d", cfg.Version)
 	}
 	// 亮色种子 = 旧值原样保留
 	if cfg.BackgroundLight.Opacity != 0.6 {
@@ -628,8 +628,8 @@ func TestMigrate_AlreadyCurrentVersion(t *testing.T) {
 	// 显式改写背景参数，验证当前版本配置不会被迁移逻辑碰
 	custom := ThemeBackgroundParams{Opacity: 0.33, Blur: 2, MaskAlpha: 0.2}
 	cfg.BackgroundLight = custom
-	// 原始数据包含 version 字段（值为当前版本），不应触发迁移，字段不被覆盖
-	rawData := []byte(`{"version":3,"thinking_enabled":true,"thinking_soft_switch":"think"}`)
+	// 原始数据包含 version 字段（值为当前版本 4），不应触发迁移，字段不被覆盖
+	rawData := []byte(`{"version":4,"thinking_enabled":true,"thinking_soft_switch":"think"}`)
 	cfg.migrate(rawData)
 
 	if cfg.Version != currentConfigVersion {
@@ -640,6 +640,63 @@ func TestMigrate_AlreadyCurrentVersion(t *testing.T) {
 	}
 	if cfg.BackgroundLight != custom {
 		t.Errorf("期望 BackgroundLight 不被覆盖，实际 %+v", cfg.BackgroundLight)
+	}
+}
+
+// ===== 统一 KV 缓存默认值迁移测试（v3→v4） =====
+
+// TestMigrate_V3ToV4_KVUnifiedFalseBecomesTrue 验证磁盘显式存在 kv_unified=false 时
+// 迁移为 true：false 在参数生成层不产生 --no-kv-unified，实际行为本就是开启（上游默认），
+// 迁移仅修正 UI 显示与实际行为一致，无行为变化。
+func TestMigrate_V3ToV4_KVUnifiedFalseBecomesTrue(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Version = 3
+	cfg.KVUnified = false // 模拟旧默认值时代的持久化配置
+
+	rawData := []byte(`{"version":3,"kv_unified":false}`)
+	cfg.migrate(rawData)
+
+	if cfg.Version != 4 {
+		t.Errorf("期望迁移后 Version=4，实际得到: %d", cfg.Version)
+	}
+	if !cfg.KVUnified {
+		t.Errorf("期望 kv_unified 从 false 迁移为 true，实际仍为 false")
+	}
+}
+
+// TestMigrate_V3ToV4_MissingKeyKeepsTrue 验证磁盘缺 kv_unified 键时无需迁移：
+// Unmarshal 后默认即 true，迁移不应改写任何字段。
+func TestMigrate_V3ToV4_MissingKeyKeepsTrue(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Version = 3
+	cfg.KVUnified = true // 缺键配置 Unmarshal 后即默认 true
+
+	rawData := []byte(`{"version":3,"repeat_penalty":1.2}`)
+	cfg.migrate(rawData)
+
+	if cfg.Version != 4 {
+		t.Errorf("期望迁移后 Version=4，实际得到: %d", cfg.Version)
+	}
+	if !cfg.KVUnified {
+		t.Errorf("期望缺键时 KVUnified 保持 true，实际被改写为 false")
+	}
+}
+
+// TestMigrate_V3ToV4_UnparseableKeyIgnored 验证 kv_unified 键值非法（非 bool）时
+// 迁移不强行修改，交由校验层处理（repairInvalidFields 会按规则修复）。
+func TestMigrate_V3ToV4_UnparseableKeyIgnored(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Version = 3
+
+	rawData := []byte(`{"version":3,"kv_unified":"maybe"}`)
+	cfg.migrate(rawData)
+
+	if cfg.Version != 4 {
+		t.Errorf("期望迁移后 Version=4，实际得到: %d", cfg.Version)
+	}
+	// 迁移不触碰非法值，KVUnified 保持 Unmarshal 默认 true
+	if !cfg.KVUnified {
+		t.Errorf("期望非法值不被迁移改写（保持默认 true），实际为 false")
 	}
 }
 

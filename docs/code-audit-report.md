@@ -188,29 +188,31 @@ stores/chat.ts 为兼容三种历史事件 payload 格式保留了双命名兼�
 
 ---
 
-## 四、后续路线图（本轮不动，记录备忘）
+## 四、后续路线图（状态跟踪）
+
+> 本表随实施进度持续更新。✅ = 已落地；🔄 = 进行中/部分落地；⏳ = 未做（附决策）。
 
 ### 4.1 ⭐ 微软商店上架适配专节
 
 > 背景：应用正在上架微软商店（MSIX 打包）。以下事项在商店版语境下重要性陡增，本轮仅评估不动代码。
 
-1. **数据目录迁移评估**：当前数据写在 exe 相对目录 `data/`。MSIX 打包后程序目录受系统保护（写入会被虚拟化重定向或直接失败），应迁移至 `%LOCALAPPDATA%` 并提供旧目录一次性迁移逻辑。此项直接影响商店审核通过率与更新后用户数据完整性。
-2. **自更新与商店更新的冲突**：现有 `app_update.go` 自更新机制（GitHub Release 下载 + PowerShell 替换自身）与商店自动更新是两个互相破坏的更新源——商店版必须禁用自更新，或至少做"运行于 MSIX 环境"的检测互斥。否则出现"商店刚更新完，自更新又把二进制替换回旧版"的灾难场景。
-3. **稳定性权重佐证**：本轮 B-1 数据竞争修复对商店版尤为关键——MSIX 沙箱环境下崩溃转储与错误上报渠道更受限，每一次崩溃都是无法挽回的差评。
+1. **数据目录迁移评估** ✅ **已落地**：`internal/appdata` 包统一数据根为 `%LOCALAPPDATA%\Douya`（回退链 LOCALAPPDATA → APPDATA → exe 目录），`MigrateLegacyData` 提供旧目录（config.json + data/）一次性迁移，带幂等标记、失败降级不阻塞启动（含单元测试 `internal/appdata/appdata_test.go`）。MSIX 沙箱下安装目录只读不再影响数据读写。
+2. **自更新与商店更新的冲突** ✅ **已落地**：按商店政策 10.1.5 移除应用内自更新（原 `app_update.go` 不再存在），更新统一由 Microsoft Store 接管（见 app_about.go 注释），双更新源互相破坏的灾难场景从根上消除。
+3. **稳定性权重佐证** ✅：B-1 数据竞争修复（CloseJob 加锁）已随阶段 B 落地，`go test -race` 无告警。
 
 ### 4.2 Go 结构性重构（下一轮大版本候选）
 
-1. **Config ↔ ServerConfig 合并**：消灭 228 字段双镜像，配置单一事实来源，预计删除千行样板；
-2. **switch 编排层下沉**：app_server_switch.go(953 行) 的状态机/回退/预热逻辑迁入 internal/modelruntime，编排层瘦身为薄壳；
-3. **错误包装风格统一**：lint 规则强制新代码走 apperror.Wrap；
-4. **魔法数字常量化 + 日志语言统一**（当前中英混排）。
+1. **Config ↔ ServerConfig 合并** ⏳ **决策：不做结构体合并（ADR-2026-09）**。勘察确认 `ServerConfig`（internal/llm）是「用户配置子集 + 运行期派生值 + 环境路径」的启动 DTO，与持久化的 `Config` 生命周期不同，强行合并会把持久化与运行时启动耦合（反模式）。现状 `buildServerConfigFromFields`（app_server_config.go:161）已是 Config→ServerConfig 的**单一映射源**，`derive` 派生参数独立收敛于 `derivedServerParams`——「新增配置项要同步改 6+ 处」的问题已被单一函数 + 逐字段映射缓解。维持现状，不再追求字段级合并。
+2. **switch 编排层下沉** ⏳ **决策：本轮不动（ADR-2026-09）**。`app_server_switch.go`（890 行）30 个函数全部强耦合 `App` 生命周期（`a.ctx`/`a.rootCtx`/`a.trackedGo`/`a.getClient()`/事件发射 helper），下沉至 internal/modelruntime 需要大规模接口反转，且商店上架期稳定性权重最高、无独立可回滚边界。**未来实施路径**：先把「纯计算」子集（`classifyWaitError`/`buildStackOverflowSuggestion`/`calculateLoadTimeout`/`getModelFileSize` 等）抽为无 App 依赖的纯函数迁入 internal/modelruntime 并附单测，再逐步迁状态机，最后编排层只剩薄壳。
+3. **错误包装风格统一** ✅ **已落地**：全库统计 `apperror.Wrap`/`New` 517 处、`WrapNew` 158 处，裸 `fmt.Errorf %w` 仅剩 6 处且全部位于 tts 协议层（errors.Is 透传根因的合理场景）。`internal/chat/model_params.go` 两处面向用户的 `%w` 已统一为 `apperror.Wrap`/`New`；使用约定（业务层走 Wrap、库/协议层可 `%w`、禁止用户路径裸 `%w`）已固化到 `internal/apperror` 包文档。
+4. **魔法数字常量化 + 日志语言统一** 🔄 **持续项**：零散魔法值仍散布于个别参数计算处（如 KeepSize=512 等已有注释说明），日志中英混排为长期收编项，随各模块改造顺手收敛，不设独立大改。
 
 ### 4.3 前端后续演进
 
-1. settings context 进一步按域拆分为多个小 context；
-2. 组件渲染测试全覆盖（本轮 C-9 打样后持续补充）；
-3. modelRefs.ts(1747 行静态数据表) 迁移 JSON 资源 + 惰性加载（本轮 C-7 承接）；
-4. 考虑引入 Storybook 或等价物沉淀 ui/ 原子组件的视觉回归基线。
+1. **settings context 按域拆分** ✅ **已落地**：45 字段平铺 context 已重构为五个类型化域切片（core/appearance/aiChat/performance/apiService），API 类型由各 composable `ReturnType` 自动推导（settingsContext.ts:21 行）。
+2. **组件渲染测试全覆盖** 🔄 **进行中**：已新增 `SessionSidebar`（标题过滤/全文聚合/定位跳转/空态/已删会话过滤，6 例）与设置章节搜索纯逻辑（`utils/sectionSearch`，13 例）；既有 MessageItem/ParamsPanel/ModelDetailCard 渲染测试持续扩充中。
+3. **modelRefs.ts 迁移 JSON 资源** ✅ **已落地**：70 模型参数数据本体已迁至 `modelRefs.data.json`（约 90KB），`modelRefs.ts` 仅保留类型契约与统一导出，构建时由 codeSplitting 拆为独立分块（消费方导入路径零变化，`utils/modelRefs.test.ts` 34 例保持绿色）。
+4. **Storybook 视觉回归基线** ⏳ **低优先**：ui/ 原子组件数量尚少，引入 Storybook 的维护成本高于当前收益，暂缓；以 tokens.css 设计令牌 + 组件渲染测试作为替代基线。
 
 ---
 

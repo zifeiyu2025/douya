@@ -111,5 +111,8 @@ diag_conpty/
 diag_store/
 build/sandbox-models-backup/
 
+# Go 测试临时构建目录（Windows Defender 偶发锁文件无法即时清理）
+.gotmp/
+
 # 提示词真模型评测报告（生成产物）
 /prompt_eval_report.md
