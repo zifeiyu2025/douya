@@ -3,6 +3,7 @@ import type { MessageApi } from 'naive-ui'
 import { useSettingsStore } from '../../../stores/settings'
 import { type SearchAPIKeys } from '../../../services/wails'
 import { showSuccess } from '../../../utils/showError'
+import { copyText } from '../../../utils/clipboard'
 import { logError } from '../../../utils/logger'
 import type { SettingsCore } from './useSettingsCore'
 
@@ -82,9 +83,10 @@ export function useAPIServiceSettings(core: SettingsCore, message: MessageApi) {
     }
   }
 
-  function copyGeneratedApiKey() {
-    navigator.clipboard.writeText(generatedServerApiKey.value)
-    showSuccess(message, 'API Key 已复制')
+  async function copyGeneratedApiKey() {
+    const ok = await copyText(generatedServerApiKey.value)
+    if (ok) showSuccess(message, 'API Key 已复制')
+    else message.error('复制失败，请手动选择文本复制')
   }
 
   function dismissGeneratedApiKey() {

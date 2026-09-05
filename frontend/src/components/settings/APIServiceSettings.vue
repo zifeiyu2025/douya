@@ -45,6 +45,39 @@
     </n-input>
   </n-form-item>
 
+  <!-- 模型 ID（供外部工具填写 model 参数） -->
+  <n-form-item>
+    <template #label>
+      模型 ID
+      <HelpTip
+        content="外部工具（Claude Code、Codex 等）调用 API 时需填写的 model 参数。default 始终指向当前默认模型；其余 ID 对应 models 目录中的各个模型"
+      />
+    </template>
+    <div class="model-id-list">
+      <div class="model-id-item">
+        <span class="model-id-value">default</span>
+        <n-tag type="info" size="small">当前默认模型</n-tag>
+        <n-button text class="model-id-copy" @click="copyModelId('default')">
+          <n-icon :size="14"><CopyOutline /></n-icon>
+        </n-button>
+      </div>
+      <div v-for="m in modelOptions" :key="m.name" class="model-id-item">
+        <span class="model-id-value">{{ m.name }}</span>
+        <n-tag v-if="m.is_loaded" type="success" size="small">已加载</n-tag>
+        <n-tag v-else-if="m.is_default" type="info" size="small">默认</n-tag>
+        <n-button text class="model-id-copy" @click="copyModelId(m.name)">
+          <n-icon :size="14"><CopyOutline /></n-icon>
+        </n-button>
+      </div>
+      <div v-if="modelsLoadFailed" class="model-id-empty">
+        模型列表加载失败，可稍后重新进入设置页重试
+      </div>
+      <div v-else-if="modelOptions.length === 0" class="model-id-empty">
+        暂无可用模型，请先在模型管理中下载或导入 .gguf 模型
+      </div>
+    </div>
+  </n-form-item>
+
   <!-- Expose LAN toggle -->
   <n-form-item>
     <template #label>
@@ -102,7 +135,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject } from 'vue'
+import { computed, inject, onMounted, ref } from 'vue'
 import {
   NFormItem,
   NInput,
@@ -116,6 +149,9 @@ import {
 import { CopyOutline, KeyOutline } from '@vicons/ionicons5'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
 import HelpTip from '../ui/HelpTip.vue'
+import { wails, type ModelOption } from '../../services/wails'
+import { copyText } from '../../utils/clipboard'
+import { logError } from '../../utils/logger'
 
 defineOptions({ name: 'APIServiceSettings' })
 
@@ -146,9 +182,29 @@ const endpoint = computed(() => {
   return `${base}/v1`
 })
 
-const copyEndpoint = () => {
-  navigator.clipboard.writeText(endpoint.value)
-  message.success('API 端点已复制')
+const copyEndpoint = async () => {
+  const ok = await copyText(endpoint.value)
+  if (ok) message.success('API 端点已复制')
+  else message.error('复制失败，请手动选择文本复制')
+}
+
+// 模型 ID 列表：外部工具调用 API 时需填写的 model 参数
+const modelOptions = ref<ModelOption[]>([])
+const modelsLoadFailed = ref(false)
+
+onMounted(async () => {
+  try {
+    modelOptions.value = await wails.getAvailableModels()
+  } catch (e) {
+    logError('Failed to load available models', e)
+    modelsLoadFailed.value = true
+  }
+})
+
+const copyModelId = async (id: string) => {
+  const ok = await copyText(id)
+  if (ok) message.success(`模型 ID「${id}」已复制`)
+  else message.error('复制失败，请手动选择文本复制')
 }
 </script>
 
@@ -201,6 +257,37 @@ const copyEndpoint = () => {
 }
 .generated-key-note {
   margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+/* 模型 ID 列表 */
+.model-id-list {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.model-id-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+.model-id-value {
+  font-family: monospace;
+  font-size: 13px;
+  color: var(--text-primary);
+  word-break: break-all;
+  user-select: all;
+}
+.model-id-copy {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.model-id-empty {
   font-size: 12px;
   color: var(--text-secondary);
 }
