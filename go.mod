@@ -2,7 +2,7 @@ module douya
 
 go 1.26.3
 
-toolchain go1.26.6
+toolchain go1.26.8
 
 require (
 	fyne.io/systray v1.12.2
@@ -10,10 +10,10 @@ require (
 	github.com/dgraph-io/badger/v4 v4.9.6
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
-	github.com/mattn/go-sqlite3 v1.14.49
+	github.com/ledongthuc/pdf v0.0.0-20260903153007-b3c860c23753
+	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/rs/zerolog v1.35.1
-	github.com/wailsapp/wails/v2 v2.14.0
+	github.com/wailsapp/wails/v2 v2.15.0
 	golang.org/x/net v0.58.0
 )
 
