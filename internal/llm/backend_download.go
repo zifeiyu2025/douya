@@ -31,20 +31,18 @@ import (
 // （参数改名、行为变更、资产结构调整），自动跟随会导致新下载的后端与
 // 应用适配逻辑不兼容，出现模型加载失败等问题。
 //
-// 当前锁定 b10791（2026-09-04 升级）：已完成验证——
-//  1. 服务端参数面：b10675 → b10791 共 245 个提交，common/arg.cpp 仅变更
-//     --tensor-read-lazy 改名为 --lazy-mode（豆芽未使用旧名）、新增
-//     --reasoning-preserve / --no-reasoning-preserve（豆芽用 enable_thinking
-//     控制思考开关，不冲突），无参数删除影响豆芽现有传递面；
+// 当前锁定 b10816（2026-09-05 升级）：已完成验证——
+//  1. 服务端参数面：b10791 → b10816 共 25 个提交，common/arg.cpp 无变更，
+//     无参数删除/改名影响豆芽现有传递面；
 //  2. 资产命名：官方 release 仍按 cpu-x64 / cuda-12.4 / cuda-13.3-x64 /
 //     vulkan-x64 及 cudart-13.3 配套包规则发布，匹配现有资产正则；
-//  3. 实测：按官方 release.yml 参数本地编译的三套引擎（b10791）已通过
+//  3. 实测：按官方 release.yml 参数本地编译的三套引擎（b10816）已通过
 //     CUDA 后端加载与应用端到端冒烟，引擎与下载包同源同版本。
 //
 // 升级流程：上游发布新版后，人工验证兼容性（重点核对 --server 参数面与
 // 资产命名规则），确认无误后将此常量改为新 tag（如 "b10800"）即可，
 // 后端下载与版本更新检查会同时跟随新版本。
-const PinnedReleaseTag = "b10791"
+const PinnedReleaseTag = "b10816"
 
 // githubReleasesTagsBase 是按 tag 查询单个 release 的 GitHub API 地址前缀。
 const githubReleasesTagsBase = "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/"

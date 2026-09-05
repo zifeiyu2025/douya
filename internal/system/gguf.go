@@ -227,7 +227,7 @@ func ParseGGUFMetadata(path string) (*GGUFMetadata, error) {
 			"qwen3", "qwen3.5", "qwen3.6", "qwen3.8", "qwen35", "qwen36", "qwen38", "gemma-4-assistant", "gemma4-assistant", "gemma-4", "gemma4", "gemma-3", "gemma3", "gemma-2", "llama-4", "llama4",
 			"mistral-small-3", "mistral-small3", "mistral-4", "mistral4",
 			"deepseek-r1", "deepseek-v2", "deepseek-v3", "deepseek-v4", "deepseek-r", "deepseek-3.2", "deepseek32",
-			"phi-4-reasoning", "phi4-reasoning",
+			"phi-4-reasoning", "phi4-reasoning", "hy4", "hy-4", "hy_v4",
 			"glm4", "chatglm4", "glm-4-moe", "glm4moe", "cohere2moe", "tiny-aya",
 			"ernie-4.5", "ernie4.5", "minimax-m2", "minimaxm2",
 			"minicpm5", "minicpm-5",
