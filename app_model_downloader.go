@@ -1,4 +1,4 @@
-// Copyright zifeiyu. All rights reserved.
+﻿// Copyright zifeiyu. All rights reserved.
 // 豆芽本地AI
 
 package main
@@ -147,6 +147,11 @@ func (a *App) DownloadHubModel(provider string, repoID string, mainFile string, 
 				a.emitModelDownloadComplete(repoID, mmprojBase, false, emitErr.Error())
 				return
 			}
+			// 下载完成后规范化 mmproj 文件名（mmproj-<主模型去量化名>-<精度>.gguf），
+			// 保证 preset 扫描的关键词匹配能稳定关联主模型与 mmproj，避免视觉能力静默失效。
+			if renamed, newBase := a.normalizeMmprojFileName(modelsDir, mainBase, mmprojBase); renamed {
+				mmprojBase = newBase
+			}
 		}
 
 		// 下载完成：刷新模型列表，让新模型出现在下拉框
@@ -200,6 +205,39 @@ func (a *App) downloadSingle(prov llm.HubProvider, repoID, fileName, modelsDir s
 		return err
 	}
 	return nil
+}
+
+// normalizeMmprojFileName 下载完成后将 mmproj 文件重命名为与主模型关联的规范化文件名
+// （mmproj-<主模型去量化名>-<精度>.gguf），使 preset 扫描的关键词匹配必然命中。
+//
+// 返回值：
+//   - renamed: 是否发生了重命名（false 表示文件名本就符合规范或重命名失败）；
+//   - finalName: 最终落盘的文件名（重命名失败时回退为源文件名）。
+func (a *App) normalizeMmprojFileName(modelsDir, mainBase, mmprojBase string) (bool, string) {
+	target := llm.MmprojTargetName(mainBase, mmprojBase)
+	if target == mmprojBase {
+		return false, mmprojBase
+	}
+
+	src := filepath.Join(modelsDir, mmprojBase)
+	dst := filepath.Join(modelsDir, target)
+
+	// 目标文件已存在：保留既有规范化文件，删除本次下载的源文件，避免目录内重复 mmproj。
+	if _, err := os.Stat(dst); err == nil {
+		if rmErr := os.Remove(src); rmErr != nil {
+			zlog.Warn().Err(rmErr).Str("file", src).Msg("[modelhub] 删除重复 mmproj 源文件失败")
+		}
+		return true, target
+	}
+
+	if err := os.Rename(src, dst); err != nil {
+		// 重命名失败不阻断：保留源文件名，视觉能力降级为纯文本模式由 preset 扫描兜底
+		zlog.Warn().Err(err).Str("src", src).Str("dst", dst).Msg("[modelhub] mmproj 重命名失败，保留源文件名")
+		return false, mmprojBase
+	}
+
+	zlog.Info().Str("from", mmprojBase).Str("to", target).Msg("[modelhub] mmproj 文件名已规范化")
+	return true, target
 }
 
 func (a *App) emitModelDownloadProgress(p llm.ModelDownloadProgress) {

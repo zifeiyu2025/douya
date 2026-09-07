@@ -749,6 +749,57 @@ func TestScanModelsDir_SingleMmprojMatch(t *testing.T) {
 		t.Fatalf("expected 1 preset, got %d", len(presets))
 	}
 	if presets[0].MmprojPath == "" {
-		t.Error("expected mmproj path to be found for matching mmproj, got empty")
+                t.Error("expected mmproj path to be found for matching mmproj, got empty")
+        }
+}
+
+// TestMmprojTargetName 测试 mmproj 目标文件名推导规则。
+// 核心约定：mmproj-<主模型去量化名>-<精度>.gguf，量化档位不进入投影文件名。
+func TestMmprojTargetName(t *testing.T) {
+	cases := []struct {
+		name        string
+		mainBase    string
+		srcMmproj   string
+		want        string
+	}{
+		{
+			name:      "主模型带量化档+BF16源",
+			mainBase:  "Qwen3.8-9B-Q4_K_M.gguf",
+			srcMmproj: "mmproj-qwen3-vl-9b-bf16.gguf",
+			want:      "mmproj-Qwen3.8-9B-BF16.gguf",
+		},
+		{
+			name:      "主模型无量化档",
+			mainBase:  "glm-4v-9b.gguf",
+			srcMmproj: "mmproj-glm-4v-9b-f16.gguf",
+			want:      "mmproj-glm-4v-9b-F16.gguf",
+		},
+		{
+			name:      "源精度无法识别默认BF16",
+			mainBase:  "gemma-3-4b-it.gguf",
+			srcMmproj: "mmproj-gemma-3-4b.gguf",
+			want:      "mmproj-gemma-3-4b-it-BF16.gguf",
+		},
+		{
+			name:      "主模型名含mmproj前缀防御",
+			mainBase:  "mmproj-Qwen3-8B-Q4_K_M.gguf",
+			srcMmproj: "mmproj-qwen3-8b-f16.gguf",
+			want:      "mmproj-Qwen3-8B-F16.gguf",
+		},
+		{
+			name:      "大模型IQ量化档",
+			mainBase:  "qwen3-32b-iq4_xs.gguf",
+			srcMmproj: "mmproj-qwen3-32b-bf16.gguf",
+			want:      "mmproj-qwen3-32b-BF16.gguf",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := MmprojTargetName(tc.mainBase, tc.srcMmproj)
+			if got != tc.want {
+				t.Errorf("MmprojTargetName(%q, %q) = %q, 期望 %q", tc.mainBase, tc.srcMmproj, got, tc.want)
+			}
+		})
 	}
 }

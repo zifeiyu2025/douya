@@ -411,6 +411,34 @@ func StripQuantSuffix(name string) string {
 	return quantSuffixRe.ReplaceAllString(name, "")
 }
 
+// MmprojTargetName 根据主模型文件名推导 mmproj 落盘文件名。
+//
+// 规则：mmproj-<主模型去量化名>-<精度>.gguf。
+//   - 剔除主模型量化后缀（-Q4_K_M 等），避免把量化档位带进投影文件名；
+//   - 精度后缀（BF16/F16/F32）取自源 mmproj 文件名，无法识别时默认 BF16；
+//   - 防御：主模型名若以 "mmproj-" 开头则去掉该前缀，避免 "mmproj-mmproj-" 双重前缀。
+//
+// 例：主模型 "Qwen3.8-9B-Q4_K_M.gguf"，源 mmproj "mmproj-qwen3-vl-9b-bf16.gguf"
+//   → "mmproj-Qwen3.8-9B-BF16.gguf"
+//
+// 目的：preset 扫描只认 "mmproj-*.gguf" 并按关键词关联主模型；文件名规范化后
+// 关键词匹配必然命中，避免 mmproj 因文件名与主模型无关而静默失效（视觉能力丢失）。
+func MmprojTargetName(mainBase, srcMmproj string) string {
+	base := strings.TrimSuffix(mainBase, filepath.Ext(mainBase))
+	base = StripQuantSuffix(base)
+	base = strings.TrimPrefix(base, "mmproj-")
+
+	precision := "BF16"
+	// 顺序敏感：BF16 必须排在 F16 前，否则 "bf16.gguf" 会被误判为 "f16"
+	for _, p := range []string{"BF16", "F16", "F32"} {
+		if strings.HasSuffix(strings.ToLower(srcMmproj), strings.ToLower(p)+".gguf") {
+			precision = p
+			break
+		}
+	}
+	return "mmproj-" + base + "-" + precision + ".gguf"
+}
+
 func extractKeywords(modelBase string) []string {
 	// 先用常见分隔符拆分
 	parts := strings.FieldsFunc(modelBase, func(r rune) bool {
