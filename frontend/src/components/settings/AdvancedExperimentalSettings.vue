@@ -32,7 +32,10 @@
             content="一键启用 CORS 代理和所有内置工具（文件读写、shell 命令等）。实验性功能，不建议在不可信环境启用"
           />
         </template>
-        <n-switch v-model:value="formConfig.agent" @update:value="autoSave" />
+        <n-switch v-model:value="formConfig.agent" @update:value="onAgentSwitchChange" />
+        <div v-if="modelMayLackToolCalls" class="field-hint">
+          <span class="hint-item">当前模型未检测到工具调用能力，Agent 模式开启后不会实际生效</span>
+        </div>
       </n-form-item>
 
       <template v-if="formConfig.agent">
@@ -358,8 +361,9 @@
 
 <script setup lang="ts">
 import { computed, defineAsyncComponent, inject } from 'vue'
-import { NFormItem, NSwitch, NInput, NInputNumber, NSelect } from 'naive-ui'
+import { NFormItem, NSwitch, NInput, NInputNumber, NSelect, useDialog } from 'naive-ui'
 import { SETTINGS_CONTEXT_KEY, type SettingsContext } from './settingsContext'
+import { useSettingsStore } from '../../stores/settings'
 // 性能项：MCP 设置含终端交互逻辑，异步加载减小高级面板首包
 const MCPSettings = defineAsyncComponent(() => import('./MCPSettings.vue'))
 // 性能项：LoRA 管理器为低频重组件，与 MCPSettings 同策略异步加载
@@ -377,6 +381,41 @@ if (!ctx) {
 // 域切片：高级面板自包含（Agent/后端采样互斥逻辑在面板内部），仅需核心表单与保存
 const { core } = ctx
 const { formConfig, autoSave } = core
+
+const settingsStore = useSettingsStore()
+const dialog = useDialog()
+
+/**
+ * 已加载模型是否缺失 tool calls 能力。
+ * 未加载模型时视为未知（能力尚未探测），不拦截——避免启动早期误报。
+ */
+const modelMayLackToolCalls = computed(
+  () => !!settingsStore.currentModel && !settingsStore.modelCapabilities.tool_call_support
+)
+
+/**
+ * Agent 开关切换处理：开启时校验当前模型是否支持 tool calls。
+ * Agent 模式完全依赖模型主动发起 tool call，不支持的模型开启后无实际效果，
+ * 故弹窗说明并让用户确认（保留"仍要开启"以兼容能力检测误报的场景）。
+ */
+function onAgentSwitchChange(value: boolean) {
+  if (value && modelMayLackToolCalls.value) {
+    dialog.warning({
+      title: '当前模型可能不支持工具调用',
+      content: `已加载的模型「${settingsStore.currentModel}」未检测到 tool calls 能力。Agent 模式依赖模型主动调用内置工具（文件读写、shell 命令等），对不支持的模型开启后不会产生实际效果。建议切换到支持工具调用的模型（如 Qwen3、Llama 3.1+、Mistral 系列）后再开启。`,
+      positiveText: '仍要开启',
+      negativeText: '取消',
+      onNegativeClick: () => {
+        formConfig.value.agent = false
+      },
+      onPositiveClick: () => {
+        autoSave()
+      }
+    })
+    return
+  }
+  autoSave()
+}
 
 /** 工具审批模式选项 */
 const approvalOptions = [
