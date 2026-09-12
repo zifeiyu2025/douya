@@ -319,6 +319,14 @@ func storeMsgToChat(m *store.Message) *Message {
 			log.Warn().Err(err).Str("messageID", m.ID).Msg("[chat] 历史消息附件反序列化失败，该消息附件将不展示")
 		}
 	}
+	if m.ToolActivity != "" {
+		var records []ToolCallRecord
+		if err := json.Unmarshal([]byte(m.ToolActivity), &records); err == nil && len(records) > 0 {
+			msg.ToolActivity = records
+		} else if err != nil {
+			log.Warn().Err(err).Str("messageID", m.ID).Msg("[chat] tool_activity 反序列化失败，该消息工具时间线将不展示")
+		}
+	}
 	return msg
 }
 

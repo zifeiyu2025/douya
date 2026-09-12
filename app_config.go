@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/wailsapp/wails/v2/pkg/runtime"
+
 	"douya/internal/apperror"
 	"douya/internal/chat"
 	"douya/internal/config"
@@ -91,6 +93,25 @@ func (a *App) UpdateConfig(cfg *config.Config) error {
 // HasServerAPIKey 返回是否已设置 API Key（不暴露实际密钥值给前端）
 func (a *App) HasServerAPIKey() bool {
 	return a.getServerAPIKey() != ""
+}
+
+// SelectAgentDir 弹出原生目录选择对话框，供聊天输入区的"选择项目"按钮使用。
+// 返回用户选中的绝对路径；取消选择返回空串（前端据此判断是否更新 agent_cwd）。
+func (a *App) SelectAgentDir() (string, error) {
+	dirPath, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "选择 Agent 工作目录",
+	})
+	if err != nil {
+		return "", apperror.Wrap(apperror.KindInternal, "选择目录失败", err)
+	}
+	if dirPath == "" {
+		return "", nil
+	}
+	absPath, err := filepath.Abs(dirPath)
+	if err != nil {
+		return "", apperror.Wrap(apperror.KindInternal, "解析目录路径失败", err)
+	}
+	return absPath, nil
 }
 
 // getServerAPIKey 内部方法，获取实际的 API Key 值

@@ -27,12 +27,16 @@ const dbOpTimeout = 10 * time.Second
 
 // messageColumns 是 messages 表的列名列表，保持 INSERT/SELECT 语句一致。
 // 生活类比：像表格的表头清单，确保每次填写和读取都按同一顺序，不会错位。
-const messageColumns = "id, conversation_id, role, content, thinking_content, thinking_duration, search_results, images, attachments, tool_calls, tool_call_id, created_at"
+const messageColumns = "id, conversation_id, role, content, thinking_content, thinking_duration, search_results, images, attachments, tool_calls, tool_call_id, tool_activity, created_at"
 
-// scanMessage 将 rows 当前行扫描到 msg 结构体，统一 12 个字段的 Scan 逻辑。
-// 生活类比：像快递扫码枪，按固定顺序逐一扫描包裹的 12 个标签贴到对应字段上。
+// messageSelectColumns 是 SELECT 专用列清单：ALTER TABLE 新增的列在老数据行上是 NULL，
+// 直接 Scan 进 string 会报 "converting NULL to string is unsupported"，用 COALESCE 归一为空串。
+const messageSelectColumns = "id, conversation_id, role, content, thinking_content, thinking_duration, search_results, images, attachments, tool_calls, tool_call_id, COALESCE(tool_activity, '') AS tool_activity, created_at"
+
+// scanMessage 将 rows 当前行扫描到 msg 结构体，统一 13 个字段的 Scan 逻辑。
+// 生活类比：像快递扫码枪，按固定顺序逐一扫描包裹的 13 个标签贴到对应字段上。
 func scanMessage(rows *sql.Rows, msg *Message) error {
-	return rows.Scan(&msg.ID, &msg.ConversationID, &msg.Role, &msg.Content, &msg.ThinkingContent, &msg.ThinkingDuration, &msg.SearchResults, &msg.Images, &msg.Attachments, &msg.ToolCalls, &msg.ToolCallID, &msg.CreatedAt)
+	return rows.Scan(&msg.ID, &msg.ConversationID, &msg.Role, &msg.Content, &msg.ThinkingContent, &msg.ThinkingDuration, &msg.SearchResults, &msg.Images, &msg.Attachments, &msg.ToolCalls, &msg.ToolCallID, &msg.ToolActivity, &msg.CreatedAt)
 }
 
 type Message struct {
@@ -47,6 +51,7 @@ type Message struct {
 	Attachments      string    `json:"attachments"`
 	ToolCalls        string    `json:"tool_calls"`
 	ToolCallID       string    `json:"tool_call_id"`
+	ToolActivity     string    `json:"tool_activity"`
 	CreatedAt        time.Time `json:"created_at"`
 }
 
@@ -84,6 +89,9 @@ func encryptMessage(msg *Message, encKey []byte) error {
 	if msg.ToolCalls, err = encryptField(msg.ToolCalls, encKey); err != nil {
 		return err
 	}
+	if msg.ToolActivity, err = encryptField(msg.ToolActivity, encKey); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -109,6 +117,9 @@ func decryptMessage(msg *Message, encKey []byte) error {
 	}
 	if msg.ToolCalls, err = decryptField(msg.ToolCalls, encKey); err != nil {
 		return apperror.Wrap(apperror.KindInternal, "decrypt tool_calls", err)
+	}
+	if msg.ToolActivity, err = decryptField(msg.ToolActivity, encKey); err != nil {
+		return apperror.Wrap(apperror.KindInternal, "decrypt tool_activity", err)
 	}
 	return nil
 }
@@ -189,8 +200,8 @@ func CreateMessagesTx(db *sql.DB, msgs []*Message, encKey []byte) error {
 // 由 CreateMessage / CreateMessagesTx 复用，避免 SQL 语句重复。
 func insertMessage(ctx context.Context, execer execer, saved *Message) error {
 	if _, err := execer.ExecContext(ctx,
-		"INSERT INTO messages ("+messageColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		saved.ID, saved.ConversationID, saved.Role, saved.Content, saved.ThinkingContent, saved.ThinkingDuration, saved.SearchResults, saved.Images, saved.Attachments, saved.ToolCalls, saved.ToolCallID, saved.CreatedAt,
+		"INSERT INTO messages ("+messageColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		saved.ID, saved.ConversationID, saved.Role, saved.Content, saved.ThinkingContent, saved.ThinkingDuration, saved.SearchResults, saved.Images, saved.Attachments, saved.ToolCalls, saved.ToolCallID, saved.ToolActivity, saved.CreatedAt,
 	); err != nil {
 		return apperror.Wrap(apperror.KindInternal, "create message", err)
 	}
@@ -206,7 +217,7 @@ func GetMessagesByConversation(db *sql.DB, convID string, encKey []byte) ([]*Mes
 	ctx, cancel := context.WithTimeout(context.Background(), dbOpTimeout)
 	defer cancel()
 	rows, err := db.QueryContext(ctx,
-		"SELECT "+messageColumns+" FROM messages WHERE conversation_id = ? ORDER BY created_at ASC",
+		"SELECT "+messageSelectColumns+" FROM messages WHERE conversation_id = ? ORDER BY created_at ASC",
 		convID,
 	)
 	if err != nil {
@@ -240,7 +251,7 @@ func SearchMessages(db *sql.DB, query string, encKey []byte) ([]*Message, error)
 	ctx, cancel := context.WithTimeout(context.Background(), dbOpTimeout)
 	defer cancel()
 	rows, err := db.QueryContext(ctx,
-		`SELECT `+messageColumns+` FROM messages ORDER BY created_at DESC LIMIT ?`,
+		`SELECT `+messageSelectColumns+` FROM messages ORDER BY created_at DESC LIMIT ?`,
 		searchMaxScanRows,
 	)
 	if err != nil {
@@ -306,9 +317,9 @@ func GetMessage(db *sql.DB, id string, encKey []byte) (*Message, error) {
 	defer cancel()
 	var msg Message
 	err := db.QueryRowContext(ctx,
-		"SELECT "+messageColumns+" FROM messages WHERE id = ?",
+		"SELECT "+messageSelectColumns+" FROM messages WHERE id = ?",
 		id,
-	).Scan(&msg.ID, &msg.ConversationID, &msg.Role, &msg.Content, &msg.ThinkingContent, &msg.ThinkingDuration, &msg.SearchResults, &msg.Images, &msg.Attachments, &msg.ToolCalls, &msg.ToolCallID, &msg.CreatedAt)
+	).Scan(&msg.ID, &msg.ConversationID, &msg.Role, &msg.Content, &msg.ThinkingContent, &msg.ThinkingDuration, &msg.SearchResults, &msg.Images, &msg.Attachments, &msg.ToolCalls, &msg.ToolCallID, &msg.ToolActivity, &msg.CreatedAt)
 	if err != nil {
 		// sql.ErrNoRows 转为统一的 NotFound 错误
 		if errors.Is(err, sql.ErrNoRows) {

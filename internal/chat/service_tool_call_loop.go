@@ -34,6 +34,9 @@ type toolCallResult struct {
 type toolCallLoopState struct {
 	totalTokens  int  // 增量累加的 token 总数（避免每轮 O(n) 重算）
 	hitMaxRounds bool // 是否已到达最大轮次
+	// toolRecords 跨轮次累积的工具调用摘要（含被拒绝的），随最终 AI 消息落库，
+	// 供前端在消息中渲染工具执行时间线（历史消息不留痕问题的修复）。
+	toolRecords []ToolCallRecord
 }
 
 // updateTokenCount 增量累加本轮新增消息的 token 数。
@@ -78,6 +81,17 @@ func (s *Service) handleToolCallLoop(cancelCtx context.Context, convID string, l
 
 		// 1. 并发执行所有 tool calls
 		results := s.executeToolCallsConcurrently(cancelCtx, convID, accumulatedToolCalls, cfg)
+		for _, tr := range results {
+			if tr.tc.Function.Name == "" {
+				continue
+			}
+			state.toolRecords = append(state.toolRecords, ToolCallRecord{
+				ID:        tr.tc.ID,
+				Name:      tr.tc.Function.Name,
+				Arguments: tr.tc.Function.Arguments,
+				Denied:    tr.denied,
+			})
+		}
 
 		// 2. 将结果追加到 llmMessages 并持久化
 		prevMsgCount := len(llmMessages)
@@ -561,6 +575,13 @@ func (s *Service) saveToolCallFinalMessage(convID string, acc *StreamAccumulator
 	s.recordCalibration(acc, llmMessages)
 
 	aiMsg := newAssistantMessage(convID, acc)
+	if len(state.toolRecords) > 0 {
+		if recordsJSON, err := json.Marshal(state.toolRecords); err == nil {
+			aiMsg.ToolActivity = string(recordsJSON)
+		} else {
+			log.Error().Err(err).Msg("[toolCall] 序列化工具调用摘要失败，该消息时间线将不展示")
+		}
+	}
 	if acc.FinishReason == "tool_calls" && state.hitMaxRounds {
 		aiMsg.Content += "\n\n[工具调用已达最大轮次限制，部分搜索结果可能未完全处理]"
 	}

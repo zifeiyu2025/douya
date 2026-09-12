@@ -298,6 +298,10 @@ export function SearchMessages(arg1) {
   return window['go']['main']['App']['SearchMessages'](arg1);
 }
 
+export function SelectAgentDir() {
+  return window['go']['main']['App']['SelectAgentDir']();
+}
+
 export function SelectImageFile() {
   return window['go']['main']['App']['SelectImageFile']();
 }

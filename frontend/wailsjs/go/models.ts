@@ -88,6 +88,24 @@ export namespace chat {
 	        this.updated_at = source["updated_at"];
 	    }
 	}
+	export class ToolCallRecord {
+	    id: string;
+	    name: string;
+	    arguments: string;
+	    denied?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ToolCallRecord(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.arguments = source["arguments"];
+	        this.denied = source["denied"];
+	    }
+	}
 	export class Message {
 	    id: string;
 	    conversation_id: string;
@@ -98,6 +116,7 @@ export namespace chat {
 	    search_results: string;
 	    images?: string;
 	    attachments?: AttachmentSummary[];
+	    tool_activity?: ToolCallRecord[];
 	    created_at: string;
 	    tokens_per_second?: number;
 	    predicted_n?: number;
@@ -117,6 +136,7 @@ export namespace chat {
 	        this.search_results = source["search_results"];
 	        this.images = source["images"];
 	        this.attachments = this.convertValues(source["attachments"], AttachmentSummary);
+	        this.tool_activity = this.convertValues(source["tool_activity"], ToolCallRecord);
 	        this.created_at = source["created_at"];
 	        this.tokens_per_second = source["tokens_per_second"];
 	        this.predicted_n = source["predicted_n"];

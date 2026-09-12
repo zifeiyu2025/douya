@@ -91,8 +91,15 @@
             content="启用 llama.cpp 全部内置工具（文件读写、全局搜索、shell 命令执行等），并将工具定义注入给模型供其调用。含 exec_shell_command 等可执行命令的危险工具，仅在本机可信环境使用"
           />
         </template>
-        <n-switch v-model:value="formConfig.enable_builtin_tools" @update:value="autoSave" />
+        <n-switch
+          v-model:value="formConfig.enable_builtin_tools"
+          :disabled="formConfig.agent"
+          @update:value="autoSave"
+        />
       </n-form-item>
+      <div v-if="formConfig.agent" class="field-hint">
+        Agent 模式已一键启用全部内置工具（含 CORS 代理），此开关仅在关闭 Agent 模式后可调
+      </div>
 
       <n-form-item>
         <template #label>

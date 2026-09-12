@@ -15,6 +15,14 @@ export interface AttachmentSummary {
   mime_type: string
 }
 
+/** 工具调用摘要（后端随最终消息持久化，用于历史消息渲染工具执行时间线） */
+export interface ToolCallRecord {
+  id: string
+  name: string
+  arguments: string
+  denied?: boolean // 被审批门禁拒绝，未实际执行
+}
+
 export interface Message {
   id: string
   conversation_id: string
@@ -25,6 +33,7 @@ export interface Message {
   search_results: string
   images?: string
   attachments?: AttachmentSummary[]
+  tool_activity?: ToolCallRecord[]
   created_at: string
   tokens_per_second?: number // 生成速度（tokens/s），仅流式完成时携带
   predicted_n?: number // 生成的 token 数
@@ -295,7 +304,8 @@ export interface Config {
   mmproj_auto: boolean
   // mmproj GPU 卸载：null=自动（按硬件判断），true=强制启用，false=强制关闭
   mmproj_offload: boolean | null
-  // 视觉投影(mmproj)专用 GPU 设备名（多显卡分卡）：空=auto（与主模型同卡），"none"=关闭卸载，或如 "cuda:1"
+  // 视觉投影(mmproj)专用 GPU 设备名（多显卡分卡）：空=跟随 --device（上游 b10874 起默认；
+  // 未设置 --device 时由引擎 auto 判定），"none"=关闭卸载，或如 "cuda:1"
   mmproj_device: string
   llama_server_path: string
   // 计算后端类型：auto(自动检测)/cuda/hip/sycl/vulkan/openvino/cpu

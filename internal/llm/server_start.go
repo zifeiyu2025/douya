@@ -61,19 +61,23 @@ func (s *Server) Start() error {
 	runtimeDir := filepath.Dir(s.config.ServerPath)
 	env := prepareProcessEnv(runtimeDir, s.cmdEnv, s.config.ServerAPIKeyEnabled)
 
-	s.cmd = exec.Command(s.config.ServerPath, args...)
-	s.cmd.Dir = runtimeDir
 	// Agent 模式：内置工具（read_file/exec_shell_command 等 uses_cwd）的相对路径
 	// 以进程工作目录为基准。用户配置了 AgentCwd 时切到该目录，让 Agent 直接
 	// 在用户的项目文件夹里干活；目录无效则保持引擎目录（不阻断启动）。
+	// 注意：ConPTY 与 exec.Cmd 两条启动路径都必须用同一个 workDir——
+	// 此前 ConPTY 路径（Windows 实际生效路径）固定传 runtimeDir，
+	// 导致 agent_cwd 配置从未真正生效。
+	workDir := runtimeDir
 	if s.config.Agent && s.config.AgentCwd != "" {
 		if info, statErr := os.Stat(s.config.AgentCwd); statErr == nil && info.IsDir() {
-			s.cmd.Dir = s.config.AgentCwd
+			workDir = s.config.AgentCwd
 		} else {
 			s.cmdEnv = append(s.cmdEnv, "LLAMA_AGENT_CWD_INVALID=1")
 		}
 	}
 
+	s.cmd = exec.Command(s.config.ServerPath, args...)
+	s.cmd.Dir = workDir
 	s.stderrBuf = NewRingBuffer(500) // 增大缓冲区到 500 行，便于控制台查看历史
 	if s.onLog != nil {
 		s.stderrBuf.SetOnChange(s.onLog)
@@ -82,8 +86,6 @@ func (s *Server) Start() error {
 
 	// P4.5 修复（移除 crashDegradeLevel 重置）：此前此处把崩溃降级级别清零，
 	// 会破坏 WatchWithCallback 的降级链升级（1→2）。
-	// 流程：崩溃 → 设置 level=1 → Start() 构建参数（应用降级）→ 立即清零 →
-	// 再次崩溃时读到 level=0 → 重新设 level=1，永远到不了 level 2（gpu-layers auto）。
 	// 真正需要清空的场景：
 	//   - 启动成功后重置：已在 WatchWithCallback 重启成功分支处理（server.go）
 	//   - 手动/回退重建 server：initServer 每次创建全新 Server（level 从 0 开始）
@@ -91,7 +93,7 @@ func (s *Server) Start() error {
 
 	// 尝试用 ConPTY 启动（获得原生终端输出：ANSI 颜色码、进度条）
 	// 生活类比：ConPTY 就像一个"虚拟显示器"，让 llama-server 以为自己在真正的终端里运行
-	pty, ptyErr := startWithConPTY(s.config.ServerPath, args, runtimeDir, env, 120, 40)
+	pty, ptyErr := startWithConPTY(s.config.ServerPath, args, workDir, env, 120, 40)
 	if ptyErr != nil {
 		log.Warn().Err(ptyErr).Msg("ConPTY unavailable, falling back to exec.Cmd")
 		s.pty = nil

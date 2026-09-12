@@ -154,6 +154,8 @@ export function SearchHubModels(arg1:string,arg2:string,arg3:number):Promise<Arr
 
 export function SearchMessages(arg1:string):Promise<Array<chat.Message>>;
 
+export function SelectAgentDir():Promise<string>;
+
 export function SelectImageFile():Promise<string>;
 
 export function SelectLoraFile():Promise<string>;

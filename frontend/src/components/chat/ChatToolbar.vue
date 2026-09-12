@@ -1,5 +1,16 @@
 <template>
   <div class="left-buttons">
+    <!-- 选择项目：仅 Agent 模式开启时显示，设置 Agent 工具的工作目录 -->
+    <button
+      v-if="agentEnabled"
+      class="agent-dir-btn"
+      :class="{ active: !!agentCwd }"
+      :title="agentDirTitle"
+      @click="handleSelectAgentDir"
+    >
+      <n-icon size="20"><FolderOpenOutline /></n-icon>
+      <span v-if="agentDirName" class="agent-dir-name">{{ agentDirName }}</span>
+    </button>
     <button
       class="think-btn"
       :class="thinkBtnClass"
@@ -210,10 +221,17 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { NIcon, useMessage } from 'naive-ui'
-import { GlobeOutline, AttachOutline, LayersOutline, OptionsOutline } from '@vicons/ionicons5'
+import {
+  GlobeOutline,
+  AttachOutline,
+  LayersOutline,
+  OptionsOutline,
+  FolderOpenOutline
+} from '@vicons/ionicons5'
 import BrainIcon from '../ui/BrainIcon.vue'
 import { checkUploadCapability, getAcceptForType } from '../../utils/attachments'
 import { useSettingsStore } from '../../stores/settings'
+import { useChatStore } from '../../stores/chat'
 import { wails } from '../../services/wails'
 import { openParamsPanel } from '../../composables/useSamplingSettings'
 
@@ -231,6 +249,7 @@ const emit = defineEmits<{
 }>()
 
 const settingsStore = useSettingsStore()
+const chatStore = useChatStore()
 const message = useMessage()
 
 const searchMode = computed(() => settingsStore.searchMode)
@@ -286,6 +305,57 @@ const searchBtnClass = computed(() => ({
   active: searchMode.value === 'on',
   'auto-mode': searchMode.value === 'auto'
 }))
+
+// ===== 选择项目（Agent 工作目录）=====
+const agentEnabled = computed(() => !!settingsStore.config.agent)
+const agentCwd = computed(() => settingsStore.config.agent_cwd || '')
+
+// 按钮上只显示目录名，完整路径放 title 悬浮提示
+const agentDirName = computed(() => {
+  const p = agentCwd.value
+  if (!p) return ''
+  const parts = p.split(/[\\/]/).filter(Boolean)
+  return parts[parts.length - 1] || p
+})
+
+const agentDirTitle = computed(() =>
+  agentCwd.value
+    ? `Agent 工作目录：${agentCwd.value}（点击更换）`
+    : '选择项目（Agent 工具的工作目录）'
+)
+
+async function handleSelectAgentDir() {
+  try {
+    const dir = await wails.selectAgentDir()
+    // 用户取消或目录未变化时不落盘
+    if (!dir || dir === agentCwd.value) return
+    await settingsStore.updateConfig({ ...settingsStore.config, agent_cwd: dir })
+    await applyAgentCwd(dir)
+  } catch {
+    message.error('选择项目目录失败')
+  }
+}
+
+/**
+ * 让 agent_cwd 立即生效：该配置决定 llama-server 进程的工作目录（cmd.Dir），
+ * 仅在进程（重）启动时读取。有模型在跑且当前没在生成时，自动重载当前模型重建进程；
+ * 否则（无模型 / 生成中 / 重载失败）降级为提示，等下次自然重载时生效。
+ */
+async function applyAgentCwd(dir: string) {
+  const model = settingsStore.currentModel
+  if (model && !chatStore.isAnyGenerating && !settingsStore.isModelSwitching) {
+    message.info(`项目目录已切换：${dir} · 正在重载模型使其生效`)
+    try {
+      const result = await settingsStore.switchModel(model, model)
+      if (result.success) return
+      message.warning('模型重载未完成，项目目录将在下次重载后生效')
+    } catch {
+      message.warning('模型重载失败，项目目录将在下次重载后生效')
+    }
+    return
+  }
+  message.success(`项目目录已设置：${dir} · 将在模型下次重载后生效`)
+}
 
 async function handleSearchClick() {
   const prevMode = searchMode.value
@@ -403,6 +473,42 @@ onUnmounted(() => {
   flex-shrink: 0;
   display: flex;
   gap: 4px;
+}
+
+/* 选择项目按钮：有目录时带名字加宽，激活态与深度推理按钮同语汇（苔绿落印） */
+.agent-dir-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 42px;
+  height: 42px;
+  padding: 0 10px;
+  border-radius: var(--border-radius-md);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: var(--text-secondary);
+}
+
+.agent-dir-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.agent-dir-btn.active {
+  color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+}
+
+.agent-dir-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1;
 }
 
 .search-btn,

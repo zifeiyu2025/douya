@@ -26,9 +26,21 @@ type Message struct {
 	SearchResults    string              `json:"search_results"`
 	Images           string              `json:"images,omitempty"`
 	Attachments      []AttachmentSummary `json:"attachments,omitempty"`
-	CreatedAt        string              `json:"created_at"`
-	TokensPerSecond  float64             `json:"tokens_per_second,omitempty"` // 生成速度（tokens/s），仅事件传递，不存数据库
-	PredictedN       int                 `json:"predicted_n,omitempty"`       // 生成的 token 数，仅事件传递，不存数据库
+	// ToolActivity 本条回复涉及的工具调用摘要（Agent/搜索），供前端在消息中渲染
+	// 工具执行时间线。与 store 层中间消息的 tool_calls 列（LLM 协议格式）不同，
+	// 这是面向展示的精简结构，避免影响上下文重建对中间消息的识别。
+	ToolActivity    []ToolCallRecord `json:"tool_activity,omitempty"`
+	CreatedAt       string           `json:"created_at"`
+	TokensPerSecond float64          `json:"tokens_per_second,omitempty"` // 生成速度（tokens/s），仅事件传递，不存数据库
+	PredictedN      int              `json:"predicted_n,omitempty"`       // 生成的 token 数，仅事件传递，不存数据库
+}
+
+// ToolCallRecord 最终回复携带的工具调用摘要（展示用，非 LLM 协议格式）。
+type ToolCallRecord struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+	Denied    bool   `json:"denied,omitempty"` // 被审批门禁拒绝，未实际执行
 }
 
 type AttachmentSummary struct {

@@ -49,6 +49,11 @@
         :content="message.thinking_content"
         :duration="message.thinking_duration"
       />
+      <!-- 工具执行时间线：随最终消息持久化的调用摘要（Agent/搜索），按发生顺序置于正文之前 -->
+      <ToolActivityStrip
+        v-if="historyToolActivities.length > 0"
+        :activities="historyToolActivities"
+      />
       <MarkdownBlock :content="message.content" />
       <SearchStatus
         v-if="hasSearchResults"
@@ -65,8 +70,10 @@ import { computed, ref, watch, nextTick } from 'vue'
 import ThinkBlock from './ThinkBlock.vue'
 import SearchStatus from './SearchStatus.vue'
 import MarkdownBlock from './MarkdownBlock.vue'
+import ToolActivityStrip from './ToolActivityStrip.vue'
 import AppIcon from '../ui/AppIcon.vue'
 import type { Message, AttachmentSummary } from '../../services/wails'
+import type { ToolActivity } from '../../types/chat'
 
 const props = defineProps<{
   message: Message
@@ -98,6 +105,25 @@ const hasSearchResults = computed(() => {
   if (!props.message.search_results) return false
   if (props.message.search_results === '[]') return false
   return props.message.search_results.length > 0
+})
+
+// 历史消息的工具执行时间线：把持久化的调用摘要映射为瞬态活动条目的展示结构。
+// 历史里没有"运行中"状态——执行完的标 ok，被拒绝的标 denied；参数预览截断防长 JSON 撑爆时间线
+const ARGS_PREVIEW_MAX = 120
+
+const historyToolActivities = computed<ToolActivity[]>(() => {
+  const records = props.message.tool_activity
+  if (!records || records.length === 0) return []
+  return records.map(r => ({
+    toolCallId: r.id,
+    tool: r.name,
+    argsPreview:
+      r.arguments.length > ARGS_PREVIEW_MAX
+        ? r.arguments.slice(0, ARGS_PREVIEW_MAX) + '…'
+        : r.arguments,
+    status: r.denied ? 'denied' : 'ok',
+    startedAt: 0
+  }))
 })
 
 const parsedImages = computed(() => {

@@ -245,18 +245,22 @@ func truncateForLog(s string, maxLen int) string {
 }
 
 type StreamAccumulator struct {
-	FullContent                strings.Builder
-	FullThinking               strings.Builder
-	FinishReason               string
-	ToolCallMap                map[int]*llm.ToolCall
-	EmitFn                     func(string, any)
-	ConvID                     string
-	EmitForConvFn              func(string, string, any)
-	PendingBytes               string
-	PendingThink               string
-	LastSearchJSON             string
-	ThinkingStartTime          time.Time
-	ThinkingDuration           float64
+	FullContent       strings.Builder
+	FullThinking      strings.Builder
+	FinishReason      string
+	ToolCallMap       map[int]*llm.ToolCall
+	EmitFn            func(string, any)
+	ConvID            string
+	EmitForConvFn     func(string, string, any)
+	PendingBytes      string
+	PendingThink      string
+	LastSearchJSON    string
+	ThinkingStartTime time.Time
+	ThinkingDuration  float64
+	// TotalThinkingDuration 跨 tool call 轮次累计的思考时长。
+	// FullThinking 累积所有轮次的思考内容，若时长只取最后一轮会出现
+	// "思考内容一大段、耗时却显示 0 秒"的错位（最后一轮往往只有零点几秒）。
+	TotalThinkingDuration      float64
 	ThinkingDone               bool
 	FirstRoundThinking         string
 	FirstRoundThinkingDuration float64
@@ -469,6 +473,10 @@ func (a *StreamAccumulator) resetForNextCall() {
 	a.ToolCallMap = make(map[int]*llm.ToolCall)
 	a.PendingBytes = ""
 	a.PendingThink = ""
+	// 已结束轮次的思考时长滚入累计值后再清零，保证最终消息的耗时覆盖所有轮次。
+	// 注：上下文溢出重试路径也会走到这里，被丢弃轮次的时长会少量多计——
+	// 该路径罕见且偏差量级为秒级，不值得为此增加回滚复杂度。
+	a.TotalThinkingDuration += a.ThinkingDuration
 	a.ThinkingStartTime = time.Time{}
 	a.ThinkingDuration = 0
 	a.ThinkingDone = false
@@ -545,14 +553,15 @@ func (s *Service) mayProduceThinking(reasoning string) bool {
 
 // newAssistantMessage 从流式累加器构造 assistant 消息。
 // 三条落库路径（正常结束 / 用户中途停止 / tool call 循环结束）共享同一份构造规则：
-// 思考时长兜底用首轮时长，搜索结果附带最近一次 JSON。
+// 思考时长 = 已完成轮次累计 + 最后一轮（与 FullThinking 的跨轮累积口径一致），
+// 兜底用首轮时长，搜索结果附带最近一次 JSON。
 func newAssistantMessage(convID string, acc *StreamAccumulator) *store.Message {
 	aiMsg := &store.Message{
 		ConversationID:   convID,
 		Role:             "assistant",
 		Content:          acc.FullContent.String(),
 		ThinkingContent:  acc.FullThinking.String(),
-		ThinkingDuration: clampDuration(acc.ThinkingDuration),
+		ThinkingDuration: clampDuration(acc.TotalThinkingDuration + acc.ThinkingDuration),
 	}
 	if aiMsg.ThinkingContent != "" && aiMsg.ThinkingDuration == 0 && acc.FirstRoundThinkingDuration > 0 {
 		aiMsg.ThinkingDuration = clampDuration(acc.FirstRoundThinkingDuration)

@@ -130,6 +130,7 @@ func migrateAddColumns(db *sql.DB) error {
 		{"thinking_duration", "REAL DEFAULT 0"},
 		{"images", "TEXT"},
 		{"attachments", "TEXT"},
+		{"tool_activity", "TEXT"},
 	}
 
 	for _, col := range addCols {

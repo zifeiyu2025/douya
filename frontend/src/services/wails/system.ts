@@ -12,6 +12,7 @@ import {
   GracefulExit,
   RestartApp,
   SelectImageFile,
+  SelectAgentDir,
   GetAppVersion,
   ConfirmStartupError,
   GetStartupError,
@@ -48,6 +49,10 @@ export const systemMethods = {
   },
   selectImageFile: async (): Promise<string> => {
     return (await SelectImageFile()) as string
+  },
+  // 选择 Agent 工作目录（原生目录对话框）；用户取消返回空串
+  selectAgentDir: async (): Promise<string> => {
+    return (await SelectAgentDir()) as string
   },
   // 版本信息：更新统一由 Microsoft Store 接管，前端仅展示当前版本号
   getAppVersion: async (): Promise<string> => {

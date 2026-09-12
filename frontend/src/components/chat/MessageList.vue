@@ -102,35 +102,9 @@
               <ThinkBlock
                 v-if="thinkingContent"
                 :content="thinkingContent"
-                :default-expanded="true"
                 :is-thinking="isThinking"
                 :duration="thinkingDuration"
               />
-              <div v-if="canStopThinking" class="stop-thinking-wrapper">
-                <button
-                  class="stop-thinking-btn"
-                  :class="{ loading: isStoppingThinking }"
-                  :disabled="isStoppingThinking"
-                  @click="handleStopThinking"
-                >
-                  <svg
-                    v-if="!isStoppingThinking"
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <path d="M5 12h14" />
-                    <path d="M12 5l7 7-7 7" />
-                  </svg>
-                  <span v-else class="stop-thinking-spinner"></span>
-                  直接回答
-                </button>
-              </div>
               <div
                 v-if="streamingContent"
                 ref="streamingContainerRef"
@@ -386,35 +360,6 @@ watch(
   },
   { immediate: true }
 )
-
-// ===== 停止思考功能 =====
-// isThinking 由 chat store 自动管理：
-//   - 流式开始时 clearConvState 重置为 false
-//   - 检测到思考内容（<think> / reasoning_content）时 handleThinking 设为 true
-//   - 收到正文 token（思考结束）时 handleToken 设为 false
-// 这里只补充"发送停止请求"的本地状态与按钮显隐判断
-const isStoppingThinking = ref(false)
-
-// 仅当模型支持推理（capabilities.reasoning）且当前正在思考时，才显示"停止思考"按钮
-const canStopThinking = computed(
-  () => isThinking.value && settingsStore.modelCapabilities.reasoning
-)
-
-// 点击"停止思考"：调用后端 StopThinking，成功后 isThinking 会被 store 自动置 false，按钮随之隐藏
-async function handleStopThinking() {
-  if (isStoppingThinking.value) return
-  isStoppingThinking.value = true
-  try {
-    await wails.stopThinking()
-    // 成功后由 store 在收到后续正文 token 时将 isThinking 置 false，按钮自动隐藏
-  } catch (e) {
-    const errMsg = e instanceof Error ? e.message : String(e || '直接回答请求失败')
-    message.error(`直接回答失败：${errMsg}`)
-    logError('停止思考失败:', e)
-  } finally {
-    isStoppingThinking.value = false
-  }
-}
 
 // 回到底部并重新启用自动滚动（抽取为方法避免模板内多语句与 prettier semi:false 冲突）
 function scrollToBottomAndEnable() {
@@ -722,70 +667,6 @@ watch(
   font-size: 12px;
   color: var(--text-muted);
   margin-top: 4px;
-}
-
-/* 停止思考按钮容器：紧贴思考块下方，左对齐 */
-.stop-thinking-wrapper {
-  margin-top: 8px;
-  display: flex;
-  justify-content: flex-start;
-}
-
-/* "直接回答"按钮：与 ThinkBlock 同语汇——hairline 细边文字钮，苔绿落印 */
-.stop-thinking-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 14px;
-  /* 原引用的 --accent-think 为未定义死变量，边框与字色整条失效；映射到苔绿真实令牌 */
-  border: 1px solid color-mix(in srgb, var(--accent-primary) 40%, transparent);
-  border-radius: var(--border-radius-sm);
-  background: transparent;
-  color: var(--accent-primary);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background var(--transition-fast),
-    border-color var(--transition-fast);
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.stop-thinking-btn:hover:not(:disabled) {
-  /* 悬浮反馈：淡苔绿底色阶，不做投影 */
-  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
-}
-
-.stop-thinking-btn:active:not(:disabled) {
-  /* 按压反馈：底色加深一档，不做缩放 */
-  background: color-mix(in srgb, var(--accent-primary) 20%, transparent);
-}
-
-.stop-thinking-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.stop-thinking-btn svg {
-  flex-shrink: 0;
-}
-
-/* 加载旋转动画 */
-.stop-thinking-spinner {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  border: 2px solid transparent;
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: stopThinkingSpin 0.6s linear infinite;
-}
-
-@keyframes stopThinkingSpin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 /* 空状态外壳：自身负责滚动（flex:1 定界），不做 justify 居中——

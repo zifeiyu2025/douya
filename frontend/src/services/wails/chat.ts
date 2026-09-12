@@ -23,7 +23,6 @@ import {
   Tokenize,
   GetLastPromptTokens,
   ApplyTemplate,
-  StopThinking,
   SaveSlot,
   RestoreSlot,
   EraseSlot,
@@ -74,9 +73,6 @@ export const chatMethods = {
   exportConversation: ExportConversation,
   exportConversationWithDialog: async (id: string, format: string): Promise<boolean> => {
     return (await ExportConversationWithDialog(id, format)) as boolean
-  },
-  stopThinking: async (): Promise<void> => {
-    await StopThinking()
   },
   saveSlot: async (conversationId: string): Promise<void> => {
     await SaveSlot(conversationId)
