@@ -31,18 +31,23 @@ import (
 // （参数改名、行为变更、资产结构调整），自动跟随会导致新下载的后端与
 // 应用适配逻辑不兼容，出现模型加载失败等问题。
 //
-// 当前锁定 b10816（2026-09-05 升级）：已完成验证——
-//  1. 服务端参数面：b10791 → b10816 共 25 个提交，common/arg.cpp 无变更，
-//     无参数删除/改名影响豆芽现有传递面；
+// 当前锁定 b10919（2026-09-12 升级）：已完成验证——
+//  1. 服务端参数面：b10883 → b10919 共 36 个提交，common/arg.cpp 零变更，
+//     无参数删除/改名/新增影响豆芽现有传递面（preset 的 load-mode=mlock 写法继续有效）；
+//     主要收益：修复图像后投机解码 drafter 位置错误（影响所有 drafter）、
+//     DFlash 多模态 chunk 解码修复、MTP KV cache 分配修复（deepseek2/glm4moe）、
+//     server 子进程重构（含并发模型下载互踩损坏修复）、vulkan argsort 竞态修复、
+//     CUDA FA 调优、vulkan MoE 融合与 Qwen small-M 优化、granite 参数量修正、
+//     indexer 免分配 V cache、CMake PCH/unity 提速编译；
 //  2. 资产命名：官方 release 仍按 cpu-x64 / cuda-12.4 / cuda-13.3-x64 /
 //     vulkan-x64 及 cudart-13.3 配套包规则发布，匹配现有资产正则；
-//  3. 实测：按官方 release.yml 参数本地编译的三套引擎（b10816）已通过
-//     CUDA 后端加载与应用端到端冒烟，引擎与下载包同源同版本。
+//  3. 实测：按 scripts\build-engines.ps1 配方增量编译的三套引擎（b10919，
+//     build 号取自 git rev-list --count）已通过 --version 自检与落位复验。
 //
 // 升级流程：上游发布新版后，人工验证兼容性（重点核对 --server 参数面与
-// 资产命名规则），确认无误后将此常量改为新 tag（如 "b10800"）即可，
+// 资产命名规则），确认无误后将此常量改为新 tag 即可，
 // 后端下载与版本更新检查会同时跟随新版本。
-const PinnedReleaseTag = "b10816"
+const PinnedReleaseTag = "b10919"
 
 // githubReleasesTagsBase 是按 tag 查询单个 release 的 GitHub API 地址前缀。
 const githubReleasesTagsBase = "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/"
@@ -110,7 +115,7 @@ func buildDownloadURLs(originalURL string) []string {
 }
 
 // fetchGitHubLatestRelease 查询 GitHub API，获取 llama.cpp 当前锁定版本的 release。
-// 该函数被 FindReleaseAsset、FindCudartAsset 和 GetLatestReleaseTag 共用。
+// 该函数被 FindReleaseAsset 与 FindCudartAsset 共用。
 //
 // 版本固定策略：不再查询 releases/latest 追上游最新，而是查询固定 tag
 // （PinnedReleaseTag）对应的 release，保证下载与更新检查只面向经过验证的版本，
@@ -254,7 +259,7 @@ type DownloadProgress struct {
 
 // GitHubAsset 表示 GitHub release 中的一个资源文件。
 // 仅提取下载所需的字段，忽略其他元数据。
-// 同时被 main 包更新检查（app_update.go）复用，字段变更需两端同步确认。
+// 仅在本包内使用（下载与 release 解析），字段变更无跨包契约。
 type GitHubAsset struct {
 	Name               string `json:"name"`                 // 文件名，如 "llama-b10167-bin-win-cuda-13.3-x64.zip"
 	BrowserDownloadURL string `json:"browser_download_url"` // 直链下载地址
@@ -262,7 +267,7 @@ type GitHubAsset struct {
 }
 
 // GitHubRelease 表示 GitHub release 的精简结构。
-// 同时被 main 包更新检查（app_update.go）复用，字段变更需两端同步确认。
+// 仅在本包内使用（下载与 release 解析），字段变更无跨包契约。
 type GitHubRelease struct {
 	TagName     string        `json:"tag_name"`     // release 标签，如 "b10167"
 	Body        string        `json:"body"`         // release 说明（更新检查展示用）

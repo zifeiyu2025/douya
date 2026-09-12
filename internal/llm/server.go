@@ -256,10 +256,10 @@ type ServerConfig struct {
 //  3. Mmap=false           → "none"（关闭内存映射）
 //  4. 其他情况             → "mmap"（二进制原生默认值）
 //
-// 注意：本应用捆绑的 llama-server（llama.cpp b10355）的 --load-mode 仅接受
-// none / mmap / mlock / mmap+mlock / dio，并不支持上游后续引入的 "auto"。
-// 因此默认分支返回 "mmap"（即该版本的默认值），显式传递以保持行为确定性，
-// 同时保证在所有受支持的二进制版本上都是合法取值。调用方在结果非空时始终传递 --load-mode。
+// 注意：--load-mode 的取值集合以锁定 tag（PinnedReleaseTag，当前 b10919）为准，
+// 现已支持 auto / none / mmap / mlock / mmap+mlock / dio。豆芽不传 "auto"，
+// 而是始终显式返回上述确定值（默认分支 "mmap" 与上游默认行为一致），
+// 避免依赖引擎内部自动判定导致行为漂移。调用方在结果非空时始终传递 --load-mode。
 // 生活类比：就像汽车换挡——同时踩了多个开关时，按顺序取第一个生效的档位。
 func (c *ServerConfig) LoadMode() string {
 	if c.DirectIO {

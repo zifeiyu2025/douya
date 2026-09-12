@@ -135,6 +135,8 @@ func (s *Server) appendRuntimeArgs(args []string) []string {
 	args = appendBoolArg(args, "--mmproj-offload", s.config.MmprojOffload)
 	// 视觉投影专用 GPU 设备名（多显卡分卡，llama.cpp --mmproj-device/-mmdev）：
 	// 仅配置了非空值时传递；"none" 由 llama.cpp 自行解析为关闭 mmproj 卸载。
+	// 注意：上游 b10874 起该参数默认值由 auto 改为"跟随 --device"——未显式配置且已传
+	// --device 时，mmproj 会自动跟随首个 --device 设备（不再是引擎内部 auto 判定）。
 	// 生活类比：告诉卡车司机把视觉设备单独放哪辆车的后备箱（不同显卡）。
 	args = appendStringArg(args, "--mmproj-device", s.config.MmprojDevice)
 	return args
@@ -513,6 +515,7 @@ func (s *Server) appendDraftGpuArgs(args []string) []string {
 	if s.config.SpecDraftNgl > 0 {
 		args = append(args, "--spec-draft-ngl", fmt.Sprintf("%d", s.config.SpecDraftNgl))
 	}
+	// 上游 b10874 起未显式指定时默认跟随 --device（多显卡场景下 draft 与主模型同卡）。
 	if s.config.SpecDraftDevice != "" {
 		args = append(args, "--spec-draft-device", s.config.SpecDraftDevice)
 	}

@@ -253,6 +253,34 @@ func TestGeneratePreset(t *testing.T) {
 		}
 	})
 
+	t.Run("Mlock为true时输出load-mode_mlock而非旧mlock键", func(t *testing.T) {
+		presets := []ModelPreset{
+			{Name: "Model-A", ModelPath: "models/model-a.gguf", Mlock: true, CtxSize: 4096, Jinja: true, SleepIdle: 120},
+		}
+
+		content := GeneratePreset(presets, nil)
+
+		if !strings.Contains(content, "load-mode = mlock") {
+			t.Errorf("expected 'load-mode = mlock' in preset, got:\n%s", content)
+		}
+		// 上游 b10875 起 --mlock 被移除，沿用旧 "mlock" 键会让 llama-server 因未知键拒绝加载预设
+		if strings.Contains(content, "mlock = 1") {
+			t.Errorf("expected no legacy 'mlock' key in preset, got:\n%s", content)
+		}
+	})
+
+	t.Run("Mlock为false时不输出load-mode", func(t *testing.T) {
+		presets := []ModelPreset{
+			{Name: "Model-A", ModelPath: "models/model-a.gguf", Mlock: false, CtxSize: 4096, Jinja: true, SleepIdle: 120},
+		}
+
+		content := GeneratePreset(presets, nil)
+
+		if strings.Contains(content, "load-mode") {
+			t.Errorf("expected no 'load-mode' in preset when Mlock=false, got:\n%s", content)
+		}
+	})
+
 	t.Run("Reasoning相关字段输出", func(t *testing.T) {
 		presets := []ModelPreset{
 			{Name: "Model-A", ModelPath: "models/model-a.gguf", Reasoning: "on", ReasoningBudget: 4096, ReasoningFormat: "deepseek", CtxSize: 4096, Jinja: true, SleepIdle: 120},

@@ -113,7 +113,12 @@ func GeneratePreset(presets []ModelPreset, globalDefaults map[string]string) str
 		writeStringField(&sb, "flash-attn", p.FlashAttn)
 		writeStringField(&sb, "cache-type-k", p.CacheTypeK)
 		writeStringField(&sb, "cache-type-v", p.CacheTypeV)
-		writeBoolField(&sb, "mlock", p.Mlock)
+		// 内存锁定：上游 b10875 起移除 --mlock 参数，preset 的 "mlock" 键随之失效
+		// （llama-server 遇到未知键会拒绝加载整个预设）。改用 --load-mode 的取值表达，
+		// 语义等价：勾选"锁定内存"时写 load-mode = mlock，未勾选则不写（跟随引擎默认）。
+		if p.Mlock {
+			writeStringField(&sb, "load-mode", "mlock")
+		}
 		writeIntField(&sb, "image-min-tokens", p.ImageMinTokens)
 		writeIntField(&sb, "image-max-tokens", p.ImageMaxTokens)
 		writeStringField(&sb, "reasoning", p.Reasoning)
