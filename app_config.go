@@ -76,7 +76,9 @@ func (a *App) UpdateConfig(cfg *config.Config) error {
 	if a.service != nil {
 		a.service.UpdateConfig(cfg)
 	}
-	a.setConfig(cfg)
+	// 防御性拷贝：不持有前端反序列化传入的指针，落库副本与内存快照解耦
+	stored := *cfg
+	a.setConfig(&stored)
 
 	a.setClient(llm.NewClient(cfg.APIBase, a.getServerAPIKey()))
 
@@ -118,6 +120,11 @@ func (a *App) SelectAgentDir() (string, error) {
 // 当 ServerAPIKeyEnabled 为 false 时返回空字符串，不发送 API Key
 func (a *App) getServerAPIKey() string {
 	if !a.getConfig().ServerAPIKeyEnabled {
+		return ""
+	}
+	// service 尚未初始化（启动早期前端即可调用绑定）时无密钥可读，与
+	// GenerateServerAPIKey/GetModelParams 等方法的 nil 防护保持一致
+	if a.service == nil {
 		return ""
 	}
 	// 优先尝试加密读取（兼容已加密数据），失败时回退到明文读取（兼容旧版明文数据）

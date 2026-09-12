@@ -150,9 +150,11 @@ func formatBytesDiagnostic(n uint64) string {
 }
 
 // truncateDiagnostic 截断过长文本（防止日志错误信息撑爆诊断文本）。
+// 按 rune 截断：诊断文本大量中文，按字节切会截断多字节字符产生乱码。
 func truncateDiagnostic(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	return string(runes[:maxLen]) + "..."
 }
