@@ -49,7 +49,10 @@ func (s *Server) Start() error {
 	}
 
 	args := s.buildStartArgs()
-	log.Info().Str("server_path", s.config.ServerPath).Strs("args", args).Msg("[server] DIAG full command line")
+	log.Debug().Str("server_path", s.config.ServerPath).Strs("args", args).Msg("[server] full command line")
+	// 每次启动重建环境变量增量，避免 watchdog 重启循环里 append 累积旧值
+	// （如用户清除 API Key 后旧 LLAMA_API_KEY 仍残留在下一次子进程环境中）
+	s.cmdEnv = s.cmdEnv[:0]
 	// 安全：API Key 通过环境变量传递，而非命令行参数
 	// 基于 GO-CONFIG-001 安全实践：避免命令行参数被同权限进程通过 tasklist/WMI 读取
 	// 安全加固：仅当项目配置显式开启 ServerAPIKeyEnabled 时才注入 LLAMA_API_KEY
@@ -351,8 +354,9 @@ func (s *Server) updateStatusAfterExit(err error, exitCode uint32, isConPTY bool
 		}
 		// ConPTY 路径：检测 DLL 缺失导致的立即崩溃
 		// P1-1 修复：lastStartTime 已改为 atomic.Int64，用 Load 读取再还原为 time.Time
+		// 启动后 10 秒内即退出才视为"立即崩溃"（DLL 缺失场景），运行较久后退出不适用
 		startTime := time.Unix(0, s.lastStartTime.Load())
-		if isConPTY && exitCode != 0 && startTime.Before(time.Now().Add(-10*time.Second)) {
+		if isConPTY && exitCode != 0 && startTime.After(time.Now().Add(-10*time.Second)) {
 			if enhanced := enhanceStartError(errors.New(errMsg)); enhanced != nil {
 				errMsg = enhanced.Error()
 			}

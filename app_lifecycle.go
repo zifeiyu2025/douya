@@ -146,8 +146,15 @@ func (a *App) teardown(emitProgress func(stage string)) {
 			if emitProgress != nil {
 				emitProgress("stopping_server")
 			}
-			if err := srv.Stop(); err != nil {
-				zlog.Error().Err(err).Msg("shutting down: stop server failed")
+			// 走优雅停止：先 POST /shutdown 给 llama-server 保存槽位/释放显存的机会，
+			// 端点不支持（404/405 等 4xx/5xx）时 GracefulStop 内部自动降级为 Stop() 强制终止。
+			// 此前直接调 Stop()，taskkill 普通终止对 ConPTY 控制台进程无效，
+			// 每次退出都白等 3 秒超时后强杀并记录错误日志。
+			if err := srv.GracefulStop(3 * time.Second); err != nil {
+				// b10605+ 引擎已移除 /shutdown 端点，taskkill 普通终止对 ConPTY
+				// 控制台进程无效，最终由 taskkill /F 强杀是设计内的正常回退路径，
+				// 降为 warn 避免每次退出都刷 error 级日志
+				zlog.Warn().Err(err).Msg("shutting down: server force-stopped (graceful stop unavailable)")
 			}
 			srv.CloseJob()
 		}
