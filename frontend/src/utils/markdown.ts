@@ -184,7 +184,12 @@ marked.use({
 //     若先过 sanitize 会被 FORBID_ATTR 剥离 style，破坏渲染
 //   - 渲染失败的公式（throwOnError 抛错）降级显示原文，避免整条消息渲染崩溃
 
-const MATH_HOLDER = '\u0000MATH'
+// 占位符使用私有区字符（U+E000/U+E001）而非 NUL：
+// HTML 解析器（DOMPurify 内部的 DOMParser）会丢弃文本节点中的 NUL 控制字符，
+// 导致回填阶段正则永远匹配不上，公式位置直接露出 "MATH0" 字样。
+// 私有区字符可安全通过 HTML 解析，且几乎不可能出现在用户/模型文本中。
+const MATH_HOLDER = '\uE000MATH'
+const MATH_HOLDER_END = '\uE001'
 
 function renderMathTex(tex: string, displayMode: boolean): string {
   try {
@@ -225,10 +230,10 @@ function extractMath(content: string): { text: string; items: string[] } {
       out += match
     } else if (match.startsWith('$$')) {
       items.push(renderMathTex(match.slice(2, -2).trim(), true))
-      out += `${MATH_HOLDER}${items.length - 1}\u0000`
+      out += `${MATH_HOLDER}${items.length - 1}${MATH_HOLDER_END}`
     } else {
       items.push(renderMathTex(m[1].trim(), false))
-      out += `${MATH_HOLDER}${items.length - 1}\u0000`
+      out += `${MATH_HOLDER}${items.length - 1}${MATH_HOLDER_END}`
     }
     last = m.index + match.length
   }
@@ -238,7 +243,10 @@ function extractMath(content: string): { text: string; items: string[] } {
 
 function restoreMath(html: string, items: string[]): string {
   if (items.length === 0) return html
-  return html.replace(new RegExp(`${MATH_HOLDER}(\\d+)\\u0000`, 'g'), (_m, n) => items[+n])
+  return html.replace(
+    new RegExp(`${MATH_HOLDER}(\\d+)${MATH_HOLDER_END}`, 'g'),
+    (_m, n) => items[+n]
+  )
 }
 
 // ===== 核心渲染函数 =====

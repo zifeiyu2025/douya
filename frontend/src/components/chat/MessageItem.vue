@@ -203,11 +203,18 @@ function toggleSpeak() {
 
 async function copyContent() {
   try {
-    const markdownEl = bubbleComp.value?.$el?.querySelector('.markdown-body') as HTMLElement | null
+    // 排除思考块内的 markdown-body：思考块在 DOM 中位于回答正文之前，
+    // 不加排除会让带思考块消息的"复制"拿到思考内容而非回答正文
+    const markdownEl = bubbleComp.value?.$el?.querySelector(
+      '.markdown-body:not(.think-block-content-inner)'
+    ) as HTMLElement | null
     if (markdownEl) {
       // 克隆 DOM，移除代码头部（语言标签和复制按钮），只保留纯正文
       const clone = markdownEl.cloneNode(true) as HTMLElement
       clone.querySelectorAll('.code-header').forEach(el => el.remove())
+      // KaTeX htmlAndMathml 输出同时包含 HTML 与 MathML 两份公式，MathML 靠样式隐藏，
+      // innerText 仍会取到，导致复制文本里公式重复；剪贴板里只保留可见的 HTML 部分
+      clone.querySelectorAll('.katex-mathml').forEach(el => el.remove())
       const htmlBlob = new Blob([clone.innerHTML], { type: 'text/html' })
       const textBlob = new Blob([clone.innerText], { type: 'text/plain' })
       await navigator.clipboard.write([
