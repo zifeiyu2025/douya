@@ -96,6 +96,7 @@ import {
   BugOutline
 } from '@vicons/ionicons5'
 import { wails } from '../../services/wails'
+import { logError } from '../../utils/logger'
 import appIcon from '../../assets/images/appicon.png'
 import llamaIcon from '../../assets/images/llama-icon.png'
 import pkg from '../../../package.json'
@@ -131,7 +132,7 @@ async function copyDiagnostics() {
     await navigator.clipboard.writeText(text)
     message.success('诊断信息已复制，可直接粘贴反馈')
   } catch (err) {
-    console.error('复制诊断信息失败:', err)
+    logError('复制诊断信息失败:', err)
     message.error('复制诊断信息失败，请打开日志目录查看')
   } finally {
     diagnosticsLoading.value = false
