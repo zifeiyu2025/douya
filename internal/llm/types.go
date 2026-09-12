@@ -301,21 +301,21 @@ const (
 )
 
 type ModelCapabilities struct {
-	ImageInput        bool   `json:"image_input"`
-	AudioInput        bool   `json:"audio_input"`
-	VideoInput        bool   `json:"video_input"`
-	TextInput        bool   `json:"text_input"`
-	TextGeneration   bool   `json:"text_generation"` // 模型是否支持文本生成（对话/续写）。嵌入模型（如 bge-m3）为 false
+	ImageInput     bool `json:"image_input"`
+	AudioInput     bool `json:"audio_input"`
+	VideoInput     bool `json:"video_input"`
+	TextInput      bool `json:"text_input"`
+	TextGeneration bool `json:"text_generation"` // 模型是否支持文本生成（对话/续写）。嵌入模型（如 bge-m3）为 false
 	// TextGenerationKnown 表示 TextGeneration 是否来自一次真实的能力探测。
 	// 关键：bool 零值 false 无法区分"能力未探测"（s.modelCaps 未被填充，如测试环境/启动早期）
 	// 与"服务器确凿报告不支持"。后端拦截依据此标志：仅当 known 且有确凿证据时才判定不支持会话，
 	// 避免在能力尚未探测时误伤正常的对话模型。默认 false（未探测 → 不拦截）。
-	TextGenerationKnown bool `json:"-"`
-	Reasoning         bool   `json:"reasoning"`
-	MmprojLoaded      bool   `json:"mmproj_loaded"`
-	HasMTP            bool   `json:"has_mtp"`
-	ThinkingMode      string `json:"thinking_mode"`
-	SoftSwitchSupport bool   `json:"soft_switch_support"` // 是否支持 /think /no_think 软开关（目前仅 Qwen3）
+	TextGenerationKnown bool   `json:"-"`
+	Reasoning           bool   `json:"reasoning"`
+	MmprojLoaded        bool   `json:"mmproj_loaded"`
+	HasMTP              bool   `json:"has_mtp"`
+	ThinkingMode        string `json:"thinking_mode"`
+	SoftSwitchSupport   bool   `json:"soft_switch_support"` // 是否支持 /think /no_think 软开关（目前仅 Qwen3）
 	// DefaultThinkingAuto 表示模板默认自主思考档位（enable_thinking 未设置时的默认行为）。
 	// 取值："on"（默认自主思考）、"off"（默认不思考）、""（无法判定）。
 	// 仅作为能力元数据展示；auto 模式下豆芽不据此干预，尊重模型模板自身的默认行为。

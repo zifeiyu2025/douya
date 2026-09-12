@@ -150,9 +150,9 @@ func formatBytesDiagnostic(n uint64) string {
 }
 
 // truncateDiagnostic 截断过长文本（防止日志错误信息撑爆诊断文本）。
-func truncateDiagnostic(s string, max int) string {
-	if len(s) <= max {
+func truncateDiagnostic(s string, maxLen int) string {
+	if len(s) <= maxLen {
 		return s
 	}
-	return s[:max] + "..."
+	return s[:maxLen] + "..."
 }

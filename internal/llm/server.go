@@ -184,16 +184,16 @@ type ServerConfig struct {
 	EnableBuiltinTools     bool
 	// ToolsRuntime 工具运行环境（--tools-runtime，实验性）：让内置工具在
 	// Docker/Podman 容器或 SSH 远程主机隔离执行。空 = 使用宿主环境。
-	ToolsRuntime           string
-	PrefillAssistant       bool
-	SlotPromptSimilarity   float64
-	SkipChatParsing        bool
-	APIPrefix              string
-	SimpleIO               bool
-	BatchSize              int
-	UBatchSize             int
-	ThreadsHTTP            int // HTTP 请求处理线程数（0=使用 llama-server 默认值）
-	ContextSize            int
+	ToolsRuntime         string
+	PrefillAssistant     bool
+	SlotPromptSimilarity float64
+	SkipChatParsing      bool
+	APIPrefix            string
+	SimpleIO             bool
+	BatchSize            int
+	UBatchSize           int
+	ThreadsHTTP          int // HTTP 请求处理线程数（0=使用 llama-server 默认值）
+	ContextSize          int
 	// KV 缓存持久化
 	SlotSavePath    string // 启用后传递 --slot-save-path
 	SlotSaveEnabled bool

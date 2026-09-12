@@ -777,18 +777,18 @@ func TestScanModelsDir_SingleMmprojMatch(t *testing.T) {
 		t.Fatalf("expected 1 preset, got %d", len(presets))
 	}
 	if presets[0].MmprojPath == "" {
-                t.Error("expected mmproj path to be found for matching mmproj, got empty")
-        }
+		t.Error("expected mmproj path to be found for matching mmproj, got empty")
+	}
 }
 
 // TestMmprojTargetName 测试 mmproj 目标文件名推导规则。
 // 核心约定：mmproj-<主模型去量化名>-<精度>.gguf，量化档位不进入投影文件名。
 func TestMmprojTargetName(t *testing.T) {
 	cases := []struct {
-		name        string
-		mainBase    string
-		srcMmproj   string
-		want        string
+		name      string
+		mainBase  string
+		srcMmproj string
+		want      string
 	}{
 		{
 			name:      "主模型带量化档+BF16源",

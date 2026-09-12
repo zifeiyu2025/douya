@@ -34,8 +34,8 @@
   /* 标题/章节号：思源宋体（书卷气） */
   --font-display: 'Noto Serif SC Variable', 'Noto Serif SC', 'STSong', serif;
   /* 正文：Manrope 负责拉丁与数字，思源黑体负责中文 */
-  --font-body: 'Manrope Variable', 'Noto Sans SC Variable', 'Noto Sans SC', 'Microsoft YaHei',
-    sans-serif;
+  --font-body:
+    'Manrope Variable', 'Noto Sans SC Variable', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
   /* 代码与等宽数字 */
   --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', Consolas, monospace;
 
@@ -81,20 +81,48 @@
   --surface-veil-alpha: 1;
   --surface-panel-alpha: 1;
   --surface-card-alpha: 1;
-  --surface-veil: color-mix(in srgb, var(--bg-primary) calc(var(--surface-veil-alpha) * 100%), transparent);
-  --surface-panel: color-mix(in srgb, var(--bg-primary) calc(var(--surface-panel-alpha) * 100%), transparent);
-  --surface-card: color-mix(in srgb, var(--bg-primary) calc(var(--surface-card-alpha) * 100%), transparent);
+  --surface-veil: color-mix(
+    in srgb,
+    var(--bg-primary) calc(var(--surface-veil-alpha) * 100%),
+    transparent
+  );
+  --surface-panel: color-mix(
+    in srgb,
+    var(--bg-primary) calc(var(--surface-panel-alpha) * 100%),
+    transparent
+  );
+  --surface-card: color-mix(
+    in srgb,
+    var(--bg-primary) calc(var(--surface-card-alpha) * 100%),
+    transparent
+  );
 
   /* ===== 中间层令牌（气泡/输入框/代码块基色 × 层级 alpha） ===== */
   --bg-sidebar: color-mix(in srgb, #f8f8f9 calc(var(--surface-veil-alpha) * 100%), transparent);
   --bg-user-msg-base: #eff2f6; /* 用户手记块：微深于纸底的便签冷灰 */
-  --bg-user-msg: color-mix(in srgb, var(--bg-user-msg-base) calc(var(--surface-panel-alpha) * 100%), transparent);
+  --bg-user-msg: color-mix(
+    in srgb,
+    var(--bg-user-msg-base) calc(var(--surface-panel-alpha) * 100%),
+    transparent
+  );
   --bg-ai-msg-base: #ffffff; /* AI 直排纸上：与纸同色（去气泡化的视觉兜底） */
-  --bg-ai-msg: color-mix(in srgb, var(--bg-ai-msg-base) calc(var(--surface-panel-alpha) * 100%), transparent);
+  --bg-ai-msg: color-mix(
+    in srgb,
+    var(--bg-ai-msg-base) calc(var(--surface-panel-alpha) * 100%),
+    transparent
+  );
   --bg-input-base: #f8f8f9; /* 书写面：微沉于纸底（雾灰书写条） */
-  --bg-input: color-mix(in srgb, var(--bg-input-base) calc(var(--surface-panel-alpha) * 100%), transparent);
+  --bg-input: color-mix(
+    in srgb,
+    var(--bg-input-base) calc(var(--surface-panel-alpha) * 100%),
+    transparent
+  );
   --bg-code-base: #f4f5f7; /* 代码纸（中性冷灰，衬任意背景图） */
-  --bg-code: color-mix(in srgb, var(--bg-code-base) calc(var(--surface-card-alpha) * 100%), transparent);
+  --bg-code: color-mix(
+    in srgb,
+    var(--bg-code-base) calc(var(--surface-card-alpha) * 100%),
+    transparent
+  );
 
   /* ===== 语义别名（供组件 var(--warning-color) 等引用） ===== */
   --warning-color: var(--accent-warning-y-primary);
@@ -199,19 +227,47 @@ html.dark {
   --surface-veil-alpha: 1;
   --surface-panel-alpha: 1;
   --surface-card-alpha: 1;
-  --surface-veil: color-mix(in srgb, var(--bg-primary) calc(var(--surface-veil-alpha) * 100%), transparent);
-  --surface-panel: color-mix(in srgb, var(--bg-primary) calc(var(--surface-panel-alpha) * 100%), transparent);
-  --surface-card: color-mix(in srgb, var(--bg-primary) calc(var(--surface-card-alpha) * 100%), transparent);
+  --surface-veil: color-mix(
+    in srgb,
+    var(--bg-primary) calc(var(--surface-veil-alpha) * 100%),
+    transparent
+  );
+  --surface-panel: color-mix(
+    in srgb,
+    var(--bg-primary) calc(var(--surface-panel-alpha) * 100%),
+    transparent
+  );
+  --surface-card: color-mix(
+    in srgb,
+    var(--bg-primary) calc(var(--surface-card-alpha) * 100%),
+    transparent
+  );
 
   --bg-sidebar: color-mix(in srgb, #222427 calc(var(--surface-veil-alpha) * 100%), transparent);
   --bg-user-msg-base: #2a2d31;
-  --bg-user-msg: color-mix(in srgb, var(--bg-user-msg-base) calc(var(--surface-panel-alpha) * 100%), transparent);
+  --bg-user-msg: color-mix(
+    in srgb,
+    var(--bg-user-msg-base) calc(var(--surface-panel-alpha) * 100%),
+    transparent
+  );
   --bg-ai-msg-base: #1f2124;
-  --bg-ai-msg: color-mix(in srgb, var(--bg-ai-msg-base) calc(var(--surface-panel-alpha) * 100%), transparent);
+  --bg-ai-msg: color-mix(
+    in srgb,
+    var(--bg-ai-msg-base) calc(var(--surface-panel-alpha) * 100%),
+    transparent
+  );
   --bg-input-base: #24262b;
-  --bg-input: color-mix(in srgb, var(--bg-input-base) calc(var(--surface-panel-alpha) * 100%), transparent);
+  --bg-input: color-mix(
+    in srgb,
+    var(--bg-input-base) calc(var(--surface-panel-alpha) * 100%),
+    transparent
+  );
   --bg-code-base: #17191a;
-  --bg-code: color-mix(in srgb, var(--bg-code-base) calc(var(--surface-card-alpha) * 100%), transparent);
+  --bg-code: color-mix(
+    in srgb,
+    var(--bg-code-base) calc(var(--surface-card-alpha) * 100%),
+    transparent
+  );
 
   --warning-color: var(--accent-warning-y-primary);
   --error-color: var(--accent-danger-r-primary);

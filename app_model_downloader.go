@@ -1,4 +1,4 @@
-﻿// Copyright zifeiyu. All rights reserved.
+// Copyright zifeiyu. All rights reserved.
 // 豆芽本地AI
 
 package main

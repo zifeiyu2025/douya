@@ -424,7 +424,8 @@ func StripQuantSuffix(name string) string {
 //   - 防御：主模型名若以 "mmproj-" 开头则去掉该前缀，避免 "mmproj-mmproj-" 双重前缀。
 //
 // 例：主模型 "Qwen3.8-9B-Q4_K_M.gguf"，源 mmproj "mmproj-qwen3-vl-9b-bf16.gguf"
-//   → "mmproj-Qwen3.8-9B-BF16.gguf"
+//
+//	→ "mmproj-Qwen3.8-9B-BF16.gguf"
 //
 // 目的：preset 扫描只认 "mmproj-*.gguf" 并按关键词关联主模型；文件名规范化后
 // 关键词匹配必然命中，避免 mmproj 因文件名与主模型无关而静默失效（视觉能力丢失）。

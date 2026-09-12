@@ -326,10 +326,10 @@ func TestGetSetModelCapabilities(t *testing.T) {
 // 如测试环境/启动早期）时不能仅凭零值就拦截常见的对话模型，必须放行。
 func TestIsTextGenerationAvailable(t *testing.T) {
 	tests := []struct {
-		name       string
-		caps       llm.ModelCapabilities
-		modelName  string
-		wantAvail  bool
+		name      string
+		caps      llm.ModelCapabilities
+		modelName string
+		wantAvail bool
 	}{
 		{
 			name:      "能力已探测_嵌入_拦截",
