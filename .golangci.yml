@@ -90,6 +90,14 @@ linters:
           - prealloc
           - errcheck
           - gocritic
+      # SA5011 假阳性豁免：staticcheck 在本模块（大依赖树）下无法把 testing.TB.Fatal
+      # 识别为终止调用（同代码在独立最小模块中判定正常，已用最小复现验证），
+      # 导致 `if x == nil { t.Fatal(...) }` 后的安全解引用被大量误报。
+      # 仅对测试文件豁免此一项检查，生产代码的 SA5011 仍然生效。
+      - path: _test\.go
+        linters:
+          - staticcheck
+        text: "SA5011"
       # 测试目录整体放宽
       - path: (^|/)tests/
         linters:
