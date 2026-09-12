@@ -116,3 +116,6 @@ build/sandbox-models-backup/
 
 # 提示词真模型评测报告（生成产物）
 /prompt_eval_report.md
+
+# ZCode 会话本地数据（与项目无关）
+.zcode/
