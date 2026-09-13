@@ -31,23 +31,24 @@ import (
 // （参数改名、行为变更、资产结构调整），自动跟随会导致新下载的后端与
 // 应用适配逻辑不兼容，出现模型加载失败等问题。
 //
-// 当前锁定 b10919（2026-09-12 升级）：已完成验证——
-//  1. 服务端参数面：b10883 → b10919 共 36 个提交，common/arg.cpp 零变更，
-//     无参数删除/改名/新增影响豆芽现有传递面（preset 的 load-mode=mlock 写法继续有效）；
-//     主要收益：修复图像后投机解码 drafter 位置错误（影响所有 drafter）、
-//     DFlash 多模态 chunk 解码修复、MTP KV cache 分配修复（deepseek2/glm4moe）、
-//     server 子进程重构（含并发模型下载互踩损坏修复）、vulkan argsort 竞态修复、
-//     CUDA FA 调优、vulkan MoE 融合与 Qwen small-M 优化、granite 参数量修正、
-//     indexer 免分配 V cache、CMake PCH/unity 提速编译；
+// 当前锁定 b10935（2026-09-13 升级）：已完成验证——
+//  1. 服务端参数面：b10919 → b10935 共 17 个提交，common/arg.cpp 仅帮助文案改写
+//     与内部日志函数签名调整，无参数删除/改名/新增影响豆芽现有传递面
+//     （preset 的 load-mode=mlock 写法继续有效）；
+//     主要收益：common_schema JSON schema 内部表示重构（结构化输出/工具调用
+//     grammar 转换链路加固，#28736）、qwen3-coder 复杂类型解析改进（#28742）、
+//     空 json_schema 统一按 any object 处理、达到模型数上限时允许下载（#28530）、
+//     router 子进程状态命令整行解析修复（#28747）、cpp-httplib 0.56.0；
+//     Vulkan 后端零变更，CUDA 侧仅新增 AMD GCN(HIP) 量化配置表（不影响 NVIDIA）；
 //  2. 资产命名：官方 release 仍按 cpu-x64 / cuda-12.4 / cuda-13.3-x64 /
 //     vulkan-x64 及 cudart-13.3 配套包规则发布，匹配现有资产正则；
-//  3. 实测：按 scripts\build-engines.ps1 配方增量编译的三套引擎（b10919，
+//  3. 实测：按 scripts\build-engines.ps1 配方增量编译的三套引擎（b10935，
 //     build 号取自 git rev-list --count）已通过 --version 自检与落位复验。
 //
 // 升级流程：上游发布新版后，人工验证兼容性（重点核对 --server 参数面与
 // 资产命名规则），确认无误后将此常量改为新 tag 即可，
 // 后端下载与版本更新检查会同时跟随新版本。
-const PinnedReleaseTag = "b10919"
+const PinnedReleaseTag = "b10935"
 
 // githubReleasesTagsBase 是按 tag 查询单个 release 的 GitHub API 地址前缀。
 const githubReleasesTagsBase = "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/"
